@@ -1,0 +1,21 @@
+{
+  "name": "questionnaire-platform",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Dynamic Questionnaire Platform — monorepo (frontend, backend, shared).",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev:backend": "npm run dev -w apps/backend",
+    "dev:frontend": "npm run dev -w apps/frontend",
+    "build": "npm run build -w packages/shared && npm run build -w apps/backend && npm run build -w apps/frontend",
+    "test": "npm run test -w apps/backend",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  }
+}

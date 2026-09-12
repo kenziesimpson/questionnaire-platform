@@ -1,0 +1,37 @@
+# Auto-merged by `docker compose up`; committed but local-only in effect.
+# Swaps each app service to its dev command and bind-mounts source for hot
+# reload. A real build/CI run (`docker compose -f docker-compose.yml up`)
+# ignores this file and gets the production multi-stage images untouched.
+# See docs/2-design-doc.md §13 "Dev loop / hot reload".
+
+services:
+  backend:
+    build:
+      target: deps
+    command: ["sh", "-c", "npm run dev -w packages/shared & npm run dev -w apps/backend"]
+    environment:
+      NODE_ENV: development
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    volumes:
+      - ./apps/backend:/app/apps/backend
+      - ./packages/shared:/app/packages/shared
+    # `migrate` only needs to succeed once per schema change, not race the
+    # dev backend on every restart; keep the same gate as prod for parity.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      target: deps
+    command: ["sh", "-c", "npm run dev -w packages/shared & npm run dev -w apps/frontend -- --host"]
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:3000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./apps/frontend:/app/apps/frontend
+      - ./packages/shared:/app/packages/shared
+    depends_on:
+      - backend

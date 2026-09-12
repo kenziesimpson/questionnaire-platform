@@ -1,0 +1,66 @@
+# Production-shaped stack: `docker compose up --build` is the one command a
+# reviewer needs. See docs/2-design-doc.md §13 for the reasoning behind the
+# service split and the dedicated migrate service.
+#
+# Local dev with hot reload is layered on automatically via
+# docker-compose.override.yml (git-committed, local-only in effect).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-questionnaire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-questionnaire}
+      POSTGRES_DB: ${POSTGRES_DB:-questionnaire_platform}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-questionnaire} -d ${POSTGRES_DB:-questionnaire_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: applies migrations then seeds the demo questionnaire, then
+  # exits 0. Gates `backend` via `service_completed_successfully` so schema
+  # setup always happens before the API serves traffic, regardless of how
+  # many backend replicas start.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    command: ["sh", "-c", "node apps/backend/dist/db/migrate.js && node apps/backend/dist/db/seed.js"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-questionnaire}:${POSTGRES_PASSWORD:-questionnaire}@db:5432/${POSTGRES_DB:-questionnaire_platform}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://${POSTGRES_USER:-questionnaire}:${POSTGRES_PASSWORD:-questionnaire}@db:5432/${POSTGRES_DB:-questionnaire_platform}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      - backend
+
+volumes:
+  db-data:
