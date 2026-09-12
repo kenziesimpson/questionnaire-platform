@@ -29,33 +29,43 @@
 
 ## 5. Questionnaire Format
 
-*How a questionnaire, its questions, and its rules are represented.*
+> **Detail: [[5-questionnaire-format]].** Summary only here.
 
-### 5.1 Question types
-*Supported response types (text, single choice, multiple choice, number, date, yes/no) and per-type validation/limits.*
+A questionnaire version is a **flat, ordered list of items**. Each item places one question version at an index and carries the questionnaire-specific concerns — `required` and an optional `visibleWhen` predicate. Reusable question content carries neither: where a question sits, whether it is required there, and what makes it appear are properties of the placement, not of the question.
 
-### 5.2 Structure & ordering
-*Flat list vs. pages/sections; how order is expressed; required-ness (including any nesting).*
+There are no edges between questions. Order is the list index, and the next question is the first unanswered item whose predicate is true, so convergence after a branch is not a property to prove — it is the only thing a list can do.
 
-### 5.3 Serialization
-*Wire/storage format for a questionnaire definition (e.g. JSON schema). Include an example.*
+Six response types — `text`, `single_choice`, `multiple_choice`, `number`, `date`, `yes_no` — with `yes_no` as sugar over `single_choice` on reserved `yes` / `no` option ids. Two identity guarantees carry the versioning story: **option ids are stable across question versions**, and **number answers are stored with their unit**. Both exist so that revising a question cannot retroactively change what an earlier response meant.
+
+A published version serializes to a single JSONB document carrying its own `formatVersion` ([[#12. Database]] §12.1).
+
+See Decisions Log #6, #10, #11, #12.
 
 ## 6. Versioning & Immutability
 
-*How questions and questionnaires are versioned; what "published" locks; how responses pin to the version they were collected against.*
+> **Detail: [[5-questionnaire-format#6. Versioning mechanics]].** Questionnaire-level only — question identity is still open, [[#18. Open Questions]] §1–2.
 
-- *Version identity (per question, per questionnaire, or both?)*
-- *What edits create a new version vs. a draft?*
-- *How the "change one question without changing meaning of prior responses" demo works.*
-- *Where immutability is enforced (DB constraints, service layer, tests).*
+A questionnaire has at most one draft at a time, enforced by a partial unique index rather than application logic. **Publishing promotes the draft row in place** to version *N*; the next draft is an explicit copy of the latest published version. A published version is never edited.
+
+Immutability is enforced in three layers: a database trigger rejecting `UPDATE` on published rows — that is the guarantee — a `409` from the authoring API for a usable error, and a test that drives the update straight at the database so the guarantee cannot silently regress behind a service-layer refactor.
+
+The published snapshot carries a `formatVersion` and is upgraded **in memory at read time**; stored bytes are never rewritten. Immutability here means the bytes, not merely the meaning — the stored document is the record of what a respondent was actually shown.
+
+See Decisions Log #7, #8.
 
 ## 7. Branching Rules
 
-*Representation, validation, and execution of conditional paths.*
+> **Detail: [[5-questionnaire-format#4. Branching rules]] and [[5-questionnaire-format#5. Publish-time validation]].**
 
-- *Rule model: conditions over one or more prior responses; operators supported.*
-- *Evaluation: how "next applicable question" is computed.*
-- *Safety: cycle and deadlock prevention, unreachable questions, validation at publish time.*
+Each item carries an optional `visibleWhen` predicate: a **single level** of `all` / `any` over conditions **typed per response type**, so an invalid comparison such as a date against a number is unrepresentable in the shared package rather than a runtime error class. Predicates may reference only questions at a lower index.
+
+Next question is the first unanswered item whose predicate is true; completion is running off the end of the list. A condition on a question that was not shown evaluates to `false` for every operator, negative ones included — a condition means *the answer exists and satisfies the operator*.
+
+**Cycles and deadlock are not detected, they are unrepresentable.** Forward-only references make a cycle unconstructible, and falling off the end of the list is always available as a terminal state. Publish-time validation therefore covers forward references, satisfiability and referential integrity. Satisfiability is checked exactly, by domain intersection — affordable precisely because composition is flat.
+
+One evaluator in the shared package, used by both the client (rendering) and the server (submit-time authority).
+
+See Decisions Log #6, #9.
 
 ## 8. Sessions & Responses
 
@@ -65,6 +75,24 @@
 - *Response storage and validation (required, value constraints).*
 - *Behavior when a questionnaire is republished while sessions are in flight.*
 - *Idempotency / duplicate submission handling.*
+
+### 8.1 Questionnaire lifecycle and retirement
+
+Retirement is a property of the **questionnaire**, not of a version. Retiring never un-publishes a version: every published version stays readable so historical responses can still be rendered against the definition they were collected under.
+
+The two lifecycles the product needs — questionnaires that run indefinitely, and questionnaires that close on a date — collapse into **one nullable `closes_at` timestamp**:
+
+| Lifecycle | Representation |
+| --- | --- |
+| Ongoing | `closes_at IS NULL` |
+| Scheduled close | `closes_at` set to a future date |
+| Retired now | `closes_at` set to `now()` |
+
+One field and one comparison, rather than a status enum plus a date that can drift out of agreement with each other.
+
+**Behaviour past `closes_at`:** starting a session and submitting one are both rejected, and the respondent app renders a "responses closed" page rather than a raw error. This is a **hard cutoff** — a session started before the close but submitted after it is rejected too.
+
+That is the strict choice and it has a real cost: a respondent can lose completed work through no fault of their own. The alternative, a **soft cutoff** admitting any session that started before `closes_at`, is kinder but leaves the close date open-ended for an unbounded window. The likely resolution is a per-questionnaire `cutoffMode: 'hard' | 'soft'` defaulting to hard. Deferred — [[#18. Open Questions]] §5 and [[3-scaling#8. Open questions]].
 
 ## 9. API / Service Boundary
 
@@ -100,7 +128,28 @@
 - Driver is swappable (e.g. Drizzle's `bun-sql` adapter) if the runtime ever moves to Bun.
 - *Schema: entities, relationships, key constraints (link to ERD or inline diagram).*
 - *Read/write characteristics: questions (write reliability, read SLA) vs. responses (write throughput).*
-- *Indexing strategy; audit logging approach.*
+- *Indexing strategy.*
+- Audit trail: append-only, isolated from application data, with `UPDATE`/`DELETE` revoked from its role so immutability is enforced by the database rather than by convention. Isolation mechanism — separate schema vs. separate database plus outbox — is open ([[#18. Open Questions]] §10). See [[6-observability#5. Audit trail]].
+
+### 12.1 Authoring is normalized; published is a snapshot
+
+Two representations of the same questionnaire, with publish as the seam between them. See Decisions Log #7.
+
+**Authoring side — normalized rows.** Question bank, question versions, questionnaire drafts and draft items are ordinary relational tables. This is where foreign keys, partial edits and the reuse query ("which questionnaires use this question?") need to work naturally.
+
+**Published side — one JSONB document per version.** Publishing runs in a single transaction: read the normalized draft, run the [[5-questionnaire-format#5. Publish-time validation]] validations, serialize to JSONB, flip the row to `published`. The result is read whole and never partially updated.
+
+Why the split:
+
+- The client fetches the entire definition once per session ([[3-scaling#2. Load model (what actually hits the backend)]]), so the read pattern is "give me all of it" — exactly what one row satisfies and what a four-way join plus row assembly does badly, on every session start.
+- A `(questionnaire, version)` document is immutable, so it can be served with `ETag` and `Cache-Control: immutable` and held compiled in an in-process cache that never needs invalidating ([[3-scaling#4. Problem: hot definition reads]]).
+- Immutability is enforced on one row in one table instead of being spread across item, option and rule tables.
+
+**The duplication is the point, not an accident.** Question content exists both in the bank row and inside every snapshot that used it. That redundancy is what immutability *means* here: a published version cannot be disturbed by a later edit to the question it was built from.
+
+**Reverse lookups get a derived side-table.** "Which published versions contain question X?" is the query a snapshot makes awkward. Rather than lean on a GIN index over the document, publish also writes rows into a thin `version_question_index` mapping version to question version ids. The snapshot stays authoritative; the side-table is a derived index that can be rebuilt from the snapshots at any time.
+
+**On JSONB specifically.** `jsonb` parses on write into a decomposed binary form — key order and whitespace are not preserved, duplicate keys collapse, writes are slightly slower, reads and operators much faster. It is a queryable document type (`->`, `->>`, `@>`, `?`, GIN indexes), not merely a blob type; we use it in a blob-like way because our access pattern is whole-document. Documents above roughly 2 KB are TOASTed out-of-line, and the binary layout means reading one field from a TOASTed document generally de-TOASTs all of it — irrelevant here for the same reason, and a further argument for the side-table over a GIN index.
 
 ## 13. Deployment
 
@@ -135,13 +184,18 @@
 
 ## 14. Observability
 
-**Stub — direction agreed, details to fill in.**
+**Decision:** OpenTelemetry end to end, with respondent answer values structurally excluded from every signal. Full reasoning, field lists, metric names and enforcement design in [[6-observability]]. See Decisions Log #13.
 
-- **OpenTelemetry** as the single instrumentation standard for traces, metrics and logs. Backend uses the Fastify OTel plugin (`@fastify/otel`) — one of the reasons Fastify was chosen (Decisions Log #2).
-- **Logs correlated across frontend and backend.** The browser propagates W3C trace context (`traceparent`) on API calls so a respondent-side event and the backend request it triggered share a trace id; frontend logs/errors are shipped with the same ids so a single session can be followed end to end.
-- *Log structure (requests, dependencies, traces, exceptions) — decide fields and levels.*
-- *Session id and questionnaire version as standard attributes on every span/log on the execution path, so a failed request or stuck session can be traced.*
-- *Collector/exporter setup for local (compose) vs. hosted; first-priority metrics, alerts, backups and SLOs.*
+- **OpenTelemetry as the single instrumentation standard** for traces, metrics and logs. Backend uses the Fastify OTel plugin (`@fastify/otel`) — one of the reasons Fastify was chosen (Decisions Log #2). A Collector is the only component that knows which telemetry vendor sits behind it, so that choice can change without touching application code.
+- **Correlated frontend and backend.** The browser propagates W3C trace context (`traceparent`) on API calls so a respondent-side event and the backend request it triggered share a trace id. The app is single-origin through the nginx proxy ([[#13. Deployment]]), so this needs no CORS allowances.
+- **Client-side telemetry is not optional here.** The SPA holds the whole definition and evaluates visibility predicates in the browser, so the server never observes most navigation decisions — server traces are structurally blind to the path a respondent actually took. Client traces and domain events batch to a backend `/telemetry` endpoint (not a publicly exposed collector) and flush via `navigator.sendBeacon` on tab close; without that, the abandonment event — the one we most want — is the one most likely to be lost, since abandoning and closing the tab are the same action.
+- **Respondent answers never enter telemetry.** Question ids, types and validation outcomes are telemetry; answer values are not — not at `debug`, not inside an exception message, not as a metric label. The demo questionnaire collects medical conditions, so this is designed in rather than retrofitted. Enforced in layers: a `Sensitive<T>` wrapper whose serializers all return `[redacted]`, making an accidental leak structurally impossible rather than merely forbidden; a single telemetry module as the only permitted importer of pino/OTel (ESLint `no-restricted-imports`); an attribute allowlist applied in the span exporter, which also contains third-party instrumentation; and a test asserting a sentinel answer value appears in zero spans, zero logs and zero metric attributes. CI is the gate — the pre-commit hook is convenience, since `--no-verify` exists. An advisory agent PR review and a `telemetry-safety` project skill sit on top. Detail: [[6-observability#3. Respondent answers must never enter telemetry]].
+- **Domain events as a first-class stream** — `questionnaire.published`, `session.started`, `session.resumed`, `session.item_skipped`, `session.answer_rejected`, `session.abandoned`, `session.completed` — each emitted as a paired log line and counter through one call, so the two cannot drift. This is what makes "why do respondents give up at Q7" answerable, and is the reason the design keeps a server-side session record ([[#8. Sessions & Responses]]).
+- **Standard attributes on every span and log on the execution path:** session id, questionnaire id, version, question id, question type, outcome. In traces and logs only — **never as metric labels**, where per-session cardinality would take the metrics backend down. Metrics carry only bounded dimensions (endpoint, status class, question type, rule outcome).
+- **Saturation metrics from the start:** event loop lag, heap and GC pauses (`@opentelemetry/instrumentation-runtime-node`), and `pg` pool `waitingCount`. These move before latency does, and no framework emits them by default. A sustained `waitingCount` distinguishes a pool bottleneck from a database one, which matters because the fixes differ.
+- **The audit trail is not an application log.** Who published or retired which version lives in the database, append-only, with retention and integrity independent of the log pipeline — see [[#12. Database]] and [[6-observability#5. Audit trail]]. The isolation mechanism is open ([[#18. Open Questions]] §10).
+- **One command stays one command.** Instrumentation is always wired; export is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and `docker compose --profile observability up` adds a Collector and a trace UI for anyone who wants to look.
+- *Deferred, with direction recorded: SLOs, alert thresholds and backup verification ([[6-observability#8. SLOs and alerting]]); correctness/invariant monitoring for failures that return 200 and move no signal ([[6-observability#9. Correctness and invariant monitoring]]); deploy markers and a synthetic canary ([[6-observability#12. Change correlation and synthetics]]).*
 
 ## 15. Testing
 
@@ -162,7 +216,7 @@
 | Data growth |  |
 | Reliability |  |
 | Change control |  |
-| Operations |  |
+| Operations | First-priority signals: RED per endpoint, Node saturation (event loop lag, `pg` pool waits), and domain events for session drop-off. Respondent answers are structurally excluded from telemetry. Audit trail in the database, not the log pipeline. SLOs, alerting and backup verification deliberately deferred. Detail in [[6-observability]]. |
 
 ## 17. Decisions Log
 
@@ -175,6 +229,14 @@
 | 3 | Runtime: Node LTS (Bun optional for tooling only) | Bun as server runtime | Workload is I/O bound so runtime speed is not the bottleneck; scaling levers are pooling, indexing, caching, replicas. Bun's Node-compat layer still carries risk with Fastify plugins, pino transports and OTel instrumentation, and "straightforward to run" is graded. | 2026-09-12 |
 | 4 | Data access: Drizzle ORM + `pg` driver + drizzle-kit migrations on PostgreSQL | Prisma; raw driver only (`pg` / `Bun.sql`) | Repeatable migrations and a reviewable schema are deliverables, so a raw driver is insufficient. Drizzle is SQL-close (partitioning, JSONB, row locks are natural), emits committed SQL migrations, and is driver-swappable. Prisma is heavier and abstracts more of the SQL. | 2026-09-12 |
 | 5 | Deployment: separate frontend (nginx), backend and Postgres containers via Docker Compose; dedicated one-shot migrate/seed service; dev-only compose override with polling file watch; Kubernetes with the same split long-term | Single container serving SPA from backend; migrations at backend startup; manual migrations; Redis sidecar from day one | Three-way split mirrors the graded separation of concerns and is the same topology k8s will use. nginx proxy stands in for the production ingress and keeps the app single-origin. Dedicated migrate service gives deterministic boot order and survives multiple replicas. Polling watch chosen up front because bind-mount events on macOS are unreliable. Redis deferred until a concrete need. | 2026-09-12 |
+| 6 | Questionnaire structure: a flat ordered list of items, each with an optional visibility predicate over earlier answers | Pointer/graph of questions with merge edges; adjacency-constrained optional segments (original ideation) | A graph needs an explicit merge edge per branch plus a proof that all paths converge, and makes cycles constructible. Adjacency buys convergence structurally but ties each rule to exactly one trigger question, which the brief's "one or more previous responses" rules out. A list makes order the index, convergence automatic, insertion a splice, and cycles and non-termination unrepresentable. Cost: no arbitrary jumps or loops, which the brief does not require. | 2026-09-12 |
+| 7 | Published definitions stored as one JSONB snapshot per version; the authoring side stays normalized | Fully normalized published versions; JSONB for drafts too | The execution read pattern is "the whole definition, once per session", which one immutable row serves and a four-way join serves badly. Immutability lands on one row in one table instead of four. Normalized drafts keep foreign keys, partial edits and the question-reuse query. A derived `version_question_index` restores reverse lookups without a GIN index over the document. | 2026-09-12 |
+| 8 | Publishing promotes the draft row in place to version N | Copy the draft into a new published row and retain the draft | Promotion means no moment exists where two rows describe the same pending version, and "at most one draft" becomes a partial unique index rather than application logic. The next draft is an explicit copy of the latest published version, which is the action an author actually wants. | 2026-09-12 |
+| 9 | Branch conditions are a per-response-type discriminated union, grouped by a single level of `all` / `any` | Generic `{ questionId, op, value }`; arbitrary nested boolean expression tree | Typing conditions per response type makes invalid comparisons (date against number) unrepresentable in the shared package rather than a runtime error class to detect, message and test in an engine that runs on both client and server. One `all` / `any` level satisfies "one or more previous responses" without an unbounded tree needing recursive editing, validation and explanation. | 2026-09-12 |
+| 10 | `yes_no` is sugar over `single_choice` with reserved option ids `yes` / `no` | A distinct boolean response type | One storage shape and one operator set for every choice question; reserved ids keep yes/no rules and cross-questionnaire analytics uniform. A separate boolean type would duplicate the choice machinery for the two-option case. | 2026-09-12 |
+| 11 | Required-ness and branch predicates live on the questionnaire item, not on the reusable question | Both on the question version | A question is reusable; whether it is required, and what makes it appear, are properties of where it sits. Putting them on the question would force a duplicate question record whenever the same prompt is required in one questionnaire and optional in another, defeating the reuse the brief asks for. | 2026-09-12 |
+| 12 | Number answers stored as `{ value, unit }`; option ids stable across question versions | Bare numeric answers with the unit resolved from the definition; storing option labels on responses | Both express the same invariant: a response must stay interpretable when its question is revised. A unit change (cm to in) or an option relabel in v2 cannot retroactively change what a v1 answer meant, and the stored response is readable without joining back to the definition. | 2026-09-12 |
+| 13 | Observability: OpenTelemetry end to end; respondent answer values structurally excluded from telemetry (`Sensitive<T>` wrapper + single telemetry boundary + exporter allowlist + sentinel test gated in CI); domain events as a first-class stream; audit trail in the database rather than the log pipeline; client-side telemetry batched through a backend endpoint | APM auto-instrumentation alone; deny-list / regex redaction of logs; audit entries as `info` logs; browser telemetry shipped straight to a Collector | Auto-instrumentation answers "why did this request fail" but not "why did this respondent give up", which is the question this domain actually has — and it cannot see decisions the client makes locally. Deny-list redaction fails open on every field added later, so a wrapper type makes a leak structurally impossible instead; the demo questionnaire collects medical conditions. An audit trail needs retention and integrity independent of logging-cost decisions. A public collector would be unauthenticated and could not apply the same attribute allowlist. | 2026-09-12 |
 
 ### 17.1 Alternatives considered in detail
 
@@ -202,9 +264,25 @@ Expanded notes on the options we weighed for decisions #1–#4, so the reasoning
 - *Raw driver only (`pg`, `postgres.js`, or `Bun.sql`).* Rejected because repeatable migrations and a reviewable, typed schema are explicit deliverables; a bare driver would mean hand-rolling both.
 - *Other databases (SQLite, MongoDB).* SQLite would simplify local setup but weakens the scaling and concurrency story the brief asks us to defend. A document store fits the questionnaire definition JSON well but makes response history, transactions around publish, and relational integrity between versions and responses harder to model and explain. Postgres covers both with JSONB.
 
+Decisions #6, #7 and #9 concern the questionnaire format; their alternatives are written up in
+[[5-questionnaire-format#7. Alternatives considered]] rather than repeated here.
+
 ## 18. Open Questions
 
-- 
+Ordered roughly by what blocks what. Items 1–2 are the next thing to work through.
+
+1. **Question identity.** The split between a stable `questionId` and an immutable question version, and what a stored response pins to — question id, question version, option id, or some combination. Blocks [[#6. Versioning & Immutability]] and the database schema.
+2. **Question bank lifecycle.** Are question versions immutable on save, or does the bank get its own draft state parallel to the questionnaire's? Related: is there an authoring action that pulls a questionnaire draft up to the latest version of each question it uses?
+3. **The v2 demo change.** Which single change version 2 of the seeded questionnaire makes. Rewording a prompt and relabelling an option both exercise the stable-id guarantee directly; adding an option changes the answer domain and is a weaker demonstration.
+4. **Formatting subtypes for `text`** — email, phone, regex patterns. Deliberately pinned rather than rejected; we want these, just not before the vertical slice is complete. Also listed in [[#19. Future Work]].
+5. **In-flight sessions at retirement.** The hard cutoff ships now ([[#8.1 Questionnaire lifecycle and retirement]]). Whether `cutoffMode: 'hard' | 'soft'` becomes a per-questionnaire setting is undecided. Also in [[3-scaling#8. Open questions]].
+6. **Snapshot format support window.** How many past `formatVersion`s the loader commits to upgrading from, and what triggers dropping support for one.
+7. **Pages / sections.** Deferred, not rejected — [[5-questionnaire-format#1. The model]] states the constraint any future design must respect.
+8. **Checkpoint endpoint** — ship in the prototype or defer. Already tracked in [[3-scaling#8. Open questions]].
+9. **Withholding unreachable questions** from the definition payload in sensitive deployments. Already tracked in [[3-scaling#8. Open questions]]; ties to HIPAA future work.
+10. **Audit trail isolation.** A separate schema with an `INSERT`/`SELECT`-only role keeps the audit write inside the publish transaction and needs little machinery; a separate database fed by a transactional outbox isolates further and is the seam a standalone audit service would later be extracted along. The tradeoff is atomicity — a separate database means the audit write *cannot* share the publish transaction, so a publish could succeed with no audit record, which is the one failure an audit log exists to prevent. See [[6-observability#5.1 Isolation — decision needs confirming]].
+11. **SLO targets, alert thresholds, and backup/restore verification.** Deliberately deferred with direction recorded — [[6-observability#8. SLOs and alerting]].
+12. **Invariant monitoring design.** Deferred; the structural guarantees in [[5-questionnaire-format#5. Publish-time validation]] already cover the authoring-time class, so what remains is runtime drift — [[6-observability#9. Correctness and invariant monitoring]].
 
 ## 19. Future Work
 
@@ -212,4 +290,10 @@ Expanded notes on the options we weighed for decisions #1–#4, so the reasoning
 
 - **Split the frontends.** Deploy the respondent questionnaire app and the admin portal separately; the questionnaire app is potentially hit much harder and benefits from a CDN, aggressive caching and edge rate limiting, while the admin portal stays behind auth. Keep them as separate entry points/packages from the start so this is a deploy change. See [[3-scaling#6. Future improvement: split the frontends]].
 - Redis as cache and (separately) durable ingest queue, triggered by measured load. See [[3-scaling#3. Problem: response ingest vs. reads]] §3–5.
-- 
+- An AI-assist system for initializing a questionnaire
+- **Format subtypes for `text`** — email, phone and regex-pattern validation. Pinned deliberately rather than rejected; see [[#18. Open Questions]] §4.
+- **Unit conversion for `number`.** Answers already carry the unit they were collected under ([[#5. Questionnaire Format]]), so converting between compatible units (cm/in, kg/lb) for display and analytics is additive rather than a migration.
+- **A/B testing whole questionnaires.** Noted during ideation; deferred as orthogonal to the versioning model — a published version is already the unit an experiment would assign against.
+- **Standalone audit logging service.** Extract the audit trail behind a transactional outbox so it can be operated, retained and access-controlled independently of the application database. See [[6-observability#5. Audit trail]].
+- **Invariant monitoring and a synthetic canary.** Periodic gauges for orphaned answers, never-shown items and live snapshot format versions — drift that returns HTTP 200 and moves no existing signal — plus a canary completing the medical-condition demo questionnaire end to end, which is the only signal that proves the *workflow* works rather than that the processes are up. Cheap to build here because the demo questionnaire already exists. See [[6-observability#9. Correctness and invariant monitoring]].
+- **Deploy and migration markers on dashboards.** Most incidents are change-caused, and "what changed at 14:02" is the first question in all of them.

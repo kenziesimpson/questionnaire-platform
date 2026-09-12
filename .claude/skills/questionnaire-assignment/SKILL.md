@@ -85,7 +85,10 @@ deployment, change), and **communication** (can explain, demo, and handle altern
 
 ## Project docs (read these before making changes)
 
-- [[2-design-doc]] — the design doc, filled in section by section. Decisions are recorded in the section they belong to **and** in [[2-design-doc#17. Decisions Log]] (with [[2-design-doc#17.1 Alternatives considered in detail]]). Italic prompts mark unfilled sections.
+The design doc is the **index, not the encyclopedia**: it carries a condensed version of every decision, and any topic deep enough to need its own doc gets one. See **Working conventions** below.
+
+- [[2-design-doc]] — the design doc. Condensed sections, plus the canonical [[2-design-doc#17. Decisions Log]] and [[2-design-doc#18. Open Questions]]. Italic prompts mark unfilled sections.
+- [[5-questionnaire-format]] — **detailed** design for questionnaire format, branching rules, publish-time validation and questionnaire-level versioning; the depth behind design-doc §5–§7. Its §9 keeps the original ideation as an appendix.
 - [[3-scaling]] — scaling constraints, load model, and ordered levers (each with a trigger). Redis lives here, not in the prototype.
 - [[4-implementation-plan]] — checkbox list of open decisions and build tasks; tick items as they land.
 - [[1-ideation]] — original brainstorm; superseded where the design doc disagrees.
@@ -97,23 +100,46 @@ deployment, change), and **communication** (can explain, demo, and handle altern
 - **Auth:** out of scope; the access *model* and data barriers must still be written down.
 - **Execution model:** client receives the whole published definition once per session and evaluates branching locally with the shared rule engine; partial answers live in the browser; the server keeps a small **session record** (pins the version, makes submit idempotent, shows where respondents abandon); submit is the single write; the **server recomputes the reachable path on submit and is the authority**. Optional debounced checkpoint endpoint is a scope call.
 - **Versioning stance:** a session is pinned to a version at start and keeps it; new sessions get the latest published version; no client polling for updates.
+- **Questionnaire format:** a version is a **flat ordered list of items**. Order is the list index; there are no edges between questions, so branches converge automatically. Each item carries `required` and an optional `visibleWhen` predicate — both placement concerns, never on the reusable question. Six response types, with `yes_no` as sugar over `single_choice` on reserved `yes` / `no` option ids. Option ids and answer units are stable across question versions. Detail in [[5-questionnaire-format]].
+- **Branching:** a single level of `all` / `any` over conditions **typed per response type**, so invalid comparisons are unrepresentable rather than a runtime error class. Predicates may reference only earlier questions, which makes cycles and deadlock unrepresentable rather than detected. A condition on a question that was not shown is `false` for every operator. Publish-time validation covers forward references, exact satisfiability by domain intersection, and referential integrity.
+- **Definition storage:** normalized rows for authoring; one **immutable JSONB snapshot per published version**, written in the publish transaction. Snapshots carry a `formatVersion` and are upgraded in memory at read time — stored bytes are never rewritten. A derived `version_question_index` restores reverse lookups.
+- **Publishing:** promotes the draft row in place to version N; at most one draft per questionnaire, enforced by a partial unique index. Immutability enforced in three layers — DB trigger, API `409`, and a test that bypasses the API to hit the database directly.
+- **Retirement:** one nullable `closes_at` covers both ongoing and scheduled-close questionnaires. Hard cutoff for now: both starting and submitting are rejected past the date, and the respondent app renders a "responses closed" page.
 - **Observability:** OpenTelemetry throughout; `@fastify/otel` on the backend; browser propagates trace context so frontend and backend logs correlate per session.
 - **Not in prototype:** Redis (documented as separate cache and durable-queue levers), ingest queue, frontend split (respondent app vs. admin portal — listed as future work; keep them separate entry points/packages from the start).
 
 ## Still to decide (in dependency order)
 
-1. Questionnaire format + versioning model (unit of versioning, what publish locks, draft → new version, the "change one question without changing meaning" demo).
-2. Branching rule representation, evaluation, and publish-time validation (cycles, unreachable, deadlock).
-3. Database schema (follows from 1–2).
-4. API boundary: endpoint groups, error format, access model.
-5. Sessions/responses: retirement policy for in-flight sessions, checkpoint scope, submit validation rules.
-6. Overview/goals/constraints, observability, testing, Kubernetes subsection, [[2-design-doc#16. Scale & Growth]] table.
+1. **Question identity and the question bank lifecycle** — stable question id vs. immutable question version, what a stored response pins to, and whether the bank has its own draft state. **This is the current blocker**; the schema follows from it.
+2. Database schema: entities, relationships, constraints, indexes, response partitioning, audit approach (follows from 1).
+3. API boundary: endpoint groups for definition vs. execution, error format and status conventions, access model and data barriers.
+4. Sessions/responses: checkpoint endpoint scope, submit validation rules, idempotency key.
+5. The v2 demo change for the seeded questionnaire.
+6. Observability details, testing approach, Kubernetes subsection, overview/goals/constraints, and the [[2-design-doc#16. Scale & Growth]] table.
+
+Anything deferred rather than blocking lives in [[2-design-doc#18. Open Questions]] — check there before treating something as undecided.
 
 ## Working conventions
 
 - Talk through each decision one at a time; do not update docs until the user says so.
-- When a decision lands: update the relevant design-doc section, add a Decisions Log row (alternatives + rationale + date), and expand [[2-design-doc#17.1 Alternatives considered in detail]] if the reasoning is non-trivial.
 - Keep answers brief.
+
+### Where writing goes
+
+**The design doc summarises; detail docs own the depth.** When a topic has its own doc, [[2-design-doc]] carries an overview of it — enough for a reviewer to grasp the shape and the decision — plus a pointer. Never write the same detail in both places; the design doc has to stay readable end to end in one sitting.
+
+- A design-doc section backed by a detail doc opens with a `> **Detail:**` blockquote linking to that doc, and runs to a few paragraphs, not pages.
+- Detail docs own the full type and constraint tables, serialized examples, algorithms, and per-decision alternatives.
+- [[2-design-doc]] always owns two things regardless of how many detail docs exist: the [[2-design-doc#17. Decisions Log]] table (one row per decision — a named deliverable in the brief) and [[2-design-doc#18. Open Questions]] (everything punted, deferred or incomplete, in one place).
+- Promote a topic to its own doc once its section outgrows a screen or two, then condense what is left behind.
+
+### When a decision lands
+
+1. Write it into the owning doc — the detail doc if there is one, otherwise the design-doc section.
+2. Condense it into the design-doc section if the detail now lives elsewhere.
+3. Add a [[2-design-doc#17. Decisions Log]] row: decision, alternatives considered, rationale, date.
+4. Put the expanded alternatives in the detail doc's own "Alternatives considered" section. [[2-design-doc#17.1 Alternatives considered in detail]] keeps only decisions that have no detail doc, and points at the rest.
+5. Move anything newly deferred into [[2-design-doc#18. Open Questions]], and tick [[4-implementation-plan]].
 
 ## Guiding principles when working on this repo
 
