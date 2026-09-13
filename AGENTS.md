@@ -9,6 +9,16 @@ Instructions for coding agents working in this repository.
 - `docs/4-implementation-plan.md` — the build plan. Its **Standing rules**, **File ownership** and **Stop and ask** sections are binding.
 - `docs/2-design-doc.md` — the design index and the Decisions Log. Never invent a decision; if a load-bearing one is missing, stop and ask.
 
+## Workflow
+
+Make every change on a git worktree, never directly in the checkout you started in and never directly on `main`:
+
+```bash
+git worktree add ../qp-<short-task-name> -b <branch-name> main
+```
+
+Commit and push from the worktree, then open a PR — `main` only changes by merging one. Multiple agent sessions run against this repo concurrently; editing the shared working copy in place risks clobbering another session's work. The git stash stack is shared across worktrees, so avoid bare `git stash` / `git stash pop`; make a temporary WIP commit instead if you need to set work aside.
+
 ## Commands
 
 | Task | Command |

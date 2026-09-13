@@ -1,8 +1,3 @@
-/**
- * @qp/shared — the only code both halves of the backend and both frontends share
- * ([[7-application-boundary]] §3.3): wire types and schemas, and the rule engine.
- */
-
 export * from "./primitives.js";
 export * from "./domain/question.js";
 export * from "./domain/condition.js";
