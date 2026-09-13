@@ -51,24 +51,22 @@ export async function createQuestionnaire(
   });
 }
 
-export interface AppendDraftItemsCommand {
+export interface ReplaceDraftCommand {
   readonly questionnaireId: string;
   readonly expectedDraftRevision: number;
+  readonly title: string;
   readonly items: readonly DraftItem[];
   readonly actorId: string | null;
   readonly traceId: string | null;
 }
 
-export type AppendDraftItemsOutcome =
+export type ReplaceDraftOutcome =
   | { readonly outcome: "saved"; readonly draftVersionId: string; readonly draftRevision: number }
   | { readonly outcome: "stale-or-missing-draft" }
   | { readonly outcome: "archived-question"; readonly questionIds: readonly string[] }
   | { readonly outcome: "unknown-question-version"; readonly itemIds: readonly string[] };
 
-export async function appendDraftItems(
-  executor: Executor,
-  command: AppendDraftItemsCommand,
-): Promise<AppendDraftItemsOutcome> {
+export async function replaceDraft(executor: Executor, command: ReplaceDraftCommand): Promise<ReplaceDraftOutcome> {
   return executor.transaction(async (tx) => {
     const questionIds = [...new Set(command.items.map((item) => item.questionId))];
     if (questionIds.length > 0) {
@@ -95,6 +93,7 @@ export async function appendDraftItems(
     const [draft] = await tx
       .update(questionnaireVersion)
       .set({
+        title: command.title,
         draftRevision: sql`${questionnaireVersion.draftRevision} + 1`,
         updatedAt: sql`now()`,
       })
@@ -110,17 +109,13 @@ export async function appendDraftItems(
       return { outcome: "stale-or-missing-draft" };
     }
 
-    const [last] = await tx
-      .select({ next: sql<number>`coalesce(max(${questionnaireItem.position}) + 1, 0)` })
-      .from(questionnaireItem)
-      .where(eq(questionnaireItem.questionnaireVersionId, draft.id));
-    const firstPosition = Number(last?.next ?? 0);
+    await tx.delete(questionnaireItem).where(eq(questionnaireItem.questionnaireVersionId, draft.id));
     if (command.items.length > 0) {
       await tx.insert(questionnaireItem).values(
-        command.items.map((item, offset) => ({
+        command.items.map((item, position) => ({
           questionnaireVersionId: draft.id,
           itemId: item.itemId,
-          position: firstPosition + offset,
+          position,
           required: item.required,
           visibleWhen: item.visibleWhen,
           questionId: item.questionId,
@@ -134,7 +129,7 @@ export async function appendDraftItems(
       questionnaireVersionId: draft.id,
       version: null,
       actorId: command.actorId,
-      summary: { addedItemIds: command.items.map((item) => item.itemId) },
+      summary: { title: command.title, itemIds: command.items.map((item) => item.itemId) },
       traceId: command.traceId,
     });
     return { outcome: "saved", draftVersionId: draft.id, draftRevision: draft.draftRevision };

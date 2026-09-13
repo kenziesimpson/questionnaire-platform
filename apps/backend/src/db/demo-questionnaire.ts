@@ -2,7 +2,7 @@ import type { DraftItem, Predicate, QuestionInput } from "@qp/shared";
 import { eq } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { publishDraft, type PublishRules } from "./definition/publish.js";
-import { appendDraftItems, createQuestionnaire } from "./definition/questionnaires.js";
+import { replaceDraft, createQuestionnaire } from "./definition/questionnaires.js";
 import { appendQuestionVersion, createQuestion } from "./definition/questions.js";
 import { questionnaire } from "./schema.js";
 
@@ -122,9 +122,10 @@ export async function seedDemoQuestionnaire<Failure>(
       title: "Patient Intake",
       ...common,
     });
-    const edited = await appendDraftItems(tx, {
+    const edited = await replaceDraft(tx, {
       questionnaireId: DEMO_QUESTIONNAIRE_ID,
       expectedDraftRevision: created.draftRevision,
+      title: "Patient Intake",
       items: demoItems,
       actorId: SEED_ACTOR,
       traceId: null,

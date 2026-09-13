@@ -3,7 +3,7 @@ import { v4 as uuidv4, v7 as uuidv7 } from "uuid";
 import type pg from "pg";
 import type { Database } from "../../src/db/client.js";
 import { publishDraft } from "../../src/db/definition/publish.js";
-import { appendDraftItems, createQuestionnaire } from "../../src/db/definition/questionnaires.js";
+import { replaceDraft, createQuestionnaire } from "../../src/db/definition/questionnaires.js";
 import { createQuestion } from "../../src/db/definition/questions.js";
 
 export const acceptAll = () => [];
@@ -22,9 +22,10 @@ export interface DraftFixture {
 export async function aDraftWithOneItem(db: Database): Promise<DraftFixture> {
   const saved = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
   const created = await createQuestionnaire(db, { key: null, name: "Fixture", title: "Fixture", ...actor });
-  const edited = await appendDraftItems(db, {
+  const edited = await replaceDraft(db, {
     questionnaireId: created.questionnaireId,
     expectedDraftRevision: created.draftRevision,
+    title: "Fixture",
     items: [{ itemId: "itm_01", required: true, visibleWhen: null, questionId: saved.questionId, questionVersion: 1 }],
     actorId: "test",
     traceId: null,

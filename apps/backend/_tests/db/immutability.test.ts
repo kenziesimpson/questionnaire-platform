@@ -66,15 +66,30 @@ describe("published questionnaire versions", () => {
     expect(updated.rowCount).toBe(1);
   });
 
-  it("cannot be inserted already published without a snapshot", async () => {
+  it("cannot be forged by inserting a complete published row as qp_definition", async () => {
     const draft = await aDraftWithOneItem(testDatabase.database("definition"));
     const definition = await testDatabase.connect("definition");
 
     await expectSqlState(
       definition.query(
-        `INSERT INTO definition.questionnaire_version (id, questionnaire_id, status, title)
-         VALUES (gen_random_uuid(), $1, 'published', 'Shortcut')`,
+        `INSERT INTO definition.questionnaire_version
+           (id, questionnaire_id, status, title, version, snapshot, format_version, published_at)
+         VALUES (gen_random_uuid(), $1, 'published', 'Forged', 1, '{"forged":true}'::jsonb, 1, now())`,
         [draft.questionnaireId],
+      ),
+      SQLSTATE.immutable,
+    );
+  });
+
+  it("cannot be inserted as a draft that already carries a version number", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const definition = await testDatabase.connect("definition");
+
+    await expectSqlState(
+      definition.query(
+        `INSERT INTO definition.questionnaire_version (id, questionnaire_id, status, title, version)
+         VALUES (gen_random_uuid(), $1, 'draft', 'Addressable draft', 2)`,
+        [published.questionnaireId],
       ),
       SQLSTATE.checkViolation,
     );
@@ -177,6 +192,29 @@ describe("questionnaire items", () => {
     );
 
     expect(updated.rowCount).toBe(1);
+  });
+
+  it("can be deleted from a draft by qp_definition", async () => {
+    const draft = await aDraftWithOneItem(testDatabase.database("definition"));
+    const definition = await testDatabase.connect("definition");
+
+    const deleted = await definition.query(`DELETE FROM definition.questionnaire_item WHERE questionnaire_version_id = $1`, [
+      draft.draftVersionId,
+    ]);
+
+    expect(deleted.rowCount).toBe(1);
+  });
+
+  it("cannot be deleted from a published version by qp_definition", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const definition = await testDatabase.connect("definition");
+
+    await expectSqlState(
+      definition.query(`DELETE FROM definition.questionnaire_item WHERE questionnaire_version_id = $1`, [
+        published.draftVersionId,
+      ]),
+      SQLSTATE.immutable,
+    );
   });
 
   it("block an insert racing an uncommitted publish, then reject it once the publish commits", async () => {

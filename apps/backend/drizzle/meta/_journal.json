@@ -50,6 +50,20 @@
       "when": 1789329058747,
       "tag": "0006_audit_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789332119529,
+      "tag": "0007_draft_items_removable",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789332120978,
+      "tag": "0008_published_rows_not_insertable",
+      "breakpoints": true
     }
   ]
 }

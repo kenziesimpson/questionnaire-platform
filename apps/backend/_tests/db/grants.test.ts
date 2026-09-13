@@ -36,6 +36,9 @@ describe("qp_execution", () => {
       published.draftVersionId,
     ]);
     await denied(execution, `INSERT INTO definition.version_question_index SELECT * FROM definition.version_question_index`);
+    await denied(execution, `DELETE FROM definition.questionnaire_item WHERE questionnaire_version_id = $1`, [
+      published.draftVersionId,
+    ]);
   });
 
   it("reads published versions, questionnaires and the reverse index", async () => {
@@ -100,7 +103,7 @@ describe("qp_definition", () => {
     await denied(definition, `DELETE FROM audit.event`);
   });
 
-  it("neither application role holds DELETE or TRUNCATE on any table in the three schemas", async () => {
+  it("holds DELETE only on definition.questionnaire_item, and neither application role holds TRUNCATE anywhere", async () => {
     const owner = await testDatabase.connect("owner");
     const grants = await owner.query(
       `SELECT role.name, c.oid::regclass::text AS relation, privilege.name AS privilege
@@ -112,7 +115,9 @@ describe("qp_definition", () => {
           AND c.relkind IN ('r', 'p')
           AND has_table_privilege(role.name, c.oid, privilege.name)`,
     );
-    expect(grants.rows).toEqual([]);
+    expect(grants.rows).toEqual([
+      { name: "qp_definition", relation: "definition.questionnaire_item", privilege: "DELETE" },
+    ]);
   });
 
   it("reaches a definition table created by a later migration, through default privileges", async () => {
