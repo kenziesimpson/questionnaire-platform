@@ -28,6 +28,8 @@ Commit and push from the worktree, then open a PR — `main` only changes by mer
 | Lint, including the import boundaries | `npm run lint` |
 | Build | `npm run build` |
 
+CI (`.github/workflows/ci.yml`) runs all four on every push to `main` and every pull request. A PR is not ready for review until its Checks job is green.
+
 Node 24 (`.nvmrc`). TypeScript 6 in every workspace.
 
 ## Code conventions

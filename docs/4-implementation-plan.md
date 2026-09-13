@@ -69,6 +69,14 @@
 - [ ] The renderer: controlled-props-only, one component per response type, the `aria-live` region, ARIA off error/touched state
 - [ ] Component tests and the axe check → **M3**; nginx serving both builds at one origin
 
+### Gate C — CI before Wave 2
+
+> Wave 2 is two tracks merging in parallel into the same backend. A red check has to stop a PR before review, not after merge, so job 1 of [[8-testing#5.2 Pipeline shape]] is brought forward from Track 9. Track 9 still owns the workflow and adds the end-to-end job.
+
+- [x] `.github/workflows/ci.yml` — one **Checks** job on every push to `main` and every pull request: `npm ci`, `lint`, `typecheck`, `npm test`, `build`, Node from `.nvmrc`. No Postgres service; Testcontainers supplies its own ([[8-testing#5.3 CI details that actually bite]])
+- [ ] Checks green on `main` on GitHub, and required as a status check on `main`'s branch protection
+- [ ] Wave 2 does not start until both boxes above are ticked
+
 ### Wave 2 — API plugins *(two parallel tracks)*
 
 **Track 4 — definition plugin.** 18 routes. Land `GET /questionnaires` first to unblock Track 6. Publish is the hard one: snapshot serialization, validation, promote-in-place, and the audit write in the same transaction under the documented locks. → **M4**
@@ -87,7 +95,7 @@
 
 **Track 8 — telemetry.** OTel end to end, the Collector seam, domain events as paired log+counter, the `/telemetry` ingest endpoint with `sendBeacon`, the opt-in compose profile. The safety boundary already landed in Wave 1a. → **M7**
 
-**Track 9 — end-to-end and CI.** Three Playwright specs, one command via Vitest `projects`, two CI jobs, the sentinel canary gated. → **M8**, **M9**
+**Track 9 — end-to-end and CI.** Three Playwright specs, one command via Vitest `projects`, the end-to-end CI job alongside the Checks job from [[#Gate C — CI before Wave 2]], the sentinel canary gated. → **M8**, **M9**
 
 ### File ownership
 
