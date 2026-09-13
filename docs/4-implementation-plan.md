@@ -56,12 +56,12 @@
 
 **Track 2 — database** (`apps/backend/drizzle/**`, `apps/backend/src/db/**`, `db/init/**`)
 > **One agent, start to finish, do not split.** [[9-database-schema#11. Migrations]] catalogues traps that fail *silently*; a mid-track handoff is how one survives.
-- [ ] `schema.ts` for `definition` / `execution` / `audit`; generated migration for tables, indexes and FKs including the post-hoc circular FK
-- [ ] `--custom` migrations: immutability triggers on `UPDATE` and `DELETE`, the locking item guard, the audit `SECURITY DEFINER` function in the verified order, `response_shape`, range partitioning with no default partition
-- [ ] `db/init/01-roles.sh` — five identities, three connection strings ([[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]). `qp_owner` must **not** be `POSTGRES_USER`
-- [ ] Wire the three URLs into compose and `.env.example`; drop the unsuffixed `DATABASE_URL`; keep the loopback bind
-- [ ] Partition management helper; seed with **hardcoded** ids (#35), through the real publish path
-- [ ] DB invariant tests → **M2**
+- [x] `schema.ts` for `definition` / `execution` / `audit`; generated migration for tables, indexes and FKs including the post-hoc circular FK
+- [x] `--custom` migrations: immutability triggers on `UPDATE` and `DELETE`, the locking item guard, the audit `SECURITY DEFINER` function in the verified order, `response_shape`, range partitioning with no default partition
+- [x] `db/init/01-roles.sh` — five identities, three connection strings ([[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]). `qp_owner` must **not** be `POSTGRES_USER`
+- [x] Wire the three URLs into compose and `.env.example`; drop the unsuffixed `DATABASE_URL`; keep the loopback bind
+- [x] Partition management helper; seed with **hardcoded** ids (#35), through the real publish path
+- [x] DB invariant tests → **M2**
 
 **Track 3 — UI package and restructure** (`apps/respondent`, `apps/admin`, `packages/ui`)
 - [ ] Replace `apps/frontend` with `apps/respondent` + `apps/admin`; fix root scripts (they hardcode `-w apps/frontend`), tsconfig refs, Vite configs
@@ -122,7 +122,7 @@ An agent must not decide these alone. The first five block Wave 3.
 A wave is not done until its milestones are green.
 
 - [ ] **M1** Engine units: branching truth table, every operator against every type, unanswered → `false`, digest determinism under key reordering, timezone cases
-- [ ] **M2** DB invariants on Testcontainers: `UPDATE` and `DELETE` on published rows rejected; bad `response_shape` rejected; `qp_execution` denied on authoring tables; `qp_definition` denied on `response` and on `audit.event`; audit reachable only through `audit.record`; no-default-partition behaviour
+- [x] **M2** DB invariants on Testcontainers: `UPDATE` and `DELETE` on published rows rejected; bad `response_shape` rejected; `qp_execution` denied on authoring tables; `qp_definition` denied on `response` and on `audit.event`; audit reachable only through `audit.record`; no-default-partition behaviour
 - [ ] **M3** Renderer components plus the axe check; reveal and removal announced via `aria-live`
 - [ ] **M4** Definition API via `inject()`: bank CRUD, stale-ETag `409`, publish happy path, publish failures as `422`, archived question rejected at add time, version history, deterministic list order
 - [ ] **M5** Execution API via `inject()`: session pins the snapshot and ignores a later publish; resume; submit; idempotent replay returns the original receipt; answer to an invisible item `422`; the v1/v2 predicate-tightening fixture; closed questionnaire `409`
