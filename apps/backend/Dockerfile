@@ -3,20 +3,17 @@
 FROM node:24-slim AS base
 WORKDIR /app
 
-# --- deps: install full workspace deps once, reused by build/runtime stages ---
 FROM base AS deps
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/package.json
 COPY apps/backend/package.json apps/backend/package.json
 RUN npm ci
 
-# --- build: compile shared + backend TypeScript to JS ---
 FROM deps AS build
 COPY packages/shared packages/shared
 COPY apps/backend apps/backend
 RUN npm run build -w packages/shared && npm run build -w apps/backend
 
-# --- runtime: production deps only + compiled output ---
 FROM base AS runtime
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./

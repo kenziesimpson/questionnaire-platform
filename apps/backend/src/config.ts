@@ -1,9 +1,3 @@
-/**
- * Centralized env-var config. Deployment (docker-compose / k8s) supplies these
- * as plain environment variables — see design-doc §13 ("Configuration: environment
- * variables only, with a committed .env.example. No secrets in images.").
- */
-
 function required(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;
   if (value === undefined) {

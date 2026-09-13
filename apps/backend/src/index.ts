@@ -11,14 +11,7 @@ const app = Fastify({
   },
 });
 
-// Liveness/readiness probe. Extend with a DB ping once the definition/
-// execution modules exist (design-doc §14 observability).
 app.get("/health", async () => ({ status: "ok" }));
-
-// TODO: register the questionnaire-definition module (authoring, publishing)
-// and the questionnaire-execution module (sessions, responses) here as
-// separate Fastify plugins once the API boundary (design-doc §9) is decided —
-// keeping them as distinct plugins is what makes that boundary visible.
 
 async function start() {
   try {
