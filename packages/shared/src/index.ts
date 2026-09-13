@@ -1,13 +1,18 @@
 /**
- * @qp/shared — types and logic shared between the backend and the frontend.
- *
- * This will grow to hold:
- *  - Wire types for questionnaire/question/rule definitions (design-doc §5).
- *  - The conditional-branching rule engine, so the client (rendering) and the
- *    server (submit-time authority) evaluate the exact same logic (design-doc §7, §8).
- *
- * Intentionally empty scaffolding until those decisions land — see
- * docs/2-design-doc.md and docs/4-implementation-plan.md.
+ * @qp/shared — the only code both halves of the backend and both frontends share
+ * ([[7-application-boundary]] §3.3): wire types and schemas, and the rule engine.
  */
 
-export const SHARED_PACKAGE_NAME = "@qp/shared";
+export * from "./primitives.js";
+export * from "./domain/question.js";
+export * from "./domain/condition.js";
+export * from "./domain/definition.js";
+export * from "./domain/draft.js";
+export * from "./domain/answer.js";
+export * from "./domain/session.js";
+export * from "./problems.js";
+export * from "./sensitive.js";
+export * from "./api/route.js";
+export * from "./api/etag.js";
+export * as definitionApi from "./api/definition.js";
+export * as executionApi from "./api/execution.js";
