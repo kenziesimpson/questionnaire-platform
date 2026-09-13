@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { QuestionnaireItems } from "../../../src/questionnaire";
 import { hasCondition, rendererProps, whichCondition } from "../../fixtures";
+import { StatefulItems } from "../../stateful";
 
 function renderChoice(overrides: Parameters<typeof rendererProps>[0] = {}, item = whichCondition) {
   const props = rendererProps(overrides);
@@ -87,16 +88,48 @@ describe("single choice other option", () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith("itm_02", { type: "single_choice", optionId: "other", otherText: "  " });
   });
 
-  it("drops otherText when a different option is chosen", async () => {
+  it("omits otherText from the answer when a different option is chosen", async () => {
     const onChange = vi.fn();
     const { radio } = renderChoice({ onChange, answers: { itm_02: { type: "single_choice", optionId: "other", otherText: "Asthma" } } });
     await userEvent.click(radio("Diabetes"));
     expect(onChange).toHaveBeenCalledExactlyOnceWith("itm_02", { type: "single_choice", optionId: "opt_diabetes" });
   });
 
-  it("shows no other text while a different option is chosen", () => {
-    const { otherText } = renderChoice({ answers: { itm_02: { type: "single_choice", optionId: "opt_diabetes", otherText: "Asthma" } } });
-    expect(otherText).toHaveValue("");
+  it("seeds the text box from the answer's otherText", () => {
+    const { otherText } = renderChoice({ answers: { itm_02: { type: "single_choice", optionId: "other", otherText: "Asthma" } } });
+    expect(otherText).toHaveValue("Asthma");
+  });
+
+  it("keeps the typed text visible after switching to a different option", async () => {
+    const onAnswer = vi.fn();
+    render(<StatefulItems items={[whichCondition]} onAnswer={onAnswer} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Other, please specify" }), { target: { value: "Asthma" } });
+    await userEvent.click(screen.getByRole("radio", { name: "Diabetes" }));
+    expect(onAnswer).toHaveBeenLastCalledWith("itm_02", { type: "single_choice", optionId: "opt_diabetes" });
+    expect(screen.getByRole("radio", { name: "Diabetes" })).toBeChecked();
+    expect(screen.getByRole("textbox", { name: "Other, please specify" })).toHaveValue("Asthma");
+  });
+
+  it("puts the retained text back into the answer when other is chosen again", async () => {
+    const onAnswer = vi.fn();
+    render(<StatefulItems items={[whichCondition]} onAnswer={onAnswer} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Other, please specify" }), { target: { value: "Asthma" } });
+    await userEvent.click(screen.getByRole("radio", { name: "Diabetes" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Other" }));
+    expect(onAnswer).toHaveBeenLastCalledWith("itm_02", { type: "single_choice", optionId: "other", otherText: "Asthma" });
+    expect(screen.getByRole("textbox", { name: "Other, please specify" })).toHaveValue("Asthma");
+  });
+
+  it("follows a cleared text box while other stays selected, so reselecting later carries no stale text", async () => {
+    const onAnswer = vi.fn();
+    render(<StatefulItems items={[whichCondition]} onAnswer={onAnswer} />);
+    const box = () => screen.getByRole("textbox", { name: "Other, please specify" });
+    fireEvent.change(box(), { target: { value: "Asthma" } });
+    fireEvent.change(box(), { target: { value: "" } });
+    await userEvent.click(screen.getByRole("radio", { name: "Diabetes" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Other" }));
+    expect(onAnswer).toHaveBeenLastCalledWith("itm_02", { type: "single_choice", optionId: "other" });
+    expect(box()).toHaveValue("");
   });
 });
 

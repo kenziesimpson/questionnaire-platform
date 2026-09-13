@@ -30,7 +30,7 @@ export function RadioChoiceView({
               {option.freeform && (
                 <OtherTextInput
                   option={option}
-                  value={selectedOptionId === option.optionId ? otherText : ""}
+                  value={otherText}
                   readOnly={readOnly}
                   onChange={(text) => onOtherTextChange(option.optionId, text)}
                 />

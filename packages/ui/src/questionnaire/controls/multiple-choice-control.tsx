@@ -3,7 +3,7 @@ import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { Label } from "@qp/ui/primitives/label";
 import { ChoiceFieldset, useFieldIds } from "../field";
 import type { ControlProps } from "../types";
-import { OtherTextInput } from "./other-text-input";
+import { OtherTextInput, useRetainedOtherText } from "./other-text-input";
 
 export function multipleChoiceAnswer(
   options: readonly Option[],
@@ -24,7 +24,8 @@ export function MultipleChoiceControl({ item, answer, error, mode, onChange }: C
   const { question } = item;
   const readOnly = mode === "readonly";
   const selected = new Set(answer?.optionIds ?? []);
-  const otherText = answer?.otherText ?? "";
+  const otherSelected = question.options.some((option) => option.freeform && selected.has(option.optionId));
+  const otherText = useRetainedOtherText(otherSelected, answer?.otherText);
 
   function change(nextSelected: Set<string>, nextOtherText: string | undefined) {
     if (!readOnly) onChange(item.itemId, multipleChoiceAnswer(question.options, nextSelected, nextOtherText));
@@ -55,7 +56,7 @@ export function MultipleChoiceControl({ item, answer, error, mode, onChange }: C
             {option.freeform && (
               <OtherTextInput
                 option={option}
-                value={selected.has(option.optionId) ? otherText : ""}
+                value={otherText}
                 readOnly={readOnly}
                 onChange={(text) => change(new Set(selected).add(option.optionId), text)}
               />
