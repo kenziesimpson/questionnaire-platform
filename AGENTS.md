@@ -28,6 +28,8 @@ Commit and push from the worktree, then open a PR — `main` only changes by mer
 | Lint, including the import boundaries | `npm run lint` |
 | Build | `npm run build` |
 
+CI (`.github/workflows/ci.yml`) runs all four on every push to `main` and every pull request. A PR is not ready for review until its Checks job is green.
+
 Node 24 (`.nvmrc`). TypeScript 6 in every workspace.
 
 ## Code conventions
@@ -50,6 +52,10 @@ Tool directives that must be written in comment syntax are not prose comments an
 - Wire shapes are TypeBox schemas in `packages/shared`; derive TypeScript types from them with `Static`, never write a parallel interface.
 - `apps/backend/src/modules/definition` and `apps/backend/src/modules/execution` never import each other. Only `packages/telemetry` imports `pino` or `@opentelemetry/*`. Both are enforced by `eslint.config.mjs`.
 - Respondent answer values never reach a log, span, metric or error body. Wrap them in `Sensitive<T>`.
+
+### Migrations
+
+- Never edit, regenerate or squash a committed migration in `apps/backend/drizzle/`; write a new one. `0000_schema.sql` carries hand edits drizzle-kit cannot express and will silently drop — see [Hand-edited migrations](apps/backend/README.md#hand-edited-migrations) in the backend README before running `db:generate`.
 
 ### Tests
 

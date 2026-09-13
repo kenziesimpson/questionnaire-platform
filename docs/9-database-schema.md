@@ -291,9 +291,13 @@ CREATE TRIGGER qv_immutable_update BEFORE UPDATE ON definition.questionnaire_ver
   FOR EACH ROW WHEN (OLD.status = 'published') EXECUTE FUNCTION definition.reject_mutation();
 CREATE TRIGGER qv_immutable_delete BEFORE DELETE ON definition.questionnaire_version
   FOR EACH ROW WHEN (OLD.status = 'published') EXECUTE FUNCTION definition.reject_mutation();
+CREATE TRIGGER qv_immutable_insert BEFORE INSERT ON definition.questionnaire_version
+  FOR EACH ROW WHEN (NEW.status = 'published') EXECUTE FUNCTION definition.reject_mutation();
 ```
 
-The promoting `UPDATE` at publish is allowed, because the trigger is evaluated against `OLD.status = 'draft'`.
+The promoting `UPDATE` at publish is allowed, because the trigger is evaluated against `OLD.status = 'draft'`. That is also why the triggers alone do not make publish the only way to a published row — §4.3 is the part that does.
+
+**The `INSERT` trigger closes the shortcut §11.6 rules out.** Without it, a row inserted already `published` with a complete snapshot satisfies `version_state`; only its items are refused, by §4.1's guard. Reproduced against a live database as `qp_definition`. With it, a published row exists only by promoting a draft in place (Decisions Log #8, #46).
 
 **The `DELETE` trigger is an addition to what §6.4 specifies.** That section describes a trigger on `UPDATE` only. Deleting a published version destroys the definition that historical responses are rendered against — the same failure the `UPDATE` trigger exists to prevent, reached by a different verb, and now also a violation of the general rule in [[2-design-doc#3. Constraints]].
 
@@ -328,11 +332,53 @@ Both defensive lines exist because the obvious version of this trigger fails, an
 - **`FOR SHARE`, not a bare `SELECT`.** Without the lock the trigger is a time-of-check/time-of-use race. A publish transaction reads the items, writes the snapshot and flips status; a second connection inserts another item half a second later, sees `draft` because the publish is still uncommitted, and commits. Result: a published version whose snapshot lists one item and whose item rows number two, with no error raised anywhere. That is precisely the drift keeping item rows is supposed not to cause. `FOR SHARE` makes the trigger block behind the in-flight publish and re-read after it commits, at which point the insert is correctly rejected.
 - **The reparent check.** Without it, `UPDATE questionnaire_item SET questionnaire_version_id = <draft> WHERE questionnaire_version_id = <published>` succeeds: the trigger only ever inspects one of the two parents, so an item walks out of a published version.
 
-**Ordering requirement on publish.** Publish must write `version_question_index` and finish any item work *before* flipping status, or its own transaction trips this guard.
+**Ordering requirement on publish.** `version_question_index` must be written and any item work finished *before* status flips, or the publishing transaction trips this guard. `definition.promote_draft` (§4.3) does both in that order, so no repository code has to remember it.
+
+Deleting an item is part of editing a draft, so `qp_definition` holds `DELETE` on `questionnaire_item` and on no other table (§10, Decisions Log #45). This guard is what bounds it: a `DELETE` whose parent is published is `QP001`.
 
 ### 4.2 `QP001`
 
 A custom SQLSTATE, verified to reach the client intact through `pg`. It is mapped to `409` in one place in the Fastify error handler, so layer one and layer two of the immutability story ([[7-application-boundary#6.2 Status codes]]) cannot disagree about what happened — the API returns a `409` because the database said `QP001`, not because a service-layer check happened to run first.
+
+### 4.3 Publishing goes through `definition.promote_draft`
+
+The triggers stop a published row from changing. They did not stop a draft from being promoted by something
+other than publish: `qp_definition` could flip a draft to `published` with one `UPDATE` carrying any
+snapshot, and move the current-version pointer to it with a second, leaving no validation and no
+`version_question_index` rows. Reproduced against a live database.
+
+So promotion is a `SECURITY DEFINER` function, the same shape §9.1 uses for audit:
+
+- `qp_definition` holds column-level `UPDATE` only on the columns editing a draft needs (§10). Status,
+  version, snapshot, `format_version`, `published_at` and the pointer pair are not writable by it.
+- `definition.promote_draft(version_id, snapshot)` is owned by `qp_owner`, runs with
+  `SET search_path = definition, pg_temp`, and is executable by `qp_definition` alone. It locks the
+  version row and requires a draft (`QP001` otherwise); requires the snapshot to name this questionnaire,
+  its next version number and exactly the draft's item rows — item ids, pinned question versions, in
+  position order (`22023` otherwise); writes `version_question_index` from the item rows; promotes with
+  `WHERE status = 'draft'`; and moves the pointer.
+- **The audit row is not the function's.** `publishDraft` writes it straight after, through the one
+  repository function that calls `audit.record` (§9.1), as `qp_definition` and in the same transaction, so
+  a failed audit write rolls the promotion back and a publish cannot commit without its record
+  ([[6-observability#5.1 Isolation — separate schema with a restricted role]]).
+
+**Validation stays in the application.** Publish-time validation ([[5-questionnaire-format#5. Publish-time validation]])
+is `validateDraft` in `@qp/shared` — the same function `POST /draft/validate` calls — and cannot move into
+SQL without becoming a second implementation. `publishDraft` takes the §5 locks, serializes the draft, runs
+it, and only then calls the function. The snapshot check is what makes that split safe: the function cannot
+judge a predicate, but it refuses a snapshot whose structure is not the draft it is promoting, so skipping
+validation cannot publish an item list the item rows do not already hold.
+
+The residual, stated: code holding `qp_definition` can still publish a draft that skipped validation, or
+whose prompts and predicates were serialized wrongly — and, because the function does not audit, it can call
+`promote_draft` directly and publish **without an audit row**. That last one was accepted deliberately
+(Decisions Log #51). Auditing from inside the function would have meant granting its owner, `qp_owner`, a path
+into `audit`, reversing §9.1's arrangement that the migration identity has none; making `audit_owner` own the
+function instead would turn the audit role into a definition-writing role, and the `audit` schema is kept
+audit-only so it stays extractable behind the outbox. What the function guarantees is narrower and structural
+— no published row without its index rows and pointer, and no snapshot that disagrees with the item rows it
+was built from. Audit completeness for publish rests on `publishDraft` being the only caller, as it does for
+every other authoring action.
 
 ## 5. Concurrency control
 
@@ -340,13 +386,13 @@ A custom SQLSTATE, verified to reach the client intact through `pg`. It is mappe
 
 | Race | What happens without the lock | Fix |
 | --- | --- | --- |
-| Two publishes of the same draft | Safe already. The partial unique index plus `WHERE status = 'draft'` makes the promoting `UPDATE` a compare-and-swap — provided the repository checks the affected row count instead of assuming success | — |
+| Two publishes of the same draft | Safe already. `promote_draft` re-reads the version row under its own lock and refuses anything but a draft, and its promoting `UPDATE ... WHERE status = 'draft'` is a compare-and-swap behind the partial unique index | — |
 | Publish vs. create-next-draft | B reads "latest published = v1" while A's publish to v2 is uncommitted, then creates a draft copied from v1. Both commit. Publishing that draft as v3 silently reverts v2, and neither transaction errors | `SELECT ... FROM definition.questionnaire WHERE id = $1 FOR UPDATE` as the **first** statement of publish, create-draft and retire |
 | Two edits to the same question | Both compute `version = max + 1 = 3`; the loser gets a raw `23505` from the primary key | `SELECT ... FROM definition.question WHERE id = $1 FOR UPDATE` before computing the next version. Map `23505` on that path to `409` regardless |
 
 The middle row is the dangerous one: it is the only failure here that corrupts state rather than raising an error, and it produces a questionnaire whose published history silently loses a version.
 
-Publish also takes `FOR UPDATE` on the version row before reading items, which is what makes §4.1's `FOR SHARE` in the item trigger block rather than read stale status.
+Publish also takes `FOR UPDATE` on the version row before reading items, which is what makes §4.1's `FOR SHARE` in the item trigger block rather than read stale status. The full publish order is: the questionnaire row, then the draft version row, then read, serialize and validate in the application, then `promote_draft` (§4.3), whose own `FOR UPDATE` on the version row is already held and so adds no wait, then the audit row.
 
 ## 6. `execution`
 
@@ -470,7 +516,9 @@ twice.
 
 ### 6.3 Which foreign keys, and why not more
 
-`session_id` and `questionnaire_version_id`, and nothing else.
+`session_id`, `questionnaire_version_id`, and the pair of them checked against the session's pin — nothing else.
+
+**The pair is checked against the session.** The two single-column keys hold independently, so a response on a session pinned to v1 could carry another questionnaire's version, or a draft's, and insert cleanly — reproduced as `qp_execution`. `response (session_id, questionnaire_version_id)` therefore references `session (id, questionnaire_version_id)`, made referenceable by `session_pinned_version_key`, so a response cannot claim a version its session did not pin ([[2-design-doc#17. Decisions Log]] #49). The key stays inside `execution`, so it reaches into no authoring table. The two single-column keys stay: they are now implied, and keeping them is cheaper than re-arguing this section.
 
 An FK on `(questionnaire_version_id, item_id)` into `questionnaire_item` would validate more, and a partitioned table referencing a regular table is allowed (verified). It is omitted on purpose: `questionnaire_item` is an authoring table, and [[7-application-boundary#2.1 What execution is structurally denied]] says execution never reaches into one. `questionnaire_version` is the artifact that *crosses* the boundary, so a foreign key to it is consistent with the model; item and question-version validity are the submit-time rule engine's job against the snapshot, which is already the authority ([[7-application-boundary#5.4 Submit: authority, validation, idempotency]]).
 
@@ -514,6 +562,7 @@ Every index below exists for a named query or a named invariant. Nothing is inde
 | `session` PK | resume — `GET /sessions/:sessionId`, a point lookup |
 | `session_by_version` | "sessions started against version N", for the republish story and analytics |
 | `session_in_progress` (partial) | abandonment analytics; partial because submitted sessions are the majority and are never the subject of this query |
+| `session_pinned_version_key (id, questionnaire_version_id)` | the target of `response`'s composite foreign key (§6.3); an invariant, not an access path |
 | `response_by_session (session_id, created_at)` | idempotent replay, with partition pruning (§6.4) |
 | `response_by_question` | per-version analytics over one question |
 | `response_by_option` (GIN) | "how many respondents chose option X" |
@@ -586,9 +635,15 @@ $$;
 
 REVOKE ALL ON audit.event  FROM PUBLIC;
 REVOKE ALL ON SCHEMA audit FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.record(text,uuid,uuid,int,text,jsonb,text) FROM PUBLIC;
 GRANT  USAGE   ON SCHEMA audit TO qp_definition;
 GRANT  EXECUTE ON FUNCTION audit.record(text,uuid,uuid,int,text,jsonb,text) TO qp_definition;
 ```
+
+**`EXECUTE` on a new function is granted to `PUBLIC` by default**, so without the third `REVOKE` every role
+could call `audit.record` — held back only by lacking `USAGE` on the schema, and a privilege check would
+report that it can. The revoke landed in a later migration (`0014`) with the same sweep for every function in
+the three schemas, so `qp_definition`'s explicit grant is the only one.
 
 Verified end to end:
 
@@ -612,13 +667,24 @@ should be "simplified" later.
 
 ## 10. Grants
 
+The migrations build this up across several files (`0005`, `0007`, `0009`, `0010`, `0013`); the net result is:
+
 ```sql
 GRANT USAGE ON SCHEMA definition TO qp_definition;
 GRANT USAGE ON SCHEMA definition, execution TO qp_execution;
 
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA definition TO qp_definition;
+REVOKE UPDATE ON definition.questionnaire_version, definition.questionnaire FROM qp_definition;
+GRANT  UPDATE (title, draft_revision, updated_at) ON definition.questionnaire_version TO qp_definition;
+GRANT  UPDATE (key, name, closes_at)              ON definition.questionnaire         TO qp_definition;
+GRANT  DELETE ON definition.questionnaire_item TO qp_definition;
+GRANT  EXECUTE ON FUNCTION definition.promote_draft(uuid, jsonb) TO qp_definition;
 
-GRANT SELECT ON definition.questionnaire, definition.questionnaire_version,
+CREATE VIEW definition.published_questionnaire_version WITH (security_barrier = true) AS
+  SELECT id, questionnaire_id, version, title, snapshot, format_version, published_at
+    FROM definition.questionnaire_version WHERE status = 'published';
+
+GRANT SELECT ON definition.questionnaire, definition.published_questionnaire_version,
                 definition.version_question_index TO qp_execution;
 GRANT SELECT, INSERT, UPDATE ON execution.session  TO qp_execution;
 GRANT SELECT, INSERT         ON execution.response TO qp_execution;
@@ -626,6 +692,21 @@ GRANT SELECT, INSERT         ON execution.response TO qp_execution;
 ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner IN SCHEMA definition
   GRANT SELECT, INSERT, UPDATE ON TABLES TO qp_definition;
 ```
+
+| Role | `definition` | `execution` | `audit` |
+| --- | --- | --- | --- |
+| `qp_definition` | `SELECT, INSERT` on every table; `UPDATE` on every table except `questionnaire_version` and `questionnaire`, which get only the columns above; `DELETE` on `questionnaire_item` only; `EXECUTE` on `promote_draft` | none | `EXECUTE` on `audit.record` only (§9.1) |
+| `qp_execution` | `SELECT` on `questionnaire`, `version_question_index` and the `published_questionnaire_version` view — not the base `questionnaire_version` table | `SELECT, INSERT, UPDATE` on `session`; `SELECT, INSERT` on `response` | none |
+| `qp_owner` | owns every object | owns every object | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` (§9.1) |
+
+No function in `definition`, `execution` or `audit` keeps the default `EXECUTE` for `PUBLIC`: `audit.record` and
+`promote_draft` are executable only by `qp_definition`, and the trigger functions by no application role (a
+trigger fires without its caller holding `EXECUTE`). A catalog test asserts it, so a new function that forgets
+the revoke fails the suite.
+
+**Publishing columns are not `qp_definition`'s to write.** Status, version, snapshot, `format_version`, `published_at` and the current-version pointer change only inside `promote_draft` (§4.3). A `FOR UPDATE` row lock needs `UPDATE` on just one column, so the §5 locks still work.
+
+**`qp_execution` reads versions through a view.** `SELECT` on the base table let it read draft rows — title, `created_by`, `draft_revision` — which [[7-application-boundary#2.1 What execution is structurally denied]] rules out (Decisions Log #48). The view is `security_barrier` so no planner-pushed predicate sees a draft row, and it is revoked from `qp_definition` explicitly: default privileges would otherwise grant it writes on an auto-updatable view that runs with the owner's rights. The session's composite foreign key still validates for `qp_execution`, because referential checks run as the referenced table's owner.
 
 Two lines that belong to the init script rather than to a migration, but are listed here because the
 grants above depend on them (§11.3):
@@ -642,7 +723,7 @@ GRANT audit_owner TO qp_owner WITH INHERIT FALSE;          -- so migrations can 
 
 **`qp_execution` gets `SELECT, INSERT` on `response` and nothing else.** [[2-design-doc#3. Constraints]] says collected responses are immutable, and the assignment asks for invariants enforced in the data layer rather than the UI, but the enforcement mechanism was only ever described for published *definitions*. A grant is the whole fix, and it makes response immutability the same kind of guarantee as the audit trail's rather than a weaker cousin of it. The erasure exception in §3 is unaffected: a different role, explicitly invoked, audited.
 
-**No `DELETE` is granted anywhere**, pending [[2-design-doc#18. Open Questions]] §13.
+**The only `DELETE` granted is `qp_definition` on `questionnaire_item`**, which removing an item from a draft needs and §4.1's guard confines to drafts (Decisions Log #45). Nothing that has been published, collected or audited can be deleted by an application role.
 
 Stated precisely, because a reviewer will ask: that is a claim about the *application* roles. `qp_owner`
 owns every object and an owner always retains full rights on what it owns, so the barrier is between
@@ -695,8 +776,17 @@ There is nothing to write in `schema.ts` that produces a trigger, a `SECURITY DE
 
 `drizzle-kit generate --custom` creates an empty, correctly numbered migration file to write SQL into
 by hand. It is a first-class migration — it slots into the ordered list and is recorded as applied
-like any other; it simply was not derived from anything. Roughly four of this schema's migrations are
-of that kind: the immutability triggers, the item guard, the audit function and the grants.
+like any other; it simply was not derived from anything. Most of this schema's migrations are of that
+kind, each named for the guarantee it carries: the immutability triggers, the item guard,
+`response_shape`, the partitions, the grants, the audit function, draft-item removal, the
+published-only `INSERT` trigger, `promote_draft`, the execution view, and moving the publish audit write
+back to the application.
+
+Two things are hand edits to a *generated* file rather than custom migrations — `PARTITION BY` on
+`response` and `DEFERRABLE` on `item_position_unique` — and drizzle-kit's snapshot knows about neither.
+The ways they get lost silently, and the tests that catch it (a catalog check after the full chain, a
+sha256 lock on every committed migration, and a `generate` drift check), are in
+[`apps/backend/README.md`](../apps/backend/README.md#hand-edited-migrations).
 
 ### 11.3 Roles are not schema, and must not be in a committed migration
 
@@ -803,7 +893,7 @@ request. A seed that could take the shortcut would be a seed that proves nothing
 ## 12. Open questions
 
 1. **`session_progress` — not built** ([[2-design-doc#18. Open Questions]] §6, Decisions Log #25). The checkpoint endpoint is deferred, so this table does not ship. The shape is kept here so that adding it stays additive: `session_progress (session_id PK → session, answers jsonb, revision int, updated_at)`. A separate table rather than a column on `session`, so the narrow hot row is not dragged through TOAST churn on every debounced write and so the grant on it is separable. It would hold raw answers, so `qp_definition` must be denied it for exactly the reason it is denied `response`.
-2. **Discarding never-published drafts** ([[2-design-doc#18. Open Questions]] §13) — determines whether `questionnaire_item` carries `ON DELETE CASCADE` and whether `qp_definition` is ever granted `DELETE`.
+2. **Discarding never-published drafts** ([[2-design-doc#18. Open Questions]] §13). *Resolved for items:* removing an item from a draft is a `DELETE`, and `qp_definition` holds `DELETE` on `questionnaire_item` only, bounded to drafts by §4.1's guard (Decisions Log #45). Discarding a whole draft version is still open, and would need `DELETE` on `questionnaire_version` rows in `draft` status plus a decision on `ON DELETE CASCADE`.
 
 ## 13. Alternatives considered
 

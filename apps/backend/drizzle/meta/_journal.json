@@ -1,1 +1,111 @@
-{"version":"7","dialect":"postgresql","entries":[]}
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789329001088,
+      "tag": "0000_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789329051239,
+      "tag": "0001_published_rows_immutable",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789329052742,
+      "tag": "0002_published_items_immutable",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789329054308,
+      "tag": "0003_response_shape",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789329055805,
+      "tag": "0004_response_partitions_no_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789329057273,
+      "tag": "0005_role_grant_barrier",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789329058747,
+      "tag": "0006_audit_append_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789332119529,
+      "tag": "0007_draft_items_removable",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789332120978,
+      "tag": "0008_published_rows_not_insertable",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789337161837,
+      "tag": "0009_publish_only_through_promote_draft",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789337333171,
+      "tag": "0010_execution_reads_published_versions_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789337440273,
+      "tag": "0011_session_pinned_version_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789337441750,
+      "tag": "0012_response_matches_session_pinned_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789340061068,
+      "tag": "0013_publish_audit_written_by_application",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789340399301,
+      "tag": "0014_no_public_execute_on_functions",
+      "breakpoints": true
+    }
+  ]
+}
