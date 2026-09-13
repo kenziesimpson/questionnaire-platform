@@ -24,7 +24,7 @@ services:
     build:
       context: .
       dockerfile: apps/backend/Dockerfile
-    command: ["sh", "-c", "node apps/backend/dist/db/migrate.js && node apps/backend/dist/db/seed.js"]
+    command: ["sh", "-c", "node apps/backend/dist/db/migrate.js && node apps/backend/dist/db/seed/seed.js"]
     environment:
       DATABASE_URL_OWNER: postgres://qp_owner:${QP_OWNER_PASSWORD:-qp_owner}@db:5432/${POSTGRES_DB:-questionnaire_platform}
       DATABASE_URL_DEFINITION: postgres://qp_definition:${QP_DEFINITION_PASSWORD:-qp_definition}@db:5432/${POSTGRES_DB:-questionnaire_platform}

@@ -35,8 +35,8 @@ the working rules are in [`.claude/skills/database/SKILL.md`](../../.claude/skil
   format_version, published_at). `qp_execution` has no `SELECT` on the base `questionnaire_version` table.
 - `migrate.ts` is the one-shot runner the compose `migrate` service calls. It applies the migrations as
   `qp_owner` (`DATABASE_URL_OWNER`) and pre-creates the next 24 monthly `response` partitions.
-- `seed.ts` runs next, as `qp_definition` (`DATABASE_URL_DEFINITION`), and publishes the demo questionnaire
-  through the real publish transaction. It is idempotent.
+- `seed/` runs next, as `qp_definition` (`DATABASE_URL_DEFINITION`), and publishes the demo questionnaire
+  through the real publish transaction. It is idempotent. See [`src/db/seed/README.md`](src/db/seed/README.md).
 - Roles are not migrations: `db/init/01-roles.sh` creates them when the Postgres volume is first initialised.
 
 ## Hand-edited migrations

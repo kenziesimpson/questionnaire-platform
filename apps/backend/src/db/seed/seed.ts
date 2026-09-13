@@ -1,5 +1,5 @@
-import { databaseUrl } from "../config.js";
-import { openDatabase } from "./client.js";
+import { databaseUrl } from "../../config.js";
+import { openDatabase } from "../client.js";
 import { seedDemoQuestionnaire } from "./demo-questionnaire.js";
 
 async function main(): Promise<void> {

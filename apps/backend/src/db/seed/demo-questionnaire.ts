@@ -7,11 +7,11 @@ import {
   type QuestionInput,
 } from "@qp/shared";
 import { eq } from "drizzle-orm";
-import type { Database, Transaction } from "./client.js";
-import { publishDraft } from "./definition/publish.js";
-import { createQuestionnaire, replaceDraft } from "./definition/questionnaires.js";
-import { appendQuestionVersion, createQuestion } from "./definition/questions.js";
-import { questionnaire } from "./schema.js";
+import type { Database, Transaction } from "../client.js";
+import { publishDraft } from "../definition/publish.js";
+import { createQuestionnaire, replaceDraft } from "../definition/questionnaires.js";
+import { appendQuestionVersion, createQuestion } from "../definition/questions.js";
+import { questionnaire } from "../schema.js";
 
 const SEED_ACTOR = "seed";
 

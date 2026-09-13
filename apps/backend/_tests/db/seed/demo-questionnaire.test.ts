@@ -1,8 +1,8 @@
 import { INTAKE_QUESTION_IDS, INTAKE_QUESTIONNAIRE_ID, intakeDefinition, PublishedDefinition } from "@qp/shared";
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
-import { seedDemoQuestionnaire } from "../../src/db/demo-questionnaire.js";
-import { useTestDatabase } from "./harness.js";
+import { seedDemoQuestionnaire } from "../../../src/db/seed/demo-questionnaire.js";
+import { useTestDatabase } from "../harness.js";
 
 const testDatabase = useTestDatabase();
 
