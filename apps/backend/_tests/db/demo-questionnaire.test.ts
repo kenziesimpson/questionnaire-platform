@@ -13,7 +13,7 @@ describe("the demo seed", () => {
     const execution = await testDatabase.connect("execution");
     const current = await execution.query(
       `SELECT v.snapshot, v.version, q.key FROM definition.questionnaire q
-         JOIN definition.questionnaire_version v ON v.id = q.current_version_id
+         JOIN definition.published_questionnaire_version v ON v.id = q.current_version_id
         WHERE q.id = $1`,
       [INTAKE_QUESTIONNAIRE_ID],
     );

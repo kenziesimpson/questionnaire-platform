@@ -71,6 +71,13 @@
       "when": 1789337161837,
       "tag": "0009_publish_only_through_promote_draft",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789337333171,
+      "tag": "0010_execution_reads_published_versions_only",
+      "breakpoints": true
     }
   ]
 }

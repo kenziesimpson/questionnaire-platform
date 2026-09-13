@@ -30,6 +30,9 @@ the working rules are in [`.claude/skills/database/SKILL.md`](../../.claude/skil
   promotes the draft, writes `version_question_index`, moves the current-version pointer and calls
   `audit.record` in one call. `qp_definition` has no `UPDATE` on those columns. `publishDraft` takes the
   locks and runs `validateDraft` first, then calls it.
+- The execution side reads questionnaire versions only through `definition.published_questionnaire_version`,
+  a `security_barrier` view of published rows (id, questionnaire_id, version, title, snapshot,
+  format_version, published_at). `qp_execution` has no `SELECT` on the base `questionnaire_version` table.
 - `migrate.ts` is the one-shot runner the compose `migrate` service calls. It applies the migrations as
   `qp_owner` (`DATABASE_URL_OWNER`) and pre-creates the next 24 monthly `response` partitions.
 - `seed.ts` runs next, as `qp_definition` (`DATABASE_URL_DEFINITION`), and publishes the demo questionnaire

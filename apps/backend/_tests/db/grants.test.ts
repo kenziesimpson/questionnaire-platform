@@ -1,6 +1,6 @@
 import type pg from "pg";
 import { describe, expect, it } from "vitest";
-import { aPublishedQuestionnaire, aSession, insertResponse } from "./fixtures.js";
+import { aDraftWithOneItem, aPublishedQuestionnaire, aSession, insertResponse } from "./fixtures.js";
 import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
 
 const testDatabase = useTestDatabase();
@@ -10,6 +10,7 @@ const AUTHORING_TABLES = [
   "definition.question_version",
   "definition.question_version_option",
   "definition.questionnaire_item",
+  "definition.questionnaire_version",
 ] as const;
 
 const auditRecordCall = `SELECT audit.record('publish', NULL, NULL, NULL, 'intruder', NULL, NULL)`;
@@ -41,13 +42,13 @@ describe("qp_execution", () => {
     ]);
   });
 
-  it("reads published versions, questionnaires and the reverse index", async () => {
+  it("reads published versions through the view, questionnaires and the reverse index", async () => {
     const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
     const execution = await testDatabase.connect("execution");
 
     const snapshot = await execution.query(
       `SELECT v.snapshot FROM definition.questionnaire q
-         JOIN definition.questionnaire_version v ON v.id = q.current_version_id
+         JOIN definition.published_questionnaire_version v ON v.id = q.current_version_id
         WHERE q.id = $1`,
       [published.questionnaireId],
     );
@@ -57,6 +58,31 @@ describe("qp_execution", () => {
 
     expect(snapshot.rows[0].snapshot.questionnaireId).toBe(published.questionnaireId);
     expect(index.rowCount).toBe(1);
+  });
+
+  it("sees no drafts through published_questionnaire_version", async () => {
+    const definitionDb = testDatabase.database("definition");
+    const published = await aPublishedQuestionnaire(definitionDb);
+    const draft = await aDraftWithOneItem(definitionDb);
+    const execution = await testDatabase.connect("execution");
+
+    const visible = await execution.query<{ id: string }>(
+      `SELECT id FROM definition.published_questionnaire_version WHERE id = ANY($1::uuid[])`,
+      [[published.draftVersionId, draft.draftVersionId]],
+    );
+    const drafts = await execution.query(
+      `SELECT count(*)::int AS n FROM definition.published_questionnaire_version WHERE version IS NULL OR snapshot IS NULL`,
+    );
+
+    expect(visible.rows).toEqual([{ id: published.draftVersionId }]);
+    expect(drafts.rows[0].n).toBe(0);
+  });
+
+  it("still pins a session through the composite foreign key without reading the base table", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const execution = await testDatabase.connect("execution");
+
+    await expect(aSession(execution, published)).resolves.toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it("cannot UPDATE or DELETE a collected response", async () => {
@@ -92,6 +118,13 @@ describe("qp_definition", () => {
     await denied(definition, `SELECT 1 FROM execution.response LIMIT 1`);
     await denied(definition, `SELECT 1 FROM execution.session LIMIT 1`);
     await denied(definition, `SELECT 1 FROM execution.response_2026_09 LIMIT 1`);
+  });
+
+  it("holds no privilege on published_questionnaire_version, which exists for execution", async () => {
+    const definition = await testDatabase.connect("definition");
+
+    await denied(definition, `SELECT 1 FROM definition.published_questionnaire_version`);
+    await denied(definition, `UPDATE definition.published_questionnaire_version SET title = 'x'`);
   });
 
   it("holds no privilege on audit.event: SELECT, INSERT, UPDATE and DELETE all fail", async () => {
