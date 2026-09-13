@@ -84,6 +84,7 @@ describe("publishDraft", () => {
     );
     expect(index.rows).toEqual([{ question_id: draft.questionId, question_version: 1 }]);
     const events = await testDatabase.readAuditEvents();
+    expect(events.filter((event) => event.action === "publish")).toHaveLength(1);
     expect(events.at(-1)).toMatchObject({
       action: "publish",
       questionnaire_id: draft.questionnaireId,
@@ -91,6 +92,43 @@ describe("publishDraft", () => {
       version: 1,
       actor_id: "author-1",
     });
+  });
+
+  it("rolls the promotion back when the audit write fails", async () => {
+    const definitionDb = testDatabase.database("definition");
+    const draft = await aDraftWithOneItem(definitionDb);
+    const owner = await testDatabase.connect("owner");
+    await owner.query("SET ROLE audit_owner");
+    await owner.query(
+      `ALTER TABLE audit.event ADD CONSTRAINT test_audit_write_fails CHECK (actor_id IS DISTINCT FROM 'audit-must-fail') NOT VALID`,
+    );
+    try {
+      await expect(
+        publishDraft(definitionDb, {
+          questionnaireId: draft.questionnaireId,
+          expectedDraftRevision: draft.draftRevision,
+          actorId: "audit-must-fail",
+          traceId: null,
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await owner.query("ALTER TABLE audit.event DROP CONSTRAINT test_audit_write_fails");
+      await owner.query("RESET ROLE");
+    }
+
+    const client = await testDatabase.connect("definition");
+    const version = await client.query(`SELECT status FROM definition.questionnaire_version WHERE id = $1`, [
+      draft.draftVersionId,
+    ]);
+    const pointer = await client.query(`SELECT current_version_id FROM definition.questionnaire WHERE id = $1`, [
+      draft.questionnaireId,
+    ]);
+    const index = await client.query(`SELECT 1 FROM definition.version_question_index WHERE questionnaire_version_id = $1`, [
+      draft.draftVersionId,
+    ]);
+    expect(version.rows[0].status).toBe("draft");
+    expect(pointer.rows[0].current_version_id).toBeNull();
+    expect(index.rowCount).toBe(0);
   });
 
   it("refuses a stale draft revision and writes nothing", async () => {

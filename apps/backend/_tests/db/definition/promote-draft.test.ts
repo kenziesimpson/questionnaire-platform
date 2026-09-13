@@ -23,7 +23,7 @@ function snapshotFor(draft: DraftFixture, overrides: Record<string, unknown> = {
   };
 }
 
-const promote = `SELECT definition.promote_draft($1, $2::jsonb, 'attacker', NULL, NULL) AS version`;
+const promote = `SELECT definition.promote_draft($1, $2::jsonb) AS version`;
 
 async function publicationState(draft: DraftFixture) {
   const owner = await testDatabase.connect("owner");
@@ -92,7 +92,7 @@ describe("publishing outside promote_draft", () => {
 });
 
 describe("definition.promote_draft", () => {
-  it("promotes, indexes, moves the pointer and audits in one call", async () => {
+  it("promotes, indexes and moves the pointer in one call, and writes no audit row, which publishDraft owns", async () => {
     const draft = await aDraftWithOneItem(testDatabase.database("definition"));
     const definition = await testDatabase.connect("definition");
 
@@ -103,7 +103,7 @@ describe("definition.promote_draft", () => {
       status: "published",
       pointer: draft.draftVersionId,
       indexRows: 1,
-      publishEvents: 1,
+      publishEvents: 0,
     });
   });
 

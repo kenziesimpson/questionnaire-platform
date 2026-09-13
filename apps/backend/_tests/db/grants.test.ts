@@ -210,6 +210,14 @@ describe("audit.record", () => {
     expect(await testDatabase.readAuditEvents()).toEqual(before);
   });
 
+  it("is out of qp_owner's reach: no USAGE on audit, so it cannot call audit.record", async () => {
+    const owner = await testDatabase.connect("owner");
+    const usage = await owner.query(`SELECT has_schema_privilege('qp_owner', 'audit', 'USAGE') AS usage`);
+
+    expect(usage.rows[0].usage).toBe(false);
+    await denied(owner, auditRecordCall);
+  });
+
   it("only appends actions from the closed list", async () => {
     const definition = await testDatabase.connect("definition");
     await expectSqlState(

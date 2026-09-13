@@ -92,6 +92,13 @@
       "when": 1789337441750,
       "tag": "0012_response_matches_session_pinned_version",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789340061068,
+      "tag": "0013_publish_audit_written_by_application",
+      "breakpoints": true
     }
   ]
 }

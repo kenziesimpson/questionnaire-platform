@@ -10,6 +10,7 @@ import {
 } from "@qp/shared";
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { Value } from "typebox/value";
+import { recordAudit } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
 import {
   question,
@@ -183,17 +184,21 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
     }
 
     const promoted = await tx.execute<{ version: number }>(
-      sql`SELECT definition.promote_draft(
-            ${draft.id}::uuid,
-            ${JSON.stringify(definition)}::jsonb,
-            ${command.actorId}::text,
-            ${JSON.stringify({ itemCount: definition.items.length, draftRevision: draft.draftRevision })}::jsonb,
-            ${command.traceId}::text
-          ) AS version`,
+      sql`SELECT definition.promote_draft(${draft.id}::uuid, ${JSON.stringify(definition)}::jsonb) AS version`,
     );
     if (promoted.rows[0]?.version !== version) {
       throw new Error("promote_draft assigned a different version than the snapshot names");
     }
+
+    await recordAudit(tx, {
+      action: "publish",
+      questionnaireId: command.questionnaireId,
+      questionnaireVersionId: draft.id,
+      version,
+      actorId: command.actorId,
+      summary: { itemCount: definition.items.length, draftRevision: draft.draftRevision },
+      traceId: command.traceId,
+    });
 
     return { outcome: "published", questionnaireVersionId: draft.id, version, definition };
   });

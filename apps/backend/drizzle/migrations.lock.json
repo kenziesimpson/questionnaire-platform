@@ -11,5 +11,6 @@
   "0009_publish_only_through_promote_draft.sql": "26a14b1a7d6b49829ac2fcac5bf219196dc4c1f0117db9a086c4f946b3707cd1",
   "0010_execution_reads_published_versions_only.sql": "ddaa113ccdd6939116d0a73b38e5f0e5e2f40f932d8b48e8cd1d88fec0dcd816",
   "0011_session_pinned_version_key.sql": "0c4873f1af0a5319ee5c2310f51c795d6aa143f08e0c0cfb6072e65d2164d0b8",
-  "0012_response_matches_session_pinned_version.sql": "be7c3e3eb75c9ec92649080dfe365a40050c25b2b9a6317c4862ea686a81fa75"
+  "0012_response_matches_session_pinned_version.sql": "be7c3e3eb75c9ec92649080dfe365a40050c25b2b9a6317c4862ea686a81fa75",
+  "0013_publish_audit_written_by_application.sql": "bbeef27b8f78980b2523b4d483dc6f766de99126ea3cad6caa252e3b1990edb5"
 }

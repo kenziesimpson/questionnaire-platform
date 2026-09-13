@@ -27,9 +27,9 @@ the working rules are in [`.claude/skills/database/SKILL.md`](../../.claude/skil
   migrations: `0000_schema.sql` is generated from `schema.ts`, and each later file is either generated or a
   `--custom` migration for triggers, grants, partitions or functions, named for the guarantee it carries.
 - A published version exists only through `definition.promote_draft`, a `SECURITY DEFINER` function that
-  promotes the draft, writes `version_question_index`, moves the current-version pointer and calls
-  `audit.record` in one call. `qp_definition` has no `UPDATE` on those columns. `publishDraft` takes the
-  locks and runs `validateDraft` first, then calls it.
+  promotes the draft, writes `version_question_index` and moves the current-version pointer in one call.
+  `qp_definition` has no `UPDATE` on those columns. `publishDraft` takes the locks, runs `validateDraft`,
+  calls the function, then writes the `publish` audit row in the same transaction.
 - The execution side reads questionnaire versions only through `definition.published_questionnaire_version`,
   a `security_barrier` view of published rows (id, questionnaire_id, version, title, snapshot,
   format_version, published_at). `qp_execution` has no `SELECT` on the base `questionnaire_version` table.
