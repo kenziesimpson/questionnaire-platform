@@ -116,8 +116,12 @@ describe("validateDraft — referential integrity and forward references (§5.2,
 
 describe("validateDraft — exact satisfiability by domain intersection (§5.3)", () => {
   it.each<[string, QuestionInput, Predicate, boolean]>([
-    ["text answered and notAnswered", questions.text(), all(onSrc({ type: "text", op: "answered" }), onSrc({ type: "text", op: "notAnswered" })), false],
-    ["text answered alone", questions.text(), all(onSrc({ type: "text", op: "answered" })), true],
+    ["text answered true and answered false", questions.text(), all(onSrc({ type: "text", op: "answered", value: true }), onSrc({ type: "text", op: "answered", value: false })), false],
+    ["text answered true alone", questions.text(), all(onSrc({ type: "text", op: "answered", value: true })), true],
+    ["text answered false alone", questions.text(), all(onSrc({ type: "text", op: "answered", value: false })), true],
+    ["text answered false twice", questions.text(), all(onSrc({ type: "text", op: "answered", value: false }), onSrc({ type: "text", op: "answered", value: false })), true],
+    ["text answered true twice", questions.text(), all(onSrc({ type: "text", op: "answered", value: true }), onSrc({ type: "text", op: "answered", value: true })), true],
+    ["text answered true or answered false", questions.text(), any(onSrc({ type: "text", op: "answered", value: true }), onSrc({ type: "text", op: "answered", value: false })), true],
     ["single_choice is a and is b", questions.single(), all(onSrc({ type: "single_choice", op: "is", optionId: "a" }), onSrc({ type: "single_choice", op: "is", optionId: "b" })), false],
     ["single_choice is a and isNot b", questions.single(), all(onSrc({ type: "single_choice", op: "is", optionId: "a" }), onSrc({ type: "single_choice", op: "isNot", optionId: "b" })), true],
     ["single_choice isAnyOf [a] and isNoneOf [a, b]", questions.single(), all(onSrc({ type: "single_choice", op: "isAnyOf", optionIds: ["a"] }), onSrc({ type: "single_choice", op: "isNoneOf", optionIds: ["a", "b"] })), false],
@@ -243,11 +247,11 @@ describe("validateDraft — reachability through the dependency closure (§5.3)"
     ]);
   });
 
-  it("requires a text item to be shown for notAnswered, so it inherits that item's gate", () => {
+  it("requires a text item to be shown for answered false, so it inherits that item's gate", () => {
     const items = [
       anItem("itm_01", questions.yesNo()),
       anItem("itm_02", questions.text(), { visibleWhen: all(is("itm_01", "yes")) }),
-      anItem("itm_03", questions.text(), { visibleWhen: all({ type: "text", itemId: "itm_02", op: "notAnswered" }, is("itm_01", "no")) }),
+      anItem("itm_03", questions.text(), { visibleWhen: all({ type: "text", itemId: "itm_02", op: "answered", value: false }, is("itm_01", "no")) }),
     ];
     expect(problemsOf(items)).toEqual([{ itemId: "itm_03", code: "draft/unreachable" }]);
   });

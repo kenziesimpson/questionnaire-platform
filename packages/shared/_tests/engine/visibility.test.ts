@@ -36,9 +36,9 @@ describe("evaluateVisibility — traversal feeds each condition what was shown",
     expect(targetShown(condition, answer, GATE_CLOSED)).toBe(false);
   });
 
-  it("text notAnswered follows the referenced item's gate", () => {
-    expect(targetShown(conditions.text("notAnswered"), null)).toBe(true);
-    expect(targetShown(conditions.text("notAnswered"), null, GATE_CLOSED)).toBe(false);
+  it("text answered false follows the referenced item's gate", () => {
+    expect(targetShown(conditions.text(false), null)).toBe(true);
+    expect(targetShown(conditions.text(false), null, GATE_CLOSED)).toBe(false);
   });
 
   it("treats an explicit null and an absent key identically", () => {
@@ -51,14 +51,14 @@ describe("evaluateVisibility — traversal feeds each condition what was shown",
   it("does not read inherited properties as answers when an itemId shares a name with Object.prototype", () => {
     const definition = aDefinition([
       anItem("constructor", questions.text()),
-      anItem("target", questions.text(), { visibleWhen: all({ type: "text", itemId: "constructor", op: "answered" }) }),
+      anItem("target", questions.text(), { visibleWhen: all({ type: "text", itemId: "constructor", op: "answered", value: true }) }),
     ]);
     expect(evaluateVisibility(definition, {}).has("target")).toBe(false);
   });
 
   it("evaluates a reference to a later item as not shown", () => {
     const definition = aDefinition([
-      anItem("first", questions.text(), { visibleWhen: all({ type: "text", itemId: "second", op: "answered" }) }),
+      anItem("first", questions.text(), { visibleWhen: all({ type: "text", itemId: "second", op: "answered", value: true }) }),
       anItem("second", questions.text()),
     ]);
     expect([...evaluateVisibility(definition, { second: textAnswer("x") })]).toEqual(["second"]);

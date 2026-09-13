@@ -74,7 +74,7 @@ export function conditionHolds(condition: Condition, referenced: ReferencedItem)
   const { answer } = referenced;
   switch (condition.type) {
     case "text":
-      return condition.op === "answered" ? answer?.type === "text" : answer === undefined;
+      return condition.value ? answer?.type === "text" : answer === undefined;
     case "single_choice":
       return answer?.type === "single_choice" && singleChoiceHolds(condition, answer.optionId);
     case "multiple_choice":

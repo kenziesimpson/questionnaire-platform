@@ -23,10 +23,12 @@ const hiddenWith = (answer: ClientAnswerValue | undefined) => ({ shown: false, a
 
 describe("conditionHolds — every operator against every type", () => {
   it("covers every operator of every response type", () => {
-    const covered = new Set(OPERATOR_CASES.map(([, condition]) => `${condition.type}.${condition.op}`));
+    const operatorKey = (condition: Condition) =>
+      condition.type === "text" ? `text.answered=${condition.value}` : `${condition.type}.${condition.op}`;
+    const covered = new Set(OPERATOR_CASES.map(([, condition]) => operatorKey(condition)));
     expect([...covered].sort()).toEqual(
       [
-        "text.answered", "text.notAnswered",
+        "text.answered=true", "text.answered=false",
         "single_choice.is", "single_choice.isNot", "single_choice.isAnyOf", "single_choice.isNoneOf",
         "multiple_choice.includes", "multiple_choice.excludes", "multiple_choice.includesAnyOf", "multiple_choice.includesAllOf",
         "number.eq", "number.neq", "number.lt", "number.lte", "number.gt", "number.gte", "number.between",
@@ -42,9 +44,9 @@ describe("conditionHolds — every operator against every type", () => {
 });
 
 describe("conditionHolds — a condition on a question that was not answered or not shown is false", () => {
-  const exceptNotAnswered = OPERATOR_CASES.filter(([, condition]) => condition.op !== "notAnswered");
+  const exceptAnsweredFalse = OPERATOR_CASES.filter(([, condition]) => !(condition.type === "text" && !condition.value));
 
-  it.each(exceptNotAnswered)("unanswered: %s → false", (_, condition) => {
+  it.each(exceptAnsweredFalse)("unanswered: %s → false", (_, condition) => {
     expect(conditionHolds(condition, shownWith(undefined))).toBe(false);
   });
 
@@ -66,11 +68,17 @@ describe("conditionHolds — a condition on a question that was not answered or 
     for (const condition of negatives) expect(conditionHolds(condition, shownWith(undefined))).toBe(false);
   });
 
-  it("text notAnswered holds only while the referenced item is shown and unanswered", () => {
-    const notAnswered = conditions.text("notAnswered");
-    expect(conditionHolds(notAnswered, shownWith(undefined))).toBe(true);
-    expect(conditionHolds(notAnswered, hiddenWith(undefined))).toBe(false);
-    expect(conditionHolds(notAnswered, shownWith(textAnswer("x")))).toBe(false);
+  it.each<[string, boolean, { shown: boolean; answer: ClientAnswerValue | undefined }, boolean]>([
+    ["value true, shown and answered", true, shownWith(textAnswer("x")), true],
+    ["value true, shown and unanswered", true, shownWith(undefined), false],
+    ["value true, hidden with a stale answer", true, hiddenWith(textAnswer("x")), false],
+    ["value true, hidden and unanswered", true, hiddenWith(undefined), false],
+    ["value false, shown and answered", false, shownWith(textAnswer("x")), false],
+    ["value false, shown and unanswered", false, shownWith(undefined), true],
+    ["value false, hidden with a stale answer", false, hiddenWith(textAnswer("x")), false],
+    ["value false, hidden and unanswered", false, hiddenWith(undefined), false],
+  ])("text answered, %s → %s", (_, value, referenced, expected) => {
+    expect(conditionHolds(conditions.text(value), referenced)).toBe(expected);
   });
 });
 

@@ -9,7 +9,7 @@ export const SOURCE_BY_TYPE = {
   date: "src_date",
 } as const satisfies Record<Condition["type"], string>;
 
-const text = (op: "answered" | "notAnswered"): Condition => ({ type: "text", itemId: "src_text", op });
+const text = (value: boolean): Condition => ({ type: "text", itemId: "src_text", op: "answered", value });
 const single = (op: "is" | "isNot", optionId: string): Condition => ({ type: "single_choice", itemId: "src_single", op, optionId });
 const singleList = (op: "isAnyOf" | "isNoneOf", optionIds: string[]): Condition => ({ type: "single_choice", itemId: "src_single", op, optionIds });
 const multi = (op: "includes" | "excludes", optionId: string): Condition => ({ type: "multiple_choice", itemId: "src_multi", op, optionId });
@@ -30,8 +30,8 @@ export const day = (value: string): ClientAnswerValue => ({ type: "date", date: 
 export type OperatorCase = [label: string, condition: Condition, answer: ClientAnswerValue, holds: boolean];
 
 export const OPERATOR_CASES: OperatorCase[] = [
-  ["text answered, answered", text("answered"), textAnswer("Boots"), true],
-  ["text notAnswered, answered", text("notAnswered"), textAnswer("Boots"), false],
+  ["text answered true, answered", text(true), textAnswer("Boots"), true],
+  ["text answered false, answered", text(false), textAnswer("Boots"), false],
   ["single_choice is, matching", single("is", "a"), pick("a"), true],
   ["single_choice is, other option", single("is", "a"), pick("b"), false],
   ["single_choice isNot, matching", single("isNot", "a"), pick("a"), false],

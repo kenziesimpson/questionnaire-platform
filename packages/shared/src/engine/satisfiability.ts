@@ -22,8 +22,7 @@ function ofType<T extends Condition["type"]>(conditions: readonly Condition[], t
 }
 
 function textSatisfiable(conditions: readonly ConditionOf<"text">[]): boolean {
-  const ops = new Set(conditions.map((condition) => condition.op));
-  return !(ops.has("answered") && ops.has("notAnswered"));
+  return new Set(conditions.map((condition) => condition.value)).size <= 1;
 }
 
 function singleChoiceSatisfiable(question: QuestionOf<"single_choice">, conditions: readonly ConditionOf<"single_choice">[]): boolean {
