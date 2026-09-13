@@ -1,6 +1,6 @@
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
-import { ResponseRow, type ClientAnswers, type ClientAnswerValue } from "../../src/domain/answer.js";
+import { ClientAnswerValue, ResponseRow, type ClientAnswers } from "../../src/domain/answer.js";
 import type { QuestionContent } from "../../src/domain/question.js";
 import { INTAKE_QUESTION_IDS, intakeDefinition } from "../../src/demo/intake.js";
 import { validateAnswer, validateSubmission } from "../../src/engine/answer-validation.js";
@@ -197,6 +197,18 @@ describe("validateSubmission — the server's authority over the reachable path"
   it("is all-or-nothing: one invalid answer yields no rows", () => {
     const result = validateSubmission(v1, { itm_01: no, itm_04: { type: "text", text: "x".repeat(121) } }, DATES);
     expect(result).toEqual({ valid: false, items: [{ itemId: "itm_04", code: "text/too-long" }] });
+  });
+
+  it.each<[string, ClientAnswerValue]>([
+    ["missing", { type: "single_choice", optionId: "other" }],
+    ["empty", { type: "single_choice", optionId: "other", otherText: "" }],
+    ["whitespace-only", { type: "single_choice", optionId: "other", otherText: " \t " }],
+  ])("rejects a %s freeform other text with the same item error, which the answer schema lets through", (_, answer) => {
+    expect(Value.Check(ClientAnswerValue, answer)).toBe(true);
+    expect(validateSubmission(v1, { itm_01: yes, itm_02: answer, itm_03: { type: "date", date: "2019-04-02" }, itm_04: pharmacy }, DATES)).toEqual({
+      valid: false,
+      items: [{ itemId: "itm_02", code: "choice/other-text-required" }],
+    });
   });
 
   it("rejects duplicate option ids and names the item (#34)", () => {

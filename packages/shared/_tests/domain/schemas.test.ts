@@ -172,6 +172,13 @@ describe("ClientAnswerValue and ClientAnswers on the wire", () => {
     expect(Value.Check(ClientAnswerValue, { type: "multiple_choice", optionIds: ["a", "a"] })).toBe(true);
   });
 
+  it("leaves blank otherText to the submit validator's 422 choice/other-text-required, not a schema 400", () => {
+    for (const otherText of ["", "   "]) {
+      expect(Value.Check(ClientAnswerValue, { type: "single_choice", optionId: "other", otherText })).toBe(true);
+      expect(Value.Check(ClientAnswerValue, { type: "multiple_choice", optionIds: ["other"], otherText })).toBe(true);
+    }
+  });
+
   it("rejects an empty text answer, which the response shape constraint would also refuse", () => {
     expect(Value.Check(ClientAnswerValue, { type: "text", text: "" })).toBe(false);
   });
@@ -188,6 +195,10 @@ describe("ResponseRow — the validated row the digest reads", () => {
   it("stores single_choice as a one-element optionIds array, matching the column", () => {
     expect(Value.Check(ResponseRow, { ...head, type: "single_choice", optionIds: ["other"], otherText: "Asthma" })).toBe(true);
     expect(Value.Check(ResponseRow, { ...head, type: "single_choice", optionIds: ["a", "b"] })).toBe(false);
+  });
+
+  it("never carries an empty otherText, since the validator rejects blank text before a row exists", () => {
+    expect(Value.Check(ResponseRow, { ...head, type: "single_choice", optionIds: ["other"], otherText: "" })).toBe(false);
   });
 
   it("carries the server-filled unit on a number row", () => {
