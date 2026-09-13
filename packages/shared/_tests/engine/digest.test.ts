@@ -20,7 +20,7 @@ const rows: ResponseRow[] = [
   },
   { itemId: "itm_03", questionId: questionIdFor("itm_03"), questionVersion: 1, type: "date", date: "2019-04-02" },
   { itemId: "itm_04", questionId: questionIdFor("itm_04"), questionVersion: 1, type: "text", text: 'Boots, "High" St | 2' },
-  { itemId: "itm_05", questionId: questionIdFor("itm_05"), questionVersion: 2, type: "number", number: "72.50", unit: "kg" },
+  { itemId: "itm_05", questionId: questionIdFor("itm_05"), questionVersion: 2, type: "number", number: "72.5", unit: "kg" },
 ];
 
 function reversedKeys<T extends object>(value: T): T {
@@ -37,7 +37,7 @@ describe("canonicalResponseRows — the four rules of [[7-application-boundary]]
         { itemId: "itm_02", type: "multiple_choice", optionIds: ["opt_diabetes", "opt_hyperten", "other"], otherText: "Asthma" },
         { itemId: "itm_03", type: "date", date: "2019-04-02" },
         { itemId: "itm_04", type: "text", text: 'Boots, "High" St | 2' },
-        { itemId: "itm_05", type: "number", number: "72.50", unit: "kg" },
+        { itemId: "itm_05", type: "number", number: "72.5", unit: "kg" },
       ]),
     );
   });
@@ -70,7 +70,7 @@ describe("responseDigest", () => {
     ["a different otherText", (r) => ((r[1] as { otherText: string }).otherText = "Asthma ")],
     ["a different date", (r) => ((r[2] as { date: string }).date = "2019-04-03")],
     ["a different text", (r) => ((r[3] as { text: string }).text = "Boots")],
-    ["a different decimal string for the same value", (r) => ((r[4] as { number: string }).number = "72.5")],
+    ["a different number", (r) => ((r[4] as { number: string }).number = "72.51")],
     ["a different unit", (r) => ((r[4] as { unit: string }).unit = "lb")],
     ["an extra answer", (r) => r.push({ itemId: "itm_06", questionId: questionIdFor("itm_06"), questionVersion: 1, type: "text", text: "x" })],
     ["a missing answer", (r) => r.pop()],
@@ -110,10 +110,33 @@ describe("the digest across the submit pipeline", () => {
     expect(await digestOf(reserialized)).toBe(await digestOf(body));
   });
 
-  it("normalizes -0 to the 0 Postgres numeric stores, so the digest recomputed from the stored row matches", async () => {
-    const counted = aDefinition([anItem("itm_count", questions.number({ numberKind: "integer" }), { required: true })]);
-    const result = validateSubmission(counted, { itm_count: { type: "number", value: "-0" } }, DATES);
-    const stored: ResponseRow[] = [{ itemId: "itm_count", questionId: questionIdFor("itm_count"), questionVersion: 1, type: "number", number: "0" }];
-    expect(result.valid && hex(await responseDigest(result.rows))).toBe(hex(await responseDigest(stored)));
+  describe("decimals are canonicalized before the row exists, so equal values are one answer", () => {
+    const weighed = aDefinition([anItem("itm_weight", questions.number({ unit: "kg" }), { required: true })]);
+
+    async function weightDigest(value: string): Promise<string> {
+      const result = validateSubmission(weighed, { itm_weight: { type: "number", value } }, DATES);
+      if (!result.valid) throw new Error("fixture answers should be valid");
+      return hex(await responseDigest(result.rows));
+    }
+
+    const storedWeight = (number: string): ResponseRow[] => [
+      { itemId: "itm_weight", questionId: questionIdFor("itm_weight"), questionVersion: 1, type: "number", number, unit: "kg" },
+    ];
+
+    it("72.5, 72.50 and 72.500 digest identically, and 72.51 does not", async () => {
+      const digests = await Promise.all(["72.5", "72.50", "72.500"].map(weightDigest));
+      expect(new Set(digests).size).toBe(1);
+      expect(await weightDigest("72.51")).not.toBe(digests[0]);
+    });
+
+    it("the digest recomputed from the stored canonical row matches the digest taken at submit", async () => {
+      expect(await weightDigest("72.500")).toBe(hex(await responseDigest(storedWeight("72.5"))));
+    });
+
+    it("-0 and -0.0 are stored and digested as 0", async () => {
+      const zero = hex(await responseDigest(storedWeight("0")));
+      expect(await weightDigest("-0")).toBe(zero);
+      expect(await weightDigest("-0.0")).toBe(zero);
+    });
   });
 });

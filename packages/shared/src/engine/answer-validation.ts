@@ -3,7 +3,7 @@ import type { Item } from "../domain/definition.js";
 import type { Option, QuestionContent } from "../domain/question.js";
 import type { ItemError, SubmissionItemCode } from "../problems.js";
 import { addDays, type RelativeDateContext } from "./calendar.js";
-import { compareDecimalToNumber, isIntegerDecimal, withoutNegativeZero } from "./decimal.js";
+import { canonicalDecimal, compareDecimalToNumber, isIntegerDecimal } from "./decimal.js";
 import { answerFor, evaluateVisibility, type HasItems } from "./visibility.js";
 
 type QuestionOf<T extends QuestionContent["type"]> = Extract<QuestionContent, { type: T }>;
@@ -26,6 +26,10 @@ function textCodes(question: QuestionOf<"text">, answer: ClientAnswerValueOf<"te
   return codes;
 }
 
+function hasVisibleCharacter(text: string | undefined): boolean {
+  return text !== undefined && /\S/u.test(text);
+}
+
 function isFreeformOther(options: readonly Option[], optionIds: readonly string[]): boolean {
   return optionIds.includes(OTHER_OPTION_ID) && options.some((o) => o.optionId === OTHER_OPTION_ID && o.freeform === true);
 }
@@ -39,7 +43,9 @@ function choiceCodes(
   const codes: SubmissionItemCode[] = [];
   if (optionIds.some((id) => !known.has(id))) codes.push("choice/unknown-option");
   if (new Set(optionIds).size !== optionIds.length) codes.push("choice/duplicate-option");
-  if (otherText !== undefined && !isFreeformOther(options, optionIds)) codes.push("choice/other-text-without-other");
+  const freeformOtherSelected = isFreeformOther(options, optionIds);
+  if (otherText !== undefined && !freeformOtherSelected) codes.push("choice/other-text-without-other");
+  if (freeformOtherSelected && !hasVisibleCharacter(otherText)) codes.push("choice/other-text-required");
   return codes;
 }
 
@@ -118,7 +124,7 @@ function responseRow(item: Item, answer: ClientAnswerValue): ResponseRow {
       return { ...head, type: "multiple_choice", optionIds: [...answer.optionIds], ...otherTextField(answer.otherText) };
     case "number": {
       const unit = item.question.type === "number" ? item.question.unit : undefined;
-      return { ...head, type: "number", number: withoutNegativeZero(answer.value), ...(unit === undefined ? {} : { unit }) };
+      return { ...head, type: "number", number: canonicalDecimal(answer.value) ?? answer.value, ...(unit === undefined ? {} : { unit }) };
     }
     case "date":
       return { ...head, type: "date", date: answer.date };

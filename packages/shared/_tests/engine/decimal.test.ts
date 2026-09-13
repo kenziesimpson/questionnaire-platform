@@ -3,8 +3,8 @@ import {
   compareDecimals,
   compareDecimalToNumber,
   decimalFromNumber,
+  canonicalDecimal,
   isIntegerDecimal,
-  withoutNegativeZero,
 } from "../../src/engine/decimal.js";
 
 describe("exact decimal comparison (#42)", () => {
@@ -38,16 +38,31 @@ describe("exact decimal comparison (#42)", () => {
     expect(decimalFromNumber(value)).toBe(expected);
   });
 
-  it("treats only a decimal without a point as an integer", () => {
+  it("treats a decimal whose canonical form has no fractional part as an integer", () => {
     expect(isIntegerDecimal("-12")).toBe(true);
-    expect(isIntegerDecimal("12.0")).toBe(false);
+    expect(isIntegerDecimal("12.0")).toBe(true);
+    expect(isIntegerDecimal("12.000")).toBe(true);
+    expect(isIntegerDecimal("12.01")).toBe(false);
     expect(isIntegerDecimal("1e3")).toBe(false);
   });
 
-  it("drops the sign from negative zero, which Postgres numeric does not store, and nothing else", () => {
-    expect(withoutNegativeZero("-0")).toBe("0");
-    expect(withoutNegativeZero("-0.00")).toBe("0.00");
-    expect(withoutNegativeZero("-0.01")).toBe("-0.01");
-    expect(withoutNegativeZero("72.50")).toBe("72.50");
+  it.each([
+    ["72.50", "72.5"],
+    ["72.500", "72.5"],
+    ["72.5", "72.5"],
+    ["72.0", "72"],
+    ["100", "100"],
+    ["-0", "0"],
+    ["-0.0", "0"],
+    ["0.000", "0"],
+    ["-0.010", "-0.01"],
+    ["-12.00", "-12"],
+  ])("canonicalizes %s to %s: trailing fractional zeros and point stripped, no negative zero", (input, expected) => {
+    expect(canonicalDecimal(input)).toBe(expected);
+  });
+
+  it("has no canonical form for anything that is not a wire decimal", () => {
+    expect(canonicalDecimal("1e3")).toBeUndefined();
+    expect(canonicalDecimal("01")).toBeUndefined();
   });
 });

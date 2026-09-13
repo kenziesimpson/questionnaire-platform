@@ -22,7 +22,15 @@ describe("validateAnswer — per-type constraints", () => {
     ["single_choice known option", questions.single(), { type: "single_choice", optionId: "a" }, []],
     ["single_choice unknown option", questions.single(), { type: "single_choice", optionId: "z" }, ["choice/unknown-option"]],
     ["single_choice other with text", questions.single(), { type: "single_choice", optionId: "other", otherText: "Asthma" }, []],
-    ["single_choice other without text", questions.single(), { type: "single_choice", optionId: "other" }, []],
+    ["single_choice other without text", questions.single(), { type: "single_choice", optionId: "other" }, ["choice/other-text-required"]],
+    ["single_choice other with empty text", questions.single(), { type: "single_choice", optionId: "other", otherText: "" }, ["choice/other-text-required"]],
+    [
+      "single_choice other with whitespace-only text",
+      questions.single(),
+      { type: "single_choice", optionId: "other", otherText: " \t\n " },
+      ["choice/other-text-required"],
+    ],
+    ["single_choice other with padded text", questions.single(), { type: "single_choice", optionId: "other", otherText: "  Asthma " }, []],
     [
       "single_choice otherText on a non-other option",
       questions.single(),
@@ -67,6 +75,25 @@ describe("validateAnswer — per-type constraints", () => {
       ["choice/duplicate-option", "choice/too-few"],
     ],
     [
+      "multiple_choice other selected without text",
+      questions.multiple(),
+      { type: "multiple_choice", optionIds: ["a", "other"] },
+      ["choice/other-text-required"],
+    ],
+    [
+      "multiple_choice other selected with whitespace-only text",
+      questions.multiple(),
+      { type: "multiple_choice", optionIds: ["other"], otherText: "   " },
+      ["choice/other-text-required"],
+    ],
+    ["multiple_choice other selected with text", questions.multiple(), { type: "multiple_choice", optionIds: ["other", "b"], otherText: "Rash" }, []],
+    [
+      "multiple_choice whitespace-only otherText without other selected",
+      questions.multiple(),
+      { type: "multiple_choice", optionIds: ["a"], otherText: " " },
+      ["choice/other-text-without-other"],
+    ],
+    [
       "multiple_choice otherText without other selected",
       questions.multiple(),
       { type: "multiple_choice", optionIds: ["a"], otherText: "x" },
@@ -74,7 +101,9 @@ describe("validateAnswer — per-type constraints", () => {
     ],
     ["number integer", questions.number({ numberKind: "integer" }), { type: "number", value: "72" }, []],
     ["number integer with a fraction", questions.number({ numberKind: "integer" }), { type: "number", value: "72.5" }, ["number/not-integer"]],
-    ["number integer written with a decimal point", questions.number({ numberKind: "integer" }), { type: "number", value: "72.0" }, ["number/not-integer"]],
+    ["number integer written with a zero fraction", questions.number({ numberKind: "integer" }), { type: "number", value: "72.0" }, []],
+    ["number integer with a non-zero fraction after zeros", questions.number({ numberKind: "integer" }), { type: "number", value: "72.0001" }, ["number/not-integer"]],
+    ["number max compared exactly, not after rounding", questions.number({ max: 72.5 }), { type: "number", value: "72.5000000000000001" }, ["number/out-of-range"]],
     ["number float", questions.number(), { type: "number", value: "72.5" }, []],
     ["number at the inclusive bounds", questions.number({ min: 0.5, max: 250 }), { type: "number", value: "250.00" }, []],
     ["number below min", questions.number({ min: 0.5 }), { type: "number", value: "0.49" }, ["number/out-of-range"]],
@@ -185,17 +214,30 @@ describe("validateSubmission — the server's authority over the reachable path"
     ]);
     const result = validateSubmission(
       definition,
-      { itm_height: { type: "number", value: "180.50" }, itm_count: { type: "number", value: "-0" } },
+      { itm_height: { type: "number", value: "180.5" }, itm_count: { type: "number", value: "3" } },
       DATES,
     );
     expect(result).toMatchObject({
       valid: true,
       rows: [
-        { itemId: "itm_height", type: "number", number: "180.50", unit: "cm" },
-        { itemId: "itm_count", type: "number", number: "0" },
+        { itemId: "itm_height", type: "number", number: "180.5", unit: "cm" },
+        { itemId: "itm_count", type: "number", number: "3" },
       ],
     });
     if (result.valid) expect(result.rows[1]).not.toHaveProperty("unit");
+  });
+
+  it.each([
+    ["72.50", "float", "72.5"],
+    ["72.500", "float", "72.5"],
+    ["72.0", "integer", "72"],
+    ["-0", "integer", "0"],
+    ["-0.0", "float", "0"],
+    ["-12.340", "float", "-12.34"],
+  ] as const)("stores the canonical decimal: %s on a %s question → %s", (value, numberKind, stored) => {
+    const definition = aDefinition([anItem("itm_n", questions.number({ numberKind }), { required: true })]);
+    const result = validateSubmission(definition, { itm_n: { type: "number", value } }, DATES);
+    expect(result).toMatchObject({ valid: true, rows: [{ itemId: "itm_n", type: "number", number: stored }] });
   });
 
   it("keeps a single_choice as a one-element optionIds array, matching the column", () => {

@@ -13,7 +13,7 @@ export * from "./domain/session.js";
 export * from "./problems.js";
 export * from "./sensitive.js";
 export * from "./engine/calendar.js";
-export { compareDecimals, compareDecimalToNumber, decimalFromNumber, isIntegerDecimal } from "./engine/decimal.js";
+export { canonicalDecimal, compareDecimals, compareDecimalToNumber, decimalFromNumber, isIntegerDecimal } from "./engine/decimal.js";
 export { evaluateVisibility, visibleAnswers, visibleItems, type HasItems } from "./engine/visibility.js";
 export { validateAnswer, validateSubmission, type SubmissionValidation } from "./engine/answer-validation.js";
 export { canonicalResponseRows, responseDigest } from "./engine/digest.js";

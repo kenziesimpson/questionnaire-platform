@@ -55,11 +55,14 @@ export function compareDecimalToNumber(decimal: string, value: number): number |
   return compareDecimals(decimal, decimalFromNumber(value));
 }
 
-export function isIntegerDecimal(decimal: string): boolean {
-  return decimalParts(decimal) !== undefined && !decimal.includes(".");
+export function canonicalDecimal(decimal: string): string | undefined {
+  const parts = decimalParts(decimal);
+  if (!parts) return undefined;
+  const sign = parts.negative ? "-" : "";
+  return parts.fraction === "" ? `${sign}${parts.integer}` : `${sign}${parts.integer}.${parts.fraction}`;
 }
 
-export function withoutNegativeZero(decimal: string): string {
-  const parts = decimalParts(decimal);
-  return parts && !parts.negative && decimal.startsWith("-") ? decimal.slice(1) : decimal;
+export function isIntegerDecimal(decimal: string): boolean {
+  const canonical = canonicalDecimal(decimal);
+  return canonical !== undefined && !canonical.includes(".");
 }
