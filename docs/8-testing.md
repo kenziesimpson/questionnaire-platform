@@ -233,6 +233,7 @@ Tracked as a Phase 2 item in [[4-implementation-plan]].
 | --- | --- | --- | --- |
 | `pino`, `pino/*`, `pino-*` and `@opentelemetry/*` (including type-only) are rejected outside `packages/telemetry`, including inside backend modules where the module rule replaces the base options; allowed inside it | `tests/lint-boundaries.test.ts` | Layer 1 lint rule | No respondent answer in telemetry |
 | `modules/definition` rejects sibling, deep-relative, `modules/`-path and type-only imports of `modules/execution`, and the reverse; `@qp/shared`, in-module imports and look-alike paths pass | `tests/lint-boundaries.test.ts` | [[7-application-boundary#3.1 Module encapsulation]] | The definition/execution barrier |
+| No tracked `*.ts`, `*.tsx`, `*.js`, `*.mjs`, `*.json`, `*.md`, `*.sql` or `*.css` file contains a NUL byte; the selection includes known text files and no binary assets such as images | `tests/text-files.test.ts` | Source stays diffable text: a literal NUL made git and GitHub treat `engine/draft-validation.ts` as binary, hiding its diffs from review | — repo hygiene |
 
 ### Wave 1b — Track 1: engine and validators
 
