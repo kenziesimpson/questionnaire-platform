@@ -37,7 +37,7 @@ erDiagram
 - **snake_case columns**, via Drizzle's `casing: 'snake_case'`, so the TypeScript and the SQL can each read naturally.
 - **UUIDv7 surrogate primary keys, generated in the application.** Postgres 16 has no `uuidv7()` and we are not adding an extension for it. Time-ordered ids give index locality on `response`, which is the only table with write volume.
 - **`execution.session.id` is UUIDv4, not v7.** [[7-application-boundary#7. Access model and data barriers]] makes the session id a bearer capability; a capability should carry no ordering signal and no creation timestamp.
-- **`item_id` and `option_id` stay authored `text` keys, not uuids.** They appear inside the evidentiary snapshot and inside stored responses, and both are read by humans when something goes wrong. `question_id` is a uuid because a question is a row in a bank rather than a key inside a document.
+- **`item_id` and `option_id` stay authored `text` keys, not uuids.** They appear inside the evidentiary snapshot and inside stored responses, and both are read by humans when something goes wrong. `question_id` is a uuid because a question is a row in a bank rather than a key inside a document, and `question.key` is **not** carried into the snapshot alongside it ([[2-design-doc#17. Decisions Log]] #35).
 
 ### 2.1 Where the JSONB line falls
 
@@ -198,7 +198,7 @@ CREATE TABLE definition.question_version (   -- append-only (Decisions Log #13)
   question_id uuid NOT NULL REFERENCES definition.question(id),
   version     int  NOT NULL CHECK (version >= 1),
   type        text NOT NULL CHECK (type IN
-                ('text','single_choice','multiple_choice','number','date','yes_no')),
+                ('text','single_choice','multiple_choice','number','date')),
   prompt      text NOT NULL,
   constraints jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_by  text,
@@ -222,7 +222,10 @@ CREATE UNIQUE INDEX qvo_one_freeform
   ON definition.question_version_option (question_id, version) WHERE freeform;
 ```
 
-`yes_no` seeds option rows with the reserved ids `yes` / `no` like any other choice question — one storage shape, per Decisions Log #10.
+There is no `yes_no` type. A yes/no question is a `single_choice` with two options, created by an editor
+template that seeds the reserved ids `yes` / `no` with editable labels — one storage shape and one operator
+set, per Decisions Log #36 (superseding #10). Nothing in the schema enforces the reserved ids; see the note
+on option-id stability below, which is the same tier of guarantee.
 
 `freeform_is_other` and `qvo_one_freeform` close a gap between the boolean and the format doc. [[5-questionnaire-format#2.3 The `other` option]] treats `other` as a reserved id that rules test by name, but a bare `freeform boolean` would allow `opt_misc` to be marked freeform — an option that can never carry `otherText`, because the response-side constraint keys on the literal `other`. The check pins freeform to the one reserved id, and the partial unique index allows at most one per version.
 
@@ -360,7 +363,9 @@ CREATE INDEX session_in_progress ON execution.session (questionnaire_id, last_ac
 
 `status` and `session_state` together make `in_progress → submitted` the only lifecycle the table can express, matching [[7-application-boundary#5.3 Session lifecycle]]. Abandonment is the absence of a submit, so it has no column.
 
-`response_digest` is the idempotency mechanism from Decisions Log #19 — a hash over the canonicalized answers, written at first submit. There is no separate idempotency-key table because the session *is* the key.
+`response_digest` is the idempotency mechanism from Decisions Log #19 — SHA-256 over the canonicalized answers, written at first submit. There is no separate idempotency-key table because the session *is* the key.
+
+The canonical form is specified in [[7-application-boundary#5.4 Submit: authority, validation, idempotency]] and is a **pure function of the `response` rows for that session** — every field it reads (`item_id`, `question_type`, the value columns, `option_ids`, `other_text`) is stored. That is deliberate and is the property to preserve: it makes a later change to the canonicalization a backfill (`UPDATE session SET response_digest` recomputed from the rows) rather than an irreversible choice. Do not fold anything unpersisted into the digest.
 
 The composite foreign key is §3.1's published-only guard.
 
@@ -396,9 +401,6 @@ CREATE TABLE execution.response (
       WHEN 'single_choice' THEN option_ids IS NOT NULL AND cardinality(option_ids) = 1
         AND array_position(option_ids, NULL) IS NULL
         AND text_value IS NULL AND number_value IS NULL AND date_value IS NULL
-      WHEN 'yes_no' THEN option_ids IS NOT NULL AND cardinality(option_ids) = 1
-        AND array_position(option_ids, NULL) IS NULL AND option_ids <@ ARRAY['yes','no']
-        AND text_value IS NULL AND number_value IS NULL AND date_value IS NULL AND other_text IS NULL
       WHEN 'multiple_choice' THEN option_ids IS NOT NULL AND cardinality(option_ids) >= 1
         AND array_position(option_ids, NULL) IS NULL
         AND text_value IS NULL AND number_value IS NULL AND date_value IS NULL
@@ -419,7 +421,7 @@ The columns are [[5-questionnaire-format#6.3 What a response stores]] directly: 
 
 `date_value` is `date` rather than `timestamptz` because a date question collects a calendar date; giving it a timezone would invent precision the respondent never supplied.
 
-The cost of typed columns, stated: a seventh response type is a migration rather than a code change. That is the right trade at six types that are enumerated in the brief and unlikely to grow during the prototype.
+The cost of typed columns, stated: a seventh response type is a migration rather than a code change. That is the right trade at five types that are enumerated in the brief and unlikely to grow during the prototype.
 
 ### 6.2 `COALESCE(..., false)` is load-bearing
 
@@ -430,15 +432,30 @@ Without the `COALESCE` wrapper and the explicit `IS NOT NULL` guards, every one 
 | Attempted row | Why it slipped through |
 | --- | --- |
 | `single_choice` with `option_ids = NULL` | `cardinality(NULL) = 1` → NULL → check passes |
-| `yes_no` with `option_ids = NULL` | same |
 | `multiple_choice` with `option_ids = NULL` | same |
 | `single_choice` with `ARRAY[NULL]` | cardinality is 1; the element is never inspected |
 | `text` with `''` | `'' IS NOT NULL` is true |
-| `yes_no` with `ARRAY['maybe']` | `<@` against a NULL-free array is fine, but the branch was never reached |
 
-A choice answer with no choice in it is the exact shape the constraint exists to forbid. With the wrapper, `array_position(option_ids, NULL) IS NULL` and `text_value <> ''`, all six are rejected and valid rows still insert — both directions tested.
+A choice answer with no choice in it is the exact shape the constraint exists to forbid. With the wrapper, `array_position(option_ids, NULL) IS NULL` and `text_value <> ''`, all four are rejected and valid rows still insert — both directions tested.
 
-Duplicate ids *within* `option_ids` cannot be checked inline without a helper; either a small `IMMUTABLE` function or explicit application validation, tracked in §12.
+Duplicate ids *within* `option_ids` are the one shape this constraint does not close. A `CHECK` may not
+contain a subquery, and de-duplicating an array needs one (`SELECT count(DISTINCT e) FROM unnest(a) e`) —
+Postgres has no core array-distinct operator — so the only inline form is an `IMMUTABLE` helper function
+wrapping that subquery.
+
+**Decided: the application validates this, the database does not** ([[2-design-doc#17. Decisions Log]] #34,
+under the simplicity principle #33). The submit validator already walks `option_ids` to check every id
+against the pinned question version's options, so uniqueness is one line beside a walk that has to happen
+regardless, and it returns a `422` naming the item rather than a constraint violation. The rejected helper
+is written up in §13.8 and carried as [[2-design-doc#19. Future Work]]; adding it later is one custom
+migration and no application change.
+
+Two things worth stating rather than leaving implied. The scope is narrower than it looks: `single_choice` is
+`cardinality(...) = 1`, so a duplicate is unrepresentable there and only the `multiple_choice` branch is
+affected. And the harm is specific rather than general — a containment query
+(`'opt_x' = ANY(option_ids)`) still counts the row once, but `GROUP BY unnest(option_ids)`, which is the
+shape of the "how many chose each option" query §6.1 justifies this column with, counts the duplicate
+twice.
 
 ### 6.3 Which foreign keys, and why not more
 
@@ -541,8 +558,11 @@ The action list is wider than [[6-observability#5. Audit trail]] enumerates. `cr
 They are compatible. A `SECURITY DEFINER` function owned by the audit role gives both, and gives a stronger guarantee than narrowing grants on the application role would:
 
 ```sql
-ALTER SCHEMA audit         OWNER TO audit_owner;
+GRANT CREATE ON SCHEMA audit TO audit_owner;   -- while qp_owner still owns the schema
 ALTER TABLE  audit.event   OWNER TO audit_owner;
+ALTER SCHEMA audit         OWNER TO audit_owner;
+
+SET LOCAL ROLE audit_owner;  -- qp_owner loses USAGE on `audit` the instant the line above commits
 
 CREATE FUNCTION audit.record(p_action text, p_qid uuid, p_qvid uuid, p_version int,
                              p_actor_id text, p_summary jsonb, p_trace_id text)
@@ -552,7 +572,6 @@ RETURNS uuid LANGUAGE sql SECURITY DEFINER SET search_path = audit, pg_temp AS $
   VALUES (p_action, p_qid, p_qvid, p_version, p_actor_id, p_summary, p_trace_id)
   RETURNING id;
 $$;
-ALTER FUNCTION audit.record(text,uuid,uuid,int,text,jsonb,text) OWNER TO audit_owner;
 
 REVOKE ALL ON audit.event  FROM PUBLIC;
 REVOKE ALL ON SCHEMA audit FROM PUBLIC;
@@ -568,9 +587,17 @@ Verified end to end:
 
 Append-only stops being "a role that was only granted `INSERT`" and becomes "a table no application role can reach at all, behind one function that only appends". The single repository function §5.1 already requires is the same object that enforces it, which is why this costs nothing extra.
 
-`SET LOCAL ROLE` with `GRANT ... WITH INHERIT FALSE` also works and was tested; it is the alternative in §11.
+`SET LOCAL ROLE` with `GRANT ... WITH INHERIT FALSE` also works and was tested; it is the alternative in §13.3.
+
+**`SET search_path = audit, pg_temp` is load-bearing, not decoration.** A `SECURITY DEFINER` function
+without a pinned search path is the classic Postgres privilege-escalation vector: a caller creates a
+same-named object in a schema that sorts earlier on the path and the definer executes it with the
+owner's rights. Pinned path, `pg_temp` last, schema-qualified body — all three matter, and none of them
+should be "simplified" later.
 
 **One trap, hit while building this.** The function owner needs `USAGE` on the schema. If `audit_owner` owns the function but the schema is still owned by the migration role and `PUBLIC` has been revoked, every call fails at runtime with `permission denied for schema audit` — after the migration has apparently succeeded. `ALTER SCHEMA audit OWNER TO audit_owner` is the line that prevents it.
+
+**A second trap, in the migration itself, reproduced against a live database.** The two `OWNER TO` statements fail in either order, and — confusingly — with the identical error. Table before schema: `audit_owner` does not yet have `CREATE` on `audit`, which is still `qp_owner`'s, so the table's `OWNER TO` is rejected. Schema before table: that succeeds, but it strips `qp_owner`, the migration connection, of `USAGE` on `audit`, so the table's `OWNER TO` — now next — fails instead, and so does anything after it that still runs as `qp_owner` and still names `audit.*`. Both failures print `permission denied for schema audit`, which is exactly why this is worth spelling out rather than leaving to be rediscovered: the message does not distinguish the missing-`CREATE` case from the lost-`USAGE` case, and neither points at the fix. The fix is the explicit `GRANT CREATE` before either transfer, table before schema once it is in place, and running everything from `CREATE FUNCTION` on as `audit_owner` via `SET LOCAL ROLE` rather than `qp_owner` — which is also why the separate `ALTER FUNCTION ... OWNER TO audit_owner` is gone: creating the function while `audit_owner` is the active role already makes it the owner.
 
 ## 10. Grants
 
@@ -589,11 +616,28 @@ ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner IN SCHEMA definition
   GRANT SELECT, INSERT, UPDATE ON TABLES TO qp_definition;
 ```
 
+Two lines that belong to the init script rather than to a migration, but are listed here because the
+grants above depend on them (§11.3):
+
+```sql
+ALTER DATABASE questionnaire_platform OWNER TO qp_owner;   -- CREATE, and makes the migration
+                                                           -- connection the same principal as
+                                                           -- ALTER DEFAULT PRIVILEGES FOR ROLE
+GRANT audit_owner TO qp_owner WITH INHERIT FALSE;          -- so migrations can hand §9.1's objects
+                                                           -- to audit_owner, by explicit SET ROLE
+```
+
 `qp_definition` receives no grant of any kind on `execution.response`. That is [[7-application-boundary#3.2 Database grants]]'s barrier, and the one a reviewer is least likely to expect: the authoring surface is not a back door into answer data.
 
 **`qp_execution` gets `SELECT, INSERT` on `response` and nothing else.** [[2-design-doc#3. Constraints]] says collected responses are immutable, and the assignment asks for invariants enforced in the data layer rather than the UI, but the enforcement mechanism was only ever described for published *definitions*. A grant is the whole fix, and it makes response immutability the same kind of guarantee as the audit trail's rather than a weaker cousin of it. The erasure exception in §3 is unaffected: a different role, explicitly invoked, audited.
 
-**No `DELETE` is granted anywhere**, pending [[2-design-doc#18. Open Questions]] §12.
+**No `DELETE` is granted anywhere**, pending [[2-design-doc#18. Open Questions]] §13.
+
+Stated precisely, because a reviewer will ask: that is a claim about the *application* roles. `qp_owner`
+owns every object and an owner always retains full rights on what it owns, so the barrier is between
+`qp_definition` and `qp_execution` and the data — not between the migration identity and anything.
+Keeping `qp_owner` a plain role rather than the cluster superuser (§11.3) is what stops that caveat
+growing to cover the whole cluster.
 
 Roles are created outside migrations — see §11.
 
@@ -643,18 +687,69 @@ by hand. It is a first-class migration — it slots into the ordered list and is
 like any other; it simply was not derived from anything. Roughly four of this schema's migrations are
 of that kind: the immutability triggers, the item guard, the audit function and the grants.
 
-### 11.3 Roles are not schema, and must not be in a committed file
+### 11.3 Roles are not schema, and must not be in a committed migration
 
 Two independent reasons. A migration file is committed to git, and
 `CREATE ROLE qp_definition LOGIN PASSWORD '...'` would put a password in git. And roles are
 cluster-wide — they belong to the Postgres server rather than to one database — so creating them from
 inside a per-database migration is the wrong layer even without the secret.
 
-They go in `docker-entrypoint-initdb.d` instead: the Postgres image runs any `.sql` or `.sh` placed
-there exactly once, when the data directory is first initialised, and it can read the password from an
-environment variable. This is also what makes the two-connection-string arrangement real — `migrate`
-connects as `qp_owner`, the backend as `qp_definition` and `qp_execution`
-([[7-application-boundary#3.2 Database grants]]).
+They go in `docker-entrypoint-initdb.d` instead, as `db/init/01-roles.sh`. Five identities, three
+connection strings:
+
+| Identity | Created by | Connects? |
+| --- | --- | --- |
+| bootstrap superuser (`POSTGRES_USER`) | `initdb`, at cluster creation | Only to run the init script |
+| `qp_owner` | the init script | Yes — the `migrate` service, `DATABASE_URL_OWNER` |
+| `qp_definition` | the init script | Yes — backend authoring pool, `DATABASE_URL_DEFINITION` |
+| `qp_execution` | the init script | Yes — backend execution pool, `DATABASE_URL_EXECUTION` |
+| `audit_owner` | the init script, **`NOLOGIN`** | **No.** No password, no connection string |
+
+**The bootstrap superuser and `qp_owner` are different roles, deliberately.** `initdb` creates
+`POSTGRES_USER` as a cluster superuser — that is not configurable — so letting `qp_owner` *be*
+`POSTGRES_USER` would make the migration identity a superuser. `qp_owner` does not create the
+*database*; `initdb` does. It creates and owns the *objects*, and for that it needs `CREATE` on the
+database, which `ALTER DATABASE ... OWNER TO qp_owner` supplies with no superuser anywhere.
+
+The objection is not that superuser is alarming in itself — an object owner already has full rights on
+its own objects, so `qp_owner` can read `execution.response` and drop things either way. It is that the
+two identities have different lifetimes. The bootstrap credential creates roles and is needed exactly
+once, at cluster init; the schema owner runs on every `docker compose up`. Merging them puts the
+credential that can mint new roles — including new superusers — in a container that executes routinely,
+and adds `COPY ... FROM PROGRAM` (command execution on the database host), `pg_authid` password hashes
+and the rest of the cluster to the blast radius of that one service. Separating them is also simply the
+conventional Postgres arrangement rather than extra machinery, which is where
+[[2-design-doc#17. Decisions Log]] #33 points.
+
+**It must be a `.sh`, not a `.sql`.** The entrypoint runs both, but `psql -f` performs no
+interpolation, so a `.sql` file cannot read `$QP_DEFINITION_PASSWORD` — the passwords would have to be
+literal, which is the thing this section exists to prevent. The committed artifact holds role names,
+grants and ownership statements, and no secrets.
+
+**It runs exactly once, when the data directory is empty.** Adding a role or rotating a password later
+does nothing until `docker compose down -v`, which is already the only clean reset (§ Local ops in the
+`database` skill). So the init script is not a migration path for roles. Wrap each creation in
+`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '...') THEN ... END IF; END $$;` —
+it costs nothing and makes the script safe to re-run by hand against an existing volume, which is
+exactly the operation the once-only behaviour forces on you the first time you add a role.
+
+**`ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner` has a hidden dependency.** It applies only to objects
+created *by* `qp_owner`. If migrations ever run as some other identity — easy to do by pointing the
+owner URL at the bootstrap credentials — every future table silently receives no grant, and the failure
+appears much later as `permission denied` on a table that ought to work. Making `qp_owner` own the
+database is what keeps the migration connection and the default-privileges role the same principal.
+
+**`qp_owner` needs membership in `audit_owner`.** §9.1 hands `audit.event` and `audit.record` to
+`audit_owner`, and `ALTER ... OWNER TO` requires the executing role to be a member of the target.
+`GRANT audit_owner TO qp_owner WITH INHERIT FALSE` gives that as an explicit `SET ROLE` rather than
+ambient privilege. It weakens nothing: the append-only guarantee is about `qp_definition`, which holds
+no privilege on the table at all.
+
+**One script, two callers.** The Testcontainers Postgres (§ [[8-testing#4. Postgres for integration tests — Testcontainers]])
+needs the same roles and will never run compose's `initdb.d`. If the test harness reimplements the
+setup, the two drift and the grant tests pass against roles that do not match what ships. The same file
+is executed on both paths — by the entrypoint under compose, and by `execInContainer` in
+`globalSetup`.
 
 ### 11.4 Partitions must exist before a row needs one
 
@@ -685,6 +780,10 @@ After migrations apply, the seed inserts the medical-condition demo questionnair
 shortcut of inserting a row that is already `published` — the immutability trigger refuses it, by
 design and without exception.
 
+The seed's question and questionnaire ids are **hardcoded constants, not generated**, so that the uuids printed in
+[[5-questionnaire-format#3. Serialization]] are the uuids in a running database and a reviewer can copy one out of the
+document and query it. Everything downstream — sessions, responses — generates ids normally.
+
 So the seed goes through the real publishing path: create a draft, add items, publish. Which means
 every `docker compose up` exercises publish-time validation, snapshot serialization, the
 `version_question_index` write and the audit record, and fails loudly before the API ever serves a
@@ -692,16 +791,14 @@ request. A seed that could take the shortcut would be a seed that proves nothing
 
 ## 12. Open questions
 
-1. **Duplicate ids within `option_ids`** (§6.2) — a small `IMMUTABLE` helper function, or explicit application validation with a test. Not currently enforced either way.
-2. **Readable question ids in the snapshot.** [[5-questionnaire-format#3. Serialization]]'s worked example uses `qst_has_condition`, while `question_id` here is a uuid. Either that example is updated, or `question.key` is carried into the snapshot alongside the uuid for debuggability.
-3. **`session_progress` if the checkpoint endpoint ships** ([[2-design-doc#18. Open Questions]] §6). The shape, recorded so the decision stays additive: `session_progress (session_id PK → session, answers jsonb, revision int, updated_at)`. A separate table rather than a column on `session`, so the narrow hot row is not dragged through TOAST churn on every debounced write and so the grant on it is separable. It would hold raw answers, so `qp_definition` must be denied it for exactly the reason it is denied `response`.
-4. **Discarding never-published drafts** ([[2-design-doc#18. Open Questions]] §12) — determines whether `questionnaire_item` carries `ON DELETE CASCADE` and whether `qp_definition` is ever granted `DELETE`.
+1. **`session_progress` — not built** ([[2-design-doc#18. Open Questions]] §6, Decisions Log #25). The checkpoint endpoint is deferred, so this table does not ship. The shape is kept here so that adding it stays additive: `session_progress (session_id PK → session, answers jsonb, revision int, updated_at)`. A separate table rather than a column on `session`, so the narrow hot row is not dragged through TOAST churn on every debounced write and so the grant on it is separable. It would hold raw answers, so `qp_definition` must be denied it for exactly the reason it is denied `response`.
+2. **Discarding never-published drafts** ([[2-design-doc#18. Open Questions]] §13) — determines whether `questionnaire_item` carries `ON DELETE CASCADE` and whether `qp_definition` is ever granted `DELETE`.
 
 ## 13. Alternatives considered
 
 ### 13.1 One `value jsonb` column on `response` instead of typed columns
 
-The obvious shape, and it mirrors the snapshot's own storage decision. Rejected: it turns the commonest analytics query in the domain ("how many chose option X") into a sequential scan with a cast, it expresses `{ value, unit }` as a convention about document shape rather than as two columns, and it gives up the shape constraint in §6.1 entirely — a document column can hold any of the six shapes at any time. The cost of the chosen form is one migration per new response type, at six types that are enumerated in the brief.
+The obvious shape, and it mirrors the snapshot's own storage decision. Rejected: it turns the commonest analytics query in the domain ("how many chose option X") into a sequential scan with a cast, it expresses `{ value, unit }` as a convention about document shape rather than as two columns, and it gives up the shape constraint in §6.1 entirely — a document column can hold any of the five shapes at any time. The cost of the chosen form is one migration per new response type, at five types that cover what the brief enumerates.
 
 ### 13.2 A `question_option` registry table
 
@@ -719,6 +816,10 @@ Since the snapshot is authoritative, item rows for a published version are redun
 
 Sessions grow faster than responses in row count, since abandoned sessions never produce response rows. Rejected: the hot path is a primary-key lookup on resume, and a partitioned table queried without its partition key scans every partition — the query that matters most would get slower as the archive grew, which is the opposite of the intent.
 
+### 13.6 A `DEFAULT` partition on `response`
+
+Rejected on two verified behaviours rather than on taste; see §6.4.
+
 ### 13.7 Dropping `current_version_id` and keying the pointer on the version number
 
 `FOREIGN KEY (id, current_version) REFERENCES questionnaire_version (questionnaire_id, version)`
@@ -735,7 +836,27 @@ it by number instead is an inconsistency a reader has to absorb. Session start c
 way. Worth revisiting if the schema ever grows a second number-keyed reference, at which point the
 consistency argument reverses.
 
-### 13.6 A `DEFAULT` partition on `response`
+### 13.8 An `IMMUTABLE` helper closing duplicate `option_ids`
 
-Rejected on two verified behaviours rather than on taste; see §6.4.
+```sql
+CREATE FUNCTION execution.no_dupes(a text[]) RETURNS boolean
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE AS
+$$ SELECT cardinality(a) = (SELECT count(DISTINCT e) FROM unnest(a) e) $$;
+```
+
+...then `AND execution.no_dupes(option_ids)` on the `multiple_choice` branch of `response_shape`. It works,
+and it is the *only* inline form available, for the reason in §6.2: a `CHECK` may not contain a subquery,
+and array de-duplication requires one.
+
+Not adopted, under [[2-design-doc#17. Decisions Log]] #33. It is a custom migration plus a permanent schema
+object whose entire purpose is to hold one subquery, guarding a shape a checkbox UI structurally cannot
+send, while the application already walks the same array to validate option membership. That is the
+definition of machinery earning less than it costs.
+
+Two notes for whoever picks it up later, since the point of recording it is that it stays cheap to add: the
+function must be created before the constraint that calls it, which in drizzle-kit terms means it lands in
+the same `--custom` migration ahead of the `ALTER TABLE`; and `EXECUTE` on functions is granted to `PUBLIC`
+by default, so it works as written but needs an explicit grant to `qp_execution` if `PUBLIC` is ever
+revoked as part of hardening. Adding the helper changes no application code, which is what makes deferring
+it a real deferral rather than a decision in disguise.
 

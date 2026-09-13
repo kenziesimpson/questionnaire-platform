@@ -19,7 +19,7 @@ There are no edges between questions. Order is the list index; the next question
 
 ## 2. Question types
 
-Six response types. Constraints belong to the question version and compile into a validator at publish time.
+Five response types. Constraints belong to the question version and compile into a validator at publish time.
 
 | Type | Constraints | Notes |
 | --- | --- | --- |
@@ -27,8 +27,20 @@ Six response types. Constraints belong to the question version and compile into 
 | `single_choice` | `options` (at least one), optional freeform `other` | Exactly one selection. |
 | `multiple_choice` | `options` (at least one), `minSelections`, `maxSelections`, optional freeform `other` | `minSelections` of 1 or more is how "required, pick at least one" is expressed. |
 | `number` | `numberKind` (`integer` or `float`, required), `min`, `max`, `unit` | `unit` is a display label; conversion between compatible units is future work. |
-| `date` | `min` / `max` (absolute), `relative` (`not_future`, `not_past`) | Relative constraints let "when were you diagnosed?" reject future dates without baking a fixed date into the definition. Date *ranges* are out of scope — model as two date questions. |
-| `yes_no` | — | Sugar over `single_choice` with reserved option ids `yes` / `no` and a `display: yes_no` render hint. Identical storage shape to any choice question, so there is one set of choice operators rather than two. |
+| `date` | `min` / `max` (absolute), `relative` (`not_future`, `not_past`) | Relative constraints let "when were you diagnosed?" reject future dates without baking a fixed date into the definition. Whose "today" they resolve against is §2.4. Date *ranges* are out of scope — model as two date questions. |
+
+**Yes / No is not a type.** The brief lists "yes or no" among the practical response types and the platform
+supports it — as a `single_choice` question with two options, which is what it is. The editor offers a
+**Yes / No** template that creates one with option ids `yes` and `no` and labels "Yes" and "No". The labels
+are editable like any others, so the same question can read True / False or Agree / Disagree without
+becoming a different kind of thing. A distinct type bought a duplicated operator set, a second branch in the
+response shape constraint and a `display` render hint, and cost the author the ability to phrase the
+question — see [[2-design-doc#17. Decisions Log]] #36, superseding #10.
+
+The reserved ids are an **editor convention, not a guarantee.** A template-created question aggregates
+across questionnaires on `yes` / `no`; a two-option question assembled by hand does not. That is the same
+tier as option-id stability below — upheld by the editor and proven by a test, not by a constraint, for the
+reason [[9-database-schema#3.2 The question bank]] gives when it rejects a registry table.
 
 ### 2.1 Option ids are stable across question versions
 
@@ -46,6 +58,39 @@ A choice question may mark a trailing option as freeform. The answer then has tw
 
 **Rules may test whether `other` was selected; they may not match against the text.** Kept deliberately simple: text matching in rules is fragile and there is no version-stable identity to match on. If `otherText` ever needs to drive a branch, the likely shape is a promotion workflow — an admin converts a recurring freeform answer into a real option in the next version — rather than string matching in the rule engine. Noted as a possible future change, not a current limitation to design around.
 
+### 2.4 Relative date constraints resolve against two different clocks
+
+`date_value` is a bare `date` on purpose — a date question collects a calendar date, and attaching a timezone
+would invent precision the respondent never supplied ([[9-database-schema#6.1 `response`]]). But `not_future`
+means "not after today", and the server and the respondent do not necessarily agree on which day that is.
+
+The failure is not hypothetical and not rare. Containers run UTC. A respondent at UTC+13 on the morning of
+the 14th is still on the 13th in UTC, so answering "when were you diagnosed?" with today produces
+`2026-09-14 <= 2026-09-13` and a rejection — for roughly thirteen hours of every day, with no answer they can
+give that the server will accept. It breaks symmetrically west of UTC, where an evening respondent is already
+on tomorrow's UTC date and a `not_past` question rejects their today. The seeded demo carries a `not_future`
+diagnosis date, so this sits inside the graded scenario.
+
+**The rule: the client validates for the user, the server validates for the system.**
+
+- The respondent app evaluates the constraint against the **browser's local date**, so the control rejects
+  tomorrow correctly and the respondent never encounters the slack below.
+- The server evaluates against **UTC today with one day of tolerance** — `not_future` accepts
+  `date <= utcToday + 1`, `not_past` accepts `date >= utcToday - 1`. It is not trying to reconstruct the
+  respondent's calendar; it is rejecting nonsense, and one day is what that costs without knowing where they
+  are.
+
+The asymmetry is the whole argument. A strict UTC comparison *blocks a correct answer* and leaves the
+respondent stuck; the tolerance *accepts a date at most one day beyond true* on a field where someone is
+recalling a diagnosis from years ago. An outage against a rounding error in data quality.
+
+Recorded as provisional rather than settled: [[2-design-doc#18. Open Questions]] §14 carries the alternative
+— having the client submit its UTC offset and validating exactly — for revisiting if there is time.
+
+**Implementation rider, either way.** The constraint evaluator in `@qp/shared` takes `today` as a parameter
+and never calls `new Date()` itself. The server passes UTC today, the client passes local today, and every
+timezone case becomes a unit test with no clock to mock.
+
 ## 3. Serialization
 
 A published version is stored as a single JSONB document ([[2-design-doc#12. Database]] §12.1) and served to the client whole, once per session. The document carries its own `formatVersion` (§6.5).
@@ -54,7 +99,7 @@ A published version is stored as a single JSONB document ([[2-design-doc#12. Dat
 {
   "formatVersion": 1,
   "questionnaireId": "qnr_intake",
-  "version": 2,
+  "version": 1,
   "title": "Patient Intake",
   "items": [
     {
@@ -62,11 +107,10 @@ A published version is stored as a single JSONB document ([[2-design-doc#12. Dat
       "required": true,
       "visibleWhen": null,
       "question": {
-        "questionId": "qst_has_condition",
+        "questionId": "01a0950f-4100-7fcc-8acc-05dc6b75ce33",
         "questionVersion": 1,
-        "type": "yes_no",
+        "type": "single_choice",
         "prompt": "Do you have a medical condition?",
-        "display": "yes_no",
         "options": [
           { "optionId": "yes", "label": "Yes" },
           { "optionId": "no",  "label": "No"  }
@@ -77,10 +121,10 @@ A published version is stored as a single JSONB document ([[2-design-doc#12. Dat
       "itemId": "itm_02",
       "required": true,
       "visibleWhen": { "all": [
-        { "type": "single_choice", "questionId": "qst_has_condition", "op": "is", "optionId": "yes" }
+        { "type": "single_choice", "questionId": "01a0950f-4100-7fcc-8acc-05dc6b75ce33", "op": "is", "optionId": "yes" }
       ]},
       "question": {
-        "questionId": "qst_which_condition",
+        "questionId": "01a0950f-4161-7719-98fb-afa43f4c6232",
         "questionVersion": 3,
         "type": "single_choice",
         "prompt": "Which condition?",
@@ -95,10 +139,10 @@ A published version is stored as a single JSONB document ([[2-design-doc#12. Dat
       "itemId": "itm_03",
       "required": true,
       "visibleWhen": { "all": [
-        { "type": "single_choice", "questionId": "qst_has_condition", "op": "is", "optionId": "yes" }
+        { "type": "single_choice", "questionId": "01a0950f-4100-7fcc-8acc-05dc6b75ce33", "op": "is", "optionId": "yes" }
       ]},
       "question": {
-        "questionId": "qst_diagnosed_on",
+        "questionId": "01a0950f-41c2-7435-a65e-c53680e09195",
         "questionVersion": 1,
         "type": "date",
         "prompt": "When were you diagnosed?",
@@ -110,7 +154,7 @@ A published version is stored as a single JSONB document ([[2-design-doc#12. Dat
       "required": true,
       "visibleWhen": null,
       "question": {
-        "questionId": "qst_pharmacy",
+        "questionId": "01a0950f-4223-73df-8544-fa8f63877e0b",
         "questionVersion": 1,
         "type": "text",
         "prompt": "Preferred pharmacy",
@@ -121,7 +165,30 @@ A published version is stored as a single JSONB document ([[2-design-doc#12. Dat
 }
 ```
 
-This is the seeded demo questionnaire. `itm_02` and `itm_03` are skipped entirely when `qst_has_condition` is answered `no`, and both paths converge on `itm_04` with no merge edge anywhere.
+This is **version 1** of the seeded demo questionnaire. `itm_02` and `itm_03` are skipped entirely when the first question is answered `no`, and both paths converge on `itm_04` with no merge edge anywhere.
+
+`questionId` is a uuid because a question is a row in the bank rather than a key inside the document (§2 of [[9-database-schema#2. Conventions]]); `itemId` and `optionId` stay authored slugs for the opposite reason. The four ids above are the ones the seed inserts — **the seed hardcodes them rather than generating them**, so a uuid copied out of this document queries the running database ([[2-design-doc#17. Decisions Log]] #35). Their `question.key` slugs, in item order, are `qst_has_condition`, `qst_which_condition`, `qst_diagnosed_on` and `qst_pharmacy`; the prose below refers to them by key.
+
+Note that `qst_which_condition` sits at `questionVersion` 3 inside questionnaire version 1. Question versions and questionnaire versions are independent series — the question was revised twice in the bank before this questionnaire ever added it, and the item pinned whatever was current at that moment (§6.2).
+
+### 3.1 Version 2 — the demo change
+
+Version 2 makes exactly one change: `opt_hyperten`'s label becomes plainer, because respondents were not reliably recognising the clinical term. **The option id does not move.**
+
+```json
+{ "optionId": "opt_hyperten", "label": "High blood pressure (hypertension)" }
+```
+
+Relabelling is a save on the question bank, so `qst_which_condition` becomes `questionVersion` 4 and questionnaire version 2 pins that on `itm_02`. Nothing else in the document differs.
+
+The reason this is the change worth shipping is that it puts a collected response at genuine risk and then shows the risk is not real. A version 1 respondent who selected hypertension stored `opt_hyperten`, not the label (§6.3), so:
+
+- **Aggregation is unaffected.** v1 and v2 responses both count toward `opt_hyperten`, and "how many respondents reported hypertension" spans both versions with no mapping table.
+- **Rendering stays version-correct.** The v1 response renders "Hypertension" and the v2 response renders "High blood pressure (hypertension)", because each resolves its label through the `questionVersion` it stored.
+
+A design that copied labels onto responses, or that reissued option ids on edit, fails one of those two — and would look completely fine until someone ran the report. That is the failure this demo is built to make visible. See [[2-design-doc#17. Decisions Log]] #26.
+
+Two changes were considered and left out. Rewording a prompt exercises the same mechanism, but the "meaning unchanged" claim is softer, since most rewordings worth making do shift the question slightly. Adding options, or adding a new conditional item, is monotone: nothing collected under v1 is at risk, so a passing test proves nothing was ever in danger. A predicate change also lives on the *item*, not the question, so it would not touch the append-only question-version mechanism the brief's "changes one question" points at — it is used instead as an integration fixture ([[8-testing#6. Test data and fixtures]]).
 
 ## 4. Branching rules
 
@@ -143,7 +210,7 @@ There is no generic `{ questionId, op, value }` shape. The condition union is di
 | Referenced type | Operators | Operand |
 | --- | --- | --- |
 | `text` | `answered`, `notAnswered` | — |
-| `single_choice` / `yes_no` | `is`, `isNot`, `isAnyOf`, `isNoneOf` | option id(s) |
+| `single_choice` | `is`, `isNot`, `isAnyOf`, `isNoneOf` | option id(s) |
 | `multiple_choice` | `includes`, `excludes`, `includesAnyOf`, `includesAllOf` | option id(s) |
 | `number` | `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `between` | number, in the question's unit |
 | `date` | `before`, `onOrBefore`, `after`, `onOrAfter`, `between` | date |
@@ -185,7 +252,7 @@ Checked **exactly**, not by pattern-matching a few obvious contradictions. This 
 
 | Type | Domain | Unsatisfiable when |
 | --- | --- | --- |
-| `single_choice` / `yes_no` | set of option ids — `is X` gives that one, `isNot X` the complement, `isAnyOf` / `isNoneOf` the set and its complement | the intersection is empty |
+| `single_choice` | set of option ids — `is X` gives that one, `isNot X` the complement, `isAnyOf` / `isNoneOf` the set and its complement | the intersection is empty |
 | `multiple_choice` | a required set and a forbidden set | the two overlap; or the required set exceeds `maxSelections`; or fewer options remain unforbidden than `minSelections` |
 | `number` | an interval with punctures — bounds from `lt` / `lte` / `gt` / `gte` / `between` intersected with the question's own `min` / `max`, `eq` as a point, `neq` as a puncture | the interval is empty, or for an `integer` question contains no integer |
 | `date` | an interval, same arithmetic over dates | the interval is empty |
@@ -203,7 +270,9 @@ The worst case is exponential in the number of `any` disjuncts along a closure. 
 
 ### 5.4 Referential integrity
 
-Every `questionId` and `optionId` named by a predicate exists in the version, and the referenced question's type matches the condition's type.
+Every `questionId` and `optionId` named by a predicate exists in the version, and the referenced question's
+`type` is **identical** to the condition's `type`. The discriminant is the question type with no mapping
+table and no exceptions — which is what removing `yes_no` as a type bought ([[2-design-doc#17. Decisions Log]] #36).
 
 ### 5.5 What needs no check
 

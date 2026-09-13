@@ -63,12 +63,12 @@ The one prerequisite is that `apps/backend/src/index.ts` splits into a `buildApp
 | --- | --- |
 | Republishing a frozen version fails | The immutability trigger |
 | At most one draft per questionnaire | The partial unique index |
-| The audit trail cannot be rewritten | The `INSERT`/`SELECT`-only audit role |
+| The audit trail cannot be rewritten | `qp_definition`'s zero grant on `audit.event`, behind the `SECURITY DEFINER` `audit.record()` function |
 | Authoring cannot read medical answers | `qp_definition`'s missing grant on `response` |
 
 A mocked repository passes every one of those with the constraint absent, which makes it worse than no test. `pg-mem` is out for the same reason at one remove: triggers, roles and the JSONB operators the snapshot index relies on are exactly what it does not faithfully implement. Strategy in §4.
 
-The three-layer immutability check deserves naming, since it is the one place a test deliberately goes around the application: **API 409** via `inject`, **database trigger** via a direct client bypassing the API entirely, and the **draft uniqueness** index via two concurrent draft creations.
+The three-layer immutability story ([[5-questionnaire-format#6.4 Three layers of immutability enforcement]]) is exercised here, and the third layer *is* this test. **API 409** via `inject`, the **database trigger** via a direct client bypassing the API entirely — and that bypass is layer three, the one place a test deliberately goes around the application, and the reason the guarantee cannot silently regress when the service layer is refactored. Draft uniqueness is a separate invariant with its own row above, exercised by two concurrent draft creations.
 
 ### 2.3 Frontend component — Vitest + React Testing Library
 
@@ -115,10 +115,14 @@ Each capability the brief grades, and the layer that proves it. This table is th
 | Sessions: start, resume, version pinning | Integration + E2E spec 2 |
 | Submit idempotency: same digest replays, different digest conflicts | Integration |
 | Server as authority: an answer to an unreachable item is rejected | Integration |
+| Path re-evaluation uses the *pinned* definition, not the latest published | Integration (§6, predicate-change fixture) |
 | Retirement: start and submit rejected past `closes_at` | Integration, with frozen time |
 | Response meaning preserved across a republish | Integration + E2E spec 3 |
 | No respondent answer in telemetry | Canary (§2.5) |
 | The definition/execution barrier | Plugin isolation + grant test (§2.2) |
+| Duplicate `option_ids` inside one answer — rejected by the submit validator, **not** by a constraint | Unit + integration. The one `response` invariant not enforced below the application ([[2-design-doc#17. Decisions Log]] #34), so a test is the only thing holding it |
+| Relative date constraints across a timezone boundary | Unit. The evaluator takes `today` as a parameter, so client-local and server-UTC-plus-tolerance are both plain cases with no clock to mock ([[5-questionnaire-format#2.4 Relative date constraints resolve against two different clocks]], #38) |
+| List endpoints return a deterministic order | Integration. Unspecified order is heap order and shifts after an `UPDATE`, which is what makes list assertions flaky rather than merely unordered ([[2-design-doc#17. Decisions Log]] #40) |
 
 **The mandatory demo scenario is tested at two layers on purpose.** The brief asks for automated tests covering it specifically; the rule-engine cases cover it exhaustively and in milliseconds, and one Playwright spec proves the same thing is true of the running system. Neither alone is a satisfying answer to "show me it works."
 
@@ -136,7 +140,9 @@ Three things fall out of that shape:
 - **Parallelism survives.** Vitest runs test files in parallel workers. One shared database plus `TRUNCATE` between tests means workers clobber each other's rows mid-test; a database per worker is real isolation. `CREATE DATABASE ... TEMPLATE` is close to instant and skips re-running migrations per worker, so the isolation is nearly free.
 - **Within a worker**, `TRUNCATE ... RESTART IDENTITY CASCADE` between tests. Wrapping each test in a transaction and rolling back is tidier in the abstract but breaks precisely where the important tests are: the publish path opens its own transaction and takes row locks, and the immutability bypass test needs a second connection that can see committed state.
 
-**Escape hatch, and it is not only a convenience:** if `TEST_DATABASE_URL` is set, the suite uses it and skips the container entirely. That makes the suite portable to any CI that can supply a Postgres service container but not a Docker socket (§5.3), and locally it points at the compose `db` for a faster inner loop.
+**The roles come from the same script compose uses.** The container needs `qp_owner`, `qp_definition`, `qp_execution` and `audit_owner` before migrations run, and it never executes compose's `docker-entrypoint-initdb.d`. `globalSetup` runs `db/init/01-roles.sh` inside the container with `execInContainer` — the same file, not a copy, because a reimplementation would let the grant tests in §3 pass against roles that differ from what ships ([[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]).
+
+**Escape hatch, and it is not only a convenience:** if `TEST_DATABASE_URL` is set, the suite uses it and skips the container entirely. It must be an **owner-level** URL — the suite creates the template database and applies migrations — so it is `DATABASE_URL_OWNER` pointed at a throwaway instance, not either application role. That makes the suite portable to any CI that can supply a Postgres service container but not a Docker socket (§5.3), and locally it points at the compose `db` for a faster inner loop.
 
 Stated honestly in the README: the default path needs a running Docker daemon.
 
@@ -175,6 +181,11 @@ The specs need only a `baseURL`, so the same three can run against a deployed en
 - **Factories, not fixture files.** Small builders with overrides — `aQuestionnaire({ items: [...] })` — so each test states only what it varies. Randomized data stays out of assertions; deterministic seeds only.
 - **Freeze time** (`vi.setSystemTime`) for the `closes_at` cutoff tests. Nothing sleeps.
 - **The telemetry sentinel is an exported constant**, not a string retyped per test, so the canary cannot pass because someone fixed a typo.
+- **A predicate-change fixture, kept separate from the seeded demo.** The demo's version 2 is a relabel and deliberately does one thing ([[5-questionnaire-format#3.1 Version 2 — the demo change]]), which means its two versions have an identical reachable path — so it cannot prove that submit evaluates against the *pinned* definition rather than the latest. That claim gets its own two-version fixture, where v2 tightens `itm_03`'s predicate to `all: [ has_condition is yes, which_condition is not other ]`:
+  - a session started **before** the publish, pinned to v1, submits `yes` / `other` / a diagnosis date and is **accepted** — the date is required on v1's path;
+  - a session started **after** it, pinned to v2, submits the identical answers and is **rejected** `422` for an answer to an unreachable item, naming `itm_03` and never echoing the date ([[7-application-boundary#5.5 Error bodies must not echo answers]]).
+
+  Same answers, opposite outcomes, and the only variable is which snapshot the session pinned. This is also the cheapest test of the republish-while-in-flight claim in [[2-design-doc#8. Sessions & Responses]].
 
 ## 7. Test case enumeration
 
@@ -217,5 +228,5 @@ Considered because the two halves are deliberately separable ([[7-application-bo
 1. **Property-based testing for the rule engine.** `fast-check` over generated questionnaires and answer sets could assert properties the example-based cases cannot — evaluation never revisits an earlier index, the reachable set is stable under reordering of independent items, a predicate over unshown questions never makes an item visible. The engine's combinatorial input space is the ideal target; whether it earns its keep inside an interview timeline is undecided.
 2. **Whether end-to-end runs on every PR** or only on the main branch once the suite grows past roughly a minute. Fine as-is at three specs.
 3. **Load testing.** The claims in [[3-scaling]] about delivery under concurrency are currently arguments, not measurements. `k6` or `autocannon` against the definition-delivery endpoint would substantiate or embarrass them. Not designed.
-4. **Accessibility assertions** (`@axe-core/playwright`) in the end-to-end specs. Cheap to add and complements the role-based queries in §2.4, but the brief does not grade it.
+4. **Accessibility beyond the committed minimum.** Narrowed rather than deferred: an `@axe-core/playwright` check on the respondent form and the draft editor **is** in scope, alongside the role- and label-based queries in §2.4, on the grounds that the domain argues for it even where the rubric does not ([[10-frontend#7. Accessibility]]). What remains open is everything past that line — a full WCAG 2.2 AA audit, a real screen-reader matrix across NVDA, JAWS and VoiceOver, and reduced-motion and high-contrast handling.
 5. **Mutation testing** (Stryker) as the honest check on whether the rule-engine suite is actually good rather than merely green. The right tool for the question and almost certainly out of scope; noted so the question is on the record.

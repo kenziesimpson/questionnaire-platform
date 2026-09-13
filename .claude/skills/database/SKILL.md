@@ -51,8 +51,15 @@ check instead, the change is wrong.
    published-only property is wanted — it silently loses the guarantee.
 3. **Question versions are append-only.** No `UPDATE`, no `DELETE`, ever. Editing a question means
    inserting version N+1.
-4. **An invalid answer shape cannot be stored.** `response` has typed per-type columns under one check
-   constraint. Adding a response type means extending that constraint in a migration.
+   **There are five response types** — `text`, `single_choice`, `multiple_choice`, `number`, `date`. Do not
+   add `yes_no`: it was removed deliberately (Decisions Log #36) and a yes/no question is a `single_choice`
+   with reserved option ids `yes` / `no` seeded by an editor template, not enforced by the schema.
+4. **An invalid answer shape cannot be stored** — with one stated exception. `response` has typed per-type
+   columns under one check constraint. Adding a response type means extending that constraint in a
+   migration. The exception: **duplicate ids within a `multiple_choice` answer's `option_ids` are not
+   caught by the constraint** — a `CHECK` cannot hold the subquery de-duplication needs — and are the
+   submit validator's job instead (Decisions Log #34). Do not assume a `response` row read back from the
+   database has distinct `option_ids`.
 5. **Collected responses are immutable.** `qp_execution` has `SELECT, INSERT` on `response` and nothing
    else. **No role has `DELETE` anywhere** in the schema.
 6. **`audit.event` is append-only and unreachable directly.** Writes go through
@@ -63,6 +70,17 @@ check instead, the change is wrong.
 
 ## Rules for repository code
 
+- **Never fold unpersisted data into `response_digest`.** It is SHA-256 over the canonicalized `response`
+  rows and must stay a pure function of them, so a canonicalization change is a backfill rather than a
+  permanent choice (Decisions Log #37). No session id, no timestamps, no client version.
+- **Seed ids are hardcoded constants.** Question and questionnaire ids in the seed are fixed uuids, not
+  generated, so the uuids printed in [[5-questionnaire-format#3. Serialization]] resolve against a running
+  database (Decisions Log #35). Do not "fix" the seed to generate them. Sessions and responses generate
+  ids normally.
+- **Validate `option_ids` uniqueness in code.** The `response_shape` check covers cardinality, NULL
+  elements and the `yes`/`no` domain, but not duplicates within the array. The submit validator walks
+  `option_ids` against the pinned question version's options anyway — assert distinctness in that same
+  walk and return `422`. This is the one invariant on this table that is *not* enforced below you.
 - **Pick the right role.** Definition repositories use the `qp_definition` pool; execution
   repositories use `qp_execution`. Never reach across — execution code must not read an authoring
   table, and the grants will stop it at runtime if it tries.
@@ -149,10 +167,28 @@ is the escape hatch for pointing at an existing instance. See [[8-testing]].
 
 ## Not wired up yet
 
-`docker-compose.yml` and `.env.example` currently define **one** Postgres user and **one**
-`DATABASE_URL`. The schema needs four roles and the backend needs two connection strings
-(`qp_definition`, `qp_execution`). Until that lands, compose does not yet enforce the grant barrier —
-treat it as a known gap, not as evidence the barrier is optional.
+`docker-compose.yml` and `.env.example` still define **one** Postgres user and **one** `DATABASE_URL`.
+The target shape is fully specified (Decisions Log #39, [[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]])
+and is Track 2's job: five identities, three connection strings, roles created by `db/init/01-roles.sh`.
+Until it lands compose does not enforce the grant barrier — a known gap, not evidence the barrier is
+optional.
+
+When wiring it, the four things that fail quietly:
+
+1. **`qp_owner` must not be `POSTGRES_USER`.** `initdb` makes that role a cluster superuser. Keep a
+   separate bootstrap superuser and `ALTER DATABASE ... OWNER TO qp_owner`.
+2. **`ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner` only covers objects `qp_owner` created.** Run
+   migrations as anything else and every future table silently gets no grant.
+3. **The init script must be `.sh`, not `.sql`** — `psql -f` does not interpolate, so a `.sql` file
+   would need literal passwords.
+4. **It runs once, on an empty data directory.** Guard each `CREATE ROLE` with an
+   `IF NOT EXISTS` block so it can be re-run by hand; `docker compose down -v` is the only reset.
+
+Tests run the same `db/init/01-roles.sh` via `execInContainer`. Do not write a second one.
+
+**Do not "simplify" `SET search_path = audit, pg_temp`** on `audit.record`. A `SECURITY DEFINER`
+function without a pinned search path is a privilege-escalation vector; `pg_temp` goes last and the
+body stays schema-qualified.
 
 ## Where to read more
 

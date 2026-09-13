@@ -97,7 +97,23 @@ Mounted at `/api/definition`. Every route requires an authenticated author (§7)
 | `GET /questionnaires/:id/versions/:v` | One published snapshot, verbatim | `200` |
 | `PUT /questionnaires/:id/closes-at` | Set, reschedule or clear `closesAt` | `200` |
 
+**Ordering is specified; pagination is deferred.** Every list endpoint carries an explicit `ORDER BY`, because without one Postgres returns heap order — which *changes after an `UPDATE`*, so the bank would visibly reshuffle after an author edited a question, and any integration test asserting on list contents would be intermittently flaky. This is a correctness rule, not presentation.
+
+| Endpoint | Order | Served by |
+| --- | --- | --- |
+| `GET /questions` | `id DESC` | primary key index |
+| `GET /questionnaires` | `id DESC` | primary key index |
+| `GET /questions/:id/versions` | `version DESC` | PK `(question_id, version)` |
+| `GET /questionnaires/:id/versions` | `version DESC` | `questionnaire_version_number` |
+| `GET /questions/:id/usage` | `questionnaire_id, version DESC` | `version_question_index` |
+
+`id DESC` is creation order at no cost: primary keys are UUIDv7 ([[9-database-schema#2. Conventions]]), so the uuid's leading 48 bits are a millisecond timestamp and the index Postgres already built for the primary key is a creation-order index. `ORDER BY created_at DESC` would need a second index and is not unique, so rows created in the same millisecond could come back in either order — reintroducing exactly the instability the rule removes.
+
+No endpoint paginates. Definition tables run to dozens or hundreds of rows ([[9-database-schema#8. Read/write characteristics]]), the client receives each list whole, and admin sorting and filtering are therefore client-side. The deferral has a named exit rather than being an omission: when the bank outgrows one screen, these orderings become keyset pagination on a column that is already unique, indexed and monotonic — `WHERE id < $cursor ORDER BY id DESC LIMIT n`, an index range scan with no new column, no migration, and no `OFFSET` counting and discarding skipped rows. Settling the ordering now is what keeps that a one-clause change.
+
 `PUT /draft` replaces the whole draft rather than patching items individually. The draft is small, it is edited by one author in one screen, and whole-document replacement makes ordering and predicate edits atomic — a reorder is not a sequence of index writes that can half-apply. Concurrency is handled with an `If-Match` ETag over the draft's `updatedAt`, returning `409 questionnaire/draft-stale` rather than silently clobbering a second tab.
+
+**Draft items carry their pinned `questionVersion`,** and the server never resolves "the current version of this question" when writing a draft. An author therefore pins the version their screen was showing, which is what makes "items pin at add time" ([[5-questionnaire-format#6.2 Question identity and versioning]]) true under concurrent editing rather than approximately true — the authoring counterpart of §5.2's rule for the execution side. Two related refusals on this endpoint: an item naming an **archived** question is rejected, since archiving means "not for new placements", and an item naming a question version that does not exist is a `422` rather than a silent fallback to the latest. See [[10-frontend#6. Authoring concurrency]].
 
 `POST /draft/validate` exists so the authoring UI can show satisfiability and reachability problems ([[5-questionnaire-format#5. Publish-time validation]]) while editing, using exactly the code path publish uses. Not a second implementation of the rules — the publish handler calls the same function and refuses on the same result.
 
@@ -122,7 +138,7 @@ Version history is metadata only — `version`, `publishedAt`, `publishedBy`, `i
 
 ### 4.3 Publish and retire
 
-`POST /publish` is the single most consequential write in the system and runs as one transaction: read the draft, run the validations, serialize the snapshot, promote the draft row to version *N*, write `version_question_index` rows, write the audit row ([[2-design-doc#12. Database]]). It refuses with `422 draft/invalid` carrying the per-item validation failures, and `409 version/immutable` can only ever surface from the database trigger — if the API ever returns it, that is a bug worth seeing rather than a race worth hiding.
+`POST /publish` is the single most consequential write in the system and runs as one transaction: read the draft, run the validations, serialize the snapshot, promote the draft row to version *N*, write `version_question_index` rows, write the audit row ([[2-design-doc#12. Database]]). It refuses with `422 questionnaire/draft-invalid` carrying the per-item validation failures, and `409 version/immutable` can only ever surface from the database trigger — if the API ever returns it, that is a bug worth seeing rather than a race worth hiding.
 
 Retirement is a `closesAt` write, not a state machine (§8.1 of the design doc). Clearing it is allowed and is how a premature retirement is undone; the audit row records both.
 
@@ -136,10 +152,11 @@ Mounted at `/api/run`. Unauthenticated (§7).
 | --- | --- | --- |
 | `POST /sessions` | Start: resolve the current published version, pin it, create the session | `201 { session, definition }` |
 | `GET /sessions/:sessionId` | Resume: the session and **its pinned** definition | `200 { session, definition }` |
-| `PUT /sessions/:sessionId/progress` | Optional debounced checkpoint of partial answers — scope call, §10 | `204` |
 | `POST /sessions/:sessionId/submit` | Validate and persist responses; terminal | `200 { receipt }` |
 
-Four routes. The surface is small because the execution model already decided the client fetches the whole definition once and evaluates branching locally (Decisions Log, execution model): there is no "next question" round trip to design, because the next question is a client-side function of a document the client already holds.
+Three routes. The surface is small because the execution model already decided the client fetches the whole definition once and evaluates branching locally (Decisions Log, execution model): there is no "next question" round trip to design, because the next question is a client-side function of a document the client already holds.
+
+**There is no checkpoint endpoint** (Decisions Log #25). A `PUT /sessions/:sessionId/progress` upserting partial answers on a debounce was the fourth route through most of this design and is deliberately absent; §9.7 has the reasoning. It is deferred rather than rejected, and nothing between session start and submit writes to the server.
 
 `POST /sessions` returns the definition in the same response rather than making the client fetch it — the common path is one round trip, and the version the session pinned and the version the client renders are the same bytes by construction rather than by a second lookup that could resolve differently.
 
@@ -155,13 +172,17 @@ It also means a new publish is invisible to every session already running, and v
 
 The cost is that admin preview of "what a respondent sees right now" is not a respondent-API call. It is `GET /definition/questionnaires/:id/versions/:v` (§4.2), rendered by the admin app through the same shared renderer. Which is the correct place for it: previewing is an authoring activity.
 
-**How the respondent lands.** The respondent app is entered at `/q/:questionnaireId` and immediately `POST /sessions`. A closed questionnaire returns `409 questionnaire/closed` and the app renders the "responses closed" page (§8.1 of the design doc); a questionnaire that has never been published returns `404` — deliberately indistinguishable from one that does not exist, so the public surface cannot be used to enumerate drafts.
+**How the respondent lands.** The respondent app is entered at `/q/:questionnaireId`. It does **not** create a session immediately: it first looks in local storage for a session belonging to this questionnaire and, if one is there, resumes it with `GET /sessions/:sessionId`, falling back to `POST /sessions` only when there is no stored session or the stored one is gone. Creating unconditionally would orphan an in-progress session and start a second one, so resume would never fire — the full flow is in [[10-frontend#4.2 Entry and resume]].
+
+A closed questionnaire returns `409 questionnaire/closed` at either step and the app renders the "responses closed" page (§8.1 of the design doc); a questionnaire that has never been published returns `404` — deliberately indistinguishable from one that does not exist, so the public surface cannot be used to enumerate drafts.
 
 ### 5.3 Session lifecycle
 
 `in_progress → submitted` and nothing else. Abandonment is not a state, it is the absence of a submit — inferred from the session record for analytics ([[6-observability#4. Domain events]]) rather than written by a process that has to decide when to give up.
 
-Resume works because the session id is durable and the session pins its version: the browser holds partial answers ([[3-scaling#2. Load model (what actually hits the backend)]]), the server holds the pin. The respondent app persists the session id locally and the resume link is a capability URL (§7).
+Resume works because the session id is durable and the session pins its version: the browser holds partial answers ([[3-scaling#2. Load model (what actually hits the backend)]]), the server holds the pin. The respondent app persists the session id in local storage and looks for it on landing (§5.2).
+
+**There is no resume-link route.** With the checkpoint endpoint deferred ([[2-design-doc#17. Decisions Log]] #25), answers exist only in the browser that produced them, so a `/s/:sessionId` URL opened elsewhere would present a valid, empty session and invite the respondent to start over without saying so. The capability-URL properties in §7 remain the access model for when identity arrives; no route exercises them today.
 
 ### 5.4 Submit: authority, validation, idempotency
 
@@ -169,7 +190,7 @@ Submit is the single write on the execution path and the server is the authority
 
 - every item it computes as visible-and-required has an answer;
 - every submitted answer belongs to an item that is visible on the computed path — an answer to a skipped item is a rejection, not a silently ignored row;
-- every value satisfies its question version's constraints (type, option ids, `maxLength`, date bounds, `{ value, unit }`);
+- every value satisfies its question version's constraints (type, option ids, `maxLength`, date bounds, `{ value, unit }`) — relative date constraints are evaluated against UTC today with one day of tolerance, for the reason in [[5-questionnaire-format#2.4 Relative date constraints resolve against two different clocks]];
 - `closesAt` has not passed.
 
 All-or-nothing in one transaction. Partial acceptance would leave a session in a state the model does not have.
@@ -177,6 +198,30 @@ All-or-nothing in one transaction. Partial acceptance would leave a session in a
 **Idempotency uses the session as the key.** No separate idempotency-key table: the session *is* the natural unit, and a duplicate submit is always a retry of the same session. Submit takes `SELECT ... FOR UPDATE` on the session row, and if it is already `submitted`, compares a `responseDigest` (a hash over canonicalized answers) stored at first submit — identical digest replays the original receipt with `200`, a different digest returns `409 session/already-submitted`. A network retry is safe; a genuine second submission of different answers is an error rather than a silent overwrite of someone's medical history.
 
 This is cheaper than an `Idempotency-Key` header and strictly more useful, because it also catches the two-tabs case that a client-generated key would not.
+
+#### The canonical form
+
+The digest is computed over the **validated rows the server is about to write**, never over the request body. Hashing bytes would turn a client that re-serialized its answers in a different key order into a spurious `409` on a submission that already succeeded — the exact failure the mechanism exists to prevent. The canonicalizer lives in `@qp/shared` beside the rule engine, because the submit handler and its tests must not implement it twice.
+
+```js
+const canonical = accepted
+  .sort((a, b) => (a.itemId < b.itemId ? -1 : 1))
+  .map(a => ({ itemId, type, text, number, unit, date, optionIds: [...ids].sort(), otherText }));
+const digest = sha256(JSON.stringify(canonical));   // 32 bytes → session.response_digest
+```
+
+Four rules, which are the whole specification:
+
+1. **Digest the validated rows, not the payload.** After path re-evaluation, after constraint validation, after normalization.
+2. **Sort answers by `itemId`, and sort `optionIds`.** Otherwise the same multi-select submitted in a different click order digests differently.
+3. **Numbers enter as their exact decimal string.** `number_value` is `numeric` so an evidentiary record does not round ([[9-database-schema#6.1 `response`]]); putting a JS number through `JSON.stringify` would undo that in the digest.
+4. **Unanswered optional items are absent, not null.** A client may send explicit nulls on one attempt and omit them on the retry; both describe the same submission.
+
+No canonical-JSON library is involved and none is needed. RFC 8785 and its relatives exist to canonicalize JSON *received from someone else*; this object is constructed by our own code from our own rows, so key order is fixed by the source and `JSON.stringify` supplies the string escaping that a hand-rolled delimiter format would get wrong on the first text answer containing a separator.
+
+**The constraint that keeps this reversible: the digest must remain a pure function of the persisted `response` rows.** Every field above is stored, so changing the canonicalization later is a backfill — recompute from the rows and `UPDATE session SET response_digest`, with no mixed-version window because the one-shot `migrate` service gates a single backend ([[2-design-doc#13. Deployment]]). Folding in anything that is *not* stored — a client version, a timestamp, the session id — silently forfeits that and makes the choice permanent. The session id in particular is redundant: the digest is only ever compared within one session row, so the session is already the scope.
+
+The failure modes are not symmetric, which is why this is four rules and not a specification. Canonicalization drift produces a **false `409`** — the user is told the session is already submitted, the original stands, nothing is lost. The dangerous direction, a false `200` that silently discards a genuine second submission, requires the canonical form to *lose information* rather than merely to order it differently.
 
 ### 5.5 Error bodies must not echo answers
 
@@ -208,8 +253,8 @@ A standard beats a bespoke envelope here for one reason worth more than familiar
 | --- | --- | --- |
 | `request/invalid` | 400 | Failed schema validation |
 | `resource/not-found` | 404 | Unknown id, or a draft viewed from the public surface |
-| `draft/invalid` | 422 | Publish-time validation failed |
-| `draft/stale` | 409 | `If-Match` mismatch on a draft write |
+| `questionnaire/draft-invalid` | 422 | Publish-time validation failed |
+| `questionnaire/draft-stale` | 409 | `If-Match` mismatch on a draft write |
 | `questionnaire/draft-exists` | 409 | A draft is already open |
 | `version/immutable` | 409 | Attempted write to a published version |
 | `questionnaire/closed` | 409 | Past `closesAt` |
@@ -257,7 +302,7 @@ Applying the hook to the whole plugin rather than per route is deliberate: a new
 **Session ids are bearer capabilities.** With no respondent accounts, holding a session id *is* authorization to read and submit that session. Three consequences, all cheap now and expensive to retrofit:
 
 - Session ids are cryptographically random (UUIDv4, or v7 where ordering helps indexing — never sequential), so they are not enumerable.
-- The resume link is a capability URL, so the respondent app sets `Referrer-Policy: no-referrer` to keep it out of `Referer` headers on any outbound link, and the id is never placed in a query string where it would land in access logs.
+- Session ids are never placed in a query string, where they would land in access logs and `Referer` headers, and the respondent app sets `Referrer-Policy: no-referrer` regardless. No route carries a session id in the URL today (§5.3), so this currently constrains what may be built rather than what exists — which is the cheap moment to fix it.
 - Session ids appear in traces and logs as ids (they already do — [[6-observability#2.1 Traces]]) but never in a metric label, and never in anything rendered to another respondent.
 
 With real auth, the respondent surface gains an owner check and the capability property becomes a fallback rather than the whole model.
@@ -324,9 +369,19 @@ tRPC gives end-to-end types with no schema duplication, but it couples the clien
 
 Rejected for prototype ergonomics — two containers, two log streams and a second pipeline, bought before any of the benefits in §8.2 apply, and against "one command to run" which is explicitly graded. The design keeps the split cheap (§8.3) instead of taking it early.
 
+### 9.7 A debounced checkpoint endpoint
+
+`PUT /sessions/:sessionId/progress`, upserting a JSON blob of answers-so-far. Deferred rather than rejected — but the case against shipping it in the prototype is stronger than it first looks, and it is not primarily about cost.
+
+**Without auth, the server-side copy is unreachable.** The session id is the only thing that addresses a session, and with respondents anonymous (§7) it is a bearer capability the browser stores — in the same browser storage as the partial answers themselves. Every scenario that loses the answers loses the id along with them: a cleared profile, an incognito window closing, Safari evicting storage for a site unvisited for ~7 days ([[3-scaling#7. Known tradeoffs of browser-held partial answers]]). The one case it survives is a device swap where the respondent still has the resume link, which is to say cross-device resume works only when the respondent carries the URL across by hand. The headline benefit is therefore mostly unavailable until there is an identity to look a session up by — and at that point this is a different design, keyed on the respondent rather than on a capability id.
+
+What remains is the operational half: knowing *where* an abandoned session stopped rather than only that it stopped. That is real, and it is why this is deferred and not rejected. It is also substantially covered already — client-emitted domain events ([[6-observability#4. Domain events]]) carry `session.item_skipped` and `session.abandoned`, so the drop-off question has an answer that does not require storing anyone's medical answers on a second write path.
+
+Against that: a write on the hot side of the system, and a partial-answer store that becomes a second place raw answers live, with its own grant, its own redaction surface and its own retention question. The shape is recorded in [[9-database-schema#12. Open questions]] so that adding it later is additive — one table, one grant, one route, and nothing existing to migrate.
+
 ## 10. Open questions
 
-1. **Checkpoint endpoint.** Whether `PUT /sessions/:id/progress` ships in the prototype. It is the only route here that is not load-bearing: partial answers already live in the browser, and its value is operational (seeing *where* an abandoned session stopped, not merely that it stopped) plus cross-device resume. Cost is a write path on the hot side and a partial-answer store with its own redaction surface. Also tracked in [[2-design-doc#18. Open Questions]] and [[3-scaling#8. Open questions]].
+1. **Checkpoint endpoint — resolved: deferred** (Decisions Log #25). `PUT /sessions/:id/progress` does not ship in the prototype. Without auth the session id lives and dies in the same browser storage as the answers it would recover, so the cross-device-resume benefit is largely unavailable, and the operational half is already carried by domain events. Reasoning in §9.7; the table shape is recorded in [[9-database-schema#12. Open questions]] so adding it stays additive.
 2. **Admin reporting surface.** §3.2 denies the definition role any read on `response`, which is correct, and leaves "how do admins see aggregate results" unanswered. Expected shape is a third read-only surface with its own role over the session record and domain events, with raw answers behind an explicit, audited export. Not designed yet.
 3. **Version diffing.** `GET /versions/:a/diff/:b` would make "what changed in v2" a first-class answer and is directly useful for the mandatory v2 demo. Deferred as additive — both snapshots are already retrievable and the admin app can diff client-side.
 4. **Rate limiting on the execution surface.** Unauthenticated `POST /sessions` is trivially abusable. `@fastify/rate-limit` is a small addition; whether it belongs in the prototype or is stated as an edge concern is open, and it interacts with where the split in §8.2 puts the public ingress.

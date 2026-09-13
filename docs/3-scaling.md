@@ -16,10 +16,10 @@ Decisions from the design discussion that shape the numbers:
 - **Whole definition sent once per session.** The client receives the full published version at session start and computes branching locally using the shared rule engine. No per-answer definition reads.
 - **Partial answers live in the browser.** Answers-in-progress are kept client-side (IndexedDB/localStorage) keyed by session id. The server sees one submission per completed session.
 - **Server-side session record.** A small session row (id, questionnaire, pinned version, started_at, status) is created at session start. It pins the version, makes submit idempotent, supports the republish/retire policy, and gives visibility into where respondents abandon.
-- **Optional checkpoint.** `PUT /sessions/:id/progress` upserts a JSON blob of answers-so-far on a debounce. One upsert per session, not per answer. Enables cross-device resume and abandonment analysis; scope call whether it ships in the prototype.
+- **No checkpoint endpoint.** A debounced `PUT /sessions/:id/progress` upserting answers-so-far was considered and deferred ([[2-design-doc#17. Decisions Log]] #25): without auth the session id sits in the same browser storage as the answers, so the server-side copy is unreachable in the cases that would need it. Partial answers stay client-side and nothing is written to the server between session start and submit.
 - **Server is the authority.** On submit the server recomputes the reachable path from stored answers and the pinned version, rejects answers to unreachable questions and missing required ones. Client-side branching is a convenience, not trust.
 
-Resulting per-session traffic: 1 session create, 1 definition fetch (cacheable, immutable), 0–N checkpoints (debounced), 1 submit.
+Resulting per-session traffic: 1 session create, 1 definition fetch (cacheable, immutable, and returned inline with the create on the common path), 1 submit. No writes between start and submit.
 
 ## 3. Problem: response ingest vs. reads
 
@@ -29,7 +29,7 @@ Postgres MVCC means writes do not take locks that block readers; the real risk i
 ### Two kinds of readers
 | Reader | Needs | Path |
 | --- | --- | --- |
-| Respondent (resume, next question) | Read-your-writes, low latency | Session record on primary; answers from browser storage (or checkpoint blob) |
+| Respondent (resume, next question) | Read-your-writes, low latency | Session record on primary; answers from browser storage |
 | Admin / analytics | Cross-session queries, tolerates lag | Read replica |
 
 ### Levers, in order
@@ -55,15 +55,17 @@ Published versions are immutable, so a cache entry keyed by `(questionnaire_id, 
 Not in the prototype. Appears as two distinct later levers — a **cache** ([[#4. Problem: hot definition reads]] §4.3, volatile, eviction OK) and a **durable queue** ([[#3. Problem: response ingest vs. reads]] §3.4, persistence required, no eviction). These have opposite configuration and would be separate instances (or the queue moves off Redis entirely). The compose/k8s layout should not bake in one shared instance.
 
 ## 6. Future improvement: split the frontends
-The respondent questionnaire app and the admin portal will see very different traffic profiles; the questionnaire app is potentially hit far harder. Splitting them into separate deployables lets the respondent app sit behind a CDN with aggressive caching and edge rate limiting, while the admin app stays behind auth and never handles public traffic. It also enables ingest to become its own service ([[#3. Problem: response ingest vs. reads]] §3.5). Keep them as separate entry points / packages in the monorepo from the start so this is a deploy change later.
+The respondent questionnaire app and the admin portal will see very different traffic profiles; the questionnaire app is potentially hit far harder. Splitting them into separate deployables lets the respondent app sit behind a CDN with aggressive caching and edge rate limiting, while the admin app stays behind auth and never handles public traffic. It also enables ingest to become its own service ([[#3. Problem: response ingest vs. reads]] §3.5).
+
+**Half of this is already done.** They are two applications with separate builds and separate bundles ([[2-design-doc#17. Decisions Log]] #27), sharing only `packages/ui` and `packages/shared`; what remains is deployment — today one nginx container serves both. So the future change is a second container and a routing rule, not a refactor, and the respondent bundle already contains no admin code.
 
 ## 7. Known tradeoffs of browser-held partial answers
 - No cross-device or cross-browser resume without the checkpoint endpoint.
 - Incognito / cleared profile loses progress.
 - Safari evicts IndexedDB/localStorage for sites not visited in ~7 days.
-- Mitigation: checkpoint endpoint ([[#2. Load model (what actually hits the backend)]]), documented as the path to full resume.
+- **Not mitigated in the prototype.** The checkpoint endpoint is deferred ([[2-design-doc#17. Decisions Log]] #25), and the honest reason is that it would not have helped much: the session id is lost in the same events that lose the answers, so a server-side copy has nothing to address it with until there is an identity to look a session up by. That identity is the real prerequisite for full resume.
 
 ## 8. Open questions
-- Ship the checkpoint endpoint in the prototype or defer?
+- ~~Ship the checkpoint endpoint in the prototype or defer?~~ **Resolved: deferred** ([[2-design-doc#17. Decisions Log]] #25).
 - Retirement policy for in-flight sessions: allow completion vs. block on submit.
 - Whether unreachable (branch-only) questions should be withheld from the payload in sensitive deployments (ties to HIPAA future work).

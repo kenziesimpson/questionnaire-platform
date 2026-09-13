@@ -151,7 +151,9 @@ Contents: actor, action (`publish` / `retire` / `edit_draft`), target (questionn
 
 ### 5.1 Isolation — separate schema with a restricted role
 
-**Decision:** an `audit` schema in the same Postgres instance, written through a dedicated role granted `INSERT` and `SELECT` only, with `UPDATE` and `DELETE` revoked. Append-only becomes a **database guarantee** rather than a convention the application is trusted to follow, and the audit write joins the transaction that performs the domain change.
+**Decision:** an `audit` schema in the same Postgres instance, owned by a dedicated `NOLOGIN` role and reachable only through a `SECURITY DEFINER` function. Append-only becomes a **database guarantee** rather than a convention the application is trusted to follow, and the audit write joins the transaction that performs the domain change.
+
+The mechanism landed stronger than this section originally described. Narrowing grants on the application role to `INSERT` and `SELECT` was the first form, and it works; it was superseded by one that costs the same and gives more (Decisions Log #24, [[9-database-schema#9.1 A dedicated role, inside the publish transaction]]). `audit_owner` owns the table and the function, has no login, and `qp_definition` holds **zero** privilege on `audit.event` — not `INSERT`, not even `SELECT`. Append-only stops being "a role that was only granted `INSERT`" and becomes "a table no application role can reach at all, behind one function that only appends".
 
 That second property is the reason this beats a separate database today. Publishing already runs as a single transaction ([[2-design-doc#12.1 Authoring is normalized; published is a snapshot]]); a separate database would put the audit write outside it:
 
@@ -246,7 +248,7 @@ The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the ob
 | O1 | OpenTelemetry as the single instrumentation standard; Collector as the vendor seam; `@fastify/otel` on the backend |
 | O2 | Respondent answer values never enter telemetry, enforced by the ladder in §3 — `Sensitive<T>` type, single telemetry boundary + lint rule, exporter scrub, canary sentinel test, CI gate, advisory agent review, `telemetry-safety` skill |
 | O3 | Domain events (§4) as a first-class stream, emitted as paired log + counter |
-| O4 | Audit trail lives in the database, append-only, in an `audit` schema behind an `INSERT`/`SELECT`-only role so immutability is enforced by Postgres and the write shares the publish transaction; separate database + outbox, and eventually a standalone audit service, are the documented future extraction |
+| O4 | Audit trail lives in the database, append-only, in an `audit` schema owned by a `NOLOGIN` role and reachable only through a `SECURITY DEFINER` function, so immutability is enforced by Postgres and the write shares the publish transaction; separate database + outbox, and eventually a standalone audit service, are the documented future extraction |
 | O5 | Client-side traces and logs, batched to a backend `/telemetry` endpoint, flushed with `sendBeacon` |
 | O6 | High-cardinality ids in traces/logs only, never in metric labels; Node saturation metrics (event loop lag, GC, pool waits) included from the start |
 | O7 | Observability stack is an opt-in Compose profile so the one-command demo stays one command |

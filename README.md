@@ -19,6 +19,14 @@ packages/
 docs/         Design doc, scaling notes, implementation plan, ideation
 ```
 
+## Credentials
+
+The committed `.env.example` values and the Compose fallbacks are **development credentials**, chosen
+so `docker compose up` works before you have written a `.env`. That is a deliberate trade for the
+one-command setup, not an oversight — a real deployment supplies every database credential from a
+secret store, and no secret is ever baked into an image. Postgres is published on `127.0.0.1` only, so
+the database is reachable with `psql` from your machine and not from the network.
+
 ## Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Compose v2)
