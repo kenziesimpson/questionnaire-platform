@@ -86,4 +86,4 @@ npm run test        # backend (vitest)
 | `npm run typecheck` | Typecheck every workspace |
 | `npm run test` | Run backend tests |
 | `npm run db:generate -w apps/backend` | Generate a Drizzle migration from `src/db/schema.ts` |
-| `npm run db:migrate -w apps/backend` | Apply migrations (needs `DATABASE_URL`) |
+| `npm run db:migrate -w apps/backend` | Apply migrations as `qp_owner` (needs `DATABASE_URL_OWNER`) |

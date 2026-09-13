@@ -6,6 +6,15 @@
 : "${QP_DEFINITION_PASSWORD:?QP_DEFINITION_PASSWORD must be set}"
 : "${QP_EXECUTION_PASSWORD:?QP_EXECUTION_PASSWORD must be set}"
 
+for password in "$QP_OWNER_PASSWORD" "$QP_DEFINITION_PASSWORD" "$QP_EXECUTION_PASSWORD"; do
+  case "$password" in
+    *[!A-Za-z0-9._~-]*)
+      echo "01-roles.sh: role passwords are interpolated into connection URLs and may contain only A-Z a-z 0-9 . _ ~ -" >&2
+      exit 1
+      ;;
+  esac
+done
+
 psql -v ON_ERROR_STOP=1 \
   --username "$POSTGRES_USER" \
   --dbname "$POSTGRES_DB" \
