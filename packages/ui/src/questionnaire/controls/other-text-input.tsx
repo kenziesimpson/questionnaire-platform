@@ -14,7 +14,7 @@ export function OtherTextInput({
 }) {
   return (
     <Input
-      className="max-w-xs"
+      className="max-w-xs focus:placeholder:text-transparent"
       placeholder={option.label}
       aria-label={`${option.label}, please specify`}
       value={value}

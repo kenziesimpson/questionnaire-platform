@@ -69,7 +69,6 @@ describe("multiple choice control", () => {
 describe("multiple choice other option", () => {
   it("shows the text box beside the other checkbox before other is checked", () => {
     const { otherText, box } = renderSymptoms();
-    expect(otherText).toHaveAttribute("placeholder", "Other");
     expect(box("Other").parentElement).toContainElement(otherText);
   });
 

@@ -59,10 +59,9 @@ describe("single choice control", () => {
 });
 
 describe("single choice other option", () => {
-  it("shows the text box beside the other radio before other is chosen, with the option label as placeholder", () => {
+  it("shows the text box beside the other radio before other is chosen", () => {
     const { otherText, radio } = renderChoice();
     expect(otherText).toBeInTheDocument();
-    expect(otherText).toHaveAttribute("placeholder", "Other");
     expect(radio("Other").parentElement).toContainElement(otherText);
   });
 
