@@ -13,13 +13,17 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-questionnaire}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-questionnaire}
       POSTGRES_DB: ${POSTGRES_DB:-questionnaire_platform}
+      QP_OWNER_PASSWORD: ${QP_OWNER_PASSWORD:-qp_owner}
+      QP_DEFINITION_PASSWORD: ${QP_DEFINITION_PASSWORD:-qp_definition}
+      QP_EXECUTION_PASSWORD: ${QP_EXECUTION_PASSWORD:-qp_execution}
     ports:
       # Loopback only: psql from the host works, the network cannot reach the database.
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-questionnaire} -d ${POSTGRES_DB:-questionnaire_platform}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-questionnaire} -d ${POSTGRES_DB:-questionnaire_platform}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -34,7 +38,8 @@ services:
       dockerfile: apps/backend/Dockerfile
     command: ["sh", "-c", "node apps/backend/dist/db/migrate.js && node apps/backend/dist/db/seed.js"]
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-questionnaire}:${POSTGRES_PASSWORD:-questionnaire}@db:5432/${POSTGRES_DB:-questionnaire_platform}
+      DATABASE_URL_OWNER: postgres://qp_owner:${QP_OWNER_PASSWORD:-qp_owner}@db:5432/${POSTGRES_DB:-questionnaire_platform}
+      DATABASE_URL_DEFINITION: postgres://qp_definition:${QP_DEFINITION_PASSWORD:-qp_definition}@db:5432/${POSTGRES_DB:-questionnaire_platform}
     depends_on:
       db:
         condition: service_healthy
@@ -48,7 +53,8 @@ services:
       NODE_ENV: production
       PORT: 3000
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      DATABASE_URL: postgres://${POSTGRES_USER:-questionnaire}:${POSTGRES_PASSWORD:-questionnaire}@db:5432/${POSTGRES_DB:-questionnaire_platform}
+      DATABASE_URL_DEFINITION: postgres://qp_definition:${QP_DEFINITION_PASSWORD:-qp_definition}@db:5432/${POSTGRES_DB:-questionnaire_platform}
+      DATABASE_URL_EXECUTION: postgres://qp_execution:${QP_EXECUTION_PASSWORD:-qp_execution}@db:5432/${POSTGRES_DB:-questionnaire_platform}
     depends_on:
       migrate:
         condition: service_completed_successfully
