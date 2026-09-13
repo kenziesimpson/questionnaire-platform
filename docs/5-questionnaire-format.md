@@ -98,7 +98,7 @@ A published version is stored as a single JSONB document ([[2-design-doc#12. Dat
 ```json
 {
   "formatVersion": 1,
-  "questionnaireId": "qnr_intake",
+  "questionnaireId": "01a0950e-56a0-73d6-b936-4a1e10eff8c0",
   "version": 1,
   "title": "Patient Intake",
   "items": [
@@ -121,7 +121,7 @@ A published version is stored as a single JSONB document ([[2-design-doc#12. Dat
       "itemId": "itm_02",
       "required": true,
       "visibleWhen": { "all": [
-        { "type": "single_choice", "questionId": "01a0950f-4100-7fcc-8acc-05dc6b75ce33", "op": "is", "optionId": "yes" }
+        { "type": "single_choice", "itemId": "itm_01", "op": "is", "optionId": "yes" }
       ]},
       "question": {
         "questionId": "01a0950f-4161-7719-98fb-afa43f4c6232",
@@ -139,7 +139,7 @@ A published version is stored as a single JSONB document ([[2-design-doc#12. Dat
       "itemId": "itm_03",
       "required": true,
       "visibleWhen": { "all": [
-        { "type": "single_choice", "questionId": "01a0950f-4100-7fcc-8acc-05dc6b75ce33", "op": "is", "optionId": "yes" }
+        { "type": "single_choice", "itemId": "itm_01", "op": "is", "optionId": "yes" }
       ]},
       "question": {
         "questionId": "01a0950f-41c2-7435-a65e-c53680e09195",
@@ -167,7 +167,7 @@ A published version is stored as a single JSONB document ([[2-design-doc#12. Dat
 
 This is **version 1** of the seeded demo questionnaire. `itm_02` and `itm_03` are skipped entirely when the first question is answered `no`, and both paths converge on `itm_04` with no merge edge anywhere.
 
-`questionId` is a uuid because a question is a row in the bank rather than a key inside the document (§2 of [[9-database-schema#2. Conventions]]); `itemId` and `optionId` stay authored slugs for the opposite reason. The four ids above are the ones the seed inserts — **the seed hardcodes them rather than generating them**, so a uuid copied out of this document queries the running database ([[2-design-doc#17. Decisions Log]] #35). Their `question.key` slugs, in item order, are `qst_has_condition`, `qst_which_condition`, `qst_diagnosed_on` and `qst_pharmacy`; the prose below refers to them by key.
+`questionId` is a uuid because a question is a row in the bank rather than a key inside the document (§2 of [[9-database-schema#2. Conventions]]); `itemId` and `optionId` stay authored slugs for the opposite reason. The four ids above are the ones the seed inserts — **the seed hardcodes them rather than generating them**, so a uuid copied out of this document queries the running database ([[2-design-doc#17. Decisions Log]] #35). Their `question.key` slugs, in item order, are `qst_has_condition`, `qst_which_condition`, `qst_diagnosed_on` and `qst_pharmacy`, and the questionnaire's is `qnr_intake`; the prose below refers to them by key.
 
 Note that `qst_which_condition` sits at `questionVersion` 3 inside questionnaire version 1. Question versions and questionnaire versions are independent series — the question was revised twice in the bank before this questionnaire ever added it, and the item pinned whatever was current at that moment (§6.2).
 
@@ -199,13 +199,15 @@ Each item carries an optional `visibleWhen` predicate: a **single level** of boo
     visibleWhen: { all: [ <condition>, ... ] }
     visibleWhen: { any: [ <condition>, ... ] }
 
+**A condition names an `itemId`, not a `questionId`** ([[2-design-doc#17. Decisions Log]] #41). An item is a placement, and "an earlier answer" is a property of the placement rather than of the reusable question — which is also the only reading that stays unambiguous if a question were ever placed twice. The condition's type still comes from the question: the referenced item pins a `questionVersion`, and that version's `type` is the discriminant (§4.2).
+
 Nesting is not supported. One `all` or `any` over a flat list satisfies the brief's requirement for rules over *one or more* previous responses, and keeps both the admin rule editor and the validator comprehensible — a nested tree needs a recursive editor UI and recursive explanation for expressiveness this domain has not asked for. It also has a concrete payoff in §5.2: flat composition is what makes exact satisfiability checking affordable.
 
 Deeper composition is a plausible future extension, and the escape hatch already exists without it: two conditions that would need nesting can usually be expressed as two items with separate predicates.
 
 ### 4.2 Conditions are typed per response type
 
-There is no generic `{ questionId, op, value }` shape. The condition union is discriminated by the type of the question it references, so the operator set and the operand type travel together — comparing a date against a number, or asking whether a text answer is greater than 5, is unrepresentable at the type level in the shared package rather than a runtime error class to detect, message and test.
+There is no generic `{ itemId, op, value }` shape. The condition union is discriminated by the type of the question it references, so the operator set and the operand type travel together — comparing a date against a number, or asking whether a text answer is greater than 5, is unrepresentable at the type level in the shared package rather than a runtime error class to detect, message and test.
 
 | Referenced type | Operators | Operand |
 | --- | --- | --- |
@@ -242,7 +244,7 @@ The brief asks for cycle and deadlock prevention. The model makes both inexpress
 
 ### 5.2 Forward references
 
-A predicate referencing a question at an equal or higher index rejects the publish.
+A predicate referencing an item at an equal or higher index rejects the publish. Because conditions name items (§4.1), this is a comparison of two list indices and has exactly one answer.
 
 ### 5.3 Satisfiability
 
@@ -270,11 +272,23 @@ The worst case is exponential in the number of `any` disjuncts along a closure. 
 
 ### 5.4 Referential integrity
 
-Every `questionId` and `optionId` named by a predicate exists in the version, and the referenced question's
-`type` is **identical** to the condition's `type`. The discriminant is the question type with no mapping
-table and no exceptions — which is what removing `yes_no` as a type bought ([[2-design-doc#17. Decisions Log]] #36).
+Every `itemId` and `optionId` named by a predicate exists in the version, and the `type` of the question
+version pinned by the referenced item is **identical** to the condition's `type`. The discriminant is the
+question type with no mapping table and no exceptions — which is what removing `yes_no` as a type bought
+([[2-design-doc#17. Decisions Log]] #36).
 
-### 5.5 What needs no check
+### 5.5 One placement per question
+
+A question may appear at most once in a questionnaire version; a second placement rejects the publish.
+
+This is not about ambiguity — conditions name items (§4.1), so two placements would each be addressable.
+It is about aggregation. Two placements produce two `response` rows carrying the same `question_id` for a
+single respondent, so "how many respondents reported hypertension" counts that person twice, and the
+typed-column design in [[9-database-schema#6.1 `response`]] exists precisely to make that query an index
+scan people will trust. Nothing legitimate is lost: question reuse is reuse *across* questionnaires, which
+is the case [[9-database-schema#3.2 The question bank]] argues for. See [[2-design-doc#17. Decisions Log]] #41.
+
+### 5.6 What needs no check
 
 Required-ness. It is evaluated against the reachable path at submit time, so a required item whose predicate is false is simply not required for that respondent. The "required but unreachable" case resolves at execution, not authoring.
 

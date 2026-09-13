@@ -111,7 +111,7 @@ Mounted at `/api/definition`. Every route requires an authenticated author (§7)
 
 No endpoint paginates. Definition tables run to dozens or hundreds of rows ([[9-database-schema#8. Read/write characteristics]]), the client receives each list whole, and admin sorting and filtering are therefore client-side. The deferral has a named exit rather than being an omission: when the bank outgrows one screen, these orderings become keyset pagination on a column that is already unique, indexed and monotonic — `WHERE id < $cursor ORDER BY id DESC LIMIT n`, an index range scan with no new column, no migration, and no `OFFSET` counting and discarding skipped rows. Settling the ordering now is what keeps that a one-clause change.
 
-`PUT /draft` replaces the whole draft rather than patching items individually. The draft is small, it is edited by one author in one screen, and whole-document replacement makes ordering and predicate edits atomic — a reorder is not a sequence of index writes that can half-apply. Concurrency is handled with an `If-Match` ETag over the draft's `updatedAt`, returning `409 questionnaire/draft-stale` rather than silently clobbering a second tab.
+`PUT /draft` replaces the whole draft rather than patching items individually. The draft is small, it is edited by one author in one screen, and whole-document replacement makes ordering and predicate edits atomic — a reorder is not a sequence of index writes that can half-apply. Concurrency is handled with an `If-Match` ETag over the draft's **revision counter** — `W/"<versionId>:<draftRevision>"` — returning `409 questionnaire/draft-stale` rather than silently clobbering a second tab. A counter rather than a timestamp for the reason `updated_at` is display-only in [[9-database-schema#3. `definition`]]: an ETag should not depend on a clock, and two writes in the same millisecond must not compare equal. `If-Match` is a **required** header in the route schema, so a missing one is a schema failure — `400 request/invalid`, never a silent unconditional write.
 
 **Draft items carry their pinned `questionVersion`,** and the server never resolves "the current version of this question" when writing a draft. An author therefore pins the version their screen was showing, which is what makes "items pin at add time" ([[5-questionnaire-format#6.2 Question identity and versioning]]) true under concurrent editing rather than approximately true — the authoring counterpart of §5.2's rule for the execution side. Two related refusals on this endpoint: an item naming an **archived** question is rejected, since archiving means "not for new placements", and an item naming a question version that does not exist is a `422` rather than a silent fallback to the latest. See [[10-frontend#6. Authoring concurrency]].
 
@@ -195,6 +195,16 @@ Submit is the single write on the execution path and the server is the authority
 
 All-or-nothing in one transaction. Partial acceptance would leave a session in a state the model does not have.
 
+**Answers are keyed by `itemId` on the wire**, matching the conditions (#41), the `response` row, the `items: [{ itemId, code }]` error extension and the digest. **Number answers carry `value` as a decimal string**, pattern-checked, never a JSON number: Fastify parses a JSON number into an IEEE double, which would round away the exactness `numeric` was chosen for ([[9-database-schema#6.1 `response`]]) before the value ever reached the column or the digest. **The client does not send `unit`** — the server fills it from the pinned question version, because a client-supplied unit is a hole straight through Decisions Log #12's guarantee that revising a question cannot change what an earlier answer meant.
+
+A successful submit returns a **receipt**, which is the session row and nothing derived:
+
+```json
+{ "sessionId": "...", "questionnaireId": "...", "version": 2, "submittedAt": "2026-09-13T18:04:11Z" }
+```
+
+Every field is stored on `execution.session`, so replaying a receipt after a retry requires nothing to be kept beyond what the session already holds.
+
 **Idempotency uses the session as the key.** No separate idempotency-key table: the session *is* the natural unit, and a duplicate submit is always a retry of the same session. Submit takes `SELECT ... FOR UPDATE` on the session row, and if it is already `submitted`, compares a `responseDigest` (a hash over canonicalized answers) stored at first submit — identical digest replays the original receipt with `200`, a different digest returns `409 session/already-submitted`. A network retry is safe; a genuine second submission of different answers is an error rather than a silent overwrite of someone's medical history.
 
 This is cheaper than an `Idempotency-Key` header and strictly more useful, because it also catches the two-tabs case that a client-generated key would not.
@@ -240,8 +250,8 @@ A `422` says which item failed and which rule it failed, never what was entered:
   "type": "https://qp.example/problems/version-immutable",
   "title": "Published versions cannot be modified",
   "status": 409,
-  "detail": "Version 2 of questionnaire qnr_intake was published on 2026-09-13.",
-  "instance": "/api/definition/questionnaires/qnr_intake/versions/2"
+  "detail": "Version 2 of questionnaire 01a0950e-56a0-73d6-b936-4a1e10eff8c0 was published on 2026-09-13.",
+  "instance": "/api/definition/questionnaires/01a0950e-56a0-73d6-b936-4a1e10eff8c0/versions/2"
 }
 ```
 
@@ -260,7 +270,15 @@ A standard beats a bespoke envelope here for one reason worth more than familiar
 | `questionnaire/closed` | 409 | Past `closesAt` |
 | `session/already-submitted` | 409 | Submit with a different digest |
 | `submission/invalid` | 422 | Required, unreachable or constraint-violating answers |
+| `question/version-conflict` | 409 | Two saves of one question raced past the row lock |
 | `internal` | 500 | Unhandled; `detail` is a correlation id, never a stack |
+
+Four cases the union is easy to read as not covering, resolved rather than left to a handler:
+
+- **An archived or nonexistent question version in `PUT /draft`** is `422 questionnaire/draft-invalid`, with the offending item named in the `items` extension. It is draft content that fails validation, which is what that slug means.
+- **Two concurrent saves of one question** are serialized by `SELECT ... FOR UPDATE` on the question row before the next version number is computed ([[9-database-schema#5. Concurrency control]]), so both succeed as *N+1* and *N+2*. `question/version-conflict` maps the `23505` that the lock is supposed to make unreachable — a safety net that should never fire, not the normal path. This does not reopen Decisions Log #31: concurrent edits stay unguarded against *lost updates*, which is a different question from the primary-key race.
+- **Publish or validate with no open draft** is `404 resource/not-found` — the questionnaire exists, the draft does not.
+- **A missing `If-Match`** is `400 request/invalid`, because the header is required by the schema (§4.1). `400` keeps its meaning from Decisions Log #20: always a client bug, never a user mistake.
 
 ### 6.2 Status codes
 
@@ -279,6 +297,8 @@ Schema validation covers shape. Domain validation — satisfiability, reachabili
 `GET /definition/questionnaires/:id/versions/:v` returns an immutable document and is served with `ETag: "<questionnaireId>:<version>:<formatVersion>"` and `Cache-Control: private, max-age=31536000, immutable`. `private` because definitions are not public content and the admin surface will be authenticated.
 
 Draft reads are `no-store`. Session reads are `no-store` — the session part changes and the definition rides along with it.
+
+`private` has a consequence worth stating where someone will look for it: **no shared cache or CDN ever holds a definition.** A respondent never calls a definition endpoint at all — Decisions Log #18 removed the unpinned read, so their copy arrives inside the `no-store` session response — and the pinned endpoint is an authenticated admin surface. Definition caching is therefore in-process and, later, a shared L2; [[3-scaling#4. Problem: hot definition reads]] states the levers in those terms. See Decisions Log #44.
 
 ### 6.5 Versioning the API itself
 

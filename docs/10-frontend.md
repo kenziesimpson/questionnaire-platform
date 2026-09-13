@@ -65,7 +65,7 @@ The package holds two folders and one rule.
   definition={publishedDefinition}   // the immutable snapshot
   answers={answers}                  // current answer map
   errors={errorsByItemId}            // validation results, no values echoed
-  onChange={(questionId, answer) => void}
+  onChange={(itemId, answer) => void}
   mode="interactive" | "readonly"
 />
 ```

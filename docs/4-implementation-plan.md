@@ -21,7 +21,7 @@
 
 ## Phase 1 — Plan the build
 
-- [x] **Gate A — the eight decisions that blocked the build.** Closed 2026-09-13 as [[2-design-doc#17. Decisions Log]] #33–#40: the simplicity principle, duplicate `option_ids`, `question.key` in the snapshot, the error-slug spelling, the submit digest, relative-date timezones, the database identities and connection strings, and list ordering
+- [x] **Gate A — the eight decisions that blocked the build.** Closed 2026-09-13 as [[2-design-doc#17. Decisions Log]] #33–#40: the simplicity principle, duplicate `option_ids`, `question.key` in the snapshot, removing the `yes_no` type, the submit digest, relative-date timezones, the database identities and connection strings, and list ordering
 - [x] **Gate B — doc hygiene.** §1–§2 and §13.2/§16 written, the stale cross-reference in [[10-frontend]] removed, §4 and §19 prompts deleted, decisions log reordered, and the three sections an earlier audit never reached re-read. That audit found a real bug in [[9-database-schema#9.1 A dedicated role, inside the publish transaction]]'s DDL, reproduced against live Postgres 16 and fixed
 - [x] **The build plan itself** — gates, waves, file ownership, milestones and intervention points, all in Phase 2 below
 
@@ -37,6 +37,8 @@
 4. **Tests are written with the feature, not after.** Each track fills its slice of [[8-testing#7. Test case enumeration]] as it goes: one row per case, grouped by [[8-testing#2. Layers]], naming the invariant it defends and the [[8-testing#3. Required coverage — the graded list]] row it discharges.
 
 ### Wave 1a — the contract commit *(serial, one agent, nothing else runs)*
+
+> Seven questions this wave raised were answered on 2026-09-13 and are now in the docs: ESLint at the root (not oxlint, which lives only in the scaffold Track 3 deletes); `modules/` and `packages/telemetry` as the folder names, per [[7-application-boundary#3.1 Module encapsulation]] and [[6-observability]] rather than the ownership table, which was wrong and is corrected above; `itemId` as the key for conditions, wire answers, the digest and `onChange`, with publish rejecting duplicate placements (#41); decimal-string numbers with the server filling `unit` (#42); four newly-pinned problem slugs ([[7-application-boundary#6.1 Error format — RFC 9457 problem details]]); the `Receipt` shape ([[7-application-boundary#5.4 Submit: authority, validation, idempotency]]); and `draft_revision` as the ETag source with `updated_at` for display (#43).
 
 - [ ] Domain types in `packages/shared`: `Question`, `QuestionVersion`, `Option`, `Item`, the `Condition` / `Predicate` union, `PublishedDefinition`, `Answer`, `AnswerValue`, `Session`, `Receipt`. Five response types — there is no `yes_no` (#36)
 - [ ] One TypeBox schema per route, request and response, for all 21 routes. Most definition routes are one line of prose in [[7-application-boundary]] today; this is where their shapes are fixed
@@ -94,13 +96,13 @@
 | `packages/shared/**` | 1 |
 | `apps/backend/drizzle/**`, `apps/backend/src/db/**`, `db/init/**` | 2 |
 | `packages/ui/**` | 3 |
-| `apps/backend/src/plugins/definition/**` | 4 |
-| `apps/backend/src/plugins/execution/**` | 5 |
+| `apps/backend/src/modules/definition/**` | 4 |
+| `apps/backend/src/modules/execution/**` | 5 |
 | `apps/admin/**` | 6 |
 | `apps/respondent/**` | 7 |
-| `apps/backend/src/telemetry/**`, collector config | 8 |
+| `packages/telemetry/**`, collector config | 8 |
 | `e2e/**`, CI workflows | 9 |
-| `docs/**`, `README.md`, `.claude/skills/**` | nobody — a doc-only pass, never a build agent |
+| `docs/**`, `README.md`, `.claude/skills/**` | nobody — a doc-only pass, never a build agent. **One carve-out:** a track appends its own rows to [[8-testing#7. Test case enumeration]] and touches nothing else under `docs/` |
 
 **Contended:** root `package.json`, `tsconfig.base.json`, `docker-compose*.yml`, `.env.example`, the Vitest root config. Changed in Wave 1a and Track 2 only; any later track files a request rather than editing.
 
