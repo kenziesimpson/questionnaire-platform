@@ -46,8 +46,9 @@ async function startContainer(): Promise<{ server: TestDatabaseServer; stop: () 
   return { server, stop: async () => void (await container.stop()) };
 }
 
-async function useExistingInstance(ownerUrl: string): Promise<TestDatabaseServer> {
-  const admin = new pg.Client({ connectionString: ownerUrl });
+async function useExistingInstance(adminUrl: string): Promise<TestDatabaseServer> {
+  const passwords = passwordsFromEnvironment();
+  const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
   try {
     await admin.query(`DROP DATABASE IF EXISTS ${TEMPLATE_DATABASE} WITH (FORCE)`);
@@ -55,8 +56,8 @@ async function useExistingInstance(ownerUrl: string): Promise<TestDatabaseServer
   } finally {
     await admin.end();
   }
-  await applyMigrations(withDatabase(ownerUrl, TEMPLATE_DATABASE));
-  return { adminUrl: ownerUrl, passwords: passwordsFromEnvironment() };
+  await applyMigrations(withDatabase(withRole(adminUrl, "qp_owner", passwords.owner), TEMPLATE_DATABASE));
+  return { adminUrl, passwords };
 }
 
 export default async function setup(project: TestProject): Promise<(() => Promise<void>) | undefined> {
