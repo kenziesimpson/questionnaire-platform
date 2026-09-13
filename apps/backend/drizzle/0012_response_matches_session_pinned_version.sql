@@ -1,0 +1,1 @@
+ALTER TABLE "execution"."response" ADD CONSTRAINT "response_session_pinned_version_fk" FOREIGN KEY ("session_id","questionnaire_version_id") REFERENCES "execution"."session"("id","questionnaire_version_id") ON DELETE no action ON UPDATE no action;

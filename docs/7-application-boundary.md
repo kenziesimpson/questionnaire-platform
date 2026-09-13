@@ -52,10 +52,10 @@ The barrier that survives a refactor. Two roles, both distinct from the migratio
 
 | Role | `SELECT` | `INSERT` / `UPDATE` |
 | --- | --- | --- |
-| `qp_definition` | question bank, question versions, questionnaires, draft items, published versions, `version_question_index` | all of the above (subject to the immutability trigger on published rows) |
-| `qp_execution` | published versions, `version_question_index`, questionnaires (for `closes_at`), sessions, responses | sessions, responses only |
+| `qp_definition` | question bank, question versions, questionnaires, draft items, published versions, `version_question_index` | all of the above, subject to the immutability triggers; on questionnaires and versions `UPDATE` is column-level and excludes status, snapshot and the current-version pointer, which change only through `definition.promote_draft`. `DELETE` on draft items only |
+| `qp_execution` | published versions through the `definition.published_questionnaire_version` view, `version_question_index`, questionnaires (for `closes_at`), sessions, responses | sessions, responses only |
 
-`qp_execution` has no grant on any authoring table. `qp_definition` has **no grant on `response`** — the authoring surface is not a back door into answer data, which in this domain is medical history. Aggregate visibility for admins ("where do respondents give up") is a third, later surface with its own role reading the session record and domain events, never raw answers; see §10.
+`qp_execution` has no grant on any authoring table, and no grant on the base `questionnaire_version` table either — a draft row is not visible to it at all. Column lists and the full matrix: [[9-database-schema#10. Grants]]. `qp_definition` has **no grant on `response`** — the authoring surface is not a back door into answer data, which in this domain is medical history. Aggregate visibility for admins ("where do respondents give up") is a third, later surface with its own role reading the session record and domain events, never raw answers; see §10.
 
 This is the same technique as the audit role ([[6-observability#5.1 Isolation — separate schema with a restricted role]]): make the guarantee something Postgres enforces rather than something the service layer promises. In one process that means two pools with two connection strings. When the halves split into two services, it is already the right shape and nothing changes.
 
