@@ -77,6 +77,8 @@ CREATE TABLE definition.questionnaire_version (
   format_version   int,
   created_by       text,
   created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),  -- display only, never the ETag
+  draft_revision   int NOT NULL DEFAULT 0,              -- the ETag's source of truth
   published_at     timestamptz,
   CONSTRAINT version_state CHECK (
     (status='draft'     AND version IS NULL     AND snapshot IS NULL     AND format_version IS NULL
@@ -126,6 +128,15 @@ lookup rather than an aggregate, `(questionnaire_id, version)` is the key
 allow pointing somewhere other than the newest version — a rollback, or a scheduled publish — which a
 computed maximum could never express. Dropping the pointer and computing the maximum removes the
 cycle and those three properties together; see §13.7.
+
+**`draft_revision` is what the draft ETag is built from, and `updated_at` is not.** Every draft mutation
+increments the counter in the same transaction as the change it describes; `PUT /draft` compares the
+`If-Match` value against it ([[7-application-boundary#4.1 Endpoints]]). Both columns exist and only one is
+load-bearing: `updated_at` answers "last edited three minutes ago" in the admin list, while the counter
+answers "is the draft you are holding still current". A timestamp cannot do the second job — two writes
+inside one millisecond compare equal, and a concurrency check must not depend on a clock, for the same
+reason list ordering does not (Decisions Log #40) and the submit digest does not (#37). Both freeze at
+publish, since a published row is immutable.
 
 ### 3.1 The published-only guard
 

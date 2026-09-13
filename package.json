@@ -13,9 +13,15 @@
   "scripts": {
     "dev:backend": "npm run dev -w apps/backend",
     "dev:frontend": "npm run dev -w apps/frontend",
-    "build": "npm run build -w packages/shared && npm run build -w apps/backend && npm run build -w apps/frontend",
-    "test": "npm run test -w apps/backend",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present"
+    "build": "npm run build -w packages/shared && npm run build -w packages/telemetry && npm run build -w apps/backend && npm run build -w apps/frontend",
+    "test": "vitest run",
+    "typecheck": "npm run build -w packages/shared && npm run typecheck --workspaces --if-present",
+    "lint": "eslint . && npm run lint --workspaces --if-present"
+  },
+  "devDependencies": {
+    "eslint": "^10.10.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.0"
   }
 }
