@@ -89,9 +89,14 @@ The design doc is the **index, not the encyclopedia**: it carries a condensed ve
 
 - [[2-design-doc]] — the design doc. Condensed sections, plus the canonical [[2-design-doc#17. Decisions Log]] and [[2-design-doc#18. Open Questions]]. Italic prompts mark unfilled sections.
 - [[5-questionnaire-format]] — **detailed** design for questionnaire format, branching rules, publish-time validation and questionnaire-level versioning; the depth behind design-doc §5–§7. Its §9 keeps the original ideation as an appendix.
+- [[7-application-boundary]] — **detailed** design for the definition/execution boundary: the three representations, both endpoint surfaces, error and status conventions, access model and data barriers, deployment topology; the depth behind design-doc §9 and §8.
+- [[9-database-schema]] — **detailed** design for the physical schema: tables, constraints, the triggers and grants that carry the invariants, concurrency control, partitioning, indexing and migration mechanics; the depth behind design-doc §12.
+- [[8-testing]] — **detailed** design for the test strategy: the four layers, Testcontainers Postgres, the graded coverage list and the test-case enumeration; the depth behind design-doc §15.
 - [[3-scaling]] — scaling constraints, load model, and ordered levers (each with a trigger). Redis lives here, not in the prototype.
 - [[4-implementation-plan]] — checkbox list of open decisions and build tasks; tick items as they land.
 - [[1-ideation]] — original brainstorm; superseded where the design doc disagrees.
+
+Sibling skills in `.claude/skills/`: **database** (schema invariants, roles, migration mechanics and verified Postgres traps — load before touching schema, migrations, repositories or seeds).
 
 ## Decisions made so far (don't relitigate without reason)
 
@@ -108,16 +113,17 @@ The design doc is the **index, not the encyclopedia**: it carries a condensed ve
 - **Question versioning:** questions are **append-only** — no draft state on the bank, every save writes a new immutable `question_version` row, so saving is publishing. A stable `questionId` carries identity across revisions; a questionnaire item **pins the question version at add time** and keeps it. Saving is an explicit action (closing the edit dialog), so one save is one version. No "upgrade to latest" action yet.
 - **Responses store** `questionId` (what you aggregate on), `questionVersion` (what you render with), the questionnaire version, and option ids or `{ value, unit }`. Prompt and label text are not copied onto responses — the snapshot holds those.
 - **Nothing is deleted; things are hidden.** Questionnaires retire, questions archive, question versions append, snapshots and responses are immutable. Apply this by default to any new entity's lifecycle. The one exception is erasure on request (GDPR/HIPAA), which is a separate audited capability, not normal operation.
+- **API boundary:** the boundary is an **artifact, not a route prefix**. Exactly one object crosses it — the immutable `PublishedDefinition` snapshot — and the dependency runs one way; execution never reads a draft, resolves a `questionId`, or joins to an authoring table. Enforced in three layers: encapsulated Fastify plugins with no cross-imports (ESLint zone rule), wire types in `@qp/shared`, and two database roles (`qp_execution` has no grant on authoring tables; `qp_definition` has **no grant on `response`**). `/api/definition/*` owns bank, drafts, publish, retire and version history; `/api/run/*` is four routes and has **no unpinned definition read**, so mid-session version drift is unrepresentable. RFC 9457 `problem+json`, `400` schema-only / `409` state conflict / `422` domain-invalid, and error bodies never echo a submitted answer. Submit is server-authoritative, all-or-nothing, idempotent on the session via an answer digest. Two plugins in one process now; splitting into two services is a deployment change, kept cheap deliberately. Detail in [[7-application-boundary]].
+- **Database schema:** three schemas — `definition`, `execution`, `audit`. Four invariants live in the data layer: a draft is structurally unreferenceable (`version IS NULL` while draft, so composite FKs from `NOT NULL` columns match only published rows); published rows reject `UPDATE` **and** `DELETE`, with draft items guarded against their parent's status using a locking read; `response` uses typed per-type columns under one check constraint so an invalid answer shape cannot be stored; response immutability and audit append-only are enforced by grants, with `audit.event` reachable only through a `SECURITY DEFINER` function. `response` is range-partitioned monthly on `created_at` (set to the session's `submitted_at`, never defaulted) with no default partition. Concurrency is three row locks — questionnaire, question, session. Detail in [[9-database-schema]].
 - **Observability:** OpenTelemetry throughout; `@fastify/otel` on the backend; browser propagates trace context so frontend and backend logs correlate per session.
 - **Not in prototype:** Redis (documented as separate cache and durable-queue levers), ingest queue, frontend split (respondent app vs. admin portal — listed as future work; keep them separate entry points/packages from the start).
 
 ## Still to decide (in dependency order)
 
-1. **Database schema** — entities, relationships, constraints, indexes, response partitioning, audit approach. **This is the current blocker**, and it is unblocked: the format, branching and versioning decisions it depended on have all landed.
-2. API boundary: endpoint groups for definition vs. execution, error format and status conventions, access model and data barriers.
-3. Sessions/responses: checkpoint endpoint scope, submit validation rules, idempotency key.
-4. The v2 demo change for the seeded questionnaire.
-5. Observability details, testing approach, Kubernetes subsection, overview/goals/constraints, and the [[2-design-doc#16. Scale & Growth]] table.
+1. Checkpoint endpoint (`PUT /sessions/:id/progress`) — ship in the prototype or defer. **This is the current blocker**, and it is small: the rest of sessions/responses is decided, and [[9-database-schema#12. Open questions]] records the table shape either way so the decision stays additive.
+2. The v2 demo change for the seeded questionnaire.
+3. Two schema details left open: duplicate ids within `option_ids` (helper function or application validation), and whether `question.key` is carried into the snapshot alongside the uuid — [[9-database-schema#12. Open questions]].
+4. Observability details, Kubernetes subsection, overview/goals/constraints, and the [[2-design-doc#16. Scale & Growth]] table.
 
 Anything deferred rather than blocking lives in [[2-design-doc#18. Open Questions]] — check there before treating something as undecided. Deliberate simplifications in the format and rule model are listed in [[5-questionnaire-format#8. Future changes noted]]; they are settled, not open.
 
@@ -128,7 +134,10 @@ Anything deferred rather than blocking lives in [[2-design-doc#18. Open Question
 
 ### Where writing goes
 
-**The design doc summarises; detail docs own the depth.** When a topic has its own doc, [[2-design-doc]] carries an overview of it — enough for a reviewer to grasp the shape and the decision — plus a pointer. Never write the same detail in both places; the design doc has to stay readable end to end in one sitting.
+**Default to a detail doc; keep [[2-design-doc]] high-level and current.** Any topic with real depth gets its own numbered `docs/N-name.md` owning the full reasoning, and [[2-design-doc]] carries a condensed version — enough for a reviewer to grasp the shape and the decision — plus a pointer. Two standing rules follow:
+
+- **Detail lives in exactly one place.** Never write the same reasoning in both; the design doc has to stay readable end to end in one sitting.
+- **The design doc is never allowed to go stale.** A decision is not finished when the detail doc is written — it is finished when the design-doc section, the Decisions Log and [[4-implementation-plan]] reflect it in the *same* pass. An out-of-date index is worse than no index, because the design doc is the one document a reviewer reads front to back.
 
 - A design-doc section backed by a detail doc opens with a `> **Detail:**` blockquote linking to that doc, and runs to a few paragraphs, not pages.
 - Detail docs own the full type and constraint tables, serialized examples, algorithms, and per-decision alternatives.
