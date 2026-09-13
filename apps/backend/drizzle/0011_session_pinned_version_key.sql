@@ -1,0 +1,1 @@
+ALTER TABLE "execution"."session" ADD CONSTRAINT "session_pinned_version_key" UNIQUE("id","questionnaire_version_id");

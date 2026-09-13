@@ -214,6 +214,7 @@ export const session = executionSchema.table(
       columns: [t.questionnaireId, t.questionnaireVersionId, t.version],
       foreignColumns: [questionnaireVersion.questionnaireId, questionnaireVersion.id, questionnaireVersion.version],
     }),
+    unique("session_pinned_version_key").on(t.id, t.questionnaireVersionId),
     check("session_status_check", sql`status IN ('in_progress', 'submitted')`),
     check(
       "session_state",
@@ -249,6 +250,11 @@ export const response = executionSchema.table(
       name: "response_questionnaire_version_fk",
       columns: [t.questionnaireVersionId],
       foreignColumns: [questionnaireVersion.id],
+    }),
+    foreignKey({
+      name: "response_session_pinned_version_fk",
+      columns: [t.sessionId, t.questionnaireVersionId],
+      foreignColumns: [session.id, session.questionnaireVersionId],
     }),
     check("other_text_needs_other", sql`other_text IS NULL OR (option_ids IS NOT NULL AND 'other' = ANY(option_ids))`),
     check("number_unit_needs_value", sql`number_unit IS NULL OR number_value IS NOT NULL`),

@@ -63,7 +63,9 @@ So:
   `.sql` file to its sha256, and `_tests/db/migration-lock.test.ts` fails if one changes, goes missing, or a
   new one is not yet in the lock. Add a new migration's hash to the lock after reviewing it.
 - Read any generated SQL that touches `execution.response` or `questionnaire_item` by hand before
-  committing it.
+  committing it. Also check the statement order: when one `generate` added both
+  `session_pinned_version_key` and the foreign key referencing it, drizzle-kit put the foreign key first,
+  which Postgres rejects. That is why `0011` and `0012` are two separate generated migrations.
 - If an edit is ever lost, restore it in a new `--custom` migration. Don't patch the old file.
 
 The guard tests:

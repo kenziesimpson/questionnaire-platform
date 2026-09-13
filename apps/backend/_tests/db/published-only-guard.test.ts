@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { describe, expect, it } from "vitest";
-import { aDraftWithOneItem, aPublishedQuestionnaire } from "./fixtures.js";
+import { aDraftWithOneItem, aPublishedQuestionnaire, aSession, insertResponse } from "./fixtures.js";
 import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
 
 const testDatabase = useTestDatabase();
@@ -87,6 +87,47 @@ describe("a draft is structurally unreferenceable", () => {
     );
 
     expect(inserted.rowCount).toBe(1);
+  });
+});
+
+describe("a response belongs to its session's pinned version", () => {
+  it("accepts a response carrying the session's pinned version", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const execution = await testDatabase.connect("execution");
+    const sessionId = await aSession(execution, published);
+
+    const inserted = await insertResponse(execution, published, sessionId, { question_type: "text", text_value: "ok" });
+
+    expect(inserted.rowCount).toBe(1);
+  });
+
+  it("rejects a response carrying another questionnaire's published version", async () => {
+    const definitionDb = testDatabase.database("definition");
+    const pinned = await aPublishedQuestionnaire(definitionDb);
+    const other = await aPublishedQuestionnaire(definitionDb);
+    const execution = await testDatabase.connect("execution");
+    const sessionId = await aSession(execution, pinned);
+
+    await expectSqlState(
+      insertResponse(execution, other, sessionId, { question_type: "text", text_value: "mismatched provenance" }),
+      SQLSTATE.foreignKeyViolation,
+    );
+  });
+
+  it("rejects a response carrying a draft version", async () => {
+    const definitionDb = testDatabase.database("definition");
+    const pinned = await aPublishedQuestionnaire(definitionDb);
+    const draft = await aDraftWithOneItem(definitionDb);
+    const execution = await testDatabase.connect("execution");
+    const sessionId = await aSession(execution, pinned);
+
+    await expectSqlState(
+      insertResponse(execution, { ...pinned, draftVersionId: draft.draftVersionId }, sessionId, {
+        question_type: "text",
+        text_value: "mismatched provenance",
+      }),
+      SQLSTATE.foreignKeyViolation,
+    );
   });
 });
 

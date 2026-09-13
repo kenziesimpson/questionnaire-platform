@@ -78,6 +78,20 @@
       "when": 1789337333171,
       "tag": "0010_execution_reads_published_versions_only",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789337440273,
+      "tag": "0011_session_pinned_version_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789337441750,
+      "tag": "0012_response_matches_session_pinned_version",
+      "breakpoints": true
     }
   ]
 }
