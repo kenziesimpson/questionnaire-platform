@@ -211,13 +211,13 @@ There is no generic `{ itemId, op, value }` shape. The condition union is discri
 
 | Referenced type | Operators | Operand |
 | --- | --- | --- |
-| `text` | `answered`, `notAnswered` | — |
+| `text` | `answered` | boolean — `true` for answered, `false` for not answered |
 | `single_choice` | `is`, `isNot`, `isAnyOf`, `isNoneOf` | option id(s) |
 | `multiple_choice` | `includes`, `excludes`, `includesAnyOf`, `includesAllOf` | option id(s) |
 | `number` | `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `between` | number, in the question's unit |
 | `date` | `before`, `onOrBefore`, `after`, `onOrAfter`, `between` | date |
 
-Text has no content-matching operators, for the reason in §2.3.
+Text has no content-matching operators, for the reason in §2.3. Its one operator carries a boolean rather than coming as an `answered` / `notAnswered` pair, so the condition is `{ type: "text", itemId, op: "answered", value: boolean }`. Like every condition, it is `false` when the referenced item is hidden, for either value (§4.3).
 
 Number conditions are expressed in the referenced question's unit. Because rules live on the questionnaire version and each item pins a specific question version, the unit is fixed for the life of that version and the comparison stays internally consistent.
 
@@ -225,7 +225,7 @@ Number conditions are expressed in the referenced question's unit. Because rules
 
 The next question is **the first unanswered item, in list order, whose predicate evaluates true.** The questionnaire is complete when no such item remains.
 
-**A condition referencing a question that was not shown evaluates to `false`** — for every operator, including the negative ones. `isNot` against an unanswered question is `false`, not `true`. Formally: a condition means *the answer exists **and** satisfies the operator*. Without this rule, `isNot`-style conditions would fire for every respondent who never reached the referenced question, which is the SQL `NULL` trap reproduced in a rule engine.
+**A condition referencing a question that was not shown evaluates to `false`** — for every operator and operand, including the negative ones, text `answered` with `value: false`, and a hidden item whose earlier answer is still held. `isNot` against an unanswered question is `false`, not `true`. Formally: a condition means *the referenced item is shown **and** its answer exists **and** satisfies the operator*. The one exception to "the answer exists" is text `answered` with `value: false`, which holds exactly when the item is shown and unanswered. Without this rule, `isNot`-style conditions would fire for every respondent who never reached the referenced question, which is the SQL `NULL` trap reproduced in a rule engine.
 
 One evaluator, two callers: the client renders the next question with it, the server re-runs it on submit against stored answers and the pinned version. It lives in the shared workspace package so there is exactly one implementation.
 
@@ -258,7 +258,7 @@ Checked **exactly**, not by pattern-matching a few obvious contradictions. This 
 | `multiple_choice` | a required set and a forbidden set | the two overlap; or the required set exceeds `maxSelections`; or fewer options remain unforbidden than `minSelections` |
 | `number` | an interval with punctures — bounds from `lt` / `lte` / `gt` / `gte` / `between` intersected with the question's own `min` / `max`, `eq` as a point, `neq` as a puncture | the interval is empty, or for an `integer` question contains no integer |
 | `date` | an interval, same arithmetic over dates | the interval is empty |
-| `text` | answered or not | `answered` and `notAnswered` both present |
+| `text` | answered or not | `answered: true` and `answered: false` both present |
 
 An `any` group is satisfiable if any single disjunct is, and each disjunct is one condition, so that case is trivial.
 

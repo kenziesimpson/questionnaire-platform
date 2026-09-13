@@ -26,6 +26,8 @@ packages/
   ui/
     primitives/     shadcn/Radix components, used by both apps
     questionnaire/  The renderer — respondent form and admin preview
+deploy/
+  frontend/         The one nginx image: both builds, /api proxy
 ```
 
 Two applications rather than one app with two entry points. The eventual split into separately deployed frontends ([[3-scaling#6. Future improvement: split the frontends]]) is then a deployment change and nothing else, and the boundary between them is **package resolution**: `apps/respondent` does not depend on `apps/admin`, so importing across is not a lint rule that can be misconfigured but an unresolvable module. This is stronger than the ESLint zone rule the backend needs, and it is stronger only because the backend's two halves genuinely live in one package while these do not.
@@ -34,7 +36,7 @@ Note the asymmetry that follows in §8: the respondent app and the admin app do 
 
 ### 2.2 URL structure and the nginx front
 
-Both apps build into one tree — respondent at the root, admin under `/admin/` — and one nginx container serves both, reverse-proxying `/api` to the backend as before ([[2-design-doc#13. Deployment]]).
+Both apps build into one tree — respondent at the root, admin under `/admin/` — and one nginx container serves both, reverse-proxying `/api` to the backend as before ([[2-design-doc#13. Deployment]]). The image lives in `deploy/frontend/` (`Dockerfile` and `nginx.conf`) rather than inside either app, because it builds and serves both: the respondent `dist/` is copied to the web root and the admin `dist/` to `admin/` beneath it.
 
 | Path | Serves |
 | --- | --- |
@@ -64,7 +66,7 @@ The package holds two folders and one rule.
 <QuestionnaireForm
   definition={publishedDefinition}   // the immutable snapshot
   answers={answers}                  // current answer map
-  errors={errorsByItemId}            // validation results, no values echoed
+  errors={errorsByItemId}            // SubmissionItemCode[] per itemId, no values echoed
   onChange={(itemId, answer) => void}
   mode="interactive" | "readonly"
 />
@@ -73,6 +75,10 @@ The package holds two folders and one rule.
 Three things follow from that signature. Admin preview passes static answers in `readonly` mode and needs no form library at all. The respondent app's choice of form state stays local to the respondent app and is reversible without touching the shared package. And component tests need no providers, no router and no query client — they render the thing with props and assert on roles and labels.
 
 Visibility is computed inside the renderer by calling the shared rule engine, not passed in. That keeps the one evaluator ([[2-design-doc#7. Branching Rules]]) as the single source of truth for what is on screen.
+
+**One control per response type.** `single_choice` is a Radix radio group inside a `<fieldset>` and `<legend>`, and `multiple_choice` a checkbox group inside the same. `text` is an input, or a textarea when the question is `multiline`. `number` is a text input with `inputMode` `decimal` (`numeric` for integer questions) and the unit shown after it, because answers are exact decimal strings (Decisions Log #42) and `type="number"` accepts forms the schema rejects. `date` is the native date input (§7). A freeform option's text box is always visible beside its radio or checkbox, with the option label as a hint that hides while the box has focus, and typing in it selects the option. Moving off the option (another radio, or unchecking it) keeps the typed text in the box but omits `otherText` from the answer, since the server rejects `otherText` without the option (`choice/other-text-without-other`); selecting the option again puts the text back. The retained text is local UI state seeded from the answer, so `answers` stays the source of truth for what is answered, and text retained for a deselected option is lost if its item unmounts, for example when a branch hides it. The single-choice control keeps the answer mapping apart from the view that draws the radios, so a dropdown presentation would be a second view rather than a second control — recorded as future work ([[2-design-doc#19. Future Work]]).
+
+**Errors are codes, not messages.** `errors` maps each `itemId` to the `SubmissionItemCode`s it failed, whether they came from the problem body's `items` extension ([[7-application-boundary#6.1 Error format — RFC 9457 problem details]]) or from the shared validator run client-side. One catalogue in `questionnaire/` turns a code into a message built from the question alone, so client and server errors read the same and no message can carry an answer. An item shows its first code; a view listing every current error per question is future work ([[2-design-doc#19. Future Work]]). `answer/not-visible` and `answer/unknown-item` never attach to a rendered item, so the renderer ignores them and the app decides what to do with them.
 
 ## 4. Respondent app
 
@@ -121,7 +127,7 @@ The client computes the visible set with the shared engine, sends only those ans
 
 The same is true of the relative date constraints (`not_future`, `not_past`). The respondent app runs the shared evaluator from `@qp/shared` client-side, parameterized with the **browser's local date**, so a control rejects a genuinely-future date before submit; the server independently re-runs the identical evaluator parameterized with **UTC today and one day of tolerance** ([[5-questionnaire-format#2.4 Relative date constraints resolve against two different clocks]]). The two are allowed to disagree by up to a day at the edges — that slack is deliberate (Decisions Log #38), not a discrepancy for the client to reconcile.
 
-A `422` names item ids and rule codes and never carries values ([[7-application-boundary#5.5 Error bodies must not echo answers]]), so the client renders the message against the answer it already holds. Errors map onto items by `itemId` and are handed to the renderer through the `errors` prop.
+A `422` names item ids and rule codes and never carries values ([[7-application-boundary#5.5 Error bodies must not echo answers]]), so the client renders the message against the answer it already holds. Errors map onto items by `itemId` and are handed to the renderer as codes through the `errors` prop (§3).
 
 ## 5. Admin app
 
@@ -252,7 +258,7 @@ Adobe's React Aria — and the higher-level React Aria Components — go deeper 
 
 ### 9.6 No shared component library — Radix directly in the renderer
 
-Considered to keep the respondent bundle minimal. The marginal cost of shadcn over Radix-direct turns out to be `cva`, `clsx` and `tailwind-merge`, on the order of 3–4 kB gzipped, against a real consistency benefit across two apps built in parallel. Rejected: the leanness argument was not worth what it cost.
+Considered to keep the respondent bundle minimal. The marginal cost of shadcn over Radix-direct is `class-variance-authority` plus the class-merging helper. shadcn CLI 4.21 installs its own `cn` package for that helper, a compiled drop-in replacement for `clsx` + `tailwind-merge`, and the pair measures about 11 kB minified and gzipped (`cn` 10.7 kB, `cva` 0.7 kB, bundled with esbuild; `clsx` + `tailwind-merge` measure about 9 kB the same way). That is the cost weighed against a real consistency benefit across two apps built in parallel. Rejected: the leanness argument was not worth what it cost.
 
 ## 10. Open questions
 

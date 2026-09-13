@@ -17,13 +17,16 @@ services:
   frontend:
     build:
       target: deps
-    command: ["sh", "-c", "npm run dev -w packages/shared & npm run dev -w apps/frontend -- --host"]
+    command: ["sh", "-c", "npm run dev -w packages/shared & npm run dev -w apps/admin & npm run dev -w apps/respondent"]
     environment:
       VITE_API_PROXY_TARGET: http://backend:3000
     ports:
       - "5173:5173"
+      - "5174:5174"
     volumes:
-      - ./apps/frontend:/app/apps/frontend
+      - ./apps/respondent:/app/apps/respondent
+      - ./apps/admin:/app/apps/admin
+      - ./packages/ui:/app/packages/ui
       - ./packages/shared:/app/packages/shared
     depends_on:
       - backend
