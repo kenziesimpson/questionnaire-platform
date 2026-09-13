@@ -111,7 +111,8 @@ describe("PublishedDefinition", () => {
 
 describe("Condition", () => {
   it.each<[string, Condition]>([
-    ["text answered", { type: "text", itemId: "itm_04", op: "notAnswered" }],
+    ["text answered true", { type: "text", itemId: "itm_04", op: "answered", value: true }],
+    ["text answered false", { type: "text", itemId: "itm_04", op: "answered", value: false }],
     ["single_choice isAnyOf", { type: "single_choice", itemId: "itm_02", op: "isAnyOf", optionIds: ["opt_diabetes", "other"] }],
     ["multiple_choice includesAllOf", { type: "multiple_choice", itemId: "itm_05", op: "includesAllOf", optionIds: ["a", "b"] }],
     ["number gte", { type: "number", itemId: "itm_06", op: "gte", value: 18 }],
@@ -123,6 +124,10 @@ describe("Condition", () => {
 
   it.each([
     ["a text content match", { type: "text", itemId: "itm_04", op: "is", optionId: "x" }],
+    ["the removed text notAnswered operator", { type: "text", itemId: "itm_04", op: "notAnswered" }],
+    ["the removed text notAnswered operator, even with a value", { type: "text", itemId: "itm_04", op: "notAnswered", value: true }],
+    ["text answered without its boolean operand", { type: "text", itemId: "itm_04", op: "answered" }],
+    ["text answered with a string operand", { type: "text", itemId: "itm_04", op: "answered", value: "false" }],
     ["a list operator with a single optionId", { type: "single_choice", itemId: "itm_02", op: "isAnyOf", optionId: "yes" }],
     ["a number operand as a string", { type: "number", itemId: "itm_06", op: "eq", value: "18" }],
     ["a number compared against a date", { type: "number", itemId: "itm_06", op: "before", date: "2026-01-01" }],
@@ -143,8 +148,12 @@ describe("Condition", () => {
     // @ts-expect-error — text conditions have no content-matching operators (§2.3)
     const textIs: Condition = { type: "text", itemId: "itm_04", op: "is", optionId: "x" };
     // @ts-expect-error — conditions name an itemId (#41)
-    const byQuestion: Condition = { type: "text", questionId: "01a0950f-4223-73df-8544-fa8f63877e0b", op: "answered" };
-    expect([numberBefore, textIs, byQuestion]).toHaveLength(3);
+    const byQuestion: Condition = { type: "text", questionId: "01a0950f-4223-73df-8544-fa8f63877e0b", op: "answered", value: true };
+    // @ts-expect-error — `notAnswered` is gone; unanswered is `op: "answered", value: false`
+    const notAnswered: ConditionOf<"text"> = { type: "text", itemId: "itm_04", op: "notAnswered" };
+    // @ts-expect-error — `answered` carries a required boolean operand
+    const bareAnswered: ConditionOf<"text"> = { type: "text", itemId: "itm_04", op: "answered" };
+    expect([numberBefore, textIs, byQuestion, notAnswered, bareAnswered]).toHaveLength(5);
   });
 });
 
@@ -163,6 +172,13 @@ describe("ClientAnswerValue and ClientAnswers on the wire", () => {
     expect(Value.Check(ClientAnswerValue, { type: "multiple_choice", optionIds: ["a", "a"] })).toBe(true);
   });
 
+  it("leaves blank otherText to the submit validator's 422 choice/other-text-required, not a schema 400", () => {
+    for (const otherText of ["", "   "]) {
+      expect(Value.Check(ClientAnswerValue, { type: "single_choice", optionId: "other", otherText })).toBe(true);
+      expect(Value.Check(ClientAnswerValue, { type: "multiple_choice", optionIds: ["other"], otherText })).toBe(true);
+    }
+  });
+
   it("rejects an empty text answer, which the response shape constraint would also refuse", () => {
     expect(Value.Check(ClientAnswerValue, { type: "text", text: "" })).toBe(false);
   });
@@ -179,6 +195,10 @@ describe("ResponseRow — the validated row the digest reads", () => {
   it("stores single_choice as a one-element optionIds array, matching the column", () => {
     expect(Value.Check(ResponseRow, { ...head, type: "single_choice", optionIds: ["other"], otherText: "Asthma" })).toBe(true);
     expect(Value.Check(ResponseRow, { ...head, type: "single_choice", optionIds: ["a", "b"] })).toBe(false);
+  });
+
+  it("never carries an empty otherText, since the validator rejects blank text before a row exists", () => {
+    expect(Value.Check(ResponseRow, { ...head, type: "single_choice", optionIds: ["other"], otherText: "" })).toBe(false);
   });
 
   it("carries the server-filled unit on a number row", () => {

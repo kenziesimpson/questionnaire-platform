@@ -14,7 +14,8 @@ export const TextCondition = Type.Object(
   {
     type: Type.Literal("text"),
     itemId: Slug,
-    op: Type.Union([Type.Literal("answered"), Type.Literal("notAnswered")]),
+    op: Type.Literal("answered"),
+    value: Type.Boolean(),
   },
   strict,
 );

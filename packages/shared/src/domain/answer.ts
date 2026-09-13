@@ -2,7 +2,8 @@ import Type, { type Static } from "typebox";
 import { DecimalString, IsoDate, PositiveInt, SLUG_PATTERN, Slug, Uuid } from "../primitives.js";
 import { strict } from "./utils.js";
 
-const OtherText = Type.Optional(Type.String({ minLength: 1 }));
+const ClientOtherText = Type.Optional(Type.String());
+const StoredOtherText = Type.Optional(Type.String({ minLength: 1 }));
 
 /**
  * One answer as the client sends it. `type` lets the server reject an answer shaped for the wrong
@@ -14,9 +15,9 @@ const OtherText = Type.Optional(Type.String({ minLength: 1 }));
  */
 export const ClientAnswerValue = Type.Union([
   Type.Object({ type: Type.Literal("text"), text: Type.String({ minLength: 1 }) }, strict),
-  Type.Object({ type: Type.Literal("single_choice"), optionId: Slug, otherText: OtherText }, strict),
+  Type.Object({ type: Type.Literal("single_choice"), optionId: Slug, otherText: ClientOtherText }, strict),
   Type.Object(
-    { type: Type.Literal("multiple_choice"), optionIds: Type.Array(Slug, { minItems: 1 }), otherText: OtherText },
+    { type: Type.Literal("multiple_choice"), optionIds: Type.Array(Slug, { minItems: 1 }), otherText: ClientOtherText },
     strict,
   ),
   Type.Object({ type: Type.Literal("number"), value: DecimalString }, strict),
@@ -36,6 +37,10 @@ export const ClientAnswers = Type.Record(
 );
 export type ClientAnswers = Static<typeof ClientAnswers>;
 
+export function answerFor(answers: ClientAnswers, itemId: string): ClientAnswerValue | undefined {
+  return Object.hasOwn(answers, itemId) ? (answers[itemId] ?? undefined) : undefined;
+}
+
 const RowHead = { itemId: Slug, questionId: Uuid, questionVersion: PositiveInt };
 
 /**
@@ -50,12 +55,12 @@ export const ResponseRow = Type.Union([
       ...RowHead,
       type: Type.Literal("single_choice"),
       optionIds: Type.Array(Slug, { minItems: 1, maxItems: 1 }),
-      otherText: OtherText,
+      otherText: StoredOtherText,
     },
     strict,
   ),
   Type.Object(
-    { ...RowHead, type: Type.Literal("multiple_choice"), optionIds: Type.Array(Slug, { minItems: 1 }), otherText: OtherText },
+    { ...RowHead, type: Type.Literal("multiple_choice"), optionIds: Type.Array(Slug, { minItems: 1 }), otherText: StoredOtherText },
     strict,
   ),
   Type.Object(
