@@ -8,6 +8,48 @@
       "when": 1789329001088,
       "tag": "0000_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789329051239,
+      "tag": "0001_published_rows_immutable",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789329052742,
+      "tag": "0002_published_items_immutable",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789329054308,
+      "tag": "0003_response_shape",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789329055805,
+      "tag": "0004_response_partitions_no_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789329057273,
+      "tag": "0005_role_grant_barrier",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789329058747,
+      "tag": "0006_audit_append_only",
+      "breakpoints": true
     }
   ]
 }
