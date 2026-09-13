@@ -1,5 +1,6 @@
 import Type, { type Static, type TProperties } from "typebox";
 import { IsoDate, IsoDateTime, NonNegativeInt, PositiveInt, Slug, Uuid } from "../primitives.js";
+import { strict } from "./utils.js";
 
 /**
  * Five response types. There is no `yes_no`: a yes/no question is a `single_choice` created by an
@@ -30,7 +31,6 @@ const Prompt = Type.String({ minLength: 1 });
  * snapshot, the bank and a save request, so the per-type constraints are written once.
  */
 function questionUnion<H extends TProperties>(head: H) {
-  const strict = { additionalProperties: false } as const;
   return Type.Union([
     Type.Object(
       {

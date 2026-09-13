@@ -44,3 +44,5 @@ Tool directives that must be written in comment syntax are not prose comments an
 ### Tests
 
 Tests are written with the feature, not after. Add one row per case to `docs/8-testing.md` §7 — the only file under `docs/` a build track may edit.
+
+Every package keeps its tests in a `_tests/` directory at the package root, mirroring `src/`'s layout: a test for `src/domain/answer.ts` lives at `_tests/domain/answer.test.ts`, not beside the source file. `_tests/` is included in the package's typecheck config and excluded from its build config.

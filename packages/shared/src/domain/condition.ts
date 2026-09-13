@@ -1,5 +1,6 @@
 import Type, { type Static } from "typebox";
 import { IsoDate, Slug } from "../primitives.js";
+import { strict } from "./utils.js";
 
 /**
  * Conditions are discriminated by the response type of the item they reference, so the operator
@@ -7,7 +8,6 @@ import { IsoDate, Slug } from "../primitives.js";
  * (Decisions Log #9). A condition names an `itemId` — a placement — never a `questionId` (#41).
  * `type` must equal the type of the question version the referenced item pins ([[5-questionnaire-format]] §5.4).
  */
-const strict = { additionalProperties: false } as const;
 const OptionIds = Type.Array(Slug, { minItems: 1, uniqueItems: true });
 
 export const TextCondition = Type.Object(

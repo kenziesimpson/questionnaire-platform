@@ -1,10 +1,10 @@
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
-import { ProblemDetails } from "../problems.js";
-import * as definition from "./definition.js";
-import { formatDraftEtag, parseDraftEtag } from "./etag.js";
-import * as execution from "./execution.js";
-import type { BodyOf, ReplyOf } from "./route.js";
+import { ProblemDetails } from "../../src/problems.js";
+import * as definition from "../../src/api/definition.js";
+import { formatDraftEtag, parseDraftEtag } from "../../src/api/etag.js";
+import * as execution from "../../src/api/execution.js";
+import type { BodyOf, ReplyOf } from "../../src/api/route.js";
 
 const routes = [...definition.definitionRoutes, ...execution.executionRoutes];
 

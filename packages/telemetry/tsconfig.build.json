@@ -6,6 +6,5 @@
     "noUncheckedIndexedAccess": true,
     "types": []
   },
-  "include": ["src"],
-  "exclude": ["src/**/*.test.ts"]
+  "include": ["src"]
 }

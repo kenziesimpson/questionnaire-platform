@@ -1,6 +1,6 @@
 import Type from "typebox";
 import { Uuid } from "../primitives.js";
-import { Answers } from "../domain/answer.js";
+import { ClientAnswers } from "../domain/answer.js";
 import { PublishedDefinition } from "../domain/definition.js";
 import { Receipt, Session } from "../domain/session.js";
 import { defineRoute } from "./route.js";
@@ -42,7 +42,7 @@ export const submitSession = defineRoute({
   url: "/sessions/:sessionId/submit",
   schema: {
     params: SessionParams,
-    body: Type.Object({ answers: Answers }, strict),
+    body: Type.Object({ answers: ClientAnswers }, strict),
     response: { 200: Type.Object({ receipt: Receipt }, strict) },
   },
 });

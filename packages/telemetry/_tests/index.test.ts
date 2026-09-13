@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emitDomainEvent, log, withSpan } from "./index.js";
+import { emitDomainEvent, log, withSpan } from "../src/index.js";
 
 describe("telemetry boundary signature", () => {
   it("accepts literal messages with closed context", async () => {

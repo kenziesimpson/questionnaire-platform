@@ -1,9 +1,9 @@
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
-import { Answer, Answers, AnswerValue } from "./answer.js";
-import { Condition, Predicate, type ConditionOf } from "./condition.js";
-import { PublishedDefinition } from "./definition.js";
-import { QuestionInput } from "./question.js";
+import { ClientAnswerValue, ClientAnswers, ResponseRow } from "../../src/domain/answer.js";
+import { Condition, Predicate, type ConditionOf } from "../../src/domain/condition.js";
+import { PublishedDefinition } from "../../src/domain/definition.js";
+import { QuestionInput } from "../../src/domain/question.js";
 
 /**
  * The worked example from [[5-questionnaire-format]] §3, verbatim. Schema conformance of the documented
@@ -148,41 +148,41 @@ describe("Condition", () => {
   });
 });
 
-describe("AnswerValue and Answers on the wire", () => {
+describe("ClientAnswerValue and ClientAnswers on the wire", () => {
   it("carries a number as a decimal string with no unit (#42)", () => {
-    expect(Value.Check(AnswerValue, { type: "number", value: "72.50" })).toBe(true);
-    expect(Value.Check(AnswerValue, { type: "number", value: 72.5 })).toBe(false);
-    expect(Value.Check(AnswerValue, { type: "number", value: "72.5", unit: "kg" })).toBe(false);
+    expect(Value.Check(ClientAnswerValue, { type: "number", value: "72.50" })).toBe(true);
+    expect(Value.Check(ClientAnswerValue, { type: "number", value: 72.5 })).toBe(false);
+    expect(Value.Check(ClientAnswerValue, { type: "number", value: "72.5", unit: "kg" })).toBe(false);
   });
 
   it.each(["1e3", "01", "+1", "1.", ".5", "", " 1"])("rejects the non-canonical decimal %j", (value) => {
-    expect(Value.Check(AnswerValue, { type: "number", value })).toBe(false);
+    expect(Value.Check(ClientAnswerValue, { type: "number", value })).toBe(false);
   });
 
   it("leaves duplicate optionIds to the submit validator's 422, not a schema 400 (#34)", () => {
-    expect(Value.Check(AnswerValue, { type: "multiple_choice", optionIds: ["a", "a"] })).toBe(true);
+    expect(Value.Check(ClientAnswerValue, { type: "multiple_choice", optionIds: ["a", "a"] })).toBe(true);
   });
 
   it("rejects an empty text answer, which the response shape constraint would also refuse", () => {
-    expect(Value.Check(AnswerValue, { type: "text", text: "" })).toBe(false);
+    expect(Value.Check(ClientAnswerValue, { type: "text", text: "" })).toBe(false);
   });
 
   it("keys answers by itemId, allowing explicit null as unanswered", () => {
-    expect(Value.Check(Answers, { itm_01: { type: "single_choice", optionId: "yes" }, itm_04: null })).toBe(true);
-    expect(Value.Check(Answers, { "01a0950f-4100-7fcc-8acc-05dc6b75ce33": { type: "text", text: "x" } })).toBe(false);
+    expect(Value.Check(ClientAnswers, { itm_01: { type: "single_choice", optionId: "yes" }, itm_04: null })).toBe(true);
+    expect(Value.Check(ClientAnswers, { "01a0950f-4100-7fcc-8acc-05dc6b75ce33": { type: "text", text: "x" } })).toBe(false);
   });
 });
 
-describe("Answer — the validated row the digest reads", () => {
+describe("ResponseRow — the validated row the digest reads", () => {
   const head = { itemId: "itm_02", questionId: "01a0950f-4161-7719-98fb-afa43f4c6232", questionVersion: 3 };
 
   it("stores single_choice as a one-element optionIds array, matching the column", () => {
-    expect(Value.Check(Answer, { ...head, type: "single_choice", optionIds: ["other"], otherText: "Asthma" })).toBe(true);
-    expect(Value.Check(Answer, { ...head, type: "single_choice", optionIds: ["a", "b"] })).toBe(false);
+    expect(Value.Check(ResponseRow, { ...head, type: "single_choice", optionIds: ["other"], otherText: "Asthma" })).toBe(true);
+    expect(Value.Check(ResponseRow, { ...head, type: "single_choice", optionIds: ["a", "b"] })).toBe(false);
   });
 
   it("carries the server-filled unit on a number row", () => {
-    expect(Value.Check(Answer, { ...head, type: "number", number: "180", unit: "cm" })).toBe(true);
+    expect(Value.Check(ResponseRow, { ...head, type: "number", number: "180", unit: "cm" })).toBe(true);
   });
 });
 

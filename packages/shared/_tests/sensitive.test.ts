@@ -1,6 +1,6 @@
 import { format, inspect } from "node:util";
 import { describe, expect, it } from "vitest";
-import { Sensitive, sensitive } from "./sensitive.js";
+import { Sensitive, sensitive } from "../src/sensitive.js";
 
 const CANARY = "CANARY_DIABETES_8F3A";
 

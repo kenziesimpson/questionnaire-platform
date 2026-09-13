@@ -2,6 +2,7 @@ import Type, { type Static } from "typebox";
 import { IsoDateTime, PositiveInt, Slug, Uuid } from "../primitives.js";
 import { Predicate } from "./condition.js";
 import { QuestionVersion } from "./question.js";
+import { strict } from "./utils.js";
 
 /**
  * A draft item, normalized: it references its question by `(questionId, questionVersion)`. The
@@ -15,7 +16,7 @@ export const DraftItem = Type.Object(
     questionId: Uuid,
     questionVersion: PositiveInt,
   },
-  { additionalProperties: false },
+  strict,
 );
 export type DraftItem = Static<typeof DraftItem>;
 
@@ -33,7 +34,7 @@ export const QuestionnaireDraft = Type.Object(
     items: Type.Array(DraftItem),
     questions: Type.Array(QuestionVersion),
   },
-  { additionalProperties: false },
+  strict,
 );
 export type QuestionnaireDraft = Static<typeof QuestionnaireDraft>;
 
@@ -48,6 +49,6 @@ export const QuestionnaireSummary = Type.Object(
     hasDraft: Type.Boolean(),
     createdAt: IsoDateTime,
   },
-  { additionalProperties: false },
+  strict,
 );
 export type QuestionnaireSummary = Static<typeof QuestionnaireSummary>;

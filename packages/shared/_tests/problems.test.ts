@@ -1,6 +1,6 @@
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
-import { PROBLEMS, PROBLEM_SLUGS, ProblemDetails, problem, problemSlug, problemType } from "./problems.js";
+import { PROBLEMS, PROBLEM_SLUGS, ProblemDetails, problem, problemSlug, problemType } from "../src/problems.js";
 
 describe("problem slugs", () => {
   it("is the closed set in [[7-application-boundary]] §6.1, with its statuses", () => {

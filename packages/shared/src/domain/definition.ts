@@ -2,6 +2,7 @@ import Type, { type Static } from "typebox";
 import { IsoDateTime, NonNegativeInt, PositiveInt, Slug, Uuid } from "../primitives.js";
 import { Predicate } from "./condition.js";
 import { QuestionContent } from "./question.js";
+import { strict } from "./utils.js";
 
 /**
  * The snapshot format this code writes. Stored snapshots are never rewritten; older formats are
@@ -17,7 +18,7 @@ export const Item = Type.Object(
     visibleWhen: Type.Union([Predicate, Type.Null()]),
     question: QuestionContent,
   },
-  { additionalProperties: false },
+  strict,
 );
 export type Item = Static<typeof Item>;
 
@@ -33,7 +34,7 @@ export const PublishedDefinition = Type.Object(
     title: Type.String({ minLength: 1 }),
     items: Type.Array(Item),
   },
-  { additionalProperties: false },
+  strict,
 );
 export type PublishedDefinition = Static<typeof PublishedDefinition>;
 
@@ -47,6 +48,6 @@ export const VersionSummary = Type.Object(
     itemCount: NonNegativeInt,
     formatVersion: PositiveInt,
   },
-  { additionalProperties: false },
+  strict,
 );
 export type VersionSummary = Static<typeof VersionSummary>;
