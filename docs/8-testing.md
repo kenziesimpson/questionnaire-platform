@@ -234,6 +234,21 @@ Tracked as a Phase 2 item in [[4-implementation-plan]].
 | `pino`, `pino/*`, `pino-*` and `@opentelemetry/*` (including type-only) are rejected outside `packages/telemetry`, including inside backend modules where the module rule replaces the base options; allowed inside it | `tests/lint-boundaries.test.ts` | Layer 1 lint rule | No respondent answer in telemetry |
 | `modules/definition` rejects sibling, deep-relative, `modules/`-path and type-only imports of `modules/execution`, and the reverse; `@qp/shared`, in-module imports and look-alike paths pass | `tests/lint-boundaries.test.ts` | [[7-application-boundary#3.1 Module encapsulation]] | The definition/execution barrier |
 
+### Wave 1b — Track 3: UI package and renderer
+
+**Frontend component — `packages/ui`**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| Exactly the visible items render, in list order; items leaving the set lose their controls while the rest stay in place; an empty set renders only the live region | `questionnaire/questionnaire-items.test.tsx` | All visible items on one page, pruning visible in place (#28) | Conditional navigation over one and several earlier answers |
+| A polite live region exists and is empty before any change; opening the demo branch announces the added prompts in order, closing it announces the removed ones, a mixed change announces both | `questionnaire/visibility-announcer.test.tsx` | Revealed and removed questions are announced ([[10-frontend#7. Accessibility]]) | — accessibility commitment |
+| An answer change that leaves the visible set unchanged does not re-announce; the announcement never contains an answer value | `questionnaire/visibility-announcer.test.tsx` | Announcements track visibility only; answers stay out of copy that assistive tech reads aloud | No respondent answer in telemetry |
+| The date control is a native `<input type="date">` named exactly by the prompt, with the question's `min` / `max` | `questionnaire/controls/date-control.test.tsx` | Native date input ([[10-frontend#7. Accessibility]]) | Response validation: required, per-type value rules |
+| A chosen date reports `{ type: "date", date }` and a cleared one `null` through `onChange` keyed by `itemId`; the control shows the `answers` prop and holds no value of its own; an answer of another type is not shown | `questionnaire/controls/date-control.test.tsx` | Renderer controlled by props, no form state (#27, [[10-frontend#3. `packages/ui` — primitives and the renderer]]); `itemId` keying (#41) | Response validation: required, per-type value rules |
+| `readonly` mode sets `readonly` and reports no change | `questionnaire/controls/date-control.test.tsx` | Admin preview renders a snapshot without a form library | Response meaning preserved across a republish |
+| Required items carry `aria-required`; an error for the item sets `aria-invalid` and names the message as the accessible description; no error leaves both attributes off; another item's error is ignored | `questionnaire/controls/date-control.test.tsx` | ARIA driven off the `errors` prop | Response validation: required, per-type value rules |
+| axe-core finds no violations for the demo after *no*, after *yes*, with an answered date, with an item error, in `readonly` mode, and after a reveal has been announced | `questionnaire/accessibility.test.tsx` | The committed accessibility minimum at the component layer; `color-contrast` is disabled because jsdom does not lay out | — accessibility commitment |
+
 ## 8. Alternatives considered
 
 ### 8.1 Jest for the frontend
