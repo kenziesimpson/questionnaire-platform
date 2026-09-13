@@ -205,7 +205,7 @@ A class of failure produces **HTTP 200 with a plausible-looking body**. No excep
 | --- | --- |
 | `invariant.orphaned_answers` | A stored answer whose `questionId` / `optionId` is absent from the snapshot it pins to. Should be impossible — worth proving rather than assuming, since it is silent when it isn't. |
 | `invariant.never_shown_items` | Items no respondent has seen in a live version: the authoring mistake that publish-time check #2 only partially catches, because general satisfiability isn't attempted there. |
-| `invariant.snapshot_format_versions` | Which `formatVersion`s are actually live, by count. Turns the support-window question ([[2-design-doc#18. Open Questions]] §6) from a judgement call into a measurement. |
+| `invariant.snapshot_format_versions` | Which `formatVersion`s are actually live, by count. Turns the support-window question ([[2-design-doc#18. Open Questions]] §4) from a judgement call into a measurement. |
 
 One metric is worth adding **now** rather than deferring, because it measures the cost of a decision already taken:
 
