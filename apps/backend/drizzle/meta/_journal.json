@@ -99,6 +99,13 @@
       "when": 1789340061068,
       "tag": "0013_publish_audit_written_by_application",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789340399301,
+      "tag": "0014_no_public_execute_on_functions",
+      "breakpoints": true
     }
   ]
 }

@@ -67,7 +67,7 @@ check instead, the change is wrong.
    drafts by the item guard. Do not grant another.
 6. **`audit.event` is append-only and unreachable directly.** Writes go through
    `audit.record(...)`, a `SECURITY DEFINER` function. `qp_definition` has no privilege on the table —
-   not even `SELECT`.
+   not even `SELECT` — and is the only role with `EXECUTE` on the function.
 7. **Nothing is deleted; things are hidden.** Questionnaires retire via `closes_at`, questions archive
    via `archived_at`. Apply this to any new entity.
 
@@ -120,6 +120,9 @@ check instead, the change is wrong.
   `CREATE`s. Declaring a table only in a hand-written migration leaves it out of drizzle-kit's snapshot
   JSON, so the next `generate` re-emits it and `migrate` dies on "already exists".
 - **`drizzle-kit generate --custom`** for triggers, functions and grants. drizzle-kit emits none of them.
+- **Every new function gets `REVOKE EXECUTE ... FROM PUBLIC`.** Postgres grants `EXECUTE` to `PUBLIC` by
+  default; a catalog test fails if any function in `definition`, `execution` or `audit` keeps it. Grant
+  `EXECUTE` explicitly to the one role that needs it.
 - **Roles are not migrations.** `CREATE ROLE ... LOGIN PASSWORD` goes in
   `docker-entrypoint-initdb.d`, from environment variables.
 - **Pre-create partitions** (24–36 months). No `DEFAULT` partition — see the traps below.

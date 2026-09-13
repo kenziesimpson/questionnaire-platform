@@ -111,6 +111,27 @@ describe("qp_execution", () => {
   });
 });
 
+describe("functions", () => {
+  it("in definition, execution and audit grant no EXECUTE to PUBLIC", async () => {
+    const owner = await testDatabase.connect("owner");
+    const functions = await owner.query<{ name: string; public_execute: boolean }>(
+      `SELECT p.oid::regprocedure::text AS name,
+              EXISTS (SELECT FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl
+                       WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE') AS public_execute
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname IN ('definition', 'execution', 'audit')
+        ORDER BY name`,
+    );
+    expect(functions.rows.map((row) => row.name)).toEqual([
+      "audit.record(text,uuid,uuid,integer,text,jsonb,text)",
+      "definition.promote_draft(uuid,jsonb)",
+      "definition.reject_item_mutation()",
+      "definition.reject_mutation()",
+    ]);
+    expect(functions.rows.filter((row) => row.public_execute)).toEqual([]);
+  });
+});
+
 describe("qp_definition", () => {
   it("cannot read or write execution.response or execution.session", async () => {
     const definition = await testDatabase.connect("definition");
@@ -216,6 +237,18 @@ describe("audit.record", () => {
 
     expect(usage.rows[0].usage).toBe(false);
     await denied(owner, auditRecordCall);
+  });
+
+  it("is executable by qp_definition and by neither qp_owner nor qp_execution", async () => {
+    const owner = await testDatabase.connect("owner");
+    const privileges = await owner.query(
+      `SELECT has_function_privilege('qp_definition', p.oid, 'EXECUTE') AS definition,
+              has_function_privilege('qp_owner', p.oid, 'EXECUTE') AS owner,
+              has_function_privilege('qp_execution', p.oid, 'EXECUTE') AS execution
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'audit' AND p.proname = 'record'`,
+    );
+    expect(privileges.rows).toEqual([{ definition: true, owner: false, execution: false }]);
   });
 
   it("only appends actions from the closed list", async () => {

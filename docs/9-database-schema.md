@@ -635,9 +635,15 @@ $$;
 
 REVOKE ALL ON audit.event  FROM PUBLIC;
 REVOKE ALL ON SCHEMA audit FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.record(text,uuid,uuid,int,text,jsonb,text) FROM PUBLIC;
 GRANT  USAGE   ON SCHEMA audit TO qp_definition;
 GRANT  EXECUTE ON FUNCTION audit.record(text,uuid,uuid,int,text,jsonb,text) TO qp_definition;
 ```
+
+**`EXECUTE` on a new function is granted to `PUBLIC` by default**, so without the third `REVOKE` every role
+could call `audit.record` — held back only by lacking `USAGE` on the schema, and a privilege check would
+report that it can. The revoke landed in a later migration (`0014`) with the same sweep for every function in
+the three schemas, so `qp_definition`'s explicit grant is the only one.
 
 Verified end to end:
 
@@ -691,7 +697,12 @@ ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner IN SCHEMA definition
 | --- | --- | --- | --- |
 | `qp_definition` | `SELECT, INSERT` on every table; `UPDATE` on every table except `questionnaire_version` and `questionnaire`, which get only the columns above; `DELETE` on `questionnaire_item` only; `EXECUTE` on `promote_draft` | none | `EXECUTE` on `audit.record` only (§9.1) |
 | `qp_execution` | `SELECT` on `questionnaire`, `version_question_index` and the `published_questionnaire_version` view — not the base `questionnaire_version` table | `SELECT, INSERT, UPDATE` on `session`; `SELECT, INSERT` on `response` | none |
-| `qp_owner` | owns every object | owns every object | none — no `USAGE` on the schema, so it cannot call `audit.record` (§9.1) |
+| `qp_owner` | owns every object | owns every object | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` (§9.1) |
+
+No function in `definition`, `execution` or `audit` keeps the default `EXECUTE` for `PUBLIC`: `audit.record` and
+`promote_draft` are executable only by `qp_definition`, and the trigger functions by no application role (a
+trigger fires without its caller holding `EXECUTE`). A catalog test asserts it, so a new function that forgets
+the revoke fails the suite.
 
 **Publishing columns are not `qp_definition`'s to write.** Status, version, snapshot, `format_version`, `published_at` and the current-version pointer change only inside `promote_draft` (§4.3). A `FOR UPDATE` row lock needs `UPDATE` on just one column, so the §5 locks still work.
 
