@@ -7,5 +7,6 @@
   "0005_role_grant_barrier.sql": "e3c1f2a9fbac2424335758e1c92ca5c67c136d8fbe5c18cd0460516b68bb0c81",
   "0006_audit_append_only.sql": "ca8e2507b660238ba4092f30e9a8ebb8ae71e855dcf2ef66a92892f11216f2a0",
   "0007_draft_items_removable.sql": "30d6172e71f4409ac561084b033ed00c3d47a1ca605cf26e325d9a5ec887618f",
-  "0008_published_rows_not_insertable.sql": "7c225024ff29f84a70bddf2f8d8a27dc6b3fae1eb7848fbf4afaf62037c4db70"
+  "0008_published_rows_not_insertable.sql": "7c225024ff29f84a70bddf2f8d8a27dc6b3fae1eb7848fbf4afaf62037c4db70",
+  "0009_publish_only_through_promote_draft.sql": "26a14b1a7d6b49829ac2fcac5bf219196dc4c1f0117db9a086c4f946b3707cd1"
 }

@@ -64,6 +64,13 @@
       "when": 1789332120978,
       "tag": "0008_published_rows_not_insertable",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789337161837,
+      "tag": "0009_publish_only_through_promote_draft",
+      "breakpoints": true
     }
   ]
 }

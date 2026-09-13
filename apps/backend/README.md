@@ -24,8 +24,12 @@ Postgres via Drizzle ORM (`src/db/`). The design is [`docs/9-database-schema.md`
 the working rules are in [`.claude/skills/database/SKILL.md`](../../.claude/skills/database/SKILL.md).
 
 - `schema.ts` describes the `definition`, `execution` and `audit` schemas. `drizzle/` holds the committed
-  migrations: `0000_schema.sql` is generated from `schema.ts`; `0001`–`0008` are `--custom` migrations for
-  the triggers, grants, partitions and the audit function, each named for the guarantee it carries.
+  migrations: `0000_schema.sql` is generated from `schema.ts`, and each later file is either generated or a
+  `--custom` migration for triggers, grants, partitions or functions, named for the guarantee it carries.
+- A published version exists only through `definition.promote_draft`, a `SECURITY DEFINER` function that
+  promotes the draft, writes `version_question_index`, moves the current-version pointer and calls
+  `audit.record` in one call. `qp_definition` has no `UPDATE` on those columns. `publishDraft` takes the
+  locks and runs `validateDraft` first, then calls it.
 - `migrate.ts` is the one-shot runner the compose `migrate` service calls. It applies the migrations as
   `qp_owner` (`DATABASE_URL_OWNER`) and pre-creates the next 24 monthly `response` partitions.
 - `seed.ts` runs next, as `qp_definition` (`DATABASE_URL_DEFINITION`), and publishes the demo questionnaire

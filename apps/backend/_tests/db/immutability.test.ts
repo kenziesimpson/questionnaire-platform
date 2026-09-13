@@ -5,7 +5,7 @@ import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
 const testDatabase = useTestDatabase();
 
 describe("published questionnaire versions", () => {
-  it("reject UPDATE of the snapshot, bypassing the API", async () => {
+  it("give qp_definition no UPDATE on the snapshot column at all, bypassing the API", async () => {
     const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
     const definition = await testDatabase.connect("definition");
 
@@ -13,7 +13,7 @@ describe("published questionnaire versions", () => {
       definition.query(`UPDATE definition.questionnaire_version SET snapshot = '{}'::jsonb WHERE id = $1`, [
         published.draftVersionId,
       ]),
-      SQLSTATE.immutable,
+      SQLSTATE.insufficientPrivilege,
     );
   });
 
@@ -41,10 +41,10 @@ describe("published questionnaire versions", () => {
 
   it("reject demotion back to draft", async () => {
     const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
-    const definition = await testDatabase.connect("definition");
+    const owner = await testDatabase.connect("owner");
 
     await expectSqlState(
-      definition.query(
+      owner.query(
         `UPDATE definition.questionnaire_version
             SET status = 'draft', version = NULL, snapshot = NULL, format_version = NULL, published_at = NULL
           WHERE id = $1`,
@@ -219,7 +219,7 @@ describe("questionnaire items", () => {
 
   it("block an insert racing an uncommitted publish, then reject it once the publish commits", async () => {
     const draft = await aDraftWithOneItem(testDatabase.database("definition"));
-    const publisher = await testDatabase.connect("definition");
+    const publisher = await testDatabase.connect("owner");
     const editor = await testDatabase.connect("definition");
 
     await publisher.query("BEGIN");

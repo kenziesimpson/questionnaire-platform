@@ -10,7 +10,6 @@ import {
 } from "@qp/shared";
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { Value } from "typebox/value";
-import { recordAudit } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
 import {
   question,
@@ -19,7 +18,6 @@ import {
   questionnaireVersion,
   questionVersion,
   questionVersionOption,
-  versionQuestionIndex,
 } from "../schema.js";
 import { storedQuestionToContent, type StoredOption } from "./question-content.js";
 
@@ -184,47 +182,18 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
       throw new Error("serialized snapshot does not match the PublishedDefinition schema");
     }
 
-    const pinned = new Map(
-      definition.items.map((item) => [
-        `${item.question.questionId}:${item.question.questionVersion}`,
-        { questionId: item.question.questionId, questionVersion: item.question.questionVersion },
-      ]),
+    const promoted = await tx.execute<{ version: number }>(
+      sql`SELECT definition.promote_draft(
+            ${draft.id}::uuid,
+            ${JSON.stringify(definition)}::jsonb,
+            ${command.actorId}::text,
+            ${JSON.stringify({ itemCount: definition.items.length, draftRevision: draft.draftRevision })}::jsonb,
+            ${command.traceId}::text
+          ) AS version`,
     );
-    if (pinned.size > 0) {
-      await tx
-        .insert(versionQuestionIndex)
-        .values([...pinned.values()].map((entry) => ({ questionnaireVersionId: draft.id, ...entry })));
+    if (promoted.rows[0]?.version !== version) {
+      throw new Error("promote_draft assigned a different version than the snapshot names");
     }
-
-    const promoted = await tx
-      .update(questionnaireVersion)
-      .set({
-        status: "published",
-        version,
-        snapshot: definition,
-        formatVersion: FORMAT_VERSION,
-        publishedAt: sql`now()`,
-      })
-      .where(and(eq(questionnaireVersion.id, draft.id), eq(questionnaireVersion.status, "draft")))
-      .returning({ id: questionnaireVersion.id });
-    if (promoted.length !== 1) {
-      throw new Error("draft was promoted by another transaction despite the questionnaire lock");
-    }
-
-    await tx
-      .update(questionnaire)
-      .set({ currentVersionId: draft.id, currentVersion: version })
-      .where(eq(questionnaire.id, command.questionnaireId));
-
-    await recordAudit(tx, {
-      action: "publish",
-      questionnaireId: command.questionnaireId,
-      questionnaireVersionId: draft.id,
-      version,
-      actorId: command.actorId,
-      summary: { itemCount: definition.items.length, draftRevision: draft.draftRevision },
-      traceId: command.traceId,
-    });
 
     return { outcome: "published", questionnaireVersionId: draft.id, version, definition };
   });

@@ -36,12 +36,12 @@ describe("a draft is structurally unreferenceable", () => {
     );
   });
 
-  it("a questionnaire cannot point its current version at its own draft", async () => {
+  it("a questionnaire cannot point its current version at its own draft, even as the owner", async () => {
     const draft = await aDraftWithOneItem(testDatabase.database("definition"));
-    const definition = await testDatabase.connect("definition");
+    const owner = await testDatabase.connect("owner");
 
     await expectSqlState(
-      definition.query(
+      owner.query(
         `UPDATE definition.questionnaire SET current_version_id = $1, current_version = 3 WHERE id = $2`,
         [draft.draftVersionId, draft.questionnaireId],
       ),
@@ -53,10 +53,10 @@ describe("a draft is structurally unreferenceable", () => {
     const definitionDb = testDatabase.database("definition");
     const intake = await aPublishedQuestionnaire(definitionDb);
     const onboarding = await aPublishedQuestionnaire(definitionDb);
-    const definition = await testDatabase.connect("definition");
+    const owner = await testDatabase.connect("owner");
 
     await expectSqlState(
-      definition.query(
+      owner.query(
         `UPDATE definition.questionnaire SET current_version_id = $1, current_version = $2 WHERE id = $3`,
         [onboarding.draftVersionId, onboarding.version, intake.questionnaireId],
       ),
@@ -66,10 +66,10 @@ describe("a draft is structurally unreferenceable", () => {
 
   it("a questionnaire cannot hold half of the current version pair", async () => {
     const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
-    const definition = await testDatabase.connect("definition");
+    const owner = await testDatabase.connect("owner");
 
     await expectSqlState(
-      definition.query(`UPDATE definition.questionnaire SET current_version = NULL WHERE id = $1`, [
+      owner.query(`UPDATE definition.questionnaire SET current_version = NULL WHERE id = $1`, [
         published.questionnaireId,
       ]),
       SQLSTATE.checkViolation,
