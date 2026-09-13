@@ -10,9 +10,7 @@ import type {
 
 export type RendererMode = "interactive" | "readonly";
 
-export type ItemErrorCode = SubmissionItemCode | "choice/other-text-required";
-
-export type ItemErrors = Readonly<Partial<Record<string, readonly ItemErrorCode[]>>>;
+export type ItemErrors = Readonly<Partial<Record<string, readonly SubmissionItemCode[]>>>;
 
 export type AnswerChangeHandler = (itemId: string, answer: ClientAnswerValue | null) => void;
 

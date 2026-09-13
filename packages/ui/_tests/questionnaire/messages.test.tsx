@@ -10,11 +10,9 @@ import {
 } from "../../src/questionnaire";
 import { aDateItem, aNumberItem, aSymptomsItem, aTextItem, rendererProps, whichCondition } from "../fixtures";
 
-const OTHER_TEXT_REQUIRED = "choice/other-text-required";
-
 describe("the item error catalogue", () => {
-  it("has a message for every submission code that can attach to a rendered item, plus other-text-required", () => {
-    const expected = new Set<string>([...SUBMISSION_ITEM_CODES, OTHER_TEXT_REQUIRED]);
+  it("has a message for every submission code that can attach to a rendered item", () => {
+    const expected = new Set<string>(SUBMISSION_ITEM_CODES);
     for (const code of CODES_WITHOUT_A_RENDERED_ITEM) expected.delete(code);
     expect(new Set(Object.keys(ITEM_ERROR_MESSAGES))).toEqual(expected);
   });
@@ -29,7 +27,7 @@ describe("the item error catalogue", () => {
     ["text/too-long", aTextItem({ maxLength: 120 }), "Enter no more than 120 characters."],
     ["choice/too-few", aSymptomsItem(), "Choose at least 1 option."],
     ["choice/too-many", aSymptomsItem(), "Choose no more than 2 options."],
-    [OTHER_TEXT_REQUIRED, whichCondition, 'Enter your answer for "Other".'],
+    ["choice/other-text-required", whichCondition, 'Enter your answer for "Other".'],
     ["choice/other-text-without-other", aSymptomsItem(), 'Select "Other" to use your own answer, or clear the text.'],
     ["number/not-integer", aNumberItem(), "Enter a whole number."],
     ["number/out-of-range", aNumberItem(), "Enter a number between 0 kg and 300 kg."],

@@ -1,11 +1,11 @@
-import type { QuestionContent } from "@qp/shared";
-import type { ItemErrorCode, QuestionOf } from "./types";
+import type { QuestionContent, SubmissionItemCode } from "@qp/shared";
+import type { QuestionOf } from "./types";
 
 export const CODES_WITHOUT_A_RENDERED_ITEM = ["answer/not-visible", "answer/unknown-item"] as const;
 
 type CodeWithoutARenderedItem = (typeof CODES_WITHOUT_A_RENDERED_ITEM)[number];
 
-export type RenderedItemErrorCode = Exclude<ItemErrorCode, CodeWithoutARenderedItem>;
+export type RenderedItemErrorCode = Exclude<SubmissionItemCode, CodeWithoutARenderedItem>;
 
 type MessageFor = (question: QuestionContent) => string;
 
@@ -69,11 +69,11 @@ export const ITEM_ERROR_MESSAGES: { readonly [C in RenderedItemErrorCode]: Messa
   "date/in-past": () => "Enter a date that is not in the past.",
 };
 
-function isRendered(code: ItemErrorCode): code is RenderedItemErrorCode {
-  return !(CODES_WITHOUT_A_RENDERED_ITEM as readonly ItemErrorCode[]).includes(code);
+function isRendered(code: SubmissionItemCode): code is RenderedItemErrorCode {
+  return !(CODES_WITHOUT_A_RENDERED_ITEM as readonly SubmissionItemCode[]).includes(code);
 }
 
-export function itemErrorMessage(codes: readonly ItemErrorCode[] | undefined, question: QuestionContent): string | undefined {
+export function itemErrorMessage(codes: readonly SubmissionItemCode[] | undefined, question: QuestionContent): string | undefined {
   const code = codes?.find(isRendered);
   return code === undefined ? undefined : ITEM_ERROR_MESSAGES[code](question);
 }
