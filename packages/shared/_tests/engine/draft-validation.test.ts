@@ -180,6 +180,18 @@ describe("validateDraft — exact satisfiability by domain intersection (§5.3)"
     ["number eq 5.5 on an integer question", questions.number({ numberKind: "integer" }), all(onSrc({ type: "number", op: "eq", value: 5.5 })), false],
     ["number gt the question's own max", questions.number({ max: 100 }), all(onSrc({ type: "number", op: "gt", value: 100 })), false],
     ["number gte the question's own max", questions.number({ max: 100 }), all(onSrc({ type: "number", op: "gte", value: 100 })), true],
+    [
+      "date after 0099-12-31 and before 0100-01-02 (one day, no 1900 offset)",
+      questions.date(),
+      all(onSrc({ type: "date", op: "after", date: "0099-12-31" }), onSrc({ type: "date", op: "before", date: "0100-01-02" })),
+      true,
+    ],
+    [
+      "date after 0099-12-31 and before 0100-01-01 (years below 100 are not shifted)",
+      questions.date(),
+      all(onSrc({ type: "date", op: "after", date: "0099-12-31" }), onSrc({ type: "date", op: "before", date: "0100-01-01" })),
+      false,
+    ],
     ["date after the 1st and before the 2nd (dates are discrete)", questions.date(), all(onSrc({ type: "date", op: "after", date: "2020-01-01" }), onSrc({ type: "date", op: "before", date: "2020-01-02" })), false],
     ["date onOrAfter and onOrBefore the same day", questions.date(), all(onSrc({ type: "date", op: "onOrAfter", date: "2020-01-01" }), onSrc({ type: "date", op: "onOrBefore", date: "2020-01-01" })), true],
     ["date between with min after max", questions.date(), all({ type: "date", itemId: "src", op: "between", min: "2021-01-01", max: "2020-01-01" }), false],

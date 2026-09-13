@@ -2,7 +2,7 @@ import { answerFor, type ClientAnswers, type ClientAnswerValue, type ClientAnswe
 import type { Item } from "../domain/definition.js";
 import type { Option, QuestionContent } from "../domain/question.js";
 import type { ItemError, SubmissionItemCode } from "../problems.js";
-import { addDays, type RelativeDateContext } from "./calendar.js";
+import { dayNumber, type RelativeDateContext } from "./calendar.js";
 import { canonicalDecimal, compareDecimalToNumber, isIntegerDecimal } from "./decimal.js";
 import { evaluateVisibility, type HasItems } from "./visibility.js";
 
@@ -83,8 +83,9 @@ function dateCodes(
   if ((question.min !== undefined && date < question.min) || (question.max !== undefined && date > question.max)) {
     codes.push("date/out-of-range");
   }
-  if (question.relative === "not_future" && date > addDays(dates.today, dates.toleranceDays)) codes.push("date/in-future");
-  if (question.relative === "not_past" && date < addDays(dates.today, -dates.toleranceDays)) codes.push("date/in-past");
+  const daysFromToday = dayNumber(date) - dayNumber(dates.today);
+  if (question.relative === "not_future" && daysFromToday > dates.toleranceDays) codes.push("date/in-future");
+  if (question.relative === "not_past" && daysFromToday < -dates.toleranceDays) codes.push("date/in-past");
   return codes;
 }
 

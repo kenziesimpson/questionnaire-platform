@@ -1,10 +1,14 @@
+import { Value } from "typebox/value";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClientAnswerValue } from "../../src/domain/answer.js";
 import type { QuestionContent } from "../../src/domain/question.js";
 import { validateAnswer } from "../../src/engine/answer-validation.js";
+import { IsoDate } from "../../src/primitives.js";
 import {
   addDays,
   calendarDateIn,
+  dayNumber,
+  isoDateFromDayNumber,
   type RelativeDateContext,
   respondentDateContext,
   serverDateContext,
@@ -33,6 +37,34 @@ describe("calendar dates", () => {
     ["2026-03-01", -1, "2026-02-28"],
   ])("%s shifted by %i day is %s", (date, days, expected) => {
     expect(addDays(date, days)).toBe(expected);
+  });
+
+  it.each([
+    ["0099-12-31", 1, "0100-01-01"],
+    ["0000-01-01", 1, "0000-01-02"],
+    ["0000-02-28", 1, "0000-02-29"],
+    ["0100-02-28", 1, "0100-03-01"],
+    ["0400-02-28", 1, "0400-02-29"],
+    ["0001-01-01", -1, "0000-12-31"],
+    ["9999-12-30", 1, "9999-12-31"],
+  ])("years 0000–0099 are not shifted by the legacy 1900 offset: %s shifted by %i day is %s", (date, days, expected) => {
+    expect(addDays(date, days)).toBe(expected);
+  });
+
+  it("the date format admits years 0000–0099, so the calendar arithmetic must handle them", () => {
+    for (const date of ["0000-01-01", "0099-12-31"]) expect(Value.Check(IsoDate, date)).toBe(true);
+    expect(dayNumber("0100-01-01") - dayNumber("0099-12-31")).toBe(1);
+    expect(dayNumber("0099-12-31")).not.toBe(dayNumber("1999-12-31"));
+  });
+
+  it("dayNumber agrees with the Unix epoch and round-trips through isoDateFromDayNumber from 0000 to 9999", () => {
+    expect(dayNumber("1970-01-01")).toBe(0);
+    for (let day = dayNumber("0000-01-01"); day <= dayNumber("9999-12-31"); day += 997) {
+      const iso = isoDateFromDayNumber(day);
+      expect(dayNumber(iso)).toBe(day);
+      if (iso >= "0100-01-01") expect(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10))) / 86_400_000).toBe(day);
+    }
+    expect(isoDateFromDayNumber(dayNumber("9999-12-31"))).toBe("9999-12-31");
   });
 
   it("the server resolves UTC today with one day of tolerance; the respondent resolves local today with none (#38)", () => {
@@ -81,6 +113,12 @@ describe("relative date constraints across a timezone boundary (§2.4)", () => {
       expect(validateAnswer(notPast, on("2026-09-12"), respondent)).toEqual(["date/in-past"]);
       expect(validateAnswer(notPast, on("2026-09-12"), server)).toEqual(["date/in-past"]);
     });
+  });
+
+  it("relative constraints compare correctly in years 0000–0099", () => {
+    const dates: RelativeDateContext = { today: "0099-12-31", toleranceDays: 1 };
+    expect(validateAnswer(notFuture, on("0100-01-01"), dates)).toEqual([]);
+    expect(validateAnswer(notFuture, on("0100-01-02"), dates)).toEqual(["date/in-future"]);
   });
 
   it("the tolerance admits at most one day beyond UTC today, across a year boundary", () => {
