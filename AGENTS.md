@@ -51,6 +51,10 @@ Tool directives that must be written in comment syntax are not prose comments an
 - `apps/backend/src/modules/definition` and `apps/backend/src/modules/execution` never import each other. Only `packages/telemetry` imports `pino` or `@opentelemetry/*`. Both are enforced by `eslint.config.mjs`.
 - Respondent answer values never reach a log, span, metric or error body. Wrap them in `Sensitive<T>`.
 
+### Migrations
+
+- Never edit, regenerate or squash a committed migration in `apps/backend/drizzle/`; write a new one. `0000_schema.sql` carries hand edits drizzle-kit cannot express and will silently drop — see [Hand-edited migrations](apps/backend/README.md#hand-edited-migrations) in the backend README before running `db:generate`.
+
 ### Tests
 
 Tests are written with the feature, not after. Add one row per case to `docs/8-testing.md` §7 — the only file under `docs/` a build track may edit.
