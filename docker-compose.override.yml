@@ -34,6 +34,7 @@ services:
     volumes:
       - ./apps/respondent:/app/apps/respondent
       - ./apps/admin:/app/apps/admin
+      - ./packages/ui:/app/packages/ui
       - ./packages/shared:/app/packages/shared
     depends_on:
       - backend
