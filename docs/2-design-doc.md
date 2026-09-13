@@ -17,7 +17,9 @@
 
 *Hard limits we are designing within: time, single developer, must be runnable with one command, published versions immutable, etc.*
 
-- 
+- **Nothing is deleted; things are hidden.** A general principle rather than a per-entity rule: questionnaires retire via `closes_at` ([[#8. Sessions & Responses]] §8.1), questions are archived rather than removed, question versions are append-only, and published snapshots and collected responses are immutable. Most of the design had already converged on this independently — stating it explicitly is what makes that coherent rather than coincidental, and it is the rule to apply when a new entity's lifecycle comes up. The risk being avoided is data loss, and in this domain the data is someone's medical history. See Decisions Log #15.
+  - **Known exception: erasure on request.** A production system under GDPR or HIPAA must be able to remove a specific respondent's data. That is a separate, explicitly invoked, audited capability — never something normal operation does — and the distinction is what keeps "nothing is deleted" true as an operational statement. Out of scope for the prototype; see [[#19. Future Work]].
+  - Archival ([[3-scaling#3. Problem: response ingest vs. reads]] §3.6) moves old partitions to cold storage. That is movement, not deletion, and stays inside the principle.
 
 ## 4. Out of Scope
 
@@ -43,15 +45,19 @@ See Decisions Log #6, #10, #11, #12.
 
 ## 6. Versioning & Immutability
 
-> **Detail: [[5-questionnaire-format#6. Versioning mechanics]].** Questionnaire-level only — question identity is still open, [[#18. Open Questions]] §1–2.
+> **Detail: [[5-questionnaire-format#6. Versioning mechanics]].**
 
-A questionnaire has at most one draft at a time, enforced by a partial unique index rather than application logic. **Publishing promotes the draft row in place** to version *N*; the next draft is an explicit copy of the latest published version. A published version is never edited.
+**Questionnaires.** At most one draft at a time, enforced by a partial unique index rather than application logic. **Publishing promotes the draft row in place** to version *N*; the next draft is an explicit copy of the latest published version. A published version is never edited.
+
+**Questions.** Append-only, with no draft state on the bank: every save writes a new immutable `question_version` row, so saving *is* publishing. A stable `questionId` carries identity across revisions, and a questionnaire item pins a `questionVersion` at the moment the question is added and keeps it, so a draft never shifts under its author. Questions are archived, never deleted ([[#3. Constraints]]).
+
+**Responses** store `questionId` — what you aggregate on — alongside `questionVersion` (what you render with), the questionnaire version, and option ids. The version is derivable from the snapshot; storing it anyway keeps a response interpretable without loading the definition it was collected under. The line stops at the version pointer: prompt text is not copied onto responses.
 
 Immutability is enforced in three layers: a database trigger rejecting `UPDATE` on published rows — that is the guarantee — a `409` from the authoring API for a usable error, and a test that drives the update straight at the database so the guarantee cannot silently regress behind a service-layer refactor.
 
 The published snapshot carries a `formatVersion` and is upgraded **in memory at read time**; stored bytes are never rewritten. Immutability here means the bytes, not merely the meaning — the stored document is the record of what a respondent was actually shown.
 
-See Decisions Log #7, #8.
+See Decisions Log #7, #8, #13, #14.
 
 ## 7. Branching Rules
 
@@ -92,7 +98,7 @@ One field and one comparison, rather than a status enum plus a date that can dri
 
 **Behaviour past `closes_at`:** starting a session and submitting one are both rejected, and the respondent app renders a "responses closed" page rather than a raw error. This is a **hard cutoff** — a session started before the close but submitted after it is rejected too.
 
-That is the strict choice and it has a real cost: a respondent can lose completed work through no fault of their own. The alternative, a **soft cutoff** admitting any session that started before `closes_at`, is kinder but leaves the close date open-ended for an unbounded window. The likely resolution is a per-questionnaire `cutoffMode: 'hard' | 'soft'` defaulting to hard. Deferred — [[#18. Open Questions]] §5 and [[3-scaling#8. Open questions]].
+That is the strict choice and it has a real cost: a respondent can lose completed work through no fault of their own. The alternative, a **soft cutoff** admitting any session that started before `closes_at`, is kinder but leaves the close date open-ended for an unbounded window. The likely resolution is a per-questionnaire `cutoffMode: 'hard' | 'soft'` defaulting to hard. Deferred — [[#18. Open Questions]] §3 and [[3-scaling#8. Open questions]].
 
 ## 9. API / Service Boundary
 
@@ -236,6 +242,9 @@ Why the split:
 | 10 | `yes_no` is sugar over `single_choice` with reserved option ids `yes` / `no` | A distinct boolean response type | One storage shape and one operator set for every choice question; reserved ids keep yes/no rules and cross-questionnaire analytics uniform. A separate boolean type would duplicate the choice machinery for the two-option case. | 2026-09-12 |
 | 11 | Required-ness and branch predicates live on the questionnaire item, not on the reusable question | Both on the question version | A question is reusable; whether it is required, and what makes it appear, are properties of where it sits. Putting them on the question would force a duplicate question record whenever the same prompt is required in one questionnaire and optional in another, defeating the reuse the brief asks for. | 2026-09-12 |
 | 12 | Number answers stored as `{ value, unit }`; option ids stable across question versions | Bare numeric answers with the unit resolved from the definition; storing option labels on responses | Both express the same invariant: a response must stay interpretable when its question is revised. A unit change (cm to in) or an option relabel in v2 cannot retroactively change what a v1 answer meant, and the stored response is readable without joining back to the definition. | 2026-09-12 |
+| 13 | Questions are append-only with no draft state on the bank; questionnaire items pin a question version at add time | Independently versioned bank with its own draft/publish lifecycle; questions as mutable templates versioned only at the questionnaire level | Append-only gives real question versioning while keeping the bank's lifecycle to "insert a row" rather than a second draft-to-publish state machine, and it composes with the snapshot instead of duplicating it. Pinning at add keeps a draft stable between sessions and makes upgrading a visible act. Costs: an explicit save action (one save, one version) and no upgrade action yet. The independently versioned bank stays available later as an additive change. | 2026-09-13 |
+| 14 | Responses store `questionId`, `questionVersion`, the questionnaire version and option ids | Store only `questionId` and derive the version from the snapshot; also denormalize prompt and label text onto the response | `questionId` is what aggregation across versions needs; `questionVersion` is derivable from the snapshot but stored anyway so a response is interpretable without loading the definition. The line stops at the version pointer — a unit changes what a value means numerically, prompt wording does not, and copying it onto every row buys nothing the snapshot does not already hold exactly. | 2026-09-13 |
+| 15 | Nothing is deleted; things are hidden — retire, archive, append-only, immutable | Hard deletes with cascade; soft-delete flags on selected tables only | The data is medical history, so the risk of loss outweighs the tidiness of deletion, and most of the design had already converged here independently. Making it a stated principle means new entities inherit it by default rather than each lifecycle being re-argued. Erasure on request (GDPR/HIPAA) is the known exception and is a separate audited capability, not normal operation. | 2026-09-13 |
 | 13 | Observability: OpenTelemetry end to end; respondent answer values structurally excluded from telemetry (`Sensitive<T>` wrapper + single telemetry boundary + exporter allowlist + sentinel test gated in CI); domain events as a first-class stream; audit trail in an `audit` schema behind an `INSERT`/`SELECT`-only role rather than in the log pipeline; client-side telemetry batched through a backend endpoint | APM auto-instrumentation alone; deny-list / regex redaction of logs; audit entries as `info` logs; a separate audit database fed by a transactional outbox; browser telemetry shipped straight to a Collector | Auto-instrumentation answers "why did this request fail" but not "why did this respondent give up", which is the question this domain actually has — and it cannot see decisions the client makes locally. Deny-list redaction fails open on every field added later, so a wrapper type makes a leak structurally impossible instead; the demo questionnaire collects medical conditions. An audit trail needs retention and integrity independent of logging-cost decisions; a restricted role makes append-only a database guarantee while keeping the audit write inside the publish transaction, where a separate database would place it outside and allow a publish with no audit record. The outbox that resolves that is the documented path to a standalone audit service, deferred rather than rejected. A public collector would be unauthenticated and could not apply the same attribute allowlist. | 2026-09-12 |
 
 ### 17.1 Alternatives considered in detail
@@ -269,19 +278,15 @@ Decisions #6, #7 and #9 concern the questionnaire format; their alternatives are
 
 ## 18. Open Questions
 
-Ordered roughly by what blocks what. Items 1–2 are the next thing to work through.
+Ordered roughly by what blocks what.
 
-1. **Question identity.** The split between a stable `questionId` and an immutable question version, and what a stored response pins to — question id, question version, option id, or some combination. Blocks [[#6. Versioning & Immutability]] and the database schema.
-2. **Question bank lifecycle.** Are question versions immutable on save, or does the bank get its own draft state parallel to the questionnaire's? Related: is there an authoring action that pulls a questionnaire draft up to the latest version of each question it uses?
-3. **The v2 demo change.** Which single change version 2 of the seeded questionnaire makes. Rewording a prompt and relabelling an option both exercise the stable-id guarantee directly; adding an option changes the answer domain and is a weaker demonstration.
-4. **Formatting subtypes for `text`** — email, phone, regex patterns. Deliberately pinned rather than rejected; we want these, just not before the vertical slice is complete. Also listed in [[#19. Future Work]].
-5. **In-flight sessions at retirement.** The hard cutoff ships now ([[#8.1 Questionnaire lifecycle and retirement]]). Whether `cutoffMode: 'hard' | 'soft'` becomes a per-questionnaire setting is undecided. Also in [[3-scaling#8. Open questions]].
-6. **Snapshot format support window.** How many past `formatVersion`s the loader commits to upgrading from, and what triggers dropping support for one.
-7. **Pages / sections.** Deferred, not rejected — [[5-questionnaire-format#1. The model]] states the constraint any future design must respect.
-8. **Checkpoint endpoint** — ship in the prototype or defer. Already tracked in [[3-scaling#8. Open questions]].
-9. **Withholding unreachable questions** from the definition payload in sensitive deployments. Already tracked in [[3-scaling#8. Open questions]]; ties to HIPAA future work.
-10. **SLO targets, alert thresholds, and backup/restore verification.** Deliberately deferred with direction recorded — [[6-observability#8. SLOs and alerting]].
-11. **Invariant monitoring design.** Deferred; the structural guarantees in [[5-questionnaire-format#5. Publish-time validation]] already cover the authoring-time class, so what remains is runtime drift — [[6-observability#9. Correctness and invariant monitoring]].
+1. **The v2 demo change.** Which single change version 2 of the seeded questionnaire makes. Rewording a prompt and relabelling an option both exercise the stable-id guarantee directly; adding an option changes the answer domain and is a weaker demonstration.
+2. **Formatting subtypes for `text`** — email, phone, regex patterns. Deliberately pinned rather than rejected; we want these, just not before the vertical slice is complete. Also listed in [[#19. Future Work]].
+3. **In-flight sessions at retirement.** The hard cutoff ships now ([[#8.1 Questionnaire lifecycle and retirement]]). Whether `cutoffMode: 'hard' | 'soft'` becomes a per-questionnaire setting is undecided. Also in [[3-scaling#8. Open questions]].
+4. **Snapshot format support window.** How many past `formatVersion`s the loader commits to upgrading from, and what triggers dropping support for one.
+5. **Pages / sections.** Deferred, not rejected — [[5-questionnaire-format#1. The model]] states the constraint any future design must respect.
+6. **Checkpoint endpoint** — ship in the prototype or defer. Already tracked in [[3-scaling#8. Open questions]].
+7. **Withholding unreachable questions** from the definition payload in sensitive deployments. Already tracked in [[3-scaling#8. Open questions]]; ties to HIPAA future work.
 
 ## 19. Future Work
 
@@ -290,8 +295,11 @@ Ordered roughly by what blocks what. Items 1–2 are the next thing to work thro
 - **Split the frontends.** Deploy the respondent questionnaire app and the admin portal separately; the questionnaire app is potentially hit much harder and benefits from a CDN, aggressive caching and edge rate limiting, while the admin portal stays behind auth. Keep them as separate entry points/packages from the start so this is a deploy change. See [[3-scaling#6. Future improvement: split the frontends]].
 - Redis as cache and (separately) durable ingest queue, triggered by measured load. See [[3-scaling#3. Problem: response ingest vs. reads]] §3–5.
 - An AI-assist system for initializing a questionnaire
-- **Format subtypes for `text`** — email, phone and regex-pattern validation. Pinned deliberately rather than rejected; see [[#18. Open Questions]] §4.
+- **Format subtypes for `text`** — email, phone and regex-pattern validation. Pinned deliberately rather than rejected; see [[#18. Open Questions]] §2.
 - **Unit conversion for `number`.** Answers already carry the unit they were collected under ([[#5. Questionnaire Format]]), so converting between compatible units (cm/in, kg/lb) for display and analytics is additive rather than a migration.
+- **Erasure on request (GDPR / HIPAA).** The stated exception to [[#3. Constraints]]: removing one respondent's data as an explicitly invoked, audited operation, including from snapshots' derived indexes and cold-storage partitions. Deliberately not a cascade delete.
+- **Independently versioned question bank.** Drafts and a publish step on questions themselves, for authors who need to park half-finished edits. Additive over today's append-only model — see [[5-questionnaire-format#7. Alternatives considered]] §7.5.
+- **Upgrade a draft to the latest question versions.** A per-question review action, so moving a questionnaire forward does not mean removing and re-adding items.
 - **A/B testing whole questionnaires.** Noted during ideation; deferred as orthogonal to the versioning model — a published version is already the unit an experiment would assign against.
 - **Standalone audit logging service.** Extract the audit trail behind a transactional outbox so it can be operated, backed up and access-controlled independently of the application database. The schema-and-role design shipping now (Decisions Log #13) is deliberately outbox-ready: audit writes go through a single repository function, and audit rows carry their own id and timestamp rather than borrowing the domain row's. See [[6-observability#5.1 Isolation — separate schema with a restricted role]].
 - **Invariant monitoring and a synthetic canary.** Periodic gauges for orphaned answers, never-shown items and live snapshot format versions — drift that returns HTTP 200 and moves no existing signal — plus a canary completing the medical-condition demo questionnaire end to end, which is the only signal that proves the *workflow* works rather than that the processes are up. Cheap to build here because the demo questionnaire already exists. See [[6-observability#9. Correctness and invariant monitoring]].

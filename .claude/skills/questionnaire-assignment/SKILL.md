@@ -105,19 +105,21 @@ The design doc is the **index, not the encyclopedia**: it carries a condensed ve
 - **Definition storage:** normalized rows for authoring; one **immutable JSONB snapshot per published version**, written in the publish transaction. Snapshots carry a `formatVersion` and are upgraded in memory at read time — stored bytes are never rewritten. A derived `version_question_index` restores reverse lookups.
 - **Publishing:** promotes the draft row in place to version N; at most one draft per questionnaire, enforced by a partial unique index. Immutability enforced in three layers — DB trigger, API `409`, and a test that bypasses the API to hit the database directly.
 - **Retirement:** one nullable `closes_at` covers both ongoing and scheduled-close questionnaires. Hard cutoff for now: both starting and submitting are rejected past the date, and the respondent app renders a "responses closed" page.
+- **Question versioning:** questions are **append-only** — no draft state on the bank, every save writes a new immutable `question_version` row, so saving is publishing. A stable `questionId` carries identity across revisions; a questionnaire item **pins the question version at add time** and keeps it. Saving is an explicit action (closing the edit dialog), so one save is one version. No "upgrade to latest" action yet.
+- **Responses store** `questionId` (what you aggregate on), `questionVersion` (what you render with), the questionnaire version, and option ids or `{ value, unit }`. Prompt and label text are not copied onto responses — the snapshot holds those.
+- **Nothing is deleted; things are hidden.** Questionnaires retire, questions archive, question versions append, snapshots and responses are immutable. Apply this by default to any new entity's lifecycle. The one exception is erasure on request (GDPR/HIPAA), which is a separate audited capability, not normal operation.
 - **Observability:** OpenTelemetry throughout; `@fastify/otel` on the backend; browser propagates trace context so frontend and backend logs correlate per session.
 - **Not in prototype:** Redis (documented as separate cache and durable-queue levers), ingest queue, frontend split (respondent app vs. admin portal — listed as future work; keep them separate entry points/packages from the start).
 
 ## Still to decide (in dependency order)
 
-1. **Question identity and the question bank lifecycle** — stable question id vs. immutable question version, what a stored response pins to, and whether the bank has its own draft state. **This is the current blocker**; the schema follows from it.
-2. Database schema: entities, relationships, constraints, indexes, response partitioning, audit approach (follows from 1).
-3. API boundary: endpoint groups for definition vs. execution, error format and status conventions, access model and data barriers.
-4. Sessions/responses: checkpoint endpoint scope, submit validation rules, idempotency key.
-5. The v2 demo change for the seeded questionnaire.
-6. Observability details, testing approach, Kubernetes subsection, overview/goals/constraints, and the [[2-design-doc#16. Scale & Growth]] table.
+1. **Database schema** — entities, relationships, constraints, indexes, response partitioning, audit approach. **This is the current blocker**, and it is unblocked: the format, branching and versioning decisions it depended on have all landed.
+2. API boundary: endpoint groups for definition vs. execution, error format and status conventions, access model and data barriers.
+3. Sessions/responses: checkpoint endpoint scope, submit validation rules, idempotency key.
+4. The v2 demo change for the seeded questionnaire.
+5. Observability details, testing approach, Kubernetes subsection, overview/goals/constraints, and the [[2-design-doc#16. Scale & Growth]] table.
 
-Anything deferred rather than blocking lives in [[2-design-doc#18. Open Questions]] — check there before treating something as undecided.
+Anything deferred rather than blocking lives in [[2-design-doc#18. Open Questions]] — check there before treating something as undecided. Deliberate simplifications in the format and rule model are listed in [[5-questionnaire-format#8. Future changes noted]]; they are settled, not open.
 
 ## Working conventions
 

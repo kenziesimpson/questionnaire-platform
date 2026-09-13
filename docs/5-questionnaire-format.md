@@ -23,7 +23,7 @@ Six response types. Constraints belong to the question version and compile into 
 
 | Type | Constraints | Notes |
 | --- | --- | --- |
-| `text` | `minLength`, `maxLength`, `multiline` | `multiline` distinguishes short answer from long form. Format subtypes (email, phone, regex) are deferred — [[2-design-doc#18. Open Questions]] §4. |
+| `text` | `minLength`, `maxLength`, `multiline` | `multiline` distinguishes short answer from long form. Format subtypes (email, phone, regex) are deferred — [[2-design-doc#18. Open Questions]] §2. |
 | `single_choice` | `options` (at least one), optional freeform `other` | Exactly one selection. |
 | `multiple_choice` | `options` (at least one), `minSelections`, `maxSelections`, optional freeform `other` | `minSelections` of 1 or more is how "required, pick at least one" is expressed. |
 | `number` | `numberKind` (`integer` or `float`, required), `min`, `max`, `unit` | `unit` is a display label; conversion between compatible units is future work. |
@@ -48,7 +48,7 @@ A choice question may mark a trailing option as freeform. The answer then has tw
 
 ## 3. Serialization
 
-A published version is stored as a single JSONB document ([[2-design-doc#12. Database]] §12.1) and served to the client whole, once per session. The document carries its own `formatVersion` (§5.5).
+A published version is stored as a single JSONB document ([[2-design-doc#12. Database]] §12.1) and served to the client whole, once per session. The document carries its own `formatVersion` (§6.5).
 
 ```json
 {
@@ -195,10 +195,9 @@ An `any` group is satisfiable if any single disjunct is, and each disjunct is on
 
 **Reachability is stronger than per-predicate satisfiability.** A predicate can be satisfiable alone while every question it references is itself gated by something contradictory. Because references point strictly backwards the items form a DAG, so this resolves bottom-up: for item *i*, accumulate the domain constraints of its own predicate together with those of its whole dependency closure, then check the combined map for an empty domain.
 
-`any` groups make the closure non-conjunctive, so an exact answer enumerates disjunct combinations — exponential in the worst case, though real closures are two or three deep over a handful of conditions. We enumerate with a budget and treat the two outcomes differently:
+`any` groups make the closure non-conjunctive, so an exact answer enumerates disjunct combinations. We **enumerate exhaustively** and reject any item proven unreachable — an unreachable item is always an authoring error, and there is no second outcome to reason about. At realistic questionnaire sizes (closures two or three deep over a handful of conditions) the enumeration terminates immediately, and it runs once per publish rather than on the request path, so the cost is paid where it does not matter.
 
-- **Provably unsatisfiable** — reject the publish. This is always an authoring error.
-- **Not proven satisfiable within the budget** — warn and allow the publish. A false warning is cheap; a false rejection blocks legitimate work.
+The worst case is exponential in the number of `any` disjuncts along a closure. Capping the enumeration and downgrading unproven items from *reject* to *warn* is the escape hatch if a questionnaire ever grows big enough to need it — see §8.
 
 **Relative date constraints** (`not_future`, `not_past`) depend on evaluation time, so at publish time they are treated as non-empty and excluded from the intersection. They can never be the sole cause of an unsatisfiable result.
 
@@ -212,15 +211,45 @@ Required-ness. It is evaluated against the reachable path at submit time, so a r
 
 ## 6. Versioning mechanics
 
-Questionnaire-level only. Question-level identity — the split between a stable question id and an immutable question version, and what a response pins to — is [[2-design-doc#18. Open Questions]] §1–2.
+Two independently versioned things — questionnaires and questions — plus the rule that a response must stay interpretable after either is revised.
 
-### 6.1 Drafts and publishing
+### 6.1 Questionnaire versions
 
 - At most one draft per questionnaire, enforced by a partial unique index on `questionnaire_id WHERE status = 'draft'` rather than by application logic.
 - **Publishing promotes the draft row in place** to version *N*. Nothing is copied at publish time; the next draft is an explicit copy of the latest published version.
 - A published version is never edited. The only way forward is a new draft derived from it.
 
-### 6.2 Three layers of immutability enforcement
+### 6.2 Question identity and versioning
+
+Questions are **append-only**. There is no draft state on the question bank: every save writes a new immutable `question_version` row, so saving *is* publishing — there is nothing mutable for a draft to protect. A question therefore has:
+
+- a stable `questionId` — what makes it "the same question" across every revision and every questionnaire that uses it;
+- an ordered series of `questionVersion`s, each an immutable snapshot of prompt, type and constraints.
+
+**Saving is explicit.** Append-only means a naive autosave would spray versions, so the editor holds its working state client-side and writes only when the author commits — presented in the UI as closing out the edit dialog. One deliberate save, one version. This is the real cost of having no draft state on the bank, and it is a UI convention rather than a data-model one.
+
+A typo fix therefore also creates a version, including on a question no published questionnaire has ever used. That is what append-only means, and it is better than a "mutable until first use" rule, which would be a second lifecycle hiding inside the first.
+
+**Items pin at add time.** When an author adds a question to a questionnaire draft, the item records the `questionVersion` current at that moment and keeps it. A draft does not change under the author between sessions, and moving to a newer question version becomes a visible act rather than an invisible side effect of publishing.
+
+There is no "upgrade this draft to the latest question versions" action yet (§8), so moving a questionnaire onto a newer question version means removing and re-adding the item. Clunky, deliberate, and written down rather than discovered.
+
+**Questions are archived, never deleted** — hidden from the picker, but retained, because published snapshots reference their content forever. This is an instance of a general rule; see [[2-design-doc#3. Constraints]].
+
+### 6.3 What a response stores
+
+| Stored | Role |
+| --- | --- |
+| `questionId` | **What you aggregate on.** The stable identity that lets one question's answers be compared across versions — which is what makes "prior responses still mean the same thing" a property a test can assert rather than a claim. |
+| `questionVersion` | **What you render with.** Resolves the exact prompt and option labels the respondent actually saw. |
+| `questionnaireVersion` | The pinned definition, and the route to the full snapshot. |
+| option ids, or `{ value, unit }` | The answer itself, in a form that does not depend on labels (§2.1, §2.2). |
+
+`questionVersion` is strictly derivable: the questionnaire version's snapshot records each item's pinned `questionVersion`, so `(questionnaireVersion, questionId)` is enough to look it up. We store it anyway, for exactly the reason a number answer carries its unit — **a response should be interpretable without loading the definition it was collected under.** An export of the responses table is then self-describing, and a snapshot that ever failed to load would not take the responses' meaning down with it.
+
+The line is drawn at the version pointer, not the text. Prompt and option labels are *not* copied onto the response: the unit is stored because it changes what the value means numerically (180 cm and 180 in are different answers), whereas prompt wording is context the snapshot already holds exactly, and duplicating it on every row would buy nothing.
+
+### 6.4 Three layers of immutability enforcement
 
 The brief treats this as the central invariant, and a single layer is one refactor away from being gone.
 
@@ -228,7 +257,7 @@ The brief treats this as the central invariant, and a single layer is one refact
 2. **API.** Authoring endpoints reject a mutation targeting a non-draft version with `409 Conflict` before it reaches the data layer, so callers get a useful error instead of a constraint violation surfacing as a 500.
 3. **Tests.** A test drives the `UPDATE` straight at the database, bypassing the API, so the guarantee cannot silently regress when the service layer is refactored.
 
-### 6.3 Snapshot format version
+### 6.5 Snapshot format version
 
 The snapshot is a JSON document with its own schema, and that schema evolves independently of the SQL schema. DDL migrations do not touch JSONB contents, so a document written today must still be readable a year from now.
 
@@ -236,7 +265,7 @@ The snapshot is a JSON document with its own schema, and that schema evolves ind
 - The loader holds upgrade functions from one format version to the next, applied **in memory at read time**. Stored bytes are never rewritten.
 - Snapshots are validated with TypeBox on load, so a stale or corrupt document fails loudly instead of degrading into strange branching behaviour.
 
-**Immutability here means the bytes, not the meaning.** Re-serializing a published version into a newer format is not permitted, even as a background migration that provably preserves semantics — hence read-time upgrades. The stored document is the evidentiary record of what a respondent was actually shown, and that argument does not survive rewriting it. How many past formats the loader commits to supporting is [[2-design-doc#18. Open Questions]] §6.
+**Immutability here means the bytes, not the meaning.** Re-serializing a published version into a newer format is not permitted, even as a background migration that provably preserves semantics — hence read-time upgrades. The stored document is the evidentiary record of what a respondent was actually shown, and that argument does not survive rewriting it. How many past formats the loader commits to supporting is [[2-design-doc#18. Open Questions]] §4.
 
 ## 7. Alternatives considered
 
@@ -262,6 +291,12 @@ The snapshot is a JSON document with its own schema, and that schema evolves ind
 
 Considered early (§9): treat questionnaire history as commits and diffs. Rejected because reading a version would mean reconstructing it by replaying history, which is exactly the wrong cost profile — the hot path is "give me published version N, whole, right now", and an immutable snapshot answers that in one row read.
 
+### 7.5 Question versioning (Decisions Log #13)
+
+- *Independently versioned bank with its own draft/publish lifecycle.* Questions get drafts, publishing and version history exactly parallel to questionnaires — the most literal reading of the brief's "version questions and questionnaires". Rejected for the prototype: a second complete draft-to-publish flow to build, test and explain, doubling the authoring surface for a benefit the demo never exercises. **Not foreclosed** — it is the chosen model plus a mutable working copy in front of the version table, so the `question_version` rows keep their shape and a draft row collapses into one on commit. Additive, not a rewrite.
+- *Questions as mutable templates, versioning only at the questionnaire level.* The bank holds current content; publishing freezes it into the snapshot. Simplest of the three, and the snapshot already does the freezing. Rejected because the brief asks for questions themselves to be versioned, and because "what did this question look like in March?" would only be answerable through some questionnaire that happened to use it.
+- *Append-only question versions, no bank draft state* (chosen). Saving is publishing because nothing is mutable. Real question versioning, but the bank's lifecycle is inserting a row rather than a parallel state machine, and it composes with the snapshot instead of duplicating it: `question_version` is the authoring-side record of what a question has ever been, the snapshot is the execution-side record of what a respondent actually saw. Two records with genuinely different jobs, where the independently versioned bank would have had two doing the same one.
+
 ## 8. Future changes noted
 
 Deliberate simplifications, recorded so they are recognisable as choices rather than oversights. None of these are open questions — they are settled for the prototype.
@@ -271,7 +306,10 @@ Deliberate simplifications, recorded so they are recognisable as choices rather 
 | Rules cannot match `otherText` (§2.3) | Text matching is fragile and has no version-stable identity | Promotion of recurring freeform answers into real options, rather than string matching in the engine |
 | Single level of boolean composition (§4.1) | Covers "one or more previous responses"; two conditions needing nesting can be split across two items | Demand for genuinely nested logic, at the cost of the exact satisfiability check |
 | No unit conversion (§2.2) | Answers already carry their unit, so conversion is additive | A questionnaire that needs mixed-unit entry or cross-version analytics |
-| No `text` format subtypes | Length validation covers the prototype's needs | [[2-design-doc#18. Open Questions]] §4 |
+| No `text` format subtypes | Length validation covers the prototype's needs | [[2-design-doc#18. Open Questions]] §2 |
+| No draft state on the question bank (§6.2) | Saving is explicit, so one save is one version | Authors needing to park half-finished question edits — that is the independently versioned bank in §7.5 |
+| No "upgrade draft to latest question versions" action (§6.2) | Remove and re-add the item; rare at prototype scale | More than a handful of questions in flight, where re-adding items by hand stops being reasonable |
+| Reachability checked by exhaustive enumeration (§5.3) | Real closures are shallow; validation runs once per publish, off the request path | A questionnaire large enough to make the enumeration slow — then cap it and downgrade unproven items from reject to warn |
 
 ## 9. Appendix — original ideation
 
