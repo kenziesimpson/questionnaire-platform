@@ -6,8 +6,6 @@ import { publishDraft } from "../../src/db/definition/publish.js";
 import { replaceDraft, createQuestionnaire } from "../../src/db/definition/questionnaires.js";
 import { createQuestion } from "../../src/db/definition/questions.js";
 
-export const acceptAll = () => [];
-
 const actor = { createdBy: "test", traceId: null };
 
 export const aTextQuestion: QuestionInput = { type: "text", prompt: "Anything else?" };
@@ -50,7 +48,6 @@ export async function aPublishedQuestionnaire(db: Database): Promise<PublishedFi
   const published = await publishDraft(db, {
     questionnaireId: draft.questionnaireId,
     expectedDraftRevision: draft.draftRevision,
-    rules: acceptAll,
     actorId: "test",
     traceId: null,
   });

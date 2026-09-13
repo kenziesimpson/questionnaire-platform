@@ -1,9 +1,19 @@
-import { FORMAT_VERSION, PublishedDefinition, type Item, type Predicate } from "@qp/shared";
-import { and, asc, eq, sql } from "drizzle-orm";
+import {
+  FORMAT_VERSION,
+  PublishedDefinition,
+  validateDraft,
+  type DraftForValidation,
+  type DraftItemCode,
+  type Item,
+  type ItemError,
+  type Predicate,
+} from "@qp/shared";
+import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { Value } from "typebox/value";
 import { recordAudit } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
 import {
+  question,
   questionnaire,
   questionnaireItem,
   questionnaireVersion,
@@ -13,17 +23,16 @@ import {
 } from "../schema.js";
 import { storedQuestionToContent, type StoredOption } from "./question-content.js";
 
-export type PublishRules<Failure> = (definition: PublishedDefinition) => readonly Failure[];
-
-export interface PublishDraftCommand<Failure> {
+export interface PublishDraftCommand {
   readonly questionnaireId: string;
   readonly expectedDraftRevision: number;
-  readonly rules: PublishRules<Failure>;
   readonly actorId: string | null;
   readonly traceId: string | null;
 }
 
-export type PublishDraftOutcome<Failure> =
+export type DraftInvalidItem = ItemError<DraftItemCode>;
+
+export type PublishDraftOutcome =
   | {
       readonly outcome: "published";
       readonly questionnaireVersionId: string;
@@ -33,7 +42,7 @@ export type PublishDraftOutcome<Failure> =
   | { readonly outcome: "questionnaire-not-found" }
   | { readonly outcome: "no-draft" }
   | { readonly outcome: "stale"; readonly draftRevision: number }
-  | { readonly outcome: "invalid"; readonly failures: readonly Failure[] };
+  | { readonly outcome: "invalid"; readonly items: readonly DraftInvalidItem[] };
 
 async function lockQuestionnaire(tx: Transaction, questionnaireId: string): Promise<boolean> {
   const rows = await tx
@@ -119,10 +128,33 @@ async function readDraftItems(tx: Transaction, draftVersionId: string): Promise<
   }));
 }
 
-export async function publishDraft<Failure>(
-  executor: Executor,
-  command: PublishDraftCommand<Failure>,
-): Promise<PublishDraftOutcome<Failure>> {
+async function archivedQuestionIds(tx: Transaction, items: readonly Item[]): Promise<Set<string>> {
+  const questionIds = [...new Set(items.map((item) => item.question.questionId))];
+  if (questionIds.length === 0) {
+    return new Set();
+  }
+  const archived = await tx
+    .select({ id: question.id })
+    .from(question)
+    .where(and(inArray(question.id, questionIds), isNotNull(question.archivedAt)));
+  return new Set(archived.map((row) => row.id));
+}
+
+async function draftForValidation(tx: Transaction, items: readonly Item[]): Promise<DraftForValidation> {
+  return {
+    items: items.map((item) => ({
+      itemId: item.itemId,
+      required: item.required,
+      visibleWhen: item.visibleWhen,
+      questionId: item.question.questionId,
+      questionVersion: item.question.questionVersion,
+    })),
+    questions: items.map((item) => item.question),
+    archivedQuestionIds: await archivedQuestionIds(tx, items),
+  };
+}
+
+export async function publishDraft(executor: Executor, command: PublishDraftCommand): Promise<PublishDraftOutcome> {
   return executor.transaction(async (tx) => {
     if (!(await lockQuestionnaire(tx, command.questionnaireId))) {
       return { outcome: "questionnaire-not-found" };
@@ -144,12 +176,12 @@ export async function publishDraft<Failure>(
       items: await readDraftItems(tx, draft.id),
     };
 
+    const validation = validateDraft(await draftForValidation(tx, definition.items));
+    if (!validation.valid) {
+      return { outcome: "invalid", items: validation.items };
+    }
     if (!Value.Check(PublishedDefinition, definition)) {
       throw new Error("serialized snapshot does not match the PublishedDefinition schema");
-    }
-    const failures = command.rules(definition);
-    if (failures.length > 0) {
-      return { outcome: "invalid", failures };
     }
 
     const pinned = new Map(

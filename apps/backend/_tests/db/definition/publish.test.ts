@@ -1,9 +1,44 @@
+import type { DraftItemCode, ItemError, Predicate } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import { publishDraft } from "../../../src/db/definition/publish.js";
-import { acceptAll, aDraftWithOneItem, aPublishedQuestionnaire } from "../fixtures.js";
+import { replaceDraft } from "../../../src/db/definition/questionnaires.js";
+import { createQuestion } from "../../../src/db/definition/questions.js";
+import { aDraftWithOneItem, aPublishedQuestionnaire } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 
 const testDatabase = useTestDatabase();
+
+interface Placement {
+  readonly itemId: string;
+  readonly visibleWhen: Predicate | null;
+}
+
+const invalidDrafts: [string, Placement[], ItemError<DraftItemCode>[]][] = [
+  [
+    "a forward reference",
+    [
+      { itemId: "itm_01", visibleWhen: { all: [{ type: "single_choice", itemId: "itm_02", op: "is", optionId: "yes" }] } },
+      { itemId: "itm_02", visibleWhen: null },
+    ],
+    [{ itemId: "itm_01", code: "predicate/forward-reference" }],
+  ],
+  [
+    "an unsatisfiable predicate",
+    [
+      { itemId: "itm_01", visibleWhen: null },
+      {
+        itemId: "itm_02",
+        visibleWhen: {
+          all: [
+            { type: "single_choice", itemId: "itm_01", op: "is", optionId: "yes" },
+            { type: "single_choice", itemId: "itm_01", op: "is", optionId: "no" },
+          ],
+        },
+      },
+    ],
+    [{ itemId: "itm_02", code: "predicate/unsatisfiable" }],
+  ],
+];
 
 describe("publishDraft", () => {
   it("promotes the draft in place, writes the reverse index, moves the pointer and audits in one transaction", async () => {
@@ -13,7 +48,6 @@ describe("publishDraft", () => {
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
       expectedDraftRevision: draft.draftRevision,
-      rules: acceptAll,
       actorId: "author-1",
       traceId: "trace-1",
     });
@@ -67,7 +101,6 @@ describe("publishDraft", () => {
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
       expectedDraftRevision: draft.draftRevision - 1,
-      rules: acceptAll,
       actorId: null,
       traceId: null,
     });
@@ -76,30 +109,86 @@ describe("publishDraft", () => {
     expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
   });
 
-  it("returns the rule failures and leaves the draft, index and audit untouched", async () => {
+  it.each(invalidDrafts)(
+    "rejects %s with the draft-invalid items and promotes, indexes and audits nothing",
+    async (_label, placements, expectedItems) => {
+      const definitionDb = testDatabase.database("definition");
+      const draft = await aDraftWithOneItem(definitionDb);
+      const questionIds: string[] = [];
+      for (const _placement of placements) {
+        const saved = await createQuestion(definitionDb, {
+          key: null,
+          content: {
+            type: "single_choice",
+            prompt: "Pick one",
+            options: [
+              { optionId: "yes", label: "Yes" },
+              { optionId: "no", label: "No" },
+            ],
+          },
+          createdBy: "test",
+          traceId: null,
+        });
+        questionIds.push(saved.questionId);
+      }
+      const edited = await replaceDraft(definitionDb, {
+        questionnaireId: draft.questionnaireId,
+        expectedDraftRevision: draft.draftRevision,
+        title: "Fixture",
+        items: placements.map((placement, index) => ({
+          itemId: placement.itemId,
+          required: true,
+          visibleWhen: placement.visibleWhen,
+          questionId: questionIds[index] ?? "",
+          questionVersion: 1,
+        })),
+        actorId: null,
+        traceId: null,
+      });
+      if (edited.outcome !== "saved") {
+        throw new Error(edited.outcome);
+      }
+      const eventsBefore = await testDatabase.readAuditEvents();
+
+      const outcome = await publishDraft(definitionDb, {
+        questionnaireId: draft.questionnaireId,
+        expectedDraftRevision: edited.draftRevision,
+        actorId: null,
+        traceId: null,
+      });
+
+      expect(outcome).toEqual({ outcome: "invalid", items: expectedItems });
+      const client = await testDatabase.connect("definition");
+      const version = await client.query(`SELECT status, version FROM definition.questionnaire_version WHERE id = $1`, [
+        draft.draftVersionId,
+      ]);
+      const pointer = await client.query(`SELECT current_version_id FROM definition.questionnaire WHERE id = $1`, [
+        draft.questionnaireId,
+      ]);
+      const index = await client.query(`SELECT 1 FROM definition.version_question_index WHERE questionnaire_version_id = $1`, [
+        draft.draftVersionId,
+      ]);
+      expect(version.rows[0]).toEqual({ status: "draft", version: null });
+      expect(pointer.rows[0].current_version_id).toBeNull();
+      expect(index.rowCount).toBe(0);
+      expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
+    },
+  );
+
+  it("rejects a draft placing an archived question", async () => {
     const definitionDb = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(definitionDb);
-    const eventsBefore = await testDatabase.readAuditEvents();
+    const client = await testDatabase.connect("definition");
+    await client.query(`UPDATE definition.question SET archived_at = now() WHERE id = $1`, [draft.questionId]);
 
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
       expectedDraftRevision: draft.draftRevision,
-      rules: (definition) => definition.items.map((item) => ({ itemId: item.itemId, code: "always/invalid" })),
       actorId: null,
       traceId: null,
     });
 
-    expect(outcome).toEqual({ outcome: "invalid", failures: [{ itemId: "itm_01", code: "always/invalid" }] });
-    const client = await testDatabase.connect("definition");
-    const version = await client.query(`SELECT status FROM definition.questionnaire_version WHERE id = $1`, [
-      draft.draftVersionId,
-    ]);
-    const index = await client.query(`SELECT 1 FROM definition.version_question_index WHERE questionnaire_version_id = $1`, [
-      draft.draftVersionId,
-    ]);
-    expect(version.rows[0].status).toBe("draft");
-    expect(index.rowCount).toBe(0);
-    expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
+    expect(outcome).toEqual({ outcome: "invalid", items: [{ itemId: "itm_01", code: "draft/question-archived" }] });
   });
 
   it("reports no draft once the only draft has been published", async () => {
@@ -109,7 +198,6 @@ describe("publishDraft", () => {
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: published.questionnaireId,
       expectedDraftRevision: published.draftRevision,
-      rules: acceptAll,
       actorId: null,
       traceId: null,
     });
@@ -123,7 +211,6 @@ describe("publishDraft", () => {
     const command = {
       questionnaireId: draft.questionnaireId,
       expectedDraftRevision: draft.draftRevision,
-      rules: acceptAll,
       actorId: null,
       traceId: null,
     };

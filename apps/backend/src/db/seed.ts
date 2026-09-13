@@ -2,12 +2,10 @@ import { databaseUrl } from "../config.js";
 import { openDatabase } from "./client.js";
 import { seedDemoQuestionnaire } from "./demo-questionnaire.js";
 
-const noPublishRulesUntilTheSharedValidatorLands = () => [];
-
 async function main(): Promise<void> {
   const handle = openDatabase(databaseUrl("definition"));
   try {
-    const outcome = await seedDemoQuestionnaire(handle.db, noPublishRulesUntilTheSharedValidatorLands);
+    const outcome = await seedDemoQuestionnaire(handle.db);
     console.log(`Seed: demo questionnaire ${outcome}.`);
   } finally {
     await handle.close();
