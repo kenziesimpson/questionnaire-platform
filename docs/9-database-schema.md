@@ -102,18 +102,87 @@ ALTER TABLE definition.questionnaire
 
 `format_version` is lifted out of the JSONB into a column so that "which snapshot formats are still live" — the support window in [[2-design-doc#18. Open Questions]] §4, and the invariant gauge [[6-observability#9. Correctness and invariant monitoring]] wants — is an indexed query rather than a scan that deserializes every snapshot.
 
+**On the circular foreign key.** `questionnaire` points at `questionnaire_version`, which points back
+at `questionnaire`. A cycle between two tables is worth a second look, so: this is the ordinary
+"parent holds a pointer to one designated child" shape — `company.primary_contact_id` alongside
+`employee.company_id` — and it is benign here for a specific reason. A cycle is a genuine problem when
+both sides are `NOT NULL`, because then neither row can be inserted first and every insert needs
+deferred constraints; when both directions express *ownership*, which usually means the two tables
+want to be one; or when it is long enough that no table is obviously the parent.
+
+None of those hold. `current_version_id` is nullable, and a questionnaire with nothing published yet
+genuinely points at nothing. Ownership runs one way — the back-pointer is a designation, not a claim.
+The practical costs are bounded: the constraint is added by `ALTER TABLE` rather than inline (§11),
+deleting a questionnaire outright would need the pointer cleared first, which the no-deletion rule in
+[[2-design-doc#3. Constraints]] means we never do, and `pg_dump` restores fine because it recreates
+foreign keys after loading data. There is even a small bonus: since §3.1's guard means the pointer can
+never reference a draft, discarding a draft can never trip it.
+
+**The redundancy is the part worth justifying, not the cycle.** "Current version" is derivable — it is
+the highest published version number — so this column caches a computed answer, and the cycle is
+simply what that cache looks like in a diagram. The justification: session start wants a direct
+lookup rather than an aggregate, `(questionnaire_id, version)` is the key
+[[3-scaling#4. Problem: hot definition reads]] caches on, and a stored pointer is what would later
+allow pointing somewhere other than the newest version — a rollback, or a scheduled publish — which a
+computed maximum could never express. Dropping the pointer and computing the maximum removes the
+cycle and those three properties together; see §13.7.
+
 ### 3.1 The published-only guard
 
-`qv_addressable` looks redundant next to the primary key. It is the mechanism that makes two invariants foreign keys instead of application checks.
+`qv_addressable` looks redundant next to the primary key. It is the mechanism that turns two
+would-be application checks into foreign keys. It is worth spelling out plainly, because the trick is
+not obvious and it is the single cheapest correctness win in this schema.
 
-Because `version IS NULL` **exactly when** a row is a draft, any composite foreign key into `(questionnaire_id, id, version)` whose referencing columns are all `NOT NULL` can only ever match a *published* row. A draft is structurally unreferenceable. Two consequences, both verified against a live database:
+**The problem.** The `questionnaire` row records which version a new respondent should be served —
+that is what `current_version_id` is for, so session start is one direct lookup rather than a search.
+The obvious rule to put on it is "this must be some row in `questionnaire_version`". That rule is too
+weak. Consider:
 
-- `execution.session` cannot pin a draft — attempting it raises a foreign key violation.
-- `questionnaire.current_version_id` cannot point at another questionnaire's version — likewise.
+| id | questionnaire_id | version | status |
+| --- | --- | --- | --- |
+| `aaa` | intake | 1 | published |
+| `bbb` | intake | 2 | published |
+| `ccc` | intake | *(none)* | draft |
+| `ddd` | onboarding | 1 | published |
 
-The second is the kind of defect that stays invisible until a demo renders the wrong questionnaire. Neither needed a line of application logic, and neither can be refactored away by accident.
+Under the weak rule, intake may point at `ccc` — its own unfinished draft — or at `ddd`, which belongs
+to a different questionnaire entirely. Both are real rows, so the rule is satisfied, and both are
+badly wrong: a respondent served an unpublished draft, or served the wrong questionnaire. What we
+actually want guaranteed is *a published version, of this questionnaire*.
 
-The same constraint is the reason `questionnaire.current_version_id` is paired with `current_version`: a lone id column could not be checked this way. `current_version_pair` keeps the pair honest, and Postgres's `MATCH SIMPLE` semantics mean the FK is simply not checked while both are NULL — which is the correct behaviour for a questionnaire with nothing published yet.
+**The trick.** Look at `ccc`: a draft has no version number. `version` is assigned at publish, so
+**"has a version number" and "is published" are the same fact**. There is no need to check `status` at
+all — the presence of a number already says it.
+
+So rather than checking one value, check the combination of three: the questionnaire, the version row,
+and the version number. `qv_addressable` makes that triple unique, and the foreign key requires it to
+exist. Intake's row holds `(intake, bbb, 2)`, which is row `bbb`. Allowed. The two bad cases both
+fail, and it is worth seeing why:
+
+- **Pointing at the draft `ccc`** — there is no number to write. `ccc` has none, so any number invented
+  for it, say 3, forms the triple `(intake, ccc, 3)`, which exists nowhere. Rejected.
+- **Pointing at `ddd`** — that is `(intake, ddd, 1)`, but `ddd` belongs to onboarding. That triple does
+  not exist either. Rejected.
+
+Both verified against a live database. The same foreign key on `execution.session` means a session
+cannot pin a draft, by the same argument.
+
+**This is why `current_version_id` is paired with `current_version`.** The rule is about the triple,
+and a foreign key must supply a value for every column it matches against. The questionnaire already
+has its own `id` — that is one part — so it stores the other two. `current_version` is not duplicated
+information; it is the third piece of the key. `current_version_pair` then says both are filled or
+both are empty, and Postgres's `MATCH SIMPLE` semantics skip the check entirely while they are NULL,
+which is correct for a questionnaire with nothing published yet.
+
+The cost is one redundant-looking column and a reviewer's raised eyebrow. What it buys is that
+"serve a draft to a respondent" and "serve another questionnaire's version" stop being bugs that code
+review has to catch, and become writes the database refuses. Neither can be refactored away by
+accident, because neither lives in code at all.
+
+**A smaller variant exists.** Checking `(questionnaire_id, version)` instead of the full triple gives
+the same two guarantees using `questionnaire_version_number`, which already exists — dropping
+`current_version_id` and the paired CHECK, at the cost of naming the current version by a different
+key than every other version reference in the schema. Tested and viable; see §13.7.
 
 ### 3.2 The question bank
 
@@ -530,15 +599,96 @@ Roles are created outside migrations — see §11.
 
 ## 11. Migrations
 
-`drizzle-kit` generates none of the partitioning, triggers, grants or roles. Four hand-written migrations carry those, and two mechanical details matter enough to write down.
+**What a migration is, and why they come in a numbered list.** The database has a shape — tables,
+columns, constraints — and that shape has to exist before the application can use it. You cannot
+simply keep one "here is the final shape" script and re-run it, because a real database has data in
+it: it has to be *changed* from whatever shape it currently has into the next one, without destroying
+what is already there.
 
-**Let `drizzle-kit` generate `execution.response`, then hand-edit the emitted SQL** to append `PARTITION BY RANGE (created_at)` and the partition `CREATE`s. The alternative — declaring it only in a hand-written migration — leaves the table absent from drizzle-kit's snapshot JSON, so the next `generate` re-emits `CREATE TABLE execution.response` and `migrate` fails on "already exists". Editing the generated file keeps the snapshot in agreement with reality. `drizzle-kit generate --custom` for the trigger and grant migrations.
+So the schema lives as an ordered list of small SQL files, each describing one change, and the
+database keeps a table recording which files it has already applied. Running the list again is a no-op
+for the ones it has seen. That is what makes a laptop, CI and production converge on the same schema
+from the same commit, and it is why "repeatable migrations or initialization" is a named deliverable
+in the brief rather than a nicety.
 
-**Roles are not migrations.** `CREATE ROLE ... LOGIN PASSWORD` cannot sit in a committed file. Roles are created in `docker-entrypoint-initdb.d` from environment variables, which also means the `migrate` service connects as `qp_owner` while the backend connects as `qp_definition` and `qp_execution` — two pools, two connection strings, as [[7-application-boundary#3.2 Database grants]] already anticipates.
+**What drizzle-kit contributes.** The tables are described in TypeScript in
+`apps/backend/src/db/schema.ts`. `drizzle-kit generate` compares that description against a snapshot
+of what it believes the database looks like, computes the difference, and writes a new SQL file
+containing only that difference. Edit TypeScript, get reviewable SQL, commit both.
 
-**The seed publishes through the real service.** The triggers make inserting a published row impossible, which is the point: the seed exercises the publish path it is demonstrating rather than faking its result. It is also the first integration test of that path, running on every `docker compose up`.
+Four things about this schema do not fit that flow, and each one fails in a way that is confusing the
+first time.
 
-**The circular foreign key.** `questionnaire.current_version_id` references `questionnaire_version`, which references `questionnaire`. No `CREATE TABLE` ordering satisfies both, so the constraint is added by `ALTER TABLE` afterwards — which is what drizzle-kit emits anyway, and what the DDL in §3 shows.
+### 11.1 The snapshot is drizzle-kit's memory, and a hand-written migration lies to it
+
+The snapshot is a JSON file kept alongside the migrations. It is drizzle-kit's own record, not an
+inspection of the real database — nothing ever reads the live schema.
+
+So a hand-written migration that creates `execution.response` is invisible to it. The snapshot still
+says the table does not exist, and the next `generate` obligingly writes a second
+`CREATE TABLE execution.response`. The migration run then fails on "already exists", and the failure is
+disorienting because the SQL it emitted is perfectly correct — it is the memory that is wrong.
+
+**The fix is ordering.** Let drizzle-kit generate the table, so its snapshot records it, *then* edit
+the file it produced to append `PARTITION BY RANGE (created_at)` and the partition `CREATE`s. Same end
+state, and drizzle-kit's memory stays truthful.
+
+### 11.2 Triggers, functions and grants have no TypeScript to generate from
+
+There is nothing to write in `schema.ts` that produces a trigger, a `SECURITY DEFINER` function or a
+`GRANT`. Drizzle's vocabulary is tables, columns, indexes and constraints.
+
+`drizzle-kit generate --custom` creates an empty, correctly numbered migration file to write SQL into
+by hand. It is a first-class migration — it slots into the ordered list and is recorded as applied
+like any other; it simply was not derived from anything. Roughly four of this schema's migrations are
+of that kind: the immutability triggers, the item guard, the audit function and the grants.
+
+### 11.3 Roles are not schema, and must not be in a committed file
+
+Two independent reasons. A migration file is committed to git, and
+`CREATE ROLE qp_definition LOGIN PASSWORD '...'` would put a password in git. And roles are
+cluster-wide — they belong to the Postgres server rather than to one database — so creating them from
+inside a per-database migration is the wrong layer even without the secret.
+
+They go in `docker-entrypoint-initdb.d` instead: the Postgres image runs any `.sql` or `.sh` placed
+there exactly once, when the data directory is first initialised, and it can read the password from an
+environment variable. This is also what makes the two-connection-string arrangement real — `migrate`
+connects as `qp_owner`, the backend as `qp_definition` and `qp_execution`
+([[7-application-boundary#3.2 Database grants]]).
+
+### 11.4 Partitions must exist before a row needs one
+
+A partitioned table is a parent plus a set of child tables, each owning a slice of time (§6.4). An
+insert whose `created_at` falls in a month no child covers is not filed somewhere sensible — it fails
+outright.
+
+So the migration pre-creates 24–36 monthly partitions and rollover becomes a scheduled job rather than
+something someone has to remember. The tempting insurance is a `DEFAULT` partition to catch strays,
+and §6.4 is the argument against it: it disables `DETACH ... CONCURRENTLY`, which is the archival
+operation the partitioning exists for. A missed rollover should fail loudly and be fixable, not
+silently accumulate rows that later block the fix.
+
+### 11.5 The circular foreign key needs an `ALTER TABLE`
+
+`questionnaire.current_version_id` references `questionnaire_version`, which references
+`questionnaire`. Whichever table is created first, its reference target does not exist yet and the
+`CREATE TABLE` fails. Both tables are therefore created without the loop-closing constraint, which is
+then added by `ALTER TABLE` (§3, and why it is deliberate is in the note above §3.1).
+
+In practice drizzle-kit emits foreign keys as separate statements anyway, so this costs nothing — it
+only bites someone pasting the DDL out of this document by hand. In the Drizzle schema the
+self-referencing direction needs the `references((): AnyPgColumn => ...)` form to satisfy TypeScript.
+
+### 11.6 The seed is an integration test wearing a disguise
+
+After migrations apply, the seed inserts the medical-condition demo questionnaire. It cannot take the
+shortcut of inserting a row that is already `published` — the immutability trigger refuses it, by
+design and without exception.
+
+So the seed goes through the real publishing path: create a draft, add items, publish. Which means
+every `docker compose up` exercises publish-time validation, snapshot serialization, the
+`version_question_index` write and the audit record, and fails loudly before the API ever serves a
+request. A seed that could take the shortcut would be a seed that proves nothing.
 
 ## 12. Open questions
 
@@ -568,6 +718,22 @@ Since the snapshot is authoritative, item rows for a published version are redun
 ### 13.5 Partitioning `session` as well as `response`
 
 Sessions grow faster than responses in row count, since abandoned sessions never produce response rows. Rejected: the hot path is a primary-key lookup on resume, and a partitioned table queried without its partition key scans every partition — the query that matters most would get slower as the archive grew, which is the opposite of the intent.
+
+### 13.7 Dropping `current_version_id` and keying the pointer on the version number
+
+`FOREIGN KEY (id, current_version) REFERENCES questionnaire_version (questionnaire_id, version)`
+gives both guarantees in §3.1 from one stored column instead of two, targeting the
+`questionnaire_version_number` index that already exists, and removes the `current_version_pair`
+check. It also makes the pointer literally the cache key [[3-scaling#4. Problem: hot definition reads]]
+already uses. Tested: pointing at another questionnaire's version and at a version number that exists
+only as a draft both raise foreign key violations, and a foreign key can target a plain
+`CREATE UNIQUE INDEX` with a nullable column.
+
+Not adopted, on the narrow ground that every other reference to a version in the schema — `session`,
+`response`, `questionnaire_item`, `version_question_index` — names it by uuid, and one pointer naming
+it by number instead is an inconsistency a reader has to absorb. Session start costs two reads either
+way. Worth revisiting if the schema ever grows a second number-keyed reference, at which point the
+consistency argument reverses.
 
 ### 13.6 A `DEFAULT` partition on `response`
 
