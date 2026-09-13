@@ -427,7 +427,7 @@ The columns are [[5-questionnaire-format#6.3 What a response stores]] directly: 
 **Typed columns rather than one `value jsonb`.** Three reasons, in order of weight:
 
 1. `option_ids` with a GIN index makes "how many respondents chose `opt_diabetes`" an index scan. That is the commonest analytics query this domain has, and a JSONB blob answers it with a sequential scan and a cast.
-2. `numeric` plus `number_unit` expresses Decisions Log #12 as two columns rather than as a convention about the shape of a document. `numeric` and not `double precision`: an evidentiary record should not round.
+2. `numeric` plus `number_unit` expresses Decisions Log #12 as two columns rather than as a convention about the shape of a document. `numeric` and not `double precision`: an evidentiary record should not round. `numeric` also preserves the scale of its input (`'72.50'` reads back as `72.50`), so the submit validator writes the canonical decimal (`72.5`; `-0` as `0`) and the stored value agrees with the answer digest ([[7-application-boundary#5.4 Submit: authority, validation, idempotency]]).
 3. The `CASE` makes an invalid answer shape unrepresentable — the same move the branching design makes in the type system ([[5-questionnaire-format#4.2 Conditions are typed per response type]]), applied one layer down.
 
 `date_value` is `date` rather than `timestamptz` because a date question collects a calendar date; giving it a timezone would invent precision the respondent never supplied.

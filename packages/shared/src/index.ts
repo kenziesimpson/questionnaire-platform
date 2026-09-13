@@ -1,8 +1,3 @@
-/**
- * @qp/shared — the only code both halves of the backend and both frontends share
- * ([[7-application-boundary]] §3.3): wire types and schemas, and the rule engine.
- */
-
 export * from "./primitives.js";
 export * from "./domain/question.js";
 export * from "./domain/condition.js";
@@ -12,6 +7,14 @@ export * from "./domain/answer.js";
 export * from "./domain/session.js";
 export * from "./problems.js";
 export * from "./sensitive.js";
+export * from "./engine/calendar.js";
+export { canonicalDecimal, compareDecimals, compareDecimalToNumber, decimalFromNumber, isIntegerDecimal } from "./engine/decimal.js";
+export { evaluateVisibility, visibleAnswers, visibleItems, type HasItems } from "./engine/visibility.js";
+export { validateAnswer, validateSubmission, type SubmissionValidation } from "./engine/answer-validation.js";
+export { canonicalResponseRows, responseDigest } from "./engine/digest.js";
+export { validateDraft, type DraftForValidation, type DraftValidation } from "./engine/draft-validation.js";
+export { validateQuestionRules, type QuestionRuleError } from "./engine/question-rules.js";
+export * from "./demo/intake.js";
 export * from "./api/route.js";
 export * from "./api/etag.js";
 export * as definitionApi from "./api/definition.js";

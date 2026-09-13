@@ -1,10 +1,3 @@
-# Production-shaped stack: `docker compose up --build` is the one command a
-# reviewer needs. See docs/2-design-doc.md §13 for the reasoning behind the
-# service split and the dedicated migrate service.
-#
-# Local dev with hot reload is layered on automatically via
-# docker-compose.override.yml (git-committed, local-only in effect).
-
 services:
   db:
     image: postgres:16-alpine
@@ -17,7 +10,6 @@ services:
       QP_DEFINITION_PASSWORD: ${QP_DEFINITION_PASSWORD:-qp_definition}
       QP_EXECUTION_PASSWORD: ${QP_EXECUTION_PASSWORD:-qp_execution}
     ports:
-      # Loopback only: psql from the host works, the network cannot reach the database.
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
@@ -28,10 +20,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # One-shot: applies migrations then seeds the demo questionnaire, then
-  # exits 0. Gates `backend` via `service_completed_successfully` so schema
-  # setup always happens before the API serves traffic, regardless of how
-  # many backend replicas start.
   migrate:
     build:
       context: .

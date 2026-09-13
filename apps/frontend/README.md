@@ -1,32 +1,33 @@
-# React + TypeScript + Vite
+# @qp/frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + TypeScript SPA (Vite) for the questionnaire platform. Nginx serves the compiled build in
+production. See [`docs/10-frontend.md`](../../docs/10-frontend.md) for the design.
 
-Currently, two official plugins are available:
+## Dev server (`vite.config.ts`)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `server.watch.usePolling` is on: bind-mounted file events on macOS
+  (`docker-compose.override.yml`) can be sluggish or missed, so the dev server polls from the start
+  rather than someone having to debug a stale HMR session later. See `docs/2-design-doc.md` §13
+  ("Dev loop / hot reload").
+- `server.proxy` forwards `/api` to the backend, mirroring what `nginx.conf` does in production so
+  the app talks to a single origin either way. It defaults to `http://localhost:3000` for
+  `npm run dev` outside Docker; `docker-compose.override.yml` overrides
+  `VITE_API_PROXY_TARGET` to the `backend` service's Docker DNS name instead.
 
-## React Compiler
+## Production (`nginx.conf`)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Serves the built SPA and reverse-proxies `/api` to the backend, keeping the browser single-origin
+(no CORS, no build-time API URL) — a stand-in for the ingress/load-balancer routing a real
+deployment would do instead (`docs/2-design-doc.md` §13). The SPA-fallback location resolves any
+unmatched path to `index.html` so client-side routing works on a hard refresh or direct link.
 
-## Expanding the Oxlint configuration
+## Scripts
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+| Command | What it does |
+| --- | --- |
+| `npm run dev -w apps/frontend` | Vite dev server on `:5173`, proxies `/api` to `:3000` |
+| `npm run build -w apps/frontend` | Typecheck and build to `dist/` |
+| `npm run lint -w apps/frontend` | oxlint |
+| `npm run preview -w apps/frontend` | Serve the production build locally |
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+See the root [README](../../README.md) for running the whole stack with Docker Compose.

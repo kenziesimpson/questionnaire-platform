@@ -26,7 +26,7 @@ Five response types. Constraints belong to the question version and compile into
 | `text` | `minLength`, `maxLength`, `multiline` | `multiline` distinguishes short answer from long form. Format subtypes (email, phone, regex) are deferred — [[2-design-doc#18. Open Questions]] §2. |
 | `single_choice` | `options` (at least one), optional freeform `other` | Exactly one selection. |
 | `multiple_choice` | `options` (at least one), `minSelections`, `maxSelections`, optional freeform `other` | `minSelections` of 1 or more is how "required, pick at least one" is expressed. |
-| `number` | `numberKind` (`integer` or `float`, required), `min`, `max`, `unit` | `unit` is a display label; conversion between compatible units is future work. |
+| `number` | `numberKind` (`integer` or `float`, required), `min`, `max`, `unit` | `unit` is a display label; conversion between compatible units is future work. Answers are exact decimal strings, stored in canonical form (trailing fractional zeros and point stripped, `-0` → `0`), so `integer` accepts `72.0` as `72` — [[7-application-boundary#5.4 Submit: authority, validation, idempotency]]. |
 | `date` | `min` / `max` (absolute), `relative` (`not_future`, `not_past`) | Relative constraints let "when were you diagnosed?" reject future dates without baking a fixed date into the definition. Whose "today" they resolve against is §2.4. Date *ranges* are out of scope — model as two date questions. |
 
 **Yes / No is not a type.** The brief lists "yes or no" among the practical response types and the platform
