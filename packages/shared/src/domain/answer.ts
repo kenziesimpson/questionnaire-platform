@@ -36,6 +36,10 @@ export const ClientAnswers = Type.Record(
 );
 export type ClientAnswers = Static<typeof ClientAnswers>;
 
+export function answerFor(answers: ClientAnswers, itemId: string): ClientAnswerValue | undefined {
+  return Object.hasOwn(answers, itemId) ? (answers[itemId] ?? undefined) : undefined;
+}
+
 const RowHead = { itemId: Slug, questionId: Uuid, questionVersion: PositiveInt };
 
 /**

@@ -1,10 +1,10 @@
-import type { ClientAnswers, ClientAnswerValue, ClientAnswerValueOf, ResponseRow } from "../domain/answer.js";
+import { answerFor, type ClientAnswers, type ClientAnswerValue, type ClientAnswerValueOf, type ResponseRow } from "../domain/answer.js";
 import type { Item } from "../domain/definition.js";
 import type { Option, QuestionContent } from "../domain/question.js";
 import type { ItemError, SubmissionItemCode } from "../problems.js";
 import { addDays, type RelativeDateContext } from "./calendar.js";
 import { canonicalDecimal, compareDecimalToNumber, isIntegerDecimal } from "./decimal.js";
-import { answerFor, evaluateVisibility, type HasItems } from "./visibility.js";
+import { evaluateVisibility, type HasItems } from "./visibility.js";
 
 type QuestionOf<T extends QuestionContent["type"]> = Extract<QuestionContent, { type: T }>;
 

@@ -8,6 +8,11 @@ export interface RelativeDateContext {
   toleranceDays: number;
 }
 
+export function compareIsoDates(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
 export function dayNumber(isoDate: string): number {
   const match = ISO_DATE.exec(isoDate);
   if (!match) return Number.NaN;
