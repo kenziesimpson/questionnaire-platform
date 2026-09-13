@@ -1,8 +1,18 @@
-import type { ClientAnswerValue, ClientAnswerValueOf, ClientAnswers, Item, QuestionContent, ResponseType } from "@qp/shared";
+import type {
+  ClientAnswerValue,
+  ClientAnswerValueOf,
+  ClientAnswers,
+  Item,
+  QuestionContent,
+  ResponseType,
+  SubmissionItemCode,
+} from "@qp/shared";
 
 export type RendererMode = "interactive" | "readonly";
 
-export type ItemErrors = Readonly<Partial<Record<string, string>>>;
+export type ItemErrorCode = SubmissionItemCode | "choice/other-text-required";
+
+export type ItemErrors = Readonly<Partial<Record<string, readonly ItemErrorCode[]>>>;
 
 export type AnswerChangeHandler = (itemId: string, answer: ClientAnswerValue | null) => void;
 

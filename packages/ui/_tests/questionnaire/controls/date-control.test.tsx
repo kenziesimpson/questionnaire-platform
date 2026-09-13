@@ -77,14 +77,14 @@ describe("date control error state", () => {
   });
 
   it("points aria-describedby at the rendered error and sets aria-invalid", () => {
-    const { input } = renderDate({ errors: { itm_03: "Enter a date that is not in the future." } });
+    const { input } = renderDate({ errors: { itm_03: ["date/in-future"] } });
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAccessibleDescription("Enter a date that is not in the future.");
   });
 
   it("ignores errors that belong to other items", () => {
-    const { input } = renderDate({ errors: { itm_04: "Required." } });
+    const { input } = renderDate({ errors: { itm_04: ["answer/required"] } });
     expect(input).not.toHaveAttribute("aria-invalid");
-    expect(screen.queryByText("Required.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Answer this question.")).not.toBeInTheDocument();
   });
 });
