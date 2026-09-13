@@ -86,6 +86,7 @@ export const SUBMISSION_ITEM_CODES = [
   "choice/too-few",
   "choice/too-many",
   "choice/other-text-without-other",
+  "choice/other-text-required",
   "number/not-integer",
   "number/out-of-range",
   "date/out-of-range",

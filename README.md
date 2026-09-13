@@ -16,8 +16,13 @@ apps/
   frontend/   React + TypeScript SPA (Vite), served by nginx in prod
 packages/
   shared/     Types + rule engine shared between backend and frontend
+  telemetry/  The single boundary allowed to import a logging/tracing library
 docs/         Design doc, scaling notes, implementation plan, ideation
 ```
+
+Each app and package has its own README with details specific to it:
+[`apps/backend`](apps/backend/README.md), [`apps/frontend`](apps/frontend/README.md),
+[`packages/shared`](packages/shared/README.md).
 
 ## Credentials
 
