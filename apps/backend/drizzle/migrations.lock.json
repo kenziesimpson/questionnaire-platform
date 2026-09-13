@@ -1,0 +1,11 @@
+{
+  "0000_schema.sql": "eef23042bfa5266d4e46e2468707381d670f22e8ee0027b80fd260cb93d1724b",
+  "0001_published_rows_immutable.sql": "180d12a2636296a49890a3fdd0c811a8372fb9a14b5096a114f284a0a6d8f47a",
+  "0002_published_items_immutable.sql": "32c199cfe3b8a0764f8984bc4f65c14caaabbcb47fc592891e0f6cd901df34a9",
+  "0003_response_shape.sql": "df5e82c61affab7f6e86abf28e8dfbe709fa215b8d5a250f36396eac5a43895b",
+  "0004_response_partitions_no_default.sql": "b6cd6b92978043c3b999dfb511430bbda4c5b37dac16845737e3053b9756cbc0",
+  "0005_role_grant_barrier.sql": "e3c1f2a9fbac2424335758e1c92ca5c67c136d8fbe5c18cd0460516b68bb0c81",
+  "0006_audit_append_only.sql": "ca8e2507b660238ba4092f30e9a8ebb8ae71e855dcf2ef66a92892f11216f2a0",
+  "0007_draft_items_removable.sql": "30d6172e71f4409ac561084b033ed00c3d47a1ca605cf26e325d9a5ec887618f",
+  "0008_published_rows_not_insertable.sql": "7c225024ff29f84a70bddf2f8d8a27dc6b3fae1eb7848fbf4afaf62037c4db70"
+}
