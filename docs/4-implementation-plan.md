@@ -40,19 +40,19 @@
 
 > Seven questions this wave raised were answered on 2026-09-13 and are now in the docs: ESLint at the root (not oxlint, which lives only in the scaffold Track 3 deletes); `modules/` and `packages/telemetry` as the folder names, per [[7-application-boundary#3.1 Module encapsulation]] and [[6-observability]] rather than the ownership table, which was wrong and is corrected above; `itemId` as the key for conditions, wire answers, the digest and `onChange`, with publish rejecting duplicate placements (#41); decimal-string numbers with the server filling `unit` (#42); four newly-pinned problem slugs ([[7-application-boundary#6.1 Error format — RFC 9457 problem details]]); the `Receipt` shape ([[7-application-boundary#5.4 Submit: authority, validation, idempotency]]); and `draft_revision` as the ETag source with `updated_at` for display (#43).
 
-- [ ] Domain types in `packages/shared`: `Question`, `QuestionVersion`, `Option`, `Item`, the `Condition` / `Predicate` union, `PublishedDefinition`, `Answer`, `AnswerValue`, `Session`, `Receipt`. Five response types — there is no `yes_no` (#36)
-- [ ] One TypeBox schema per route, request and response, for all 21 routes. Most definition routes are one line of prose in [[7-application-boundary]] today; this is where their shapes are fixed
-- [ ] The RFC 9457 error union as a closed TypeScript union with constructors
-- [ ] `Sensitive<T>` and the telemetry boundary module signature, plus the ESLint rule. **Wave 1a, not Wave 3b** — these constrain every handler written afterwards, and retrofitting means auditing call sites instead of being stopped at write time
+- [x] Domain types in `packages/shared`: `Question`, `QuestionVersion`, `Option`, `Item`, the `Condition` / `Predicate` union, `PublishedDefinition`, `Answer`, `AnswerValue`, `Session`, `Receipt`. Five response types — there is no `yes_no` (#36)
+- [x] One TypeBox schema per route, request and response, for all 21 routes. Most definition routes are one line of prose in [[7-application-boundary]] today; this is where their shapes are fixed
+- [x] The RFC 9457 error union as a closed TypeScript union with constructors
+- [x] `Sensitive<T>` and the telemetry boundary module signature, plus the ESLint rule. **Wave 1a, not Wave 3b** — these constrain every handler written afterwards, and retrofitting means auditing call sites instead of being stopped at write time
 
 ### Wave 1b — three parallel tracks
 
 **Track 1 — engine and validators** (`packages/shared`, same agent continues)
-- [ ] `evaluateVisibility(definition, answers)` — pure, no I/O
-- [ ] Per-type answer validators and constraints. Relative date constraints take `today` as a parameter and never read a clock ([[5-questionnaire-format#2.4 Relative date constraints resolve against two different clocks]])
-- [ ] Publish-time definition validator — one implementation, called by the publish route *and* the draft editor's live validation
-- [ ] The answer digest ([[7-application-boundary#5.4 Submit: authority, validation, idempotency]]). Must stay a pure function of the persisted `response` rows
-- [ ] `option_ids` uniqueness — the one `response` invariant not enforced below the application (#34)
+- [x] `evaluateVisibility(definition, answers)` — pure, no I/O
+- [x] Per-type answer validators and constraints. Relative date constraints take `today` as a parameter and never read a clock ([[5-questionnaire-format#2.4 Relative date constraints resolve against two different clocks]])
+- [x] Publish-time definition validator — one implementation, called by the publish route *and* the draft editor's live validation
+- [x] The answer digest ([[7-application-boundary#5.4 Submit: authority, validation, idempotency]]). Must stay a pure function of the persisted `response` rows
+- [x] `option_ids` uniqueness — the one `response` invariant not enforced below the application (#34)
 
 **Track 2 — database** (`apps/backend/drizzle/**`, `apps/backend/src/db/**`, `db/init/**`)
 > **One agent, start to finish, do not split.** [[9-database-schema#11. Migrations]] catalogues traps that fail *silently*; a mid-track handoff is how one survives.
@@ -129,7 +129,7 @@ An agent must not decide these alone. The first five block Wave 3.
 
 A wave is not done until its milestones are green.
 
-- [ ] **M1** Engine units: branching truth table, every operator against every type, unanswered → `false`, digest determinism under key reordering, timezone cases
+- [x] **M1** Engine units: branching truth table, every operator against every type, unanswered → `false`, digest determinism under key reordering, timezone cases
 - [x] **M2** DB invariants on Testcontainers: `UPDATE` and `DELETE` on published rows rejected; bad `response_shape` rejected; `qp_execution` denied on authoring tables; `qp_definition` denied on `response` and on `audit.event`; audit reachable only through `audit.record`; no-default-partition behaviour
 - [ ] **M3** Renderer components plus the axe check; reveal and removal announced via `aria-live`
 - [ ] **M4** Definition API via `inject()`: bank CRUD, stale-ETag `409`, publish happy path, publish failures as `422`, archived question rejected at add time, version history, deterministic list order
