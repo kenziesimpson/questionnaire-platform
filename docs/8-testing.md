@@ -193,6 +193,47 @@ The specs need only a `baseURL`, so the same three can run against a deployed en
 
 Tracked as a Phase 2 item in [[4-implementation-plan]].
 
+### Wave 1a — the contract
+
+**Domain unit — `packages/shared`**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| The documented v1 snapshot validates as `PublishedDefinition` | `domain/schemas.test.ts` | The format in [[5-questionnaire-format#3. Serialization]] is what the schema accepts | Response meaning preserved across a republish |
+| The v2 relabel (question version 4, same `opt_hyperten` id) validates | `domain/schemas.test.ts` | #26: v2 differs by one label and nothing structural | Response meaning preserved across a republish |
+| Snapshot rejects `formatVersion` 2, `yes_no`, a `questionId`-keyed condition, `question.key`, a slug `questionnaireId`, a nested predicate, a mistyped operator, a missing `numberKind`, an impossible date bound, an empty option list | `domain/schemas.test.ts` | A stale or corrupt snapshot fails loudly on load (§6.5); #35, #36, #41 hold at the schema | Conditional navigation over one and several earlier answers |
+| Each condition type accepts its own operators and operands and rejects content matching, list/scalar operand swaps, string number operands, cross-type operands, empty option lists | `domain/schemas.test.ts` | Conditions typed per response type (#9) | Conditional navigation over one and several earlier answers |
+| `@ts-expect-error`: a date operator on a number condition, a text `is`, a `questionId`-keyed condition do not compile | `domain/schemas.test.ts` | Invalid comparisons are unrepresentable, not a runtime class (#9, #41) | Conditional navigation over one and several earlier answers |
+| Empty `all` / `any` groups are representable; a predicate with both keys is not | `domain/schemas.test.ts` | Single grouping level; empty-group edges stay testable for the engine | Conditional navigation over one and several earlier answers |
+| A number answer is a decimal string; a JSON number, a client-sent `unit`, and non-canonical decimals (`1e3`, `01`, `+1`, `1.`, `.5`) are rejected | `domain/schemas.test.ts` | #42: exactness survives the wire; the unit comes from the pinned version | Response validation: required, per-type value rules |
+| Duplicate `optionIds` pass the answer schema | `domain/schemas.test.ts` | #34: duplicates are the submit validator's `422` naming the item, not a schema `400` | Duplicate `option_ids` inside one answer |
+| Empty text answer rejected; answers keyed by `itemId` slug with explicit `null` allowed, uuid keys rejected | `domain/schemas.test.ts` | #41 keying; `response_shape`'s non-empty text rule | Response validation: required, per-type value rules |
+| The validated `Answer` row stores `single_choice` as a one-element `optionIds` and carries the server-filled unit | `domain/schemas.test.ts` | The digest input is exactly the persisted row (#37) | Submit idempotency |
+| The yes/no template is an ordinary `single_choice` with editable labels; a save request cannot carry `questionId` | `domain/schemas.test.ts` | #36; identity is server-assigned (#13) | Question versioning |
+| The problem slug set and statuses are exactly §6.1's closed union; type URIs round-trip | `problems.test.ts` | Closed slug union (#20) | — contract |
+| Every constructed problem body validates against the wire schema; a body carrying an extra `value` field does not | `problems.test.ts` | Error bodies never echo an answer (§5.5 of [[7-application-boundary]]) | No respondent answer in telemetry |
+| `@ts-expect-error`: `submission/invalid` without items, a draft code on a submission item, `internal` without a correlation id, an invented slug | `problems.test.ts` | Extensions are required per slug and codes cannot cross slugs | — contract |
+| `Sensitive` redacts under `JSON.stringify`, template, `String()`, concatenation, `util.inspect` (`showHidden`), `util.format`, `Error` messages, spread and `Object.entries`; `unwrap()` returns the value | `sensitive.test.ts` | Layer 0 of [[6-observability#3.1 Enforcement ladder]] | No respondent answer in telemetry |
+| The route table is exactly the 18 + 3 routes of [[7-application-boundary]] §4.1 / §5.1, each with `4xx` / `5xx` problem schemas | `api/api.test.ts` | Contract completeness; error serialization is contractual | The definition/execution barrier |
+| No execution route path names a questionnaire | `api/api.test.ts` | #18: no unpinned definition read | Sessions: start, resume, version pinning |
+| `PUT /draft` and `POST /publish` require `If-Match`; other headers pass | `api/api.test.ts` | #43: a missing header is a schema `400`, never an unconditional write | Questionnaire versioning: publish, immutability, one draft |
+| Submit body keyed by `itemId` and the typed receipt validate | `api/api.test.ts` | §5.4 receipt is the session row | Submit idempotency |
+| Draft ETag round-trips `W/"<versionId>:<draftRevision>"` and rejects malformed forms | `api/api.test.ts` | #43 | Questionnaire versioning: publish, immutability, one draft |
+
+**Domain unit — `packages/telemetry`**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| Literal messages, closed context, typed domain events and closed span names are accepted | `src/index.test.ts` | Layer 1: a typed boundary with a closed field set | No respondent answer in telemetry |
+| `@ts-expect-error`: an interpolated message, a message in a `string` variable, an unknown context field, a free-text rejection reason, an invented span name | `src/index.test.ts` | No shape exists that an answer value could ride in on | No respondent answer in telemetry |
+
+**Repo configuration — `tests/`**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| `pino`, `pino/*`, `pino-*` and `@opentelemetry/*` (including type-only) are rejected outside `packages/telemetry`, including inside backend modules where the module rule replaces the base options; allowed inside it | `tests/lint-boundaries.test.ts` | Layer 1 lint rule | No respondent answer in telemetry |
+| `modules/definition` rejects sibling, deep-relative, `modules/`-path and type-only imports of `modules/execution`, and the reverse; `@qp/shared`, in-module imports and look-alike paths pass | `tests/lint-boundaries.test.ts` | [[7-application-boundary#3.1 Module encapsulation]] | The definition/execution barrier |
+
 ## 8. Alternatives considered
 
 ### 8.1 Jest for the frontend

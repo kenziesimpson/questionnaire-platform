@@ -1,64 +1,58 @@
 # AGENTS.md
 
-Guidance for AI coding agents working in the Dynamic Questionnaire Platform repo. Read this before touching anything.
+Instructions for coding agents working in this repository.
 
-## The two hard rules
+## Read first
 
-### 1. Work in a git worktree, never in place
+- `.claude/skills/questionnaire-assignment/SKILL.md` — scope, quality bar and the decisions already made.
+- `.claude/skills/database/SKILL.md` — before touching schema, migrations, repositories or seeds.
+- `docs/4-implementation-plan.md` — the build plan. Its **Standing rules**, **File ownership** and **Stop and ask** sections are binding.
+- `docs/2-design-doc.md` — the design index and the Decisions Log. Never invent a decision; if a load-bearing one is missing, stop and ask.
 
-- Never edit files directly in the checkout you started in, and never commit to `main`.
-- Before your first edit, create an isolated worktree (or use the one you were handed) and do all work there:
-  ```bash
-  git worktree add ../qp-<short-task-name> -b <branch-name> main
-  ```
-- Commit in the worktree, push the branch, open a PR from it. `main` is only ever updated by merging a PR.
-- This exists because multiple agent sessions run against this repo concurrently — a stray edit in the shared working copy clobbers someone else's session.
-- The git stash stack is shared across worktrees. Don't use bare `git stash`/`git stash pop`; make a temporary WIP commit instead.
+## Workflow
 
-### 2. No comments in code you write
+Make every change on a git worktree, never directly in the checkout you started in and never directly on `main`:
 
-- Source and config-as-code in this repo carry **no** comments. That means no `//`, no `#`, no `/* */`, no JSDoc/docstring blocks, no TODO notes — in `.ts`/`.tsx`, Dockerfiles, `docker-compose*.yml`, `nginx.conf`, CI workflows, shell scripts, `drizzle.config.ts`, and anything else that is executed or interpreted.
-- Make the code explain itself: precise names, small functions, narrow types, early returns, one responsibility per module.
-- If something genuinely needs explaining — a trade-off, a non-obvious constraint, a rejected alternative — it goes in a numbered doc under `docs/`, in the commit message, or in the PR description. Never inline.
-- This is not a style preference to be weighed against convenience; treat it as a build requirement. If you find yourself writing a comment, that's a signal to rename something, extract a function, or write a doc paragraph.
-- Prose files are exempt: Markdown docs, `README.md`, this file, and pure-data JSON/YAML are documentation, not code. Comment-like content there is fine.
+```bash
+git worktree add ../qp-<short-task-name> -b <branch-name> main
+```
 
-## Repo layout
-
-- `apps/backend` — `@qp/backend`, Fastify + TypeScript API (questionnaire definition + execution). Postgres via Drizzle ORM.
-- `apps/frontend` — `@qp/frontend`, React + TypeScript SPA on Vite; nginx serves the compiled build in prod.
-- `packages/shared` — `@qp/shared`, types and the rule engine shared by both apps. Anything the branching logic needs on both sides lives here, not duplicated.
-- `docs/` — numbered design documents (see below).
-- Root: npm workspaces (`packages/*`, `apps/*`), Node 24 (`.nvmrc`), `tsconfig.base.json`, both compose files.
+Commit and push from the worktree, then open a PR — `main` only changes by merging one. Multiple agent sessions run against this repo concurrently; editing the shared working copy in place risks clobbering another session's work. The git stash stack is shared across worktrees, so avoid bare `git stash` / `git stash pop`; make a temporary WIP commit instead if you need to set work aside.
 
 ## Commands
 
-Run everything from the repo root unless noted.
+| Task | Command |
+| --- | --- |
+| Every test suite | `npm test` |
+| Typecheck every workspace | `npm run typecheck` |
+| Lint, including the import boundaries | `npm run lint` |
+| Build | `npm run build` |
 
-- `npm run typecheck` — all workspaces; run this after every change.
-- `npm run test` — vitest (currently backend only; add coverage where you add behaviour).
-- `npm run build` — builds `shared` → `backend` → `frontend` in that order.
-- `npm run lint` — oxlint on the frontend.
-- `npm run dev:backend` / `npm run dev:frontend` — single-service dev outside Docker.
-- `docker compose up --build` — full stack with hot reload (the override file applies automatically). Frontend on :5173, API proxied at /api.
-- `docker compose -f docker-compose.yml up --build` — production-shaped run (nginx, :8080), bypassing the override.
-- Database: `npm run db:generate -w apps/backend` (new Drizzle migration), `db:migrate`, `db:seed`. Never hand-edit generated SQL in `apps/backend/drizzle/`.
+Node 24 (`.nvmrc`). TypeScript 6 in every workspace.
 
-## Where decisions live
+## Code conventions
 
-`docs/` is the source of truth for design, not the code and not your chat history:
+### No comments
 
-`1-ideation` · `2-design-doc` · `3-scaling` · `4-implementation-plan` · `5-questionnaire-format` · `6-observability` · `7-application-boundary` · `8-testing` · `9-database-schema` · `10-frontend`
+Comments are forbidden. Good code is self-documenting: names, types and small functions carry the meaning. A comment is a crutch that props up a design that should have been clearer, and it drifts from the code it describes because nothing checks it.
 
-- Consult the relevant doc before implementing; `docs/4-implementation-plan.md` says what is being built next and in what order.
-- If you make a decision that contradicts or extends a doc, update that doc in the same PR. Don't re-litigate settled decisions, and don't record new ones only in code.
-- `docs/9-database-schema.md` and `docs/5-questionnaire-format.md` are contracts — schema and payload changes must land in both the doc and the code together.
+When you feel the need to write one, change the code instead:
 
-## Conventions
+- Rename the variable, function or type until the comment is redundant.
+- Extract the block into a function whose name says what the comment would have said.
+- Encode the constraint in a type so it cannot be violated, rather than describing it.
+- Put the reasoning behind a decision in `docs/`, where decisions live — not beside the code.
 
-- Status is scaffold stage: most of the domain model, API, and UI don't exist yet. Prefer building the next planned slice end-to-end over speculative abstraction.
-- Cross-workspace imports go through the package name (`@qp/shared`), never a relative path into another workspace.
-- ESM everywhere (`"type": "module"`); use the workspace's existing tsconfig rather than adding new compiler options.
-- Tests sit next to the code as `*.test.ts` (see `apps/backend/src/health.test.ts`) and follow `docs/8-testing.md`.
-- Committed `.env.example` values are deliberate development credentials; don't "fix" them, and never add a real secret to the repo or an image.
-- Keep PRs scoped to one slice of the implementation plan, with the reasoning in the PR description.
+Tool directives that must be written in comment syntax are not prose comments and are allowed: `// @ts-expect-error — <reason>` in type-level tests, and ESLint or TypeScript pragmas when unavoidable.
+
+### Contracts and boundaries
+
+- Wire shapes are TypeBox schemas in `packages/shared`; derive TypeScript types from them with `Static`, never write a parallel interface.
+- `apps/backend/src/modules/definition` and `apps/backend/src/modules/execution` never import each other. Only `packages/telemetry` imports `pino` or `@opentelemetry/*`. Both are enforced by `eslint.config.mjs`.
+- Respondent answer values never reach a log, span, metric or error body. Wrap them in `Sensitive<T>`.
+
+### Tests
+
+Tests are written with the feature, not after. Add one row per case to `docs/8-testing.md` §7 — the only file under `docs/` a build track may edit.
+
+Every package keeps its tests in a `_tests/` directory at the package root, mirroring `src/`'s layout: a test for `src/domain/answer.ts` lives at `_tests/domain/answer.test.ts`, not beside the source file. `_tests/` is included in the package's typecheck config and excluded from its build config.
