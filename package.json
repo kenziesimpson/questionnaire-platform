@@ -12,8 +12,9 @@
   },
   "scripts": {
     "dev:backend": "npm run dev -w apps/backend",
-    "dev:frontend": "npm run dev -w apps/frontend",
-    "build": "npm run build -w packages/shared && npm run build -w packages/telemetry && npm run build -w apps/backend && npm run build -w apps/frontend",
+    "dev:respondent": "npm run dev -w apps/respondent",
+    "dev:admin": "npm run dev -w apps/admin",
+    "build": "npm run build -w packages/shared && npm run build -w packages/telemetry && npm run build -w apps/backend && npm run build -w apps/respondent && npm run build -w apps/admin",
     "test": "vitest run",
     "typecheck": "npm run build -w packages/shared && npm run typecheck --workspaces --if-present",
     "lint": "eslint . && npm run lint --workspaces --if-present"
