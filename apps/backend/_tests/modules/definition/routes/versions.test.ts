@@ -48,7 +48,7 @@ function setClosesAt(questionnaireId: string, closesAt: string | null) {
 async function saveDraft(db: Database, questionnaireId: string, draft: OpenDraft, items: DraftItem[]): Promise<OpenDraft> {
   const saved = await replaceDraft(db, {
     questionnaireId,
-    expectedDraftRevision: draft.draftRevision,
+    precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
     title: "Fixture",
     items,
     actorId: "test",

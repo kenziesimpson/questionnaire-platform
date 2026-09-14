@@ -22,7 +22,7 @@ export async function aDraftWithOneItem(db: Database): Promise<DraftFixture> {
   const created = await createQuestionnaire(db, { key: null, name: "Fixture", title: "Fixture", ...actor });
   const edited = await replaceDraft(db, {
     questionnaireId: created.questionnaireId,
-    expectedDraftRevision: created.draftRevision,
+    precondition: { versionId: created.draftVersionId, draftRevision: created.draftRevision },
     title: "Fixture",
     items: [{ itemId: "itm_01", required: true, visibleWhen: null, questionId: saved.questionId, questionVersion: 1 }],
     actorId: "test",
@@ -47,8 +47,7 @@ export async function aPublishedQuestionnaire(db: Database): Promise<PublishedFi
   const draft = await aDraftWithOneItem(db);
   const published = await publishDraft(db, {
     questionnaireId: draft.questionnaireId,
-    expectedDraftVersionId: draft.draftVersionId,
-    expectedDraftRevision: draft.draftRevision,
+    precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
     actorId: "test",
     traceId: null,
   });

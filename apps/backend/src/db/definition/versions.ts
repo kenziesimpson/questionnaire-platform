@@ -1,7 +1,8 @@
 import type { PublishedDefinition, VersionSummary } from "@qp/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Executor } from "../client.js";
-import { questionnaire, questionnaireVersion } from "../schema.js";
+import { questionnaireVersion } from "../schema.js";
+import { questionnaireExists } from "./questionnaire-rows.js";
 
 const PUBLISHER_IS_NOT_RECORDED = null;
 
@@ -14,20 +15,13 @@ export interface PublishedSnapshot {
   readonly definition: PublishedDefinition;
 }
 
-async function questionnaireExists(executor: Executor, questionnaireId: string): Promise<boolean> {
-  const rows = await executor
-    .select({ id: questionnaire.id })
-    .from(questionnaire)
-    .where(eq(questionnaire.id, questionnaireId));
-  return rows.length === 1;
-}
-
 async function selectVersionSummaries(executor: Executor, questionnaireId: string, version?: number): Promise<VersionSummary[]> {
   const rows = await executor
     .select({
       questionnaireId: questionnaireVersion.questionnaireId,
       version: questionnaireVersion.version,
       publishedAt: questionnaireVersion.publishedAt,
+      // eslint-disable-next-line no-restricted-syntax -- counts snapshot items inside Postgres so version history never transfers the snapshots themselves (7-application-boundary §4.2); the query builder has no JSONB functions
       itemCount: sql<number>`jsonb_array_length(${questionnaireVersion.snapshot} -> 'items')`,
       formatVersion: questionnaireVersion.formatVersion,
     })

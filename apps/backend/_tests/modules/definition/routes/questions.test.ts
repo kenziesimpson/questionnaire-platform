@@ -54,20 +54,31 @@ function placement(itemId: string, questionId: string, questionVersion: number):
   return { itemId, required: false, visibleWhen: null, questionId, questionVersion };
 }
 
-async function saveDraft(db: Database, questionnaireId: string, expectedDraftRevision: number, items: DraftItem[]) {
-  const saved = await replaceDraft(db, { questionnaireId, expectedDraftRevision, title: "Usage", items, actorId: "test", traceId: null });
+interface OpenDraft {
+  readonly draftVersionId: string;
+  readonly draftRevision: number;
+}
+
+async function saveDraft(db: Database, questionnaireId: string, draft: OpenDraft, items: DraftItem[]) {
+  const saved = await replaceDraft(db, {
+    questionnaireId,
+    precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
+    title: "Usage",
+    items,
+    actorId: "test",
+    traceId: null,
+  });
   if (saved.outcome !== "saved") {
     throw new Error(`draft was not saved: ${saved.outcome}`);
   }
   return saved;
 }
 
-async function publish(db: Database, questionnaireId: string, expectedDraftRevision: number, items: DraftItem[]) {
-  const draft = await saveDraft(db, questionnaireId, expectedDraftRevision, items);
+async function publish(db: Database, questionnaireId: string, draft: OpenDraft, items: DraftItem[]) {
+  const saved = await saveDraft(db, questionnaireId, draft, items);
   const published = await publishDraft(db, {
     questionnaireId,
-    expectedDraftVersionId: draft.draftVersionId,
-    expectedDraftRevision: draft.draftRevision,
+    precondition: { versionId: saved.draftVersionId, draftRevision: saved.draftRevision },
     actorId: "test",
     traceId: null,
   });
@@ -76,12 +87,14 @@ async function publish(db: Database, questionnaireId: string, expectedDraftRevis
   }
 }
 
-async function openNextDraftDirectly(questionnaireId: string): Promise<void> {
+async function openNextDraftDirectly(questionnaireId: string): Promise<OpenDraft> {
+  const draftVersionId = uuidv7();
   const definition = await testDatabase.connect("definition");
   await definition.query(
     `INSERT INTO definition.questionnaire_version (id, questionnaire_id, status, title) VALUES ($1, $2, 'draft', 'Next')`,
-    [uuidv7(), questionnaireId],
+    [draftVersionId, questionnaireId],
   );
+  return { draftVersionId, draftRevision: 0 };
 }
 
 describe("POST /questions", () => {
@@ -279,7 +292,7 @@ describe("POST /questions/:questionId/archive", () => {
     const db = testDatabase.database("definition");
     const questionId = await aQuestion();
     const questionnaire = await createQuestionnaire(db, { key: null, name: "Placed", title: "Placed", ...actor });
-    await publish(db, questionnaire.questionnaireId, questionnaire.draftRevision, [placement("itm_01", questionId, 1)]);
+    await publish(db, questionnaire.questionnaireId, questionnaire, [placement("itm_01", questionId, 1)]);
 
     await post(`/questions/${questionId}/archive`);
 
@@ -297,17 +310,17 @@ describe("GET /questions/:questionId/usage", () => {
     const unrelated = await aQuestion();
 
     const early = await createQuestionnaire(db, { key: null, name: "Early", title: "Early", ...actor });
-    await publish(db, early.questionnaireId, early.draftRevision, [placement("itm_01", questionId, 1), placement("itm_02", unrelated, 1)]);
-    await openNextDraftDirectly(early.questionnaireId);
-    await publish(db, early.questionnaireId, 0, [placement("itm_01", questionId, 2)]);
+    await publish(db, early.questionnaireId, early, [placement("itm_01", questionId, 1), placement("itm_02", unrelated, 1)]);
+    const earlyNext = await openNextDraftDirectly(early.questionnaireId);
+    await publish(db, early.questionnaireId, earlyNext, [placement("itm_01", questionId, 2)]);
 
     const late = await createQuestionnaire(db, { key: null, name: "Late", title: "Late", ...actor });
-    await publish(db, late.questionnaireId, late.draftRevision, [placement("itm_01", questionId, 2)]);
-    await openNextDraftDirectly(late.questionnaireId);
-    await saveDraft(db, late.questionnaireId, 0, [placement("itm_01", questionId, 1)]);
+    await publish(db, late.questionnaireId, late, [placement("itm_01", questionId, 2)]);
+    const lateNext = await openNextDraftDirectly(late.questionnaireId);
+    await saveDraft(db, late.questionnaireId, lateNext, [placement("itm_01", questionId, 1)]);
 
     const draftOnly = await createQuestionnaire(db, { key: null, name: "Draft only", title: "Draft only", ...actor });
-    await saveDraft(db, draftOnly.questionnaireId, draftOnly.draftRevision, [placement("itm_01", questionId, 2)]);
+    await saveDraft(db, draftOnly.questionnaireId, draftOnly, [placement("itm_01", questionId, 2)]);
 
     const response = await get(`/questions/${questionId}/usage`);
 

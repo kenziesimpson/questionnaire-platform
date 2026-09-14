@@ -28,7 +28,7 @@ describe("replaceDraft", () => {
     const third = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
     const withThree = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
-      expectedDraftRevision: draft.draftRevision,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
       title: "Fixture",
       items: [itemFor("itm_01", draft.questionId), itemFor("itm_02", second.questionId), itemFor("itm_03", third.questionId)],
       actorId: "author-1",
@@ -40,14 +40,14 @@ describe("replaceDraft", () => {
 
     const outcome = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
-      expectedDraftRevision: withThree.draftRevision,
+      precondition: { versionId: draft.draftVersionId, draftRevision: withThree.draftRevision },
       title: "Renamed",
       items: [itemFor("itm_03", third.questionId), itemFor("itm_01", draft.questionId)],
       actorId: "author-1",
       traceId: null,
     });
 
-    expect(outcome).toEqual({ outcome: "saved", draftVersionId: draft.draftVersionId, draftRevision: withThree.draftRevision + 1 });
+    expect(outcome).toMatchObject({ outcome: "saved", draftVersionId: draft.draftVersionId, draftRevision: withThree.draftRevision + 1 });
     expect(await draftItems(draft.draftVersionId)).toEqual([
       { item_id: "itm_03", position: 0 },
       { item_id: "itm_01", position: 1 },
@@ -64,7 +64,7 @@ describe("replaceDraft", () => {
 
     const outcome = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
-      expectedDraftRevision: draft.draftRevision,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
       title: "Fixture",
       items: [],
       actorId: null,
@@ -81,14 +81,14 @@ describe("replaceDraft", () => {
 
     const outcome = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
-      expectedDraftRevision: draft.draftRevision - 1,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision - 1 },
       title: "Fixture",
       items: [],
       actorId: null,
       traceId: null,
     });
 
-    expect(outcome).toEqual({ outcome: "stale-or-missing-draft" });
+    expect(outcome).toEqual({ outcome: "stale" });
     expect(await draftItems(draft.draftVersionId)).toEqual([{ item_id: "itm_01", position: 0 }]);
   });
 
@@ -98,14 +98,14 @@ describe("replaceDraft", () => {
 
     const outcome = await replaceDraft(definitionDb, {
       questionnaireId: published.questionnaireId,
-      expectedDraftRevision: published.draftRevision,
+      precondition: { versionId: published.draftVersionId, draftRevision: published.draftRevision },
       title: "Fixture",
       items: [],
       actorId: null,
       traceId: null,
     });
 
-    expect(outcome).toEqual({ outcome: "stale-or-missing-draft" });
+    expect(outcome).toEqual({ outcome: "no-draft" });
     expect(await draftItems(published.draftVersionId)).toEqual([{ item_id: "itm_01", position: 0 }]);
   });
 
@@ -118,7 +118,7 @@ describe("replaceDraft", () => {
 
     const archivedOutcome = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
-      expectedDraftRevision: draft.draftRevision,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
       title: "Fixture",
       items: [itemFor("itm_02", archived.questionId)],
       actorId: null,
@@ -126,7 +126,7 @@ describe("replaceDraft", () => {
     });
     const unknownOutcome = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
-      expectedDraftRevision: draft.draftRevision,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
       title: "Fixture",
       items: [{ ...itemFor("itm_01", draft.questionId), questionVersion: 9 }],
       actorId: null,

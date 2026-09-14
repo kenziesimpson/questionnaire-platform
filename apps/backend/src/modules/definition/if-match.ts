@@ -1,9 +1,5 @@
 import { parseDraftEtag } from "@qp/shared";
-
-export interface DraftPrecondition {
-  readonly versionId: string;
-  readonly draftRevision: number;
-}
+import type { DraftPrecondition } from "../../db/definition/draft-precondition.js";
 
 export class MalformedDraftPrecondition extends Error {
   constructor() {
@@ -18,8 +14,4 @@ export function draftPreconditionOf(ifMatch: string): DraftPrecondition {
     throw new MalformedDraftPrecondition();
   }
   return parsed;
-}
-
-export function isCurrentDraft(precondition: DraftPrecondition, current: DraftPrecondition): boolean {
-  return precondition.versionId === current.versionId && precondition.draftRevision === current.draftRevision;
 }

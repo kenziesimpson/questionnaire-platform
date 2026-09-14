@@ -48,8 +48,7 @@ describe("publishDraft", () => {
 
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
-      expectedDraftVersionId: draft.draftVersionId,
-      expectedDraftRevision: draft.draftRevision,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
       actorId: "author-1",
       traceId: "trace-1",
     });
@@ -108,8 +107,7 @@ describe("publishDraft", () => {
       await expect(
         publishDraft(definitionDb, {
           questionnaireId: draft.questionnaireId,
-          expectedDraftVersionId: draft.draftVersionId,
-          expectedDraftRevision: draft.draftRevision,
+          precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
           actorId: "audit-must-fail",
           traceId: null,
         }),
@@ -141,8 +139,7 @@ describe("publishDraft", () => {
 
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
-      expectedDraftVersionId: draft.draftVersionId,
-      expectedDraftRevision: draft.draftRevision - 1,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision - 1 },
       actorId: null,
       traceId: null,
     });
@@ -157,8 +154,7 @@ describe("publishDraft", () => {
 
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
-      expectedDraftVersionId: uuidv7(),
-      expectedDraftRevision: draft.draftRevision,
+      precondition: { versionId: uuidv7(), draftRevision: draft.draftRevision },
       actorId: null,
       traceId: null,
     });
@@ -190,7 +186,7 @@ describe("publishDraft", () => {
       }
       const edited = await replaceDraft(definitionDb, {
         questionnaireId: draft.questionnaireId,
-        expectedDraftRevision: draft.draftRevision,
+        precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
         title: "Fixture",
         items: placements.map((placement, index) => ({
           itemId: placement.itemId,
@@ -209,8 +205,7 @@ describe("publishDraft", () => {
 
       const outcome = await publishDraft(definitionDb, {
         questionnaireId: draft.questionnaireId,
-        expectedDraftVersionId: draft.draftVersionId,
-        expectedDraftRevision: edited.draftRevision,
+        precondition: { versionId: draft.draftVersionId, draftRevision: edited.draftRevision },
         actorId: null,
         traceId: null,
       });
@@ -241,8 +236,7 @@ describe("publishDraft", () => {
 
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
-      expectedDraftVersionId: draft.draftVersionId,
-      expectedDraftRevision: draft.draftRevision,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
       actorId: null,
       traceId: null,
     });
@@ -256,8 +250,7 @@ describe("publishDraft", () => {
 
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: published.questionnaireId,
-      expectedDraftVersionId: published.draftVersionId,
-      expectedDraftRevision: published.draftRevision,
+      precondition: { versionId: published.draftVersionId, draftRevision: published.draftRevision },
       actorId: null,
       traceId: null,
     });
@@ -270,8 +263,7 @@ describe("publishDraft", () => {
     const draft = await aDraftWithOneItem(definitionDb);
     const command = {
       questionnaireId: draft.questionnaireId,
-      expectedDraftVersionId: draft.draftVersionId,
-      expectedDraftRevision: draft.draftRevision,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
       actorId: null,
       traceId: null,
     };
