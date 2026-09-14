@@ -141,9 +141,62 @@ describe("replaceDraft", () => {
       traceId: null,
     });
 
-    expect(archivedOutcome).toEqual({ outcome: "archived-question", questionIds: [archived.questionId] });
-    expect(unknownOutcome).toEqual({ outcome: "unknown-question-version", itemIds: ["itm_01"] });
+    expect(archivedOutcome).toEqual({ outcome: "invalid", items: [{ itemId: "itm_02", code: "draft/question-archived" }] });
+    expect(unknownOutcome).toEqual({ outcome: "invalid", items: [{ itemId: "itm_01", code: "draft/question-version-unknown" }] });
     expect(await draftItems(draft.draftVersionId)).toEqual([{ item_id: "itm_01", position: 0 }]);
+  });
+
+  it("reports only duplicated item ids when the same draft also places an archived question and an unknown version", async () => {
+    const definitionDb = testDatabase.database("definition");
+    const draft = await aDraftWithOneItem(definitionDb);
+    const archived = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
+    const client = await testDatabase.connect("definition");
+    await client.query(`UPDATE definition.question SET archived_at = now() WHERE id = $1`, [archived.questionId]);
+
+    const outcome = await replaceDraft(definitionDb, {
+      questionnaireId: draft.questionnaireId,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
+      title: "Fixture",
+      items: [
+        itemFor("itm_02", archived.questionId),
+        itemFor("itm_02", draft.questionId),
+        { ...itemFor("itm_03", draft.questionId), questionVersion: 9 },
+      ],
+      actorId: null,
+      traceId: null,
+    });
+
+    expect(outcome).toEqual({ outcome: "invalid", items: [{ itemId: "itm_02", code: "draft/duplicate-item-id" }] });
+    expect(await draftItems(draft.draftVersionId)).toEqual([{ item_id: "itm_01", position: 0 }]);
+  });
+
+  it("reports archived placements before unknown versions, naming every item that places an archived question in request order", async () => {
+    const definitionDb = testDatabase.database("definition");
+    const draft = await aDraftWithOneItem(definitionDb);
+    const archived = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
+    const client = await testDatabase.connect("definition");
+    await client.query(`UPDATE definition.question SET archived_at = now() WHERE id = $1`, [archived.questionId]);
+
+    const outcome = await replaceDraft(definitionDb, {
+      questionnaireId: draft.questionnaireId,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
+      title: "Fixture",
+      items: [
+        itemFor("itm_03", archived.questionId),
+        { ...itemFor("itm_01", draft.questionId), questionVersion: 9 },
+        itemFor("itm_02", archived.questionId),
+      ],
+      actorId: null,
+      traceId: null,
+    });
+
+    expect(outcome).toEqual({
+      outcome: "invalid",
+      items: [
+        { itemId: "itm_03", code: "draft/question-archived" },
+        { itemId: "itm_02", code: "draft/question-archived" },
+      ],
+    });
   });
 });
 

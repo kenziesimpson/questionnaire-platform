@@ -12,7 +12,13 @@ import { recordAudit } from "../audit.js";
 import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
 import type { Database, Executor, Transaction } from "../client.js";
 import { question, questionnaire, questionnaireItem, questionnaireVersion, questionVersion } from "../schema.js";
-import { draftForValidation, itemsWithQuestionContent, pinnedQuestionVersionsInPlacementOrder, readDraftContents } from "./draft-contents.js";
+import {
+  draftForValidation,
+  itemsWithQuestionContent,
+  pinnedQuestionVersionsInPlacementOrder,
+  readDraftContents,
+  type DraftInvalidItem,
+} from "./draft-contents.js";
 import { lockOpenDraft, readOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
 import { questionVersionKey } from "./question-versions.js";
 
@@ -121,16 +127,11 @@ export interface ReplaceDraftCommand {
   readonly traceId: string | null;
 }
 
-type RefusedPlacement =
-  | { readonly outcome: "duplicate-item-id"; readonly itemIds: readonly string[] }
-  | { readonly outcome: "archived-question"; readonly questionIds: readonly string[] }
-  | { readonly outcome: "unknown-question-version"; readonly itemIds: readonly string[] };
-
 export type ReplaceDraftOutcome =
   | ({ readonly outcome: "saved"; readonly draftVersionId: string } & CurrentDraft)
   | { readonly outcome: "stale" }
   | { readonly outcome: "no-draft" }
-  | RefusedPlacement;
+  | { readonly outcome: "invalid"; readonly items: readonly DraftInvalidItem[] };
 
 function duplicatedItemIds(items: readonly DraftItem[]): string[] {
   const seen = new Set<string>();
@@ -144,31 +145,33 @@ function duplicatedItemIds(items: readonly DraftItem[]): string[] {
   return [...duplicated];
 }
 
-async function refusedPlacement(tx: Transaction, items: readonly DraftItem[]): Promise<RefusedPlacement | undefined> {
+async function refusedItems(tx: Transaction, items: readonly DraftItem[]): Promise<DraftInvalidItem[]> {
   const duplicated = duplicatedItemIds(items);
   if (duplicated.length > 0) {
-    return { outcome: "duplicate-item-id", itemIds: duplicated };
+    return duplicated.map((itemId) => ({ itemId, code: "draft/duplicate-item-id" }));
   }
   const questionIds = [...new Set(items.map((item) => item.questionId))];
   if (questionIds.length === 0) {
-    return undefined;
+    return [];
   }
   const archived = await tx
     .select({ id: question.id })
     .from(question)
     .where(and(inArray(question.id, questionIds), isNotNull(question.archivedAt)));
-  if (archived.length > 0) {
-    return { outcome: "archived-question", questionIds: archived.map((row) => row.id) };
+  const archivedIds = new Set(archived.map((row) => row.id));
+  if (archivedIds.size > 0) {
+    return items
+      .filter((item) => archivedIds.has(item.questionId))
+      .map((item) => ({ itemId: item.itemId, code: "draft/question-archived" }));
   }
   const known = await tx
     .select({ questionId: questionVersion.questionId, version: questionVersion.version })
     .from(questionVersion)
     .where(inArray(questionVersion.questionId, questionIds));
   const knownKeys = new Set(known.map((row) => questionVersionKey(row)));
-  const unknownItemIds = items
+  return items
     .filter((item) => !knownKeys.has(questionVersionKey({ questionId: item.questionId, version: item.questionVersion })))
-    .map((item) => item.itemId);
-  return unknownItemIds.length > 0 ? { outcome: "unknown-question-version", itemIds: unknownItemIds } : undefined;
+    .map((item) => ({ itemId: item.itemId, code: "draft/question-version-unknown" }));
 }
 
 export async function replaceDraft(executor: Executor, command: ReplaceDraftCommand): Promise<ReplaceDraftOutcome> {
@@ -180,9 +183,9 @@ export async function replaceDraft(executor: Executor, command: ReplaceDraftComm
     if (!isCurrentDraft(command.precondition, { versionId: draft.id, draftRevision: draft.draftRevision })) {
       return { outcome: "stale" };
     }
-    const refused = await refusedPlacement(tx, command.items);
-    if (refused !== undefined) {
-      return refused;
+    const refused = await refusedItems(tx, command.items);
+    if (refused.length > 0) {
+      return { outcome: "invalid", items: refused };
     }
 
     await tx

@@ -1,11 +1,11 @@
-import { FORMAT_VERSION, PublishedDefinition, validateDraft, type DraftItemCode, type ItemError } from "@qp/shared";
+import { FORMAT_VERSION, PublishedDefinition, validateDraft } from "@qp/shared";
 import { eq, max, sql } from "drizzle-orm";
 import { Value } from "typebox/value";
 import { recordAudit } from "../audit.js";
 import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
 import type { Executor, Transaction } from "../client.js";
 import { questionnaireVersion } from "../schema.js";
-import { draftForValidation, itemsWithQuestionContent, readDraftContents } from "./draft-contents.js";
+import { draftForValidation, itemsWithQuestionContent, readDraftContents, type DraftInvalidItem } from "./draft-contents.js";
 import { lockOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
 
 export interface PublishDraftCommand {
@@ -14,8 +14,6 @@ export interface PublishDraftCommand {
   readonly actorId: string | null;
   readonly traceId: string | null;
 }
-
-export type DraftInvalidItem = ItemError<DraftItemCode>;
 
 export type PublishDraftOutcome =
   | {

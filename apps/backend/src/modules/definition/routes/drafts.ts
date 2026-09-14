@@ -1,11 +1,4 @@
-import {
-  definitionApi,
-  formatDraftEtag,
-  problem,
-  type DraftItem,
-  type DraftItemCode,
-  type ItemError,
-} from "@qp/shared";
+import { definitionApi, formatDraftEtag, problem } from "@qp/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   createQuestionnaire,
@@ -26,14 +19,6 @@ function draftHeaders({ draft, draftRevision }: CurrentDraft): Record<string, st
 
 function notFound(request: FastifyRequest) {
   return problem("resource/not-found", { instance: request.url });
-}
-
-function offendingItems(
-  items: readonly DraftItem[],
-  isOffending: (item: DraftItem) => boolean,
-  code: DraftItemCode,
-): ItemError<DraftItemCode>[] {
-  return items.filter(isOffending).map((item) => ({ itemId: item.itemId, code }));
 }
 
 export async function draftRoutes(scope: FastifyInstance, { database }: DefinitionModuleOptions): Promise<void> {
@@ -74,22 +59,8 @@ export async function draftRoutes(scope: FastifyInstance, { database }: Definiti
         return problem("questionnaire/draft-stale", { instance: request.url });
       case "no-draft":
         return notFound(request);
-      case "duplicate-item-id":
-        return problem("questionnaire/draft-invalid", {
-          items: outcome.itemIds.map((itemId) => ({ itemId, code: "draft/duplicate-item-id" })),
-        });
-      case "archived-question": {
-        const archived = new Set(outcome.questionIds);
-        return problem("questionnaire/draft-invalid", {
-          items: offendingItems(items, (item) => archived.has(item.questionId), "draft/question-archived"),
-        });
-      }
-      case "unknown-question-version": {
-        const unknown = new Set(outcome.itemIds);
-        return problem("questionnaire/draft-invalid", {
-          items: offendingItems(items, (item) => unknown.has(item.itemId), "draft/question-version-unknown"),
-        });
-      }
+      case "invalid":
+        return problem("questionnaire/draft-invalid", { items: [...outcome.items] });
     }
   });
 

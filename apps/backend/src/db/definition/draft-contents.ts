@@ -1,9 +1,11 @@
-import type { DraftForValidation, DraftItem, Item, Predicate, QuestionVersion } from "@qp/shared";
+import type { DraftForValidation, DraftItem, DraftItemCode, Item, ItemError, Predicate, QuestionVersion } from "@qp/shared";
 import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { Executor } from "../client.js";
 import { question, questionnaireItem } from "../schema.js";
 import { storedQuestionToContent, storedQuestionToVersion } from "./question-content.js";
 import { pinnedByDraft, questionVersionKey, readQuestionVersions, type LoadedQuestionVersion } from "./question-versions.js";
+
+export type DraftInvalidItem = ItemError<DraftItemCode>;
 
 export interface DraftContents {
   readonly items: readonly DraftItem[];
