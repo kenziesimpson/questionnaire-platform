@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { recordAudit } from "../audit.js";
 import type { Executor } from "../client.js";
 import { questionnaire } from "../schema.js";
-import { readQuestionnaireSummary } from "./questionnaire-list.js";
+import { readQuestionnaireSummary } from "./questionnaires.js";
 import { withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
 
 export interface SetClosesAtCommand {

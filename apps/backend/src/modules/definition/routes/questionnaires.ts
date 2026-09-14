@@ -1,6 +1,6 @@
 import { definitionApi } from "@qp/shared";
 import type { FastifyInstance } from "fastify";
-import { listQuestionnaireSummaries } from "../../../db/definition/questionnaire-list.js";
+import { listQuestionnaireSummaries } from "../../../db/definition/questionnaires.js";
 import { registerRoute } from "../../../http/routes.js";
 import type { DefinitionModuleOptions } from "../plugin.js";
 

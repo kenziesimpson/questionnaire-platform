@@ -22,7 +22,7 @@ import {
   readItems,
   type DraftInvalidItem,
 } from "./draft-contents.js";
-import { readQuestionnaireSummary } from "./questionnaire-list.js";
+import { readQuestionnaireSummary } from "./questionnaires.js";
 import {
   isPublishedVersionOf,
   lockOpenDraft,

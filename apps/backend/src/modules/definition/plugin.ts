@@ -4,7 +4,7 @@ import { replyNotFound, requestValidatorCompiler } from "../../http/problems.js"
 import { authenticateAuthor } from "./author.js";
 import { replyWithDefinitionProblem } from "./errors.js";
 import { draftRoutes } from "./routes/drafts.js";
-import { questionnaireListRoutes } from "./routes/questionnaire-list.js";
+import { questionnaireListRoutes } from "./routes/questionnaires.js";
 import { questionRoutes } from "./routes/questions.js";
 import { versionRoutes } from "./routes/versions.js";
 
