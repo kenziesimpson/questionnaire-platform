@@ -13,6 +13,7 @@ async function aDraftWithTwoItems(): Promise<string> {
   const second = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
   const saved = await replaceDraft(definitionDb, {
     questionnaireId: draft.questionnaireId,
+    expectedDraftVersionId: draft.draftVersionId,
     expectedDraftRevision: draft.draftRevision,
     title: "Fixture",
     items: [

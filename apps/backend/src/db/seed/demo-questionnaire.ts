@@ -96,6 +96,7 @@ export async function seedDemoQuestionnaire(db: Database): Promise<DemoSeedOutco
     });
     const edited = await replaceDraft(tx, {
       questionnaireId: INTAKE_QUESTIONNAIRE_ID,
+      expectedDraftVersionId: created.draftVersionId,
       expectedDraftRevision: created.draftRevision,
       title: demo.title,
       items: demo.items.map((item) => ({

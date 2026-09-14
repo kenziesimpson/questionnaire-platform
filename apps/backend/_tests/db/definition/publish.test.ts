@@ -171,6 +171,7 @@ describe("publishDraft", () => {
       }
       const edited = await replaceDraft(definitionDb, {
         questionnaireId: draft.questionnaireId,
+        expectedDraftVersionId: draft.draftVersionId,
         expectedDraftRevision: draft.draftRevision,
         title: "Fixture",
         items: placements.map((placement, index) => ({

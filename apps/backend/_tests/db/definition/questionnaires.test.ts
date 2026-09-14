@@ -28,6 +28,7 @@ describe("replaceDraft", () => {
     const third = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
     const withThree = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: draft.draftVersionId,
       expectedDraftRevision: draft.draftRevision,
       title: "Fixture",
       items: [itemFor("itm_01", draft.questionId), itemFor("itm_02", second.questionId), itemFor("itm_03", third.questionId)],
@@ -40,6 +41,7 @@ describe("replaceDraft", () => {
 
     const outcome = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: draft.draftVersionId,
       expectedDraftRevision: withThree.draftRevision,
       title: "Renamed",
       items: [itemFor("itm_03", third.questionId), itemFor("itm_01", draft.questionId)],
@@ -64,6 +66,7 @@ describe("replaceDraft", () => {
 
     const outcome = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: draft.draftVersionId,
       expectedDraftRevision: draft.draftRevision,
       title: "Fixture",
       items: [],
@@ -81,6 +84,7 @@ describe("replaceDraft", () => {
 
     const outcome = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: draft.draftVersionId,
       expectedDraftRevision: draft.draftRevision - 1,
       title: "Fixture",
       items: [],
@@ -98,6 +102,7 @@ describe("replaceDraft", () => {
 
     const outcome = await replaceDraft(definitionDb, {
       questionnaireId: published.questionnaireId,
+      expectedDraftVersionId: published.draftVersionId,
       expectedDraftRevision: published.draftRevision,
       title: "Fixture",
       items: [],
@@ -118,6 +123,7 @@ describe("replaceDraft", () => {
 
     const archivedOutcome = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: draft.draftVersionId,
       expectedDraftRevision: draft.draftRevision,
       title: "Fixture",
       items: [itemFor("itm_02", archived.questionId)],
@@ -126,6 +132,7 @@ describe("replaceDraft", () => {
     });
     const unknownOutcome = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: draft.draftVersionId,
       expectedDraftRevision: draft.draftRevision,
       title: "Fixture",
       items: [{ ...itemFor("itm_01", draft.questionId), questionVersion: 9 }],

@@ -197,7 +197,7 @@ export async function readDraft(database: Database, questionnaireId: string): Pr
 
 export interface ReplaceDraftCommand {
   readonly questionnaireId: string;
-  readonly expectedDraftVersionId?: string;
+  readonly expectedDraftVersionId: string;
   readonly expectedDraftRevision: number;
   readonly title: string;
   readonly items: readonly DraftItem[];
@@ -247,7 +247,7 @@ export async function replaceDraft(executor: Executor, command: ReplaceDraftComm
         and(
           eq(questionnaireVersion.questionnaireId, command.questionnaireId),
           eq(questionnaireVersion.status, "draft"),
-          command.expectedDraftVersionId === undefined ? undefined : eq(questionnaireVersion.id, command.expectedDraftVersionId),
+          eq(questionnaireVersion.id, command.expectedDraftVersionId),
           eq(questionnaireVersion.draftRevision, command.expectedDraftRevision),
         ),
       )

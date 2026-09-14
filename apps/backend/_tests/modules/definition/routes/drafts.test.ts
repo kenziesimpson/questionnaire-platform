@@ -103,6 +103,7 @@ async function aDraftWithAForwardReference(): Promise<DraftFixture & { readonly 
   const edited = saved(
     await replaceDraft(db, {
       questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: draft.draftVersionId,
       expectedDraftRevision: draft.draftRevision,
       title: "Fixture",
       items,
@@ -194,6 +195,7 @@ describe("GET /questionnaires/:id/draft", () => {
     const edited = saved(
       await replaceDraft(db, {
         questionnaireId: draft.questionnaireId,
+        expectedDraftVersionId: draft.draftVersionId,
         expectedDraftRevision: draft.draftRevision,
         title: "Ordered",
         items: [

@@ -22,6 +22,7 @@ export async function aDraftWithOneItem(db: Database): Promise<DraftFixture> {
   const created = await createQuestionnaire(db, { key: null, name: "Fixture", title: "Fixture", ...actor });
   const edited = await replaceDraft(db, {
     questionnaireId: created.questionnaireId,
+    expectedDraftVersionId: created.draftVersionId,
     expectedDraftRevision: created.draftRevision,
     title: "Fixture",
     items: [{ itemId: "itm_01", required: true, visibleWhen: null, questionId: saved.questionId, questionVersion: 1 }],
