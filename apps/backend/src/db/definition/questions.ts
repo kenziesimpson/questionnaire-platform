@@ -22,7 +22,7 @@ export interface CreateQuestionCommand {
   readonly traceId: string | null;
 }
 
-export interface SavedQuestion {
+export interface SavedQuestionVersion {
   readonly questionId: string;
   readonly questionVersion: number;
   readonly question: Question;
@@ -35,7 +35,7 @@ async function insertQuestionVersion(
   content: QuestionInput,
   createdBy: string | null,
   traceId: string | null,
-): Promise<SavedQuestion> {
+): Promise<SavedQuestionVersion> {
   const columns = questionInputToColumns(content);
   await tx.insert(questionVersion).values({
     questionId,
@@ -70,7 +70,7 @@ async function insertQuestionVersion(
   return { questionId, questionVersion: version, question: saved };
 }
 
-export async function createQuestion(executor: Executor, command: CreateQuestionCommand): Promise<SavedQuestion> {
+export async function createQuestion(executor: Executor, command: CreateQuestionCommand): Promise<SavedQuestionVersion> {
   return executor.transaction(async (tx) => {
     const questionId = command.questionId ?? uuidv7();
     await tx.insert(question).values({ id: questionId, key: command.key });
@@ -86,7 +86,7 @@ export interface AppendQuestionVersionCommand {
 }
 
 export type AppendQuestionVersionOutcome =
-  | ({ readonly outcome: "saved" } & SavedQuestion)
+  | ({ readonly outcome: "saved" } & SavedQuestionVersion)
   | QuestionNotFound;
 
 interface LockedQuestion {
