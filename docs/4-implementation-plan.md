@@ -194,7 +194,7 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 
 #### How Track 6 runs
 
-A serial skeleton, **PR0**, lands on `main` first. The screen PRs follow and merge **directly to `main`**, each through a pull request with Checks green. No staging branch: PR0 pre-registers every route and seam, so the screen PRs touch disjoint files and merge in any order their dependencies allow.
+Every PR is staged on a **`staging/track-6`** branch cut from `main` after the Wave 3 contract commit merges. A serial skeleton, **PR0**, lands on `staging/track-6` first. The screen PRs follow, each through a pull request targeting `staging/track-6` with Checks green; CI runs on every pull request whatever the base branch. PR0 pre-registers every route and seam, so the screen PRs touch disjoint files and merge into `staging/track-6` in any order their dependencies allow. `staging/track-6` merges to `main` once, when every PR below is in, with Checks green on its head. **H6** is done by hand against it.
 
 **Rules for every PR:**
 
@@ -202,7 +202,7 @@ A serial skeleton, **PR0**, lands on `main` first. The screen PRs follow and mer
 2. **Every draft write goes through the shared optimistic-draft-mutation hook**, never a hand-rolled `useMutation` with its own `If-Match`.
 3. **Tests with the feature.** Each PR adds its own rows to [[8-testing#7. Test case enumeration]] under a Track 6 heading.
 
-**PR0 — the skeleton** *(serial, lands on `main` before any screen PR)*
+**PR0 — the skeleton** *(serial, lands on `staging/track-6` before any screen PR)*
 
 - [ ] `router.tsx`: every screen's route registered with a stub component, so no screen PR edits the route tree
 - [ ] The API client: typed calls over `definitionApi` from `@qp/shared`, problem+json parsed into the shared error union, and the draft `ETag` captured and sent back as `If-Match`
@@ -219,6 +219,8 @@ A serial skeleton, **PR0**, lands on `main` first. The screen PRs follow and mer
 | History | Version history | PR0; can run in parallel |
 | Preview | Preview | PR0; can run in parallel |
 | PR6 | Integration, plus **H5** (admin half) and **H6** | Everything above |
+
+- [ ] `staging/track-6 → main` merged with Checks green on its head
 
 **PR4 must tell a `422` from a `409`.** A reorder can hit `422 questionnaire/draft-invalid` from gh#17 — an archived question elsewhere in the draft — for reasons that have nothing to do with the reorder. It is not a stale conflict and must not be reported as someone else's edit. Per #65, PR4 neither fixes gh#17 nor works around it.
 
