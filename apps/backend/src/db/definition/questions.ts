@@ -205,11 +205,7 @@ export async function listQuestionVersionSummaries(
   if (rows.length === 0 && !(await questionExists(executor, questionId))) {
     return undefined;
   }
-  return rows.map((row) => ({
-    ...row,
-    type: row.type as QuestionVersionSummary["type"],
-    createdAt: row.createdAt.toISOString(),
-  }));
+  return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
 }
 
 export async function findQuestionVersion(
