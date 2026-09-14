@@ -12,17 +12,17 @@
     { "file": "RespondentClosed.dc.html", "page": "page-1", "title": "Responses closed", "x": 2520, "y": 700, "w": 720, "h": 460 },
     { "file": "RespondentMobile.dc.html", "page": "page-1", "title": "Phone — 390px", "x": 3400, "y": 0, "w": 390, "h": 880 },
 
-    { "file": "AdminList.dc.html", "page": "page-2", "title": "Questionnaire list", "x": 0, "y": 0, "w": 1280, "h": 700 },
-    { "file": "AdminDraftEditor.dc.html", "page": "page-2", "title": "Draft editor", "x": 1400, "y": 0, "w": 1280, "h": 960 },
+    { "file": "AdminList.dc.html", "page": "page-2", "title": "Questionnaire list", "x": 0, "y": 0, "w": 1280, "h": 740 },
+    { "file": "AdminDraftEditor.dc.html", "page": "page-2", "title": "Draft editor", "x": 1400, "y": 0, "w": 1280, "h": 1000 },
     { "file": "AdminDraftConflict.dc.html", "page": "page-2", "title": "Stale draft — 409", "x": 2800, "y": 0, "w": 1280, "h": 560 },
-    { "file": "AdminBank.dc.html", "page": "page-2", "title": "Question bank", "x": 0, "y": 1080, "w": 1280, "h": 760 },
-    { "file": "AdminQuestionEditor.dc.html", "page": "page-2", "title": "Question editor", "x": 1400, "y": 1080, "w": 1280, "h": 760 },
-    { "file": "AdminHistory.dc.html", "page": "page-2", "title": "Version history", "x": 0, "y": 1960, "w": 1280, "h": 600 },
-    { "file": "AdminPreview.dc.html", "page": "page-2", "title": "Preview", "x": 1400, "y": 1960, "w": 1280, "h": 820 },
+    { "file": "AdminBank.dc.html", "page": "page-2", "title": "Question bank", "x": 0, "y": 1140, "w": 1280, "h": 780 },
+    { "file": "AdminQuestionEditor.dc.html", "page": "page-2", "title": "Question editor", "x": 1400, "y": 1140, "w": 1280, "h": 760 },
+    { "file": "AdminHistory.dc.html", "page": "page-2", "title": "Version history", "x": 0, "y": 2040, "w": 1280, "h": 640 },
+    { "file": "AdminPreview.dc.html", "page": "page-2", "title": "Preview", "x": 1400, "y": 2040, "w": 1280, "h": 870 },
 
-    { "file": "ControlSheet.dc.html", "page": "page-3", "title": "Control per response type", "x": 0, "y": 0, "w": 1240, "h": 1500 },
+    { "file": "ControlSheet.dc.html", "page": "page-3", "title": "Control per response type", "x": 0, "y": 0, "w": 1240, "h": 1620 },
     { "file": "QuestionFields.dc.html", "page": "page-3", "title": "Editor fields per type", "x": 1360, "y": 0, "w": 1240, "h": 860 },
-    { "file": "ErrorMapping.dc.html", "page": "page-3", "title": "Errors, end to end", "x": 2720, "y": 0, "w": 1240, "h": 800 }
+    { "file": "ErrorMapping.dc.html", "page": "page-3", "title": "Errors, end to end", "x": 2720, "y": 0, "w": 1240, "h": 890 }
   ],
   "annotations": [
     { "id": "note-resume", "page": "page-1", "x": 0, "y": -160, "w": 320, "text": "Storage first, then resume, then create.\nCreating a session on landing would orphan one already in progress — so the app looks in localStorage, calls GET /sessions/:id, and only then POSTs a new one." },
@@ -33,7 +33,7 @@
     { "id": "note-sortfilter", "page": "page-2", "x": 0, "y": -180, "w": 340, "text": "Decisions Log #53 drawn: one sort axis, most recently edited, client-side. No search, no status filter, no sortable columns this wave — that surface is gh#21.\nDrawing it found a gap: QuestionnaireSummary carries createdAt and no updatedAt, so there is nothing on the wire to sort on yet." },
     { "id": "note-validation", "page": "page-2", "x": 1400, "y": -180, "w": 360, "text": "Decisions Log #54 drawn: a summary rail fed by POST /draft/validate — the identical code publish runs, so the editor cannot show green where publish says no. Findings are reached by item number and the rows stay unmarked; inline per-item marking is gh#22." },
     { "id": "note-conflict", "page": "page-2", "x": 2800, "y": -180, "w": 320, "text": "Open question 4 in the frontend doc — how visible the 409 path is.\nProposed: reorder is optimistic and snaps back with a toast; the banner is the only thing that stops the author, and it offers exactly one action." },
-    { "id": "note-repin", "page": "page-2", "x": 2800, "y": 1080, "w": 340, "text": "§20's options-authoring widget, proposed: drag to reorder, ids shown and locked, freeform marked on the row.\nEditing a question from inside the draft re-pins that item to the new version. Every other questionnaire keeps the version it pinned, which is what makes the v2 relabel safe." },
+    { "id": "note-repin", "page": "page-2", "x": 2800, "y": 1140, "w": 340, "text": "§20's options-authoring widget, proposed: drag to reorder, ids shown and locked, freeform marked on the row.\nEditing a question from inside the draft re-pins that item to the new version. Every other questionnaire keeps the version it pinned, which is what makes the v2 relabel safe." },
 
     { "id": "note-types", "page": "page-3", "x": 0, "y": -180, "w": 340, "text": "Settled in the frontend doc §3 and drawn here so Track 7 builds from a picture: five types, one control each, plus the Yes/No template and the freeform Other behaviour." },
     { "id": "note-fields", "page": "page-3", "x": 1360, "y": -180, "w": 340, "text": "The one Stop-and-ask item still open (§20 Pending UI experimentation): the constraint fields per type and how the dialog switches them. Proposed here, with the six cross-field rules made unrepresentable rather than reported." },
