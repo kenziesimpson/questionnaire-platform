@@ -1,4 +1,4 @@
-import type { Option, QuestionContent, QuestionInput, ResponseType } from "@qp/shared";
+import type { Option, QuestionContent, QuestionInput, QuestionVersion, ResponseType } from "@qp/shared";
 
 export interface QuestionVersionColumns {
   readonly type: ResponseType;
@@ -49,4 +49,20 @@ export function storedQuestionToContent(
   };
   const hasOptions = stored.type === "single_choice" || stored.type === "multiple_choice";
   return (hasOptions ? { ...head, options: optionsInPosition.map(toOption) } : head) as QuestionContent;
+}
+
+export interface StoredQuestionVersionRow extends StoredQuestionVersion {
+  readonly createdAt: Date;
+  readonly createdBy: string | null;
+}
+
+export function storedQuestionToVersion(
+  stored: StoredQuestionVersionRow,
+  optionsInPosition: readonly StoredOption[],
+): QuestionVersion {
+  return {
+    ...storedQuestionToContent(stored, optionsInPosition),
+    createdAt: stored.createdAt.toISOString(),
+    createdBy: stored.createdBy,
+  };
 }
