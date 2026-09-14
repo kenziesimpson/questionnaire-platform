@@ -67,19 +67,9 @@
       </div>
 
       <div style="display: flex; align-items: center; gap: 10px">
-        <div style="display: flex; align-items: center; gap: 8px; width: 280px; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
-          <span style="font-size: 14px; color: var(--mfg)">Filter by prompt or key</span>
-        </div>
-        <button class="btn">All types <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button>
-        <label style="display: flex; align-items: center; gap: 8px; height: 32px; font-size: 14px; cursor: pointer">
-          <span style="display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border: 1px solid var(--primary); border-radius: 4px; background: var(--primary)">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="oklch(0.985 0 0)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
-          </span>
-          Show archived
-        </label>
         <div style="flex-grow: 1"></div>
-        <button class="btn">Recently updated <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button>
+        <span style="font-size: 13px; color: var(--mfg)">Sorted by</span>
+        <button class="btn">Most recently edited <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button>
       </div>
 
       <div style="display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; overflow: hidden">
@@ -89,25 +79,9 @@
         </div>
 
         <div class="row">
-          <div style="display: flex; flex-direction: column; gap: 3px"><span style="font-weight: 500">Do you have a medical condition?</span><span class="sub">qst_has_condition</span></div>
-          <span class="pill">Single choice</span>
-          <span style="font-size: 13px">v1</span>
-          <span style="font-size: 13px; color: var(--mfg)">Patient Intake v1, v2</span>
-          <div style="display: flex; gap: 6px"><button class="btn sm">Edit</button></div>
-        </div>
-
-        <div class="row">
           <div style="display: flex; flex-direction: column; gap: 3px"><span style="font-weight: 500">Which condition?</span><span class="sub">qst_which_condition</span></div>
           <span class="pill">Single choice</span>
-          <span style="font-size: 13px">v4</span>
-          <span style="font-size: 13px; color: var(--mfg)">Patient Intake v1, v2</span>
-          <div style="display: flex; gap: 6px"><button class="btn sm">Edit</button></div>
-        </div>
-
-        <div class="row">
-          <div style="display: flex; flex-direction: column; gap: 3px"><span style="font-weight: 500">When were you diagnosed?</span><span class="sub">qst_diagnosed_on</span></div>
-          <span class="pill">Date</span>
-          <span style="font-size: 13px">v1</span>
+          <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px">v4</span><span style="font-size: 11px; color: var(--mfg)">13 Sep 2026</span></div>
           <span style="font-size: 13px; color: var(--mfg)">Patient Intake v1, v2</span>
           <div style="display: flex; gap: 6px"><button class="btn sm">Edit</button></div>
         </div>
@@ -115,7 +89,23 @@
         <div class="row">
           <div style="display: flex; flex-direction: column; gap: 3px"><span style="font-weight: 500">Preferred pharmacy</span><span class="sub">qst_pharmacy</span></div>
           <span class="pill">Text</span>
-          <span style="font-size: 13px">v2</span>
+          <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px">v2</span><span style="font-size: 11px; color: var(--mfg)">13 Sep 2026</span></div>
+          <span style="font-size: 13px; color: var(--mfg)">Patient Intake v1, v2</span>
+          <div style="display: flex; gap: 6px"><button class="btn sm">Edit</button></div>
+        </div>
+
+        <div class="row">
+          <div style="display: flex; flex-direction: column; gap: 3px"><span style="font-weight: 500">Do you have a medical condition?</span><span class="sub">qst_has_condition</span></div>
+          <span class="pill">Single choice</span>
+          <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px">v1</span><span style="font-size: 11px; color: var(--mfg)">12 Sep 2026</span></div>
+          <span style="font-size: 13px; color: var(--mfg)">Patient Intake v1, v2</span>
+          <div style="display: flex; gap: 6px"><button class="btn sm">Edit</button></div>
+        </div>
+
+        <div class="row">
+          <div style="display: flex; flex-direction: column; gap: 3px"><span style="font-weight: 500">When were you diagnosed?</span><span class="sub">qst_diagnosed_on</span></div>
+          <span class="pill">Date</span>
+          <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px">v1</span><span style="font-size: 11px; color: var(--mfg)">12 Sep 2026</span></div>
           <span style="font-size: 13px; color: var(--mfg)">Patient Intake v1, v2</span>
           <div style="display: flex; gap: 6px"><button class="btn sm">Edit</button></div>
         </div>
@@ -123,7 +113,7 @@
         <div class="row">
           <div style="display: flex; flex-direction: column; gap: 3px"><span style="font-weight: 500">How many units of alcohol a week?</span><span class="sub">qst_alcohol_units</span></div>
           <span class="pill">Number</span>
-          <span style="font-size: 13px">v1</span>
+          <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px">v1</span><span style="font-size: 11px; color: var(--mfg)">08 Sep 2026</span></div>
           <span style="font-size: 13px; color: var(--mfg)">Medication Review v1</span>
           <div style="display: flex; gap: 6px"><button class="btn sm">Edit</button></div>
         </div>
@@ -134,14 +124,14 @@
             <span class="sub">qst_smoker</span>
           </div>
           <span class="pill" style="color: var(--mfg)">Single choice</span>
-          <span style="font-size: 13px; color: var(--mfg)">v2</span>
+          <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--mfg)">v2</span><span style="font-size: 11px; color: var(--mfg)">04 Sep 2026</span></div>
           <span style="font-size: 13px; color: var(--mfg)">Not in any published version</span>
           <div style="display: flex; gap: 6px"><button class="btn sm">Restore</button></div>
         </div>
 
       </div>
 
-      <p style="margin: 0; font-size: 12px; line-height: 1.5; color: var(--mfg)">&ldquo;Used by&rdquo; lists published versions, not drafts &mdash; a draft can still pin a question this column calls unused. Nothing here is deleted: archiving hides a question from pickers and leaves every published version untouched.</p>
+      <p style="margin: 0; font-size: 12px; line-height: 1.5; color: var(--mfg)">&ldquo;Used by&rdquo; lists published versions, not drafts &mdash; a draft can still pin a question this column calls unused. Nothing here is deleted: archiving hides a question from pickers and leaves every published version untouched, so archived rows stay in the list, marked, rather than behind a filter this wave does not ship.</p>
 
     </div>
   </div>
