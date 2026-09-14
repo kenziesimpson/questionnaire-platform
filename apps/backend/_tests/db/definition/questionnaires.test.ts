@@ -1,140 +1,70 @@
-import type { DraftItem } from "@qp/shared";
+import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
-import { replaceDraft } from "../../../src/db/definition/questionnaires.js";
-import { createQuestion } from "../../../src/db/definition/questions.js";
-import { aDraftWithOneItem, aPublishedQuestionnaire, aTextQuestion } from "../fixtures.js";
+import { createNextDraft } from "../../../src/db/definition/drafts.js";
+import { withLockedQuestionnaire } from "../../../src/db/definition/questionnaire-rows.js";
+import {
+  createQuestionnaire,
+  listQuestionnaireSummaries,
+  readQuestionnaireSummary,
+  setClosesAt,
+} from "../../../src/db/definition/questionnaires.js";
+import { aPublishedQuestionnaire, QUESTIONNAIRE_LOCK_STATEMENT, theStatementWaitingOnALock, whileHoldingALock } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 
 const testDatabase = useTestDatabase();
+const actor = { createdBy: "test", traceId: null };
 
-function itemFor(itemId: string, questionId: string): DraftItem {
-  return { itemId, required: false, visibleWhen: null, questionId, questionVersion: 1 };
-}
+describe("readQuestionnaireSummary", () => {
+  it("reports hasDraft for a draft-only, a published-only and a republished-with-draft questionnaire, equal to the list entry", async () => {
+    const db = testDatabase.database("definition");
+    const draftOnly = await createQuestionnaire(db, { key: null, name: "Draft only", title: "Draft only", ...actor });
+    const publishedOnly = await aPublishedQuestionnaire(db);
+    const reopened = await aPublishedQuestionnaire(db);
+    await createNextDraft(db, { questionnaireId: reopened.questionnaireId, ...actor });
 
-async function draftItems(draftVersionId: string) {
-  const client = await testDatabase.connect("definition");
-  const rows = await client.query<{ item_id: string; position: number }>(
-    `SELECT item_id, position FROM definition.questionnaire_item WHERE questionnaire_version_id = $1 ORDER BY position`,
-    [draftVersionId],
-  );
-  return rows.rows;
-}
+    const listed = await listQuestionnaireSummaries(db);
+    const read = await Promise.all(listed.map((entry) => readQuestionnaireSummary(db, entry.questionnaireId)));
 
-describe("replaceDraft", () => {
-  it("removes, reorders and adds items, renames the draft, bumps the revision and audits the edit", async () => {
-    const definitionDb = testDatabase.database("definition");
-    const draft = await aDraftWithOneItem(definitionDb);
-    const second = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
-    const third = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
-    const withThree = await replaceDraft(definitionDb, {
-      questionnaireId: draft.questionnaireId,
-      expectedDraftRevision: draft.draftRevision,
-      title: "Fixture",
-      items: [itemFor("itm_01", draft.questionId), itemFor("itm_02", second.questionId), itemFor("itm_03", third.questionId)],
-      actorId: "author-1",
-      traceId: null,
-    });
-    if (withThree.outcome !== "saved") {
-      throw new Error(withThree.outcome);
-    }
-
-    const outcome = await replaceDraft(definitionDb, {
-      questionnaireId: draft.questionnaireId,
-      expectedDraftRevision: withThree.draftRevision,
-      title: "Renamed",
-      items: [itemFor("itm_03", third.questionId), itemFor("itm_01", draft.questionId)],
-      actorId: "author-1",
-      traceId: null,
-    });
-
-    expect(outcome).toEqual({ outcome: "saved", draftVersionId: draft.draftVersionId, draftRevision: withThree.draftRevision + 1 });
-    expect(await draftItems(draft.draftVersionId)).toEqual([
-      { item_id: "itm_03", position: 0 },
-      { item_id: "itm_01", position: 1 },
-    ]);
-    const client = await testDatabase.connect("definition");
-    const version = await client.query(`SELECT title FROM definition.questionnaire_version WHERE id = $1`, [draft.draftVersionId]);
-    expect(version.rows[0].title).toBe("Renamed");
-    expect((await testDatabase.readAuditEvents()).filter((event) => event.action === "edit_draft")).toHaveLength(3);
+    expect(read).toEqual(listed);
+    expect(new Map(listed.map((entry) => [entry.questionnaireId, entry.hasDraft]))).toEqual(
+      new Map([
+        [draftOnly.questionnaireId, true],
+        [publishedOnly.questionnaireId, false],
+        [reopened.questionnaireId, true],
+      ]),
+    );
   });
 
-  it("empties a draft", async () => {
-    const definitionDb = testDatabase.database("definition");
-    const draft = await aDraftWithOneItem(definitionDb);
+  it("is undefined for an unknown questionnaire", async () => {
+    const db = testDatabase.database("definition");
 
-    const outcome = await replaceDraft(definitionDb, {
-      questionnaireId: draft.questionnaireId,
-      expectedDraftRevision: draft.draftRevision,
-      title: "Fixture",
-      items: [],
-      actorId: null,
-      traceId: null,
-    });
-
-    expect(outcome.outcome).toBe("saved");
-    expect(await draftItems(draft.draftVersionId)).toEqual([]);
+    expect(await readQuestionnaireSummary(db, uuidv7())).toBeUndefined();
   });
+});
 
-  it("refuses a stale revision and leaves the items untouched", async () => {
+describe("setClosesAt", () => {
+  it("waits on the questionnaire lock, as its first statement, while another transaction holds it", async () => {
     const definitionDb = testDatabase.database("definition");
-    const draft = await aDraftWithOneItem(definitionDb);
+    const created = await createQuestionnaire(definitionDb, { key: null, name: "Retired", title: "Retired", createdBy: null, traceId: null });
+    const events: string[] = [];
+    let retiring: Promise<unknown> = Promise.resolve();
 
-    const outcome = await replaceDraft(definitionDb, {
-      questionnaireId: draft.questionnaireId,
-      expectedDraftRevision: draft.draftRevision - 1,
-      title: "Fixture",
-      items: [],
-      actorId: null,
-      traceId: null,
-    });
+    await whileHoldingALock(
+      definitionDb,
+      (tx) => withLockedQuestionnaire(tx, created.questionnaireId, async () => undefined),
+      async () => {
+        retiring = setClosesAt(definitionDb, {
+          questionnaireId: created.questionnaireId,
+          closesAt: new Date("2031-01-01T00:00:00.000Z"),
+          actorId: null,
+          traceId: null,
+        }).then((outcome) => events.push(`setClosesAt returned ${outcome.outcome}`));
+        expect(await theStatementWaitingOnALock(testDatabase)).toMatch(QUESTIONNAIRE_LOCK_STATEMENT);
+        events.push("lock holder commits");
+      },
+    );
+    await retiring;
 
-    expect(outcome).toEqual({ outcome: "stale-or-missing-draft" });
-    expect(await draftItems(draft.draftVersionId)).toEqual([{ item_id: "itm_01", position: 0 }]);
-  });
-
-  it("finds no draft to replace once the questionnaire is published", async () => {
-    const definitionDb = testDatabase.database("definition");
-    const published = await aPublishedQuestionnaire(definitionDb);
-
-    const outcome = await replaceDraft(definitionDb, {
-      questionnaireId: published.questionnaireId,
-      expectedDraftRevision: published.draftRevision,
-      title: "Fixture",
-      items: [],
-      actorId: null,
-      traceId: null,
-    });
-
-    expect(outcome).toEqual({ outcome: "stale-or-missing-draft" });
-    expect(await draftItems(published.draftVersionId)).toEqual([{ item_id: "itm_01", position: 0 }]);
-  });
-
-  it("rejects an archived question and a question version that does not exist, writing nothing", async () => {
-    const definitionDb = testDatabase.database("definition");
-    const draft = await aDraftWithOneItem(definitionDb);
-    const archived = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
-    const client = await testDatabase.connect("definition");
-    await client.query(`UPDATE definition.question SET archived_at = now() WHERE id = $1`, [archived.questionId]);
-
-    const archivedOutcome = await replaceDraft(definitionDb, {
-      questionnaireId: draft.questionnaireId,
-      expectedDraftRevision: draft.draftRevision,
-      title: "Fixture",
-      items: [itemFor("itm_02", archived.questionId)],
-      actorId: null,
-      traceId: null,
-    });
-    const unknownOutcome = await replaceDraft(definitionDb, {
-      questionnaireId: draft.questionnaireId,
-      expectedDraftRevision: draft.draftRevision,
-      title: "Fixture",
-      items: [{ ...itemFor("itm_01", draft.questionId), questionVersion: 9 }],
-      actorId: null,
-      traceId: null,
-    });
-
-    expect(archivedOutcome).toEqual({ outcome: "archived-question", questionIds: [archived.questionId] });
-    expect(unknownOutcome).toEqual({ outcome: "unknown-question-version", itemIds: ["itm_01"] });
-    expect(await draftItems(draft.draftVersionId)).toEqual([{ item_id: "itm_01", position: 0 }]);
+    expect(events).toEqual(["lock holder commits", "setClosesAt returned updated"]);
   });
 });

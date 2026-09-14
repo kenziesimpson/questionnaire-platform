@@ -1,6 +1,6 @@
 import type pg from "pg";
 import { describe, expect, it } from "vitest";
-import { replaceDraft } from "../../src/db/definition/questionnaires.js";
+import { replaceDraft } from "../../src/db/definition/drafts.js";
 import { createQuestion } from "../../src/db/definition/questions.js";
 import { aDraftWithOneItem, aTextQuestion } from "./fixtures.js";
 import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
@@ -13,7 +13,7 @@ async function aDraftWithTwoItems(): Promise<string> {
   const second = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
   const saved = await replaceDraft(definitionDb, {
     questionnaireId: draft.questionnaireId,
-    expectedDraftRevision: draft.draftRevision,
+    precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
     title: "Fixture",
     items: [
       { itemId: "itm_01", required: false, visibleWhen: null, questionId: draft.questionId, questionVersion: 1 },

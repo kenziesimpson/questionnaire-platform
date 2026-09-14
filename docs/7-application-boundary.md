@@ -61,14 +61,19 @@ This is the same technique as the audit role ([[6-observability#5.1 Isolation �
 
 ### 3.3 What stays shared
 
-`@qp/shared` is the only shared code, and it holds exactly two things:
+`@qp/shared` is the only shared code, and it holds exactly three things:
 
 1. **Wire types** — `PublishedDefinition` and its sub-types, request/response types for both APIs, the problem-details type.
 2. **The rule engine** — one evaluator over `visibleWhen`, used by the client to render and by the server to validate on submit.
+3. **The snapshot loader** — `readStoredDefinition(stored, formatVersion)`, which runs the format upgrade chain from the stored `format_version` and then checks the result against `PublishedDefinition`, refusing a snapshot that fails either step ([[5-questionnaire-format#6.5 Snapshot format version]]).
 
 The rule engine is shared for a correctness reason, not a convenience one. The client decides what to show and the server decides what to accept; if those are two implementations, they drift, and the failure mode is a respondent being rejected for answering exactly what they were asked. One function, tested once ([[2-design-doc#15. Testing]]).
 
-Note the engine takes a `PublishedDefinition` and answers, and returns visibility. It has no database access and no knowledge of drafts, so sharing it does not leak the boundary.
+The loader is shared for the same reason. Snapshots are upgraded in memory at read time, never rewritten, so the upgrade chain is logic every reader of a stored snapshot must apply identically. Two copies drift exactly as two evaluators would, and the failure mode is one reader interpreting a stored document differently from what the respondent was shown — or accepting a format the other refuses. The chain is empty while only format 1 exists; the first format change adds its upgrade in one place (Decisions Log #56).
+
+Note the engine takes a `PublishedDefinition` and answers, and returns visibility; the loader takes a stored value and its format version, and returns a `PublishedDefinition`. Neither has database access or knowledge of drafts, so sharing them does not leak the boundary. Each side still runs its own query, against its own grants (§4.2).
+
+Execution loads every pinned snapshot through the loader. The definition side does not call it: `GET /questionnaires/:id/versions/:v` serves the stored bytes verbatim, even after a future format change, because the stored document is the record of what was published and its `ETag` already carries `formatVersion` (§6.4), so a client can tell formats apart without the server rewriting what it serves. It still checks each stored snapshot against the known formats before serving it; Decisions Log #56 lists what a format change must update, including that check and the endpoint's response schema.
 
 ## 4. Definition API
 
@@ -315,9 +320,9 @@ Auth is out of scope (design doc §4), but the model is stated now so that addin
 | Surface | `/api/definition/*` | `/api/run/*` |
 | Identity | Authenticated user from an upstream IdP (OIDC assumed) | Anonymous |
 | Enforcement | One `preHandler` hook on the definition plugin — all routes, reads included | None; the session id is the credential |
-| Prototype stub | Hook present, always passes, records the author as the placeholder `prototype-author` (Decisions Log #53) | n/a |
+| Prototype stub | Hook present, always passes, records the author as the placeholder `prototype-author` (Decisions Log #57) | n/a |
 
-**The placeholder author is permanent in what it touches.** Every authoring write until real authentication exists records `prototype-author` in append-only columns (`created_by` and the audit `actor_id`), and those rows cannot be rewritten later. Read the value as "unknown author". [[2-design-doc#17. Decisions Log]] #53 has the reasoning.
+**The placeholder author is permanent in what it touches.** Every authoring write until real authentication exists records `prototype-author` in append-only columns (`created_by` and the audit `actor_id`), and those rows cannot be rewritten later. Read the value as "unknown author". [[2-design-doc#17. Decisions Log]] #57 has the reasoning.
 
 Applying the hook to the whole plugin rather than per route is deliberate: a new definition endpoint is protected by default, and forgetting is not one of the available mistakes.
 
@@ -407,3 +412,4 @@ Against that: a write on the hot side of the system, and a partial-answer store 
 2. **Admin reporting surface.** §3.2 denies the definition role any read on `response`, which is correct, and leaves "how do admins see aggregate results" unanswered. Expected shape is a third read-only surface with its own role over the session record and domain events, with raw answers behind an explicit, audited export. Not designed yet.
 3. **Version diffing.** `GET /versions/:a/diff/:b` would make "what changed in v2" a first-class answer and is directly useful for the mandatory v2 demo. Deferred as additive — both snapshots are already retrievable and the admin app can diff client-side.
 4. **Rate limiting on the execution surface.** Unauthenticated `POST /sessions` is trivially abusable. `@fastify/rate-limit` is a small addition; whether it belongs in the prototype or is stated as an edge concern is open, and it interacts with where the split in §8.2 puts the public ingress.
+5. **A taken `key` on create — open, deferred 2026-09-13.** `POST /questions` and `POST /questionnaires` with a key already in use return `500 internal`, because no slug in §6.1 fits. Tracked in [issue #15](https://github.com/kenziesimpson/questionnaire-platform/issues/15); resolve before Track 6 ships key entry.

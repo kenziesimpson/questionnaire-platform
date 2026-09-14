@@ -40,6 +40,9 @@ describe("module boundary: definition and execution never import each other", ()
     ["a deep relative import", `import { x } from "../../execution/repository.js";`],
     ["a path through modules/", `import { x } from "../../modules/execution/index.js";`],
     ["a type-only import", `import type { X } from "../execution/types.js";`],
+    ["a sibling import through a ./ segment", `import { x } from ".././execution/repository.js";`],
+    ["a path through modules/ with a ./ segment", `import { x } from "../../modules/./execution/index.js";`],
+    ["a relative import with a doubled slash", `import { x } from "..//execution/repository.js";`],
   ])("definition rejects %s of execution", async (_, code) => {
     expect(await restrictedImports(DEFINITION, code)).toHaveLength(1);
   });
@@ -56,5 +59,6 @@ describe("module boundary: definition and execution never import each other", ()
 
   it("does not trip on unrelated paths that merely contain the word", async () => {
     expect(await restrictedImports(DEFINITION, `import { x } from "./execution-order.js";`)).toEqual([]);
+    expect(await restrictedImports(DEFINITION, `import { x } from "./execution/local.js";`)).toEqual([]);
   });
 });

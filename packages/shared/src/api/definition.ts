@@ -150,7 +150,7 @@ export const validateDraft = defineRoute({
         {
           valid: Type.Boolean(),
           items: Type.Array(
-            Type.Object({ itemId: Slug, code: Type.Union(DRAFT_ITEM_CODES.map((c) => Type.Literal(c))) }, strict),
+            Type.Object({ itemId: Slug, code: Type.Enum(DRAFT_ITEM_CODES) }, strict),
           ),
         },
         strict,

@@ -51,7 +51,10 @@ Tool directives that must be written in comment syntax are not prose comments an
 
 - Wire shapes are TypeBox schemas in `packages/shared`; derive TypeScript types from them with `Static`, never write a parallel interface.
 - `apps/backend/src/modules/definition` and `apps/backend/src/modules/execution` never import each other. Only `packages/telemetry` imports `pino` or `@opentelemetry/*`. Both are enforced by `eslint.config.mjs`.
+- The boundary reaches the db layer: `src/modules/execution` never imports `src/db/definition`, `src/db/seed` or `src/db/audit`, and `src/db/definition` never imports anything under `src/modules`. ESLint rejects both.
 - Respondent answer values never reach a log, span, metric or error body. Wrap them in `Sensitive<T>`.
+- Never cast through `unknown` or `any` (`x as unknown as T`). ESLint warns on it. Fix the types instead; if the cast is genuinely unavoidable (a third-party type that is wrong, an environment global the package cannot type), disable that one line with the reason: `// eslint-disable-next-line no-restricted-syntax -- <reason>`.
+- Never write raw SQL in `apps/backend`: build queries with drizzle's query builder (`eq`, `and`, `exists`, `notExists`, `max`, `inArray`, …). ESLint warns on the `sql` template and `sql.*` calls everywhere except `src/db/schema.ts`. Where Postgres needs something the builder cannot express — calling a database function, DDL, a JSONB function — disable that one statement with the reason.
 
 ### Migrations
 

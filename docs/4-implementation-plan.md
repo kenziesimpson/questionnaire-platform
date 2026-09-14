@@ -92,7 +92,7 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
 1. **Only the files your group owns** ([[#Track 4 file split]]). `apps/backend/src/db/schema.ts`, `audit.ts`, `client.ts`, `drizzle/**` and `packages/shared/**` are frozen for Track 4. A needed change there is a [[#Stop and ask]], not an edit.
 2. **Set up test data through the database functions, never through another group's routes.** A G3 test that needs a published version calls `createQuestion`, `createQuestionnaire`, `replaceDraft` and `publishDraft` directly. That is what keeps the groups mergeable in any order.
 3. **One route-group test file**, per [[8-testing#2.2 Backend integration — Fastify `inject()` against a real Postgres]], at `apps/backend/_tests/modules/definition/routes/<your routes file>.test.ts`, mirroring `src/` as `AGENTS.md` requires. Build the app with `useDefinitionApp`. Your test rows go under your group's heading in [[8-testing#7. Test case enumeration]].
-4. **The author is `authorOf(request)`**, passed as `actorId` / `createdBy` on every write. Never `null`, and never the placeholder string typed at a call site. See [[2-design-doc#17. Decisions Log]] #53 before writing anything that stores it. `traceId` is `null` until Track 8 lands.
+4. **The author is `authorOf(request)`**, passed as `actorId` / `createdBy` on every write. Never `null`, and never the placeholder string typed at a call site. See [[2-design-doc#17. Decisions Log]] #57 before writing anything that stores it. `traceId` is `null` until Track 8 lands.
 5. **Every route is registered with `registerRoute` and the `definitionApi` object from `@qp/shared`.** No `scope.get` / `scope.route`, and no URL or schema written in the backend. G4's completeness test checks the result
 6. **Every list keeps its `ORDER BY`** from [[7-application-boundary#4.1 Endpoints]]. A list test must create at least two rows and assert their order.
 
@@ -108,7 +108,7 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
   - `replyNotFound`
 
   `src/http/database-errors.ts` reads the SQLSTATE and constraint name through drizzle's wrapped `cause` chain
-- [x] `modules/definition/plugin.ts`: an encapsulated plugin with the validator compiler, the not-found handler, the definition error handler, and one `onRequest` author hook. The hook attaches `AUTHOR_PLACEHOLDER` ([[2-design-doc#17. Decisions Log]] #53). `authorOf(request)` throws on a request that did not pass through the hook, so a route registered outside the plugin fails loudly instead of writing no author
+- [x] `modules/definition/plugin.ts`: an encapsulated plugin with the validator compiler, the not-found handler, the definition error handler, and one `onRequest` author hook. The hook attaches `AUTHOR_PLACEHOLDER` ([[2-design-doc#17. Decisions Log]] #57). `authorOf(request)` throws on a request that did not pass through the hook, so a route registered outside the plugin fails loudly instead of writing no author
 - [x] `modules/definition/errors.ts`, definition-only mapping kept out of `src/http`: `QP001` → `409 version/immutable`; `23505` on `question_version_pkey` only → `409 question/version-conflict`; a malformed `If-Match` → `400` pointing at `/headers/if-match`; everything else falls through to `replyWithProblem`
 - [x] `modules/definition/if-match.ts`: `draftPreconditionOf(ifMatch)` throws `MalformedDraftPrecondition` for anything but a draft ETag the server issued (`*` included); `isCurrentDraft` compares the draft version id **and** the revision. Revision alone is not enough, because a newly opened draft restarts at `0` and an ETag from the previous draft would otherwise match. `replaceDraft` and `publishDraft` check only the revision today, so G2 and G3 must add the version id check
 - [x] `src/http/routes.ts`: `registerRoute(scope, sharedRoute, handler)`. The handler's params, query, headers and body are typed from the shared `defineRoute` object, and it returns `{ status, body, headers? }` for a status the route declares, or a `Problem`. A wrong status, a body that does not match the schema, or an undeclared request part is a compile error
@@ -168,7 +168,7 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 
 ### Wave 3 — the two apps *(two parallel tracks)*
 
-> **Blocked until the five gaps in [[#Stop and ask]] are answered.** [[10-frontend]] does not decide them, and an agent will invent all five.
+> **Unblocked 2026-09-13.** Four of the five gaps in [[#Stop and ask]] are answered — [[2-design-doc#17. Decisions Log]] #53–#55 — and the fifth (response-type controls) was already settled in [[10-frontend#3. `packages/ui` — primitives and the renderer]]; the plan text above it was stale. **Track 7 (respondent app) is fully unblocked.** Track 6 (admin app) is unblocked except for two screens that wait on a design pass — [[2-design-doc#20. Pending UI experimentation]] — before an agent builds them: the question bank/draft editor's options-authoring widget, and the question editor's constraint-field layout. Everything else in Track 6 can start now.
 
 **Track 6 — admin app.** Five screens, code-based TanStack Router, TanStack Query, hand-rolled form state, dnd-kit reorders as optimistic draft mutations through the `If-Match` path with rollback on `409 questionnaire/draft-stale`.
 
@@ -200,15 +200,17 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 
 ### Stop and ask
 
-An agent must not decide these alone. The first five block Wave 3.
+An agent must not decide these alone. The first five blocked Wave 3; four are now closed and the fifth is narrowed to two specific screens.
 
-- [ ] Admin list sort and filter UI — #40 assigns sorting to the client but names no controls
-- [ ] Which control renders each of the five response types. Only the date control is pinned, to native `<input type="date">`
-- [ ] The draft editor's publish-validation error surface, and where `422 questionnaire/draft-invalid`'s per-item failures land
-- [ ] How `errorsByItemId` is built from the RFC 9457 body — the field names live only in [[7-application-boundary#6.1 Error format — RFC 9457 problem details]] and are not cross-referenced from the frontend doc
-- [ ] The question editor's constraint fields per response type
+- [x] Admin list sort and filter UI — resolved: client-side "most recently edited" only, nothing else ships in Wave 3. [[2-design-doc#17. Decisions Log]] #53, [gh#21](https://github.com/kenziesimpson/questionnaire-platform/issues/21) tracks the fuller sort/filter surface
+- [x] Which control renders each of the five response types — already settled in [[10-frontend#3. `packages/ui` — primitives and the renderer]]; this plan just hadn't caught up. The *authoring* widget for options is separate and still open — see below
+- [x] The draft editor's publish-validation error surface — resolved: a summary panel with jump-to-item links for the first pass. [[2-design-doc#17. Decisions Log]] #54, [gh#22](https://github.com/kenziesimpson/questionnaire-platform/issues/22) tracks inline per-item rendering as a follow-up
+- [x] How `errorsByItemId` is built from the RFC 9457 body — resolved: one function in `packages/ui`, used by both apps, dropping `answer/not-visible` and `answer/unknown-item` for now. [[2-design-doc#17. Decisions Log]] #55, [gh#23](https://github.com/kenziesimpson/questionnaire-platform/issues/23) tracks revisiting the two dropped codes
+- [ ] The question editor's constraint fields per response type — **still open**, pending a design pass. [[2-design-doc#20. Pending UI experimentation]]
 - [ ] **`publishedBy` has no column** (blocks G3's `VersionSummary`). `questionnaire_version` stores `created_by`, which is whoever opened the draft, and `qp_definition` cannot read the publish row in `audit.event`. Filling `publishedBy` from `created_by` would label the draft's opener as the publisher; adding a `published_by` column needs a migration and a change to `promote_draft`
 - [ ] Anything that would add a custom migration, widen a grant, put an unpersisted value in the digest, or change what crosses the definition/execution boundary
+
+**Also pending the same design pass, not originally on this list:** the options-authoring widget (add/remove/reorder/mark-freeform) for `single_choice` and `multiple_choice` questions in the question editor — [[2-design-doc#20. Pending UI experimentation]]. Both items block only the question editor and the draft editor's options UI in Track 6; nothing else in Wave 3 waits on them.
 
 ### Agent-verified milestones
 
