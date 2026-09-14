@@ -85,7 +85,7 @@
 
 ### Wave 3 — the two apps *(two parallel tracks)*
 
-> **Blocked until the five gaps in [[#Stop and ask]] are answered.** [[10-frontend]] does not decide them, and an agent will invent all five.
+> **Unblocked 2026-09-13.** Four of the five gaps in [[#Stop and ask]] are answered — [[2-design-doc#17. Decisions Log]] #53–#55 — and the fifth (response-type controls) was already settled in [[10-frontend#3. `packages/ui` — primitives and the renderer]]; the plan text above it was stale. **Track 7 (respondent app) is fully unblocked.** Track 6 (admin app) is unblocked except for two screens that wait on a design pass — [[2-design-doc#20. Pending UI experimentation]] — before an agent builds them: the question bank/draft editor's options-authoring widget, and the question editor's constraint-field layout. Everything else in Track 6 can start now.
 
 **Track 6 — admin app.** Five screens, code-based TanStack Router, TanStack Query, hand-rolled form state, dnd-kit reorders as optimistic draft mutations through the `If-Match` path with rollback on `409 questionnaire/draft-stale`.
 
@@ -116,14 +116,16 @@
 
 ### Stop and ask
 
-An agent must not decide these alone. The first five block Wave 3.
+An agent must not decide these alone. The first five blocked Wave 3; four are now closed and the fifth is narrowed to two specific screens.
 
-- [ ] Admin list sort and filter UI — #40 assigns sorting to the client but names no controls
-- [ ] Which control renders each of the five response types. Only the date control is pinned, to native `<input type="date">`
-- [ ] The draft editor's publish-validation error surface, and where `422 questionnaire/draft-invalid`'s per-item failures land
-- [ ] How `errorsByItemId` is built from the RFC 9457 body — the field names live only in [[7-application-boundary#6.1 Error format — RFC 9457 problem details]] and are not cross-referenced from the frontend doc
-- [ ] The question editor's constraint fields per response type
+- [x] Admin list sort and filter UI — resolved: client-side "most recently edited" only, nothing else ships in Wave 3. [[2-design-doc#17. Decisions Log]] #53, [gh#21](https://github.com/kenziesimpson/questionnaire-platform/issues/21) tracks the fuller sort/filter surface
+- [x] Which control renders each of the five response types — already settled in [[10-frontend#3. `packages/ui` — primitives and the renderer]]; this plan just hadn't caught up. The *authoring* widget for options is separate and still open — see below
+- [x] The draft editor's publish-validation error surface — resolved: a summary panel with jump-to-item links for the first pass. [[2-design-doc#17. Decisions Log]] #54, [gh#22](https://github.com/kenziesimpson/questionnaire-platform/issues/22) tracks inline per-item rendering as a follow-up
+- [x] How `errorsByItemId` is built from the RFC 9457 body — resolved: one function in `packages/ui`, used by both apps, dropping `answer/not-visible` and `answer/unknown-item` for now. [[2-design-doc#17. Decisions Log]] #55, [gh#23](https://github.com/kenziesimpson/questionnaire-platform/issues/23) tracks revisiting the two dropped codes
+- [ ] The question editor's constraint fields per response type — **still open**, pending a design pass. [[2-design-doc#20. Pending UI experimentation]]
 - [ ] Anything that would add a custom migration, widen a grant, put an unpersisted value in the digest, or change what crosses the definition/execution boundary
+
+**Also pending the same design pass, not originally on this list:** the options-authoring widget (add/remove/reorder/mark-freeform) for `single_choice` and `multiple_choice` questions in the question editor — [[2-design-doc#20. Pending UI experimentation]]. Both items block only the question editor and the draft editor's options UI in Track 6; nothing else in Wave 3 waits on them.
 
 ### Agent-verified milestones
 
