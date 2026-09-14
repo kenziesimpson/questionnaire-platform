@@ -59,12 +59,18 @@ async function saveDraft(db: Database, questionnaireId: string, expectedDraftRev
   if (saved.outcome !== "saved") {
     throw new Error(`draft was not saved: ${saved.outcome}`);
   }
-  return saved.draftRevision;
+  return saved;
 }
 
 async function publish(db: Database, questionnaireId: string, expectedDraftRevision: number, items: DraftItem[]) {
-  const draftRevision = await saveDraft(db, questionnaireId, expectedDraftRevision, items);
-  const published = await publishDraft(db, { questionnaireId, expectedDraftRevision: draftRevision, actorId: "test", traceId: null });
+  const draft = await saveDraft(db, questionnaireId, expectedDraftRevision, items);
+  const published = await publishDraft(db, {
+    questionnaireId,
+    expectedDraftVersionId: draft.draftVersionId,
+    expectedDraftRevision: draft.draftRevision,
+    actorId: "test",
+    traceId: null,
+  });
   if (published.outcome !== "published") {
     throw new Error(`draft was not published: ${published.outcome}`);
   }
