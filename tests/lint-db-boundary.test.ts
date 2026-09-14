@@ -25,6 +25,9 @@ describe("execution never imports the definition side of the db layer", () => {
     ["db/audit without an extension", NESTED_EXECUTION, `import { withAudit } from "../../../db/audit";`],
     ["a type-only import", EXECUTION, `import type { Draft } from "../../db/definition/draft-contents.js";`],
     ["a re-export", EXECUTION, `export { publish } from "../../db/definition/publish.js";`],
+    ["db/definition through a ./ segment", EXECUTION, `import { publish } from "../../db/./definition/publish.js";`],
+    ["db/seed through a doubled slash", EXECUTION, `import { seed } from "../../db//seed/seed.js";`],
+    ["db/audit through ./ segments", NESTED_EXECUTION, `import { withAudit } from "../.././../db/././audit.js";`],
   ])("rejects %s", async (_, filePath, code) => {
     const messages = await restrictedImports(filePath, code);
 
@@ -39,6 +42,7 @@ describe("execution never imports the definition side of the db layer", () => {
       `import { ensurePartitions } from "../../db/partitions.js";`,
       `import { lock } from "../../db/execution/sessions.js";`,
       `import { trail } from "../../db/audit-trail.js";`,
+      `import { lock } from "../../db/./client.js";`,
     ].join("\n");
 
     expect(await restrictedImports(EXECUTION, code)).toEqual([]);
@@ -59,6 +63,7 @@ describe("db/definition never imports a backend module", () => {
     ["a module from a nested file", NESTED_DB_DEFINITION, `import { x } from "../../../modules/definition/index.js";`],
     ["the modules directory itself", DB_DEFINITION, `import * as modules from "../../modules";`],
     ["a type-only import", DB_DEFINITION, `import type { X } from "../../modules/definition/types.js";`],
+    ["a module through ./ segments", DB_DEFINITION, `import { x } from "../.././modules/./execution/submit.js";`],
   ])("rejects %s", async (_, filePath, code) => {
     const messages = await restrictedImports(filePath, code);
 

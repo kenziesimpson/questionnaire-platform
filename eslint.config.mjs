@@ -19,15 +19,17 @@ const telemetryOnly = {
     "Only packages/telemetry may import pino or OpenTelemetry. Log, trace and count through @qp/telemetry so answer values cannot reach an exporter.",
 };
 
+const pathGap = "/+(\\./+)*";
+
 function otherModule(name) {
   return {
-    regex: `(^|/)modules/${name}(/|$)|^(\\.\\./)+${name}(/|$)`,
+    regex: `(^|/)modules${pathGap}${name}(/|$)|^(\\.{1,2}/+)*\\.\\./+(\\.{1,2}/+)*${name}(/|$)`,
     message: `The definition and execution modules share nothing but @qp/shared. Importing modules/${name} crosses the boundary.`,
   };
 }
 
 const definitionDbLayer = {
-  regex: "(^|/)db/(definition|seed)(/|$)|(^|/)db/audit(\\.[cm]?[jt]s)?$",
+  regex: `(^|/)db${pathGap}(definition|seed)(/|$)|(^|/)db${pathGap}audit(\\.[cm]?[jt]s)?$`,
   message:
     "db/definition, db/seed and db/audit belong to the definition side. Execution may use db/client, db/schema and the rest of the db layer, but not those.",
 };
