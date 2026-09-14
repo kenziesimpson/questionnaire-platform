@@ -93,7 +93,8 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
 2. **Set up test data through the database functions, never through another group's routes.** A G3 test that needs a published version calls `createQuestion`, `createQuestionnaire`, `replaceDraft` and `publishDraft` directly. That is what keeps the groups mergeable in any order.
 3. **One route-group test file**, per [[8-testing#2.2 Backend integration — Fastify `inject()` against a real Postgres]], at `apps/backend/_tests/modules/definition/routes/<your routes file>.test.ts`, mirroring `src/` as `AGENTS.md` requires. Build the app with `useDefinitionApp`. Your test rows go under your group's heading in [[8-testing#7. Test case enumeration]].
 4. **The author is `authorOf(request)`**, passed as `actorId` / `createdBy` on every write. Never `null`, and never the placeholder string typed at a call site. See [[2-design-doc#17. Decisions Log]] #53 before writing anything that stores it. `traceId` is `null` until Track 8 lands.
-5. **Every list keeps its `ORDER BY`** from [[7-application-boundary#4.1 Endpoints]]. A list test must create at least two rows and assert their order.
+5. **Every route is registered with `registerRoute` and the `definitionApi` object from `@qp/shared`.** No `scope.get` / `scope.route`, and no URL or schema written in the backend. G4's completeness test checks the result
+6. **Every list keeps its `ORDER BY`** from [[7-application-boundary#4.1 Endpoints]]. A list test must create at least two rows and assert their order.
 
 #### G0 — the definition plugin skeleton *(serial, lands on `staging` before G1–G3 start)*
 
@@ -110,6 +111,7 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
 - [x] `modules/definition/plugin.ts`: an encapsulated plugin with the validator compiler, the not-found handler, the definition error handler, and one `onRequest` author hook. The hook attaches `AUTHOR_PLACEHOLDER` ([[2-design-doc#17. Decisions Log]] #53). `authorOf(request)` throws on a request that did not pass through the hook, so a route registered outside the plugin fails loudly instead of writing no author
 - [x] `modules/definition/errors.ts`, definition-only mapping kept out of `src/http`: `QP001` → `409 version/immutable`; `23505` on `question_version_pkey` only → `409 question/version-conflict`; a malformed `If-Match` → `400` pointing at `/headers/if-match`; everything else falls through to `replyWithProblem`
 - [x] `modules/definition/if-match.ts`: `draftPreconditionOf(ifMatch)` throws `MalformedDraftPrecondition` for anything but a draft ETag the server issued (`*` included); `isCurrentDraft` compares the draft version id **and** the revision. Revision alone is not enough, because a newly opened draft restarts at `0` and an ETag from the previous draft would otherwise match. `replaceDraft` and `publishDraft` check only the revision today, so G2 and G3 must add the version id check
+- [x] `src/http/routes.ts`: `registerRoute(scope, sharedRoute, handler)`. The handler's params, query, headers and body are typed from the shared `defineRoute` object, and it returns `{ status, body, headers? }` for a status the route declares, or a `Problem`. A wrong status, a body that does not match the schema, or an undeclared request part is a compile error
 - [x] Empty route files `routes/questions.ts` (G1), `routes/drafts.ts` (G2), `routes/versions.ts` (G3), already registered by the plugin, so no group edits `plugin.ts`
 - [x] `_tests/modules/definition/harness.ts`: `useDefinitionApp(testDatabase)` registers the module on a bare Fastify instance and returns it for `inject()`; `definitionUrl(path)` adds the prefix
 - [x] **`GET /questionnaires`** as the pattern every later route copies: `routes/questionnaire-list.ts` over `db/definition/questionnaire-list.ts`, `id DESC`, with `currentVersion`, `closesAt` and `hasDraft`. Track 6 needs this route first
@@ -154,7 +156,7 @@ Test paths mirror `src/` under `apps/backend/_tests/`.
 
 | Path | Group |
 | --- | --- |
-| `src/app.ts`, `src/index.ts`, `src/http/**`, `src/modules/definition/{plugin,author,errors,if-match}.ts`, `routes/questionnaire-list.ts`, `src/db/definition/questionnaire-list.ts`, `_tests/modules/definition/harness.ts` | G0 |
+| `src/app.ts`, `src/index.ts`, `src/http/**` (including `routes.ts`), `src/modules/definition/{plugin,author,errors,if-match}.ts`, `routes/questionnaire-list.ts`, `src/db/definition/questionnaire-list.ts`, `_tests/modules/definition/harness.ts` | G0 |
 | `src/modules/definition/routes/questions.ts`, `src/db/definition/questions.ts`, `question-content.ts` | G1 |
 | `src/modules/definition/routes/drafts.ts`, `src/db/definition/questionnaires.ts` | G2 |
 | `src/modules/definition/routes/versions.ts`, `src/db/definition/publish.ts`, `versions.ts`, `closes-at.ts` | G3, apart from G2's pure extraction from `publish.ts` |
