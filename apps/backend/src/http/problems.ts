@@ -15,10 +15,15 @@ export function sendProblem(reply: FastifyReply, body: Problem): FastifyReply {
 
 const URL_PARTS: ReadonlySet<string> = new Set(["params", "querystring"]);
 
-export function requestValidatorCompiler(): FastifySchemaCompiler<unknown> {
+function ajvSchemaCompiler(coerceTypes: boolean): FastifySchemaCompiler<unknown> {
   const buildAjvCompiler = AjvCompiler();
-  const exact = buildAjvCompiler({}, { customOptions: { coerceTypes: false, removeAdditional: false } }) as unknown as FastifySchemaCompiler<unknown>;
-  const coercingUrlStrings = buildAjvCompiler({}, { customOptions: { coerceTypes: true, removeAdditional: false } }) as unknown as FastifySchemaCompiler<unknown>;
+  // eslint-disable-next-line no-restricted-syntax -- @fastify/ajv-compiler's .d.ts types the compiled function as (schema) => validate, but at runtime it receives Fastify's route definition and reads .schema from it
+  return buildAjvCompiler({}, { customOptions: { coerceTypes, removeAdditional: false } }) as unknown as FastifySchemaCompiler<unknown>;
+}
+
+export function requestValidatorCompiler(): FastifySchemaCompiler<unknown> {
+  const exact = ajvSchemaCompiler(false);
+  const coercingUrlStrings = ajvSchemaCompiler(true);
   return (route) => (URL_PARTS.has(route.httpPart ?? "") ? coercingUrlStrings(route) : exact(route));
 }
 
