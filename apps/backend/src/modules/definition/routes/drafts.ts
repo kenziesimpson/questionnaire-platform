@@ -1,13 +1,13 @@
 import { definitionApi, formatDraftEtag, problem } from "@qp/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
-  createQuestionnaire,
   openNextDraft,
   readDraft,
   replaceDraft,
   validateOpenDraft,
   type CurrentDraft,
 } from "../../../db/definition/drafts.js";
+import { createQuestionnaire } from "../../../db/definition/questionnaires.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { draftPreconditionOf } from "../if-match.js";

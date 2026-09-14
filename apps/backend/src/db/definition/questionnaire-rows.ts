@@ -1,4 +1,4 @@
-import { and, eq, exists, type SQL } from "drizzle-orm";
+import { and, eq, exists } from "drizzle-orm";
 import type { Executor, Transaction } from "../client.js";
 import { questionnaire, questionnaireVersion } from "../schema.js";
 
@@ -44,25 +44,6 @@ export async function questionnaireExists(executor: Executor, questionnaireId: s
 
 export function isOpenDraftOf(questionnaireId: string | typeof questionnaire.id) {
   return and(eq(questionnaireVersion.questionnaireId, questionnaireId), eq(questionnaireVersion.status, "draft"));
-}
-
-export function isPublishedVersion(): SQL {
-  return eq(questionnaireVersion.status, "published");
-}
-
-export function isPublishedVersionOf(questionnaireId: string, version?: number): SQL | undefined {
-  return and(
-    eq(questionnaireVersion.questionnaireId, questionnaireId),
-    isPublishedVersion(),
-    version === undefined ? undefined : eq(questionnaireVersion.version, version),
-  );
-}
-
-export function publishedValue<Value>(value: Value | null, column: string): Value {
-  if (value === null) {
-    throw new Error(`a published questionnaire version is missing its ${column}`);
-  }
-  return value;
 }
 
 export interface OpenDraftRow {

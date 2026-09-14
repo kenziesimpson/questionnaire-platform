@@ -1,7 +1,7 @@
 import { definitionApi, problem, type Problem } from "@qp/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { setClosesAt } from "../../../db/definition/closes-at.js";
 import { publishDraft } from "../../../db/definition/publish.js";
+import { setClosesAt } from "../../../db/definition/questionnaires.js";
 import { listVersionSummaries, readPublishedSnapshot } from "../../../db/definition/versions.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";

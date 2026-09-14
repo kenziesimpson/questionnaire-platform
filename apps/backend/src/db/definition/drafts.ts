@@ -1,17 +1,11 @@
-import {
-  validateDraft,
-  type DraftItem,
-  type DraftValidation,
-  type QuestionnaireDraft,
-  type QuestionnaireSummary,
-} from "@qp/shared";
+import { validateDraft, type DraftItem, type DraftValidation, type QuestionnaireDraft } from "@qp/shared";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import { desc, eq, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
 import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
 import type { Database, Executor, Transaction } from "../client.js";
-import { questionnaire, questionnaireItem, questionnaireVersion } from "../schema.js";
+import { questionnaireItem, questionnaireVersion } from "../schema.js";
 import {
   archivedQuestionIds,
   draftForValidation,
@@ -22,68 +16,11 @@ import {
   readItems,
   type DraftInvalidItem,
 } from "./draft-contents.js";
-import { readQuestionnaireSummary } from "./questionnaires.js";
-import {
-  isPublishedVersionOf,
-  lockOpenDraft,
-  readOpenDraft,
-  withLockedQuestionnaire,
-  type QuestionnaireNotFound,
-} from "./questionnaire-rows.js";
+import { lockOpenDraft, readOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
 import { existingQuestionVersionKeys, questionVersionKey, type QuestionVersionKey } from "./question-versions.js";
+import { isPublishedVersionOf } from "./versions.js";
 
 const READ_ONLY_SNAPSHOT: PgTransactionConfig = { isolationLevel: "repeatable read", accessMode: "read only" };
-
-export interface CreateQuestionnaireCommand {
-  readonly questionnaireId?: string;
-  readonly key: string | null;
-  readonly name: string;
-  readonly title: string;
-  readonly createdBy: string | null;
-  readonly traceId: string | null;
-}
-
-export interface CreatedQuestionnaire {
-  readonly questionnaireId: string;
-  readonly draftVersionId: string;
-  readonly draftRevision: number;
-  readonly summary: QuestionnaireSummary;
-}
-
-export async function createQuestionnaire(
-  executor: Executor,
-  command: CreateQuestionnaireCommand,
-): Promise<CreatedQuestionnaire> {
-  return executor.transaction(async (tx) => {
-    const questionnaireId = command.questionnaireId ?? uuidv7();
-    const draftVersionId = uuidv7();
-    await tx.insert(questionnaire).values({ id: questionnaireId, key: command.key, name: command.name });
-    const [draft] = await tx
-      .insert(questionnaireVersion)
-      .values({
-        id: draftVersionId,
-        questionnaireId,
-        status: "draft",
-        title: command.title,
-        createdBy: command.createdBy,
-      })
-      .returning({ draftRevision: questionnaireVersion.draftRevision });
-    const summary = await readQuestionnaireSummary(tx, questionnaireId);
-    if (draft === undefined || summary === undefined) {
-      throw new Error("creating a questionnaire returned no row");
-    }
-    await recordAudit(tx, {
-      action: "create_draft",
-      questionnaireId,
-      questionnaireVersionId: draftVersionId,
-      version: null,
-      actorId: command.createdBy,
-      summary: null,
-      traceId: command.traceId,
-    });
-    return { questionnaireId, draftVersionId, draftRevision: draft.draftRevision, summary };
-  });
-}
 
 export interface CurrentDraft {
   readonly draft: QuestionnaireDraft;

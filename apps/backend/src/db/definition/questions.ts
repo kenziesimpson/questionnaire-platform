@@ -6,7 +6,7 @@ import { recordAudit } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
 import { question, questionnaireVersion, questionVersion, questionVersionOption, versionQuestionIndex } from "../schema.js";
 import { questionInputToColumns, storedQuestionToVersion } from "./question-content.js";
-import { isPublishedVersion, publishedValue } from "./questionnaire-rows.js";
+import { isPublishedVersion, publishedValue } from "./versions.js";
 import { questionVersionIn, questionVersionKey, readOptionsInPosition, readQuestionVersions } from "./question-versions.js";
 
 export interface CreateQuestionCommand {

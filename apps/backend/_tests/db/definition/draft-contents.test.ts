@@ -6,7 +6,8 @@ import {
   pinnedQuestionVersionsInPlacementOrder,
   readDraftContents,
 } from "../../../src/db/definition/draft-contents.js";
-import { createQuestionnaire, replaceDraft } from "../../../src/db/definition/drafts.js";
+import { replaceDraft } from "../../../src/db/definition/drafts.js";
+import { createQuestionnaire } from "../../../src/db/definition/questionnaires.js";
 import { createQuestion } from "../../../src/db/definition/questions.js";
 import { aTextQuestion } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";

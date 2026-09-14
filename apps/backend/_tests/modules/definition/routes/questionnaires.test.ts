@@ -2,7 +2,7 @@ import { PROBLEM_CONTENT_TYPE, QuestionnaireSummary, problemType } from "@qp/sha
 import Type from "typebox";
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
-import { createQuestionnaire } from "../../../../src/db/definition/drafts.js";
+import { createQuestionnaire } from "../../../../src/db/definition/questionnaires.js";
 import { aPublishedQuestionnaire } from "../../../db/fixtures.js";
 import { useTestDatabase } from "../../../db/harness.js";
 import { definitionUrl, useDefinitionApp } from "../harness.js";

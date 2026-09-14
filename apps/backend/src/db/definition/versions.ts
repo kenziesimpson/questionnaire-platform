@@ -1,10 +1,29 @@
 import type { PublishedDefinition, VersionSummary } from "@qp/shared";
-import { desc, sql } from "drizzle-orm";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import type { Executor } from "../client.js";
 import { questionnaireVersion } from "../schema.js";
-import { isPublishedVersionOf, publishedValue, questionnaireExists } from "./questionnaire-rows.js";
+import { questionnaireExists } from "./questionnaire-rows.js";
 
 const PUBLISHER_IS_NOT_RECORDED = null;
+
+export function isPublishedVersion(): SQL {
+  return eq(questionnaireVersion.status, "published");
+}
+
+export function isPublishedVersionOf(questionnaireId: string, version?: number): SQL | undefined {
+  return and(
+    eq(questionnaireVersion.questionnaireId, questionnaireId),
+    isPublishedVersion(),
+    version === undefined ? undefined : eq(questionnaireVersion.version, version),
+  );
+}
+
+export function publishedValue<Value>(value: Value | null, column: string): Value {
+  if (value === null) {
+    throw new Error(`a published questionnaire version is missing its ${column}`);
+  }
+  return value;
+}
 
 export type VersionHistoryOutcome =
   | { readonly outcome: "found"; readonly versions: VersionSummary[] }
