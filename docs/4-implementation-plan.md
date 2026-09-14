@@ -170,25 +170,77 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 
 ### Wave 3 — the two apps *(two parallel tracks)*
 
-> **Unblocked 2026-09-14.** Every Wave 3 gap in [[#Stop and ask]] is answered — [[2-design-doc#17. Decisions Log]] #53–#55 on 2026-09-13, and #58–#65 on 2026-09-14, which adopt the prototypes in `docs/designs/` for the question editor's constraint fields and options widget and defer `publishedBy` with authentication. **Once the contract commit below lands, Track 6 (admin app) and Track 7 (respondent app) are both fully unblocked.**
+> **Unblocked 2026-09-14.** Every Wave 3 gap in [[#Stop and ask]] is answered — [[2-design-doc#17. Decisions Log]] #53–#55 on 2026-09-13, and #58–#74 on 2026-09-14, which adopt the prototypes in `docs/designs/` for the question editor's constraint fields and options widget and defer `publishedBy` with authentication. **Once the contract commit below lands, Track 6 (admin app) and Track 7 (respondent app) are both fully unblocked.**
 
 #### Wave 3 contract commit *(serial, one agent, before Tracks 6 and 7 branch)*
 
-> **The only Wave 3 change to `packages/shared`, `packages/ui` and `apps/backend`.** After it, Tracks 6 and 7 each touch only their own app. It crosses files Tracks 1, 3 and 4 own, which is why one agent does it before anything branches: both apps consume `errorsByItemId` (#62), and Track 6 builds against the other two contract changes.
+> **The only Wave 3 change to `packages/shared`, `packages/ui` and `apps/backend`.** After it, Tracks 6 and 7 each touch only their own app. It crosses files Tracks 1, 3 and 4 own, which is why one agent does it before anything branches: both apps consume `errorsByItemId` (#62), and Track 6 builds against the other changes.
 
 - [ ] `errorsByItemId` in `packages/ui/src/questionnaire/`, with tests (#55, #62)
 - [ ] `QuestionnaireSummary.updatedAt` in `packages/shared`, plus the backend list query: the latest `questionnaire_version.updated_at` per questionnaire, not moved by a `closesAt` change (#59)
 - [ ] `question/type-changed` in `QUESTION_RULE_CODES`, plus the check in the backend's append-question-version path — `appendQuestionVersion`, under the question row lock it already takes — with a test (#61)
+- [ ] The shadcn primitives Track 6 needs in `packages/ui`: `Dialog`, `Select` / `Combobox`, `Table` and `Popover` (#66). Generated files, no questionnaire logic
 - [ ] Its rows in [[8-testing#7. Test case enumeration]]
 
 **Track 6 — admin app.** Five screens, code-based TanStack Router, TanStack Query, hand-rolled form state, dnd-kit reorders as optimistic draft mutations through the `If-Match` path with rollback on `409 questionnaire/draft-stale`.
 
-- The question editor's constraint fields and options widget follow `QuestionFields` and `AdminQuestionEditor` ([[10-frontend#5.3 The question editor, and re-pinning]], #58); the Yes / No template is optional polish. The type selector is disabled after a question's first save (#61)
+- The question editor's constraint fields and options widget follow `QuestionFields` and `AdminQuestionEditor` ([[10-frontend#5.3 The question editor, and re-pinning]], #58). **The Yes / No template button is a required deliverable** (#36, #58): it is how the brief's yes/no type is visible in the admin UI, and the only way a question gets the reserved `yes` / `no` ids. The type selector is disabled after a question's first save (#61)
 - The author-facing `DraftItemCode` message catalogue (#60) gets a design subagent pass on its wording and presentation during execution
+- A `409 questionnaire/draft-exists` on opening the next draft refetches and navigates to the existing draft, with no error (#67)
+- Preview's sample answers are plain inputs in an admin side panel; the renderer stays `readonly` (#68)
+- The list and bank keep TanStack Query's default refetch-on-window-focus (#69)
 - `publishedBy` is always `null`; the history screen renders it as absent (#64)
 - **Two known bugs, punted (#65).** Track 6 will hit both and neither fixes nor works around them. [gh#17](https://github.com/kenziesimpson/questionnaire-platform/issues/17): an archived question already placed in a draft blocks every `PUT /draft` for that questionnaire. [gh#15](https://github.com/kenziesimpson/questionnaire-platform/issues/15): a taken `key` returns `500`, and `key` may be removed — so do not present a key input as required
 
+#### How Track 6 runs
+
+A serial skeleton, **PR0**, lands on `main` first. The screen PRs follow and merge **directly to `main`**, each through a pull request with Checks green. No staging branch: PR0 pre-registers every route and seam, so the screen PRs touch disjoint files and merge in any order their dependencies allow.
+
+**Rules for every PR:**
+
+1. **PR0 owns the seams.** Screen PRs build on the router, API client, query keys and mutation hook rather than writing their own.
+2. **Every draft write goes through the shared optimistic-draft-mutation hook**, never a hand-rolled `useMutation` with its own `If-Match`.
+3. **Tests with the feature.** Each PR adds its own rows to [[8-testing#7. Test case enumeration]] under a Track 6 heading.
+
+**PR0 — the skeleton** *(serial, lands on `main` before any screen PR)*
+
+- [ ] `router.tsx`: every screen's route registered with a stub component, so no screen PR edits the route tree
+- [ ] The API client: typed calls over `definitionApi` from `@qp/shared`, problem+json parsed into the shared error union, and the draft `ETag` captured and sent back as `If-Match`
+- [ ] Query keys, one module, so every screen invalidates the same keys
+- [ ] The shared optimistic-draft-mutation hook: apply locally, `PUT /draft` with `If-Match`, roll back and refetch on `409 questionnaire/draft-stale`
+
+| PR | Screen | Depends on |
+| --- | --- | --- |
+| PR1 | Questionnaire list | PR0 |
+| PR2 | Question editor dialog, including the Yes / No button | PR0 |
+| PR3 | Question bank | PR2 |
+| PR4 | Draft editor: items, reorder, predicate editor | PR2 |
+| PR5 | Publish-checks panel and the draft-item message catalogue | PR4, and the design subagent pass, which starts once PR4's panel host exists and blocks only PR5's copy and layout |
+| History | Version history | PR0; can run in parallel |
+| Preview | Preview | PR0; can run in parallel |
+| PR6 | Integration, plus **H5** (admin half) and **H6** | Everything above |
+
+**PR4 must tell a `422` from a `409`.** A reorder can hit `422 questionnaire/draft-invalid` from gh#17 — an archived question elsewhere in the draft — for reasons that have nothing to do with the reorder. It is not a stale conflict and must not be reported as someone else's edit. Per #65, PR4 neither fixes gh#17 nor works around it.
+
 **Track 7 — respondent app.** No router; a state machine after one entry URL. Plain `fetch`, TanStack Form, `localStorage` partials including hidden items, filtered to visible once at submit. Storage-first resume. Client-side date validation against the **browser's** local date. The primitives' sizes are used as they are; the prototypes' larger touch scale is deferred (#63).
+
+- Partials live under `qp:respondent:<questionnaireId>` in an envelope with a `formatVersion`, shape-checked on load; a mismatched or corrupt value is discarded, not a crash (#71)
+- A successful submit clears the stored answers and keeps `{ sessionId, questionnaireId }`, so reopening the link shows the receipt (#70)
+- `409 session/already-submitted` fetches `GET /sessions/:id` and shows the recorded receipt with a note, never a dead end (#72)
+- Network failures on any of the three calls get a manual retry; submit is disabled in flight; stored answers survive until a genuine `2xx` (#73)
+- **Not in scope: "start over"** on a resumed session, though `RespondentStart` draws it — punted as [gh#35](https://github.com/kenziesimpson/questionnaire-platform/issues/35) (#74)
+
+#### How Track 7 runs
+
+Four **stacked** PRs, staged on a **`staging/track-7`** branch cut from `main` after the Wave 3 contract commit merges. Each PR targets `staging/track-7`, or the PR below it in the stack, and CI runs on every pull request whatever the base branch. `staging/track-7` merges to `main` once, when all four are in, with Checks green on its head. **H4** is done by hand against it.
+
+Each PR adds its own [[8-testing#7. Test case enumeration]] rows with the feature. There is no separate integration PR.
+
+1. [ ] **Execution client and storage.** A typed `fetch` for the three `/api/run` routes; the partials storage module with its envelope and shape check (#71); Vitest and RTL set up for `apps/respondent`
+2. [ ] **State machine and happy path.** Start, resume, fill with branching, a client-side validation pre-check, submit only the visible answers, the receipt, and the closed and not-found screens
+3. [ ] **Submission errors.** The `422` mapped through `errorsByItemId`, an error summary with jump-to-item links, focus on the first invalid item, and the `409 session/already-submitted` handling (#72)
+4. [ ] **Network failure and retry** (#73)
+5. [ ] `staging/track-7 → main` merged with Checks green on its head
 
 ### Wave 3b — observability and pipeline
 
@@ -249,7 +301,7 @@ The things a green test cannot tell you.
 - [ ] **H1** *(after Track 2)* `docker compose up` from clean; then open `psql` and try to `UPDATE` a published snapshot yourself. Feel the barrier rather than trusting a green test
 - [ ] **H2** *(after Track 2)* Read the generated migration SQL by hand. [[9-database-schema#11. Migrations]]'s traps fail *silently*, and generated SQL is where they survive review
 - [ ] **H3** *(after Waves 2)* Drive the API by hand through the demo flow once and read the problem+json bodies. Shape and wording are judgement, not assertion
-- [ ] **H4** *(after Track 7)* Fill the demo questionnaire in a browser: answer yes, watch the branch appear; switch to no, watch it and its answers disappear; reload and resume; submit and confirm storage cleared
+- [ ] **H4** *(after Track 7)* Fill the demo questionnaire in a browser: answer yes, watch the branch appear; switch to no, watch it and its answers disappear; reload and resume; submit and confirm the stored answers are gone while the session id remains, then reopen the link and see the receipt
 - [ ] **H5** *(after Tracks 3, 6, 7)* Keyboard-only pass on both apps, then a screen reader on the reveal/remove announcement and on a dnd-kit reorder. No automated check covers this, and it is the accessibility claim the medical domain rests on
 - [ ] **H6** *(after Track 6)* Author from the bank, reorder by keyboard, set a predicate, preview, publish, read version history. Then open a second tab and provoke the draft `409` deliberately
 - [ ] **H7** *(after Track 8)* Enable the opt-in profile, submit once, follow the trace end to end including the client span, and confirm no answer value appears anywhere in it
