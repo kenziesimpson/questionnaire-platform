@@ -1,5 +1,6 @@
-import type { PublishedDefinition, VersionSummary } from "@qp/shared";
+import { PublishedDefinition, type VersionSummary } from "@qp/shared";
 import { and, desc, eq, sql, type SQL } from "drizzle-orm";
+import { Value } from "typebox/value";
 import type { Executor } from "../client.js";
 import { questionnaireVersion } from "../schema.js";
 import { questionnaireExists } from "./questionnaire-rows.js";
@@ -82,8 +83,9 @@ export async function readPublishedSnapshot(
   if (row === undefined) {
     return undefined;
   }
-  return {
-    formatVersion: publishedValue(row.formatVersion, "formatVersion"),
-    definition: publishedValue(row.snapshot, "snapshot") as PublishedDefinition,
-  };
+  const definition = publishedValue(row.snapshot, "snapshot");
+  if (!Value.Check(PublishedDefinition, definition)) {
+    throw new Error("a published snapshot does not match any known format");
+  }
+  return { formatVersion: publishedValue(row.formatVersion, "formatVersion"), definition };
 }

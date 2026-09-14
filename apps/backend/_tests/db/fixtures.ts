@@ -1,4 +1,4 @@
-import type { DraftItem, QuestionInput } from "@qp/shared";
+import { FORMAT_VERSION, type DraftItem, type QuestionInput } from "@qp/shared";
 import { v4 as uuidv4, v7 as uuidv7 } from "uuid";
 import type pg from "pg";
 import type { Database, Transaction } from "../../src/db/client.js";
@@ -68,6 +68,28 @@ export async function aDraftWithOneItem(db: Database): Promise<DraftFixture> {
     draftRevision: edited.draftRevision,
     questionId: saved.questionId,
   };
+}
+
+export async function aQuestionnairePublishedAs(testDatabase: TestDatabase, snapshotChanges: Record<string, unknown>): Promise<DraftFixture> {
+  const draft = await aDraftWithOneItem(testDatabase.database("definition"));
+  const snapshot = {
+    formatVersion: FORMAT_VERSION,
+    questionnaireId: draft.questionnaireId,
+    version: 1,
+    title: "Fixture",
+    items: [
+      {
+        itemId: "itm_01",
+        required: true,
+        visibleWhen: null,
+        question: { questionId: draft.questionId, questionVersion: 1, ...aTextQuestion },
+      },
+    ],
+    ...snapshotChanges,
+  };
+  const definition = await testDatabase.connect("definition");
+  await definition.query("SELECT definition.promote_draft($1::uuid, $2::jsonb)", [draft.draftVersionId, JSON.stringify(snapshot)]);
+  return draft;
 }
 
 export interface PublishedFixture extends DraftFixture {

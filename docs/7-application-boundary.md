@@ -73,7 +73,7 @@ The loader is shared for the same reason. Snapshots are upgraded in memory at re
 
 Note the engine takes a `PublishedDefinition` and answers, and returns visibility; the loader takes a stored value and its format version, and returns a `PublishedDefinition`. Neither has database access or knowledge of drafts, so sharing them does not leak the boundary. Each side still runs its own query, against its own grants (§4.2).
 
-Execution loads every pinned snapshot through the loader. The definition side does not call it: `GET /questionnaires/:id/versions/:v` serves the stored bytes verbatim, even after a future format change, because the stored document is the record of what was published and its `ETag` already carries `formatVersion` (§6.4), so a client can tell formats apart without the server rewriting what it serves.
+Execution loads every pinned snapshot through the loader. The definition side does not call it: `GET /questionnaires/:id/versions/:v` serves the stored bytes verbatim, even after a future format change, because the stored document is the record of what was published and its `ETag` already carries `formatVersion` (§6.4), so a client can tell formats apart without the server rewriting what it serves. It still checks each stored snapshot against the known formats before serving it; Decisions Log #56 lists what a format change must update, including that check and the endpoint's response schema.
 
 ## 4. Definition API
 

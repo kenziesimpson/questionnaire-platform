@@ -17,7 +17,7 @@ import { replaceDraft } from "../../../../src/db/definition/drafts.js";
 import { createQuestionnaire } from "../../../../src/db/definition/questionnaires.js";
 import { createQuestion } from "../../../../src/db/definition/questions.js";
 import { AUTHOR_PLACEHOLDER } from "../../../../src/modules/definition/author.js";
-import { aDraftWithOneItem, aPublishedQuestionnaire, aTextQuestion } from "../../../db/fixtures.js";
+import { aDraftWithOneItem, aPublishedQuestionnaire, aQuestionnairePublishedAs, aTextQuestion } from "../../../db/fixtures.js";
 import { useTestDatabase } from "../../../db/harness.js";
 import { definitionUrl, useDefinitionApp } from "../harness.js";
 
@@ -274,6 +274,19 @@ describe("GET /questionnaires/:id/versions/:v", () => {
     expect(response.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
     expect(Value.Check(PublishedDefinition, response.json())).toBe(true);
     expect(response.json()).toEqual(JSON.parse(await storedSnapshotText(published.questionnaireId, 1)));
+  });
+
+  it("answers 500 internal, naming no schema, for a stored snapshot that matches no known format", async () => {
+    const { questionnaireId } = await aQuestionnairePublishedAs(testDatabase, { title: "" });
+
+    const response = await app().inject({ method: "GET", url: definitionUrl(`/questionnaires/${questionnaireId}/versions/1`) });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
+    expect(response.json()).toMatchObject({ type: problemType("internal"), status: 500 });
+    expect(response.body).not.toContain("PublishedDefinition");
+    expect(response.body).not.toContain("format");
+    expect(response.headers.etag).toBeUndefined();
   });
 
   it("answers 404 for a draft, an unknown version and an unknown questionnaire", async () => {
