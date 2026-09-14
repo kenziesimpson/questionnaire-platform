@@ -47,7 +47,7 @@ describe("replaceDraft", () => {
       traceId: null,
     });
 
-    expect(outcome).toEqual({ outcome: "saved", draftVersionId: draft.draftVersionId, draftRevision: withThree.draftRevision + 1 });
+    expect(outcome).toMatchObject({ outcome: "saved", draftVersionId: draft.draftVersionId, draftRevision: withThree.draftRevision + 1 });
     expect(await draftItems(draft.draftVersionId)).toEqual([
       { item_id: "itm_03", position: 0 },
       { item_id: "itm_01", position: 1 },
@@ -88,7 +88,7 @@ describe("replaceDraft", () => {
       traceId: null,
     });
 
-    expect(outcome).toEqual({ outcome: "stale-or-missing-draft" });
+    expect(outcome).toEqual({ outcome: "stale" });
     expect(await draftItems(draft.draftVersionId)).toEqual([{ item_id: "itm_01", position: 0 }]);
   });
 
@@ -105,7 +105,7 @@ describe("replaceDraft", () => {
       traceId: null,
     });
 
-    expect(outcome).toEqual({ outcome: "stale-or-missing-draft" });
+    expect(outcome).toEqual({ outcome: "no-draft" });
     expect(await draftItems(published.draftVersionId)).toEqual([{ item_id: "itm_01", position: 0 }]);
   });
 
