@@ -376,6 +376,68 @@ describe("PUT /questionnaires/:id/draft", () => {
     expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
   });
 
+  it("is 422 draft-invalid naming each duplicated item id once, before the database sees the insert, and leaves the draft untouched", async () => {
+    const db = testDatabase.database("definition");
+    const draft = await aDraftWithOneItem(db);
+    const second = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
+    const third = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
+    const before = await getDraft(draft.questionnaireId);
+    const eventsBefore = await testDatabase.readAuditEvents();
+    const etag = before.headers.etag as string;
+
+    const response = await putDraft(draft.questionnaireId, etag, [
+      placement("itm_02", second.questionId),
+      placement("itm_01", draft.questionId),
+      placement("itm_02", third.questionId),
+      placement("itm_03", third.questionId),
+      placement("itm_01", second.questionId),
+      placement("itm_02", draft.questionId),
+    ]);
+
+    expect(response.statusCode).toBe(422);
+    expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
+    expect(response.json()).toMatchObject({
+      type: problemType("questionnaire/draft-invalid"),
+      items: [
+        { itemId: "itm_02", code: "draft/duplicate-item-id" },
+        { itemId: "itm_01", code: "draft/duplicate-item-id" },
+      ],
+    });
+    const after = await getDraft(draft.questionnaireId);
+    expect(after.headers.etag).toBe(etag);
+    expect(after.json()).toEqual(before.json());
+    expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
+  });
+
+  it("answers a stale ETag with 409 draft-stale even when the items would also be refused as archived or duplicated", async () => {
+    const db = testDatabase.database("definition");
+    const draft = await aDraftWithOneItem(db);
+    const archived = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
+    await archive(archived.questionId);
+    const stale = (await getDraft(draft.questionnaireId)).headers.etag as string;
+    const current = await putDraft(draft.questionnaireId, stale, [placement("itm_01", draft.questionId)], "Moved on");
+    expect(current.statusCode).toBe(200);
+    const eventsBefore = await testDatabase.readAuditEvents();
+
+    const staleWithArchived = await putDraft(draft.questionnaireId, stale, [
+      placement("itm_01", draft.questionId),
+      placement("itm_02", archived.questionId),
+    ]);
+    const staleWithDuplicates = await putDraft(draft.questionnaireId, stale, [
+      placement("itm_01", draft.questionId),
+      placement("itm_01", draft.questionId),
+    ]);
+
+    for (const response of [staleWithArchived, staleWithDuplicates]) {
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({ type: problemType("questionnaire/draft-stale") });
+    }
+    const after = await getDraft(draft.questionnaireId);
+    expect(after.headers.etag).toBe(current.headers.etag);
+    expect(after.json().title).toBe("Moved on");
+    expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
+  });
+
   it("is 404 when the questionnaire has no open draft", async () => {
     const publishedOnly = await aPublishedQuestionnaire(testDatabase.database("definition"));
 

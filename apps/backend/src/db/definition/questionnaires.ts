@@ -205,57 +205,87 @@ export interface ReplaceDraftCommand {
   readonly traceId: string | null;
 }
 
+type RefusedPlacement =
+  | { readonly outcome: "duplicate-item-id"; readonly itemIds: readonly string[] }
+  | { readonly outcome: "archived-question"; readonly questionIds: readonly string[] }
+  | { readonly outcome: "unknown-question-version"; readonly itemIds: readonly string[] };
+
 export type ReplaceDraftOutcome =
   | ({ readonly outcome: "saved"; readonly draftVersionId: string } & CurrentDraft)
   | { readonly outcome: "stale" }
   | { readonly outcome: "no-draft" }
-  | { readonly outcome: "archived-question"; readonly questionIds: readonly string[] }
-  | { readonly outcome: "unknown-question-version"; readonly itemIds: readonly string[] };
+  | RefusedPlacement;
+
+function duplicatedItemIds(items: readonly DraftItem[]): string[] {
+  const seen = new Set<string>();
+  const duplicated = new Set<string>();
+  for (const item of items) {
+    if (seen.has(item.itemId)) {
+      duplicated.add(item.itemId);
+    }
+    seen.add(item.itemId);
+  }
+  return [...duplicated];
+}
+
+async function refusedPlacement(tx: Transaction, items: readonly DraftItem[]): Promise<RefusedPlacement | undefined> {
+  const duplicated = duplicatedItemIds(items);
+  if (duplicated.length > 0) {
+    return { outcome: "duplicate-item-id", itemIds: duplicated };
+  }
+  const questionIds = [...new Set(items.map((item) => item.questionId))];
+  if (questionIds.length === 0) {
+    return undefined;
+  }
+  const archived = await tx
+    .select({ id: question.id })
+    .from(question)
+    .where(and(inArray(question.id, questionIds), isNotNull(question.archivedAt)));
+  if (archived.length > 0) {
+    return { outcome: "archived-question", questionIds: archived.map((row) => row.id) };
+  }
+  const known = await tx
+    .select({ questionId: questionVersion.questionId, version: questionVersion.version })
+    .from(questionVersion)
+    .where(inArray(questionVersion.questionId, questionIds));
+  const knownKeys = new Set(known.map((row) => questionVersionKey(row.questionId, row.version)));
+  const unknownItemIds = items
+    .filter((item) => !knownKeys.has(questionVersionKey(item.questionId, item.questionVersion)))
+    .map((item) => item.itemId);
+  return unknownItemIds.length > 0 ? { outcome: "unknown-question-version", itemIds: unknownItemIds } : undefined;
+}
+
+async function lockDraftVersion(tx: Transaction, questionnaireId: string) {
+  const [draft] = await tx
+    .select({ id: questionnaireVersion.id, draftRevision: questionnaireVersion.draftRevision })
+    .from(questionnaireVersion)
+    .where(and(eq(questionnaireVersion.questionnaireId, questionnaireId), eq(questionnaireVersion.status, "draft")))
+    .for("update");
+  return draft;
+}
 
 export async function replaceDraft(executor: Executor, command: ReplaceDraftCommand): Promise<ReplaceDraftOutcome> {
   return executor.transaction(async (tx) => {
-    const questionIds = [...new Set(command.items.map((item) => item.questionId))];
-    if (questionIds.length > 0) {
-      const archived = await tx
-        .select({ id: question.id })
-        .from(question)
-        .where(and(inArray(question.id, questionIds), isNotNull(question.archivedAt)));
-      if (archived.length > 0) {
-        return { outcome: "archived-question", questionIds: archived.map((row) => row.id) };
-      }
-      const known = await tx
-        .select({ questionId: questionVersion.questionId, version: questionVersion.version })
-        .from(questionVersion)
-        .where(inArray(questionVersion.questionId, questionIds));
-      const knownKeys = new Set(known.map((row) => questionVersionKey(row.questionId, row.version)));
-      const unknownItemIds = command.items
-        .filter((item) => !knownKeys.has(questionVersionKey(item.questionId, item.questionVersion)))
-        .map((item) => item.itemId);
-      if (unknownItemIds.length > 0) {
-        return { outcome: "unknown-question-version", itemIds: unknownItemIds };
-      }
+    const draft = await lockDraftVersion(tx, command.questionnaireId);
+    if (draft === undefined) {
+      return { outcome: "no-draft" };
+    }
+    if (draft.id !== command.expectedDraftVersionId || draft.draftRevision !== command.expectedDraftRevision) {
+      return { outcome: "stale" };
+    }
+    const refused = await refusedPlacement(tx, command.items);
+    if (refused !== undefined) {
+      return refused;
     }
 
-    const [draft] = await tx
+    await tx
       .update(questionnaireVersion)
       .set({
         title: command.title,
         draftRevision: sql`${questionnaireVersion.draftRevision} + 1`,
         updatedAt: sql`now()`,
       })
-      .where(
-        and(
-          eq(questionnaireVersion.questionnaireId, command.questionnaireId),
-          eq(questionnaireVersion.status, "draft"),
-          eq(questionnaireVersion.id, command.expectedDraftVersionId),
-          eq(questionnaireVersion.draftRevision, command.expectedDraftRevision),
-        ),
-      )
-      .returning({ id: questionnaireVersion.id });
-    if (draft === undefined) {
-      return (await findDraftVersion(tx, command.questionnaireId)) === undefined ? { outcome: "no-draft" } : { outcome: "stale" };
-    }
-
+      .where(eq(questionnaireVersion.id, draft.id));
     await tx.delete(questionnaireItem).where(eq(questionnaireItem.questionnaireVersionId, draft.id));
     if (command.items.length > 0) {
       await tx.insert(questionnaireItem).values(

@@ -78,6 +78,10 @@ export async function draftRoutes(scope: FastifyInstance, { database }: Definiti
         return problem("questionnaire/draft-stale", { instance: request.url });
       case "no-draft":
         return notFound(request);
+      case "duplicate-item-id":
+        return problem("questionnaire/draft-invalid", {
+          items: outcome.itemIds.map((itemId) => ({ itemId, code: "draft/duplicate-item-id" })),
+        });
       case "archived-question": {
         const archived = new Set(outcome.questionIds);
         return problem("questionnaire/draft-invalid", {
