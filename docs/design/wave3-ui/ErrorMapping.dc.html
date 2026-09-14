@@ -66,7 +66,7 @@
   onChange={setAnswer}
   mode="interactive"
 /&gt;</pre>
-      <span class="note">Group <span class="code">items</span> by <span class="code">itemId</span>, keeping server order. The same shape comes out of the shared validator run in the browser before submit, so there is one error path, not two.</span>
+      <span class="note">One <span class="code">errorsByItemId</span> in <span class="code">packages/ui</span>, used by both apps: group <span class="code">items</span> by <span class="code">itemId</span>, keeping server order. The same shape comes out of the shared validator run in the browser before submit, so there is one error path, not two.</span>
     </div>
 
     <div class="panel">
@@ -98,10 +98,10 @@
 
     <div class="panel">
       <span class="ph">Two codes that never attach to a question</span>
-      <span class="note"><span class="code">answer/not-visible</span> and <span class="code">answer/unknown-item</span> describe the submission, not an item on screen. The renderer ignores them, so the form handles them itself: a banner above the questions, not a red line under one.</span>
-      <div style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--muted)">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="oklch(0.145 0 0)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 1px"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v5"></path><path d="M12 16h.01"></path></svg>
-        <span style="font-size: 13px; line-height: 1.5">Some answers no longer apply after your last change. Check the questions below and submit again.</span>
+      <span class="note"><span class="code">answer/not-visible</span> and <span class="code">answer/unknown-item</span> describe the submission, not an item on screen. <span class="code">errorsByItemId</span> drops them, and Wave 3 shows nothing for them &mdash; there is no rendered item to hang them on, and the client filters answers to the visible set before submitting, so seeing one means the two evaluations disagreed.</span>
+      <div style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px dashed var(--ring); border-radius: 10px; background: var(--muted)">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 1px"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v5"></path><path d="M12 16h.01"></path></svg>
+        <span style="font-size: 13px; line-height: 1.5; color: var(--mfg)">Deliberately empty. What a respondent should see when it happens anyway is <span class="code">gh#23</span> &mdash; a form-level message is the obvious candidate, and it is not drawn here because it is not being built yet.</span>
       </div>
     </div>
 

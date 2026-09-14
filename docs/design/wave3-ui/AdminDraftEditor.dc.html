@@ -134,14 +134,13 @@
               </div>
             </div>
 
-            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); background: color-mix(in oklch, var(--destructive) 4%, var(--bg))">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="oklch(0.708 0 0)"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>
               <span class="meta" style="width: 14px">3</span>
               <div style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-width: 0">
                 <span style="font-weight: 500">When were you diagnosed?</span>
-                <span style="font-size: 12px; color: var(--destructive)">Date &middot; pinned v1 &middot; Required &middot; Rule points at question 5, which comes later</span>
+                <span class="meta">Date &middot; pinned v1 &middot; Required &middot; Shown when 5 is answered</span>
               </div>
-              <span class="pill" style="border-color: color-mix(in oklch, var(--destructive) 40%, var(--bg)); color: var(--destructive)">1 problem</span>
               <button class="btn sm">Edit</button>
             </div>
 
@@ -156,14 +155,13 @@
               <button class="btn sm">Edit</button>
             </div>
 
-            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: color-mix(in oklch, var(--destructive) 4%, var(--bg))">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="oklch(0.708 0 0)"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>
               <span class="meta" style="width: 14px">5</span>
               <div style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-width: 0">
                 <span style="font-weight: 500">Do you smoke?</span>
-                <span style="font-size: 12px; color: var(--destructive)">Single choice &middot; pinned v2 &middot; Required &middot; Archived in the bank</span>
+                <span class="meta">Single choice &middot; pinned v2 &middot; Required &middot; Always shown</span>
               </div>
-              <span class="pill" style="border-color: color-mix(in oklch, var(--destructive) 40%, var(--bg)); color: var(--destructive)">1 problem</span>
               <button class="btn sm">Edit</button>
             </div>
 
@@ -189,7 +187,7 @@
 
             <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--border)">
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
-                <span style="font-size: 13px; font-weight: 500">Question 3</span>
+                <a href="#itm_03" style="font-size: 13px; font-weight: 500">Question 3</a>
                 <span class="code" style="color: var(--mfg)">predicate/forward-reference</span>
               </div>
               <p style="margin: 0; font-size: 13px; line-height: 1.5">This question sits above the question its rule depends on. Move it below &ldquo;Do you smoke?&rdquo;, or point the rule at an earlier question.</p>
@@ -197,14 +195,15 @@
 
             <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--border)">
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
-                <span style="font-size: 13px; font-weight: 500">Question 5</span>
+                <a href="#itm_05" style="font-size: 13px; font-weight: 500">Question 5</a>
                 <span class="code" style="color: var(--mfg)">draft/question-archived</span>
               </div>
               <p style="margin: 0; font-size: 13px; line-height: 1.5">&ldquo;Do you smoke?&rdquo; was archived in the bank. Remove it here, or restore it in the bank.</p>
             </div>
 
-            <div style="padding: 10px 14px">
+            <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px 14px">
               <span class="meta">Checked as you edit, by the code publish runs. Publish cannot disagree with this panel.</span>
+              <span class="meta">The item rows stay unmarked: each finding is reached from here by its number. Inline per-item marking is gh#22.</span>
             </div>
           </div>
 
