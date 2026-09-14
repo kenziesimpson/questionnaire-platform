@@ -1,11 +1,12 @@
 import { definitionApi } from "@qp/shared";
 import type { FastifyInstance } from "fastify";
 import { listQuestionnaireSummaries } from "../../../db/definition/questionnaire-list.js";
+import { registerRoute } from "../../../http/routes.js";
 import type { DefinitionModuleOptions } from "../plugin.js";
 
 export async function questionnaireListRoutes(scope: FastifyInstance, { database }: DefinitionModuleOptions): Promise<void> {
-  scope.route({
-    ...definitionApi.listQuestionnaires,
-    handler: async () => listQuestionnaireSummaries(database),
-  });
+  registerRoute(scope, definitionApi.listQuestionnaires, async () => ({
+    status: 200,
+    body: await listQuestionnaireSummaries(database),
+  }));
 }
