@@ -1,7 +1,10 @@
-import Fastify from "fastify";
-import { config } from "./config.js";
+import { buildApp } from "./app.js";
+import { config, databaseUrl } from "./config.js";
+import { openDatabase } from "./db/client.js";
 
-const app = Fastify({
+const execution = openDatabase(databaseUrl("execution"));
+
+const app = await buildApp({
   logger: {
     level: config.logLevel,
     transport:
@@ -9,9 +12,12 @@ const app = Fastify({
         ? { target: "pino-pretty", options: { colorize: true } }
         : undefined,
   },
+  execution: { database: execution.db },
 });
 
-app.get("/health", async () => ({ status: "ok" }));
+app.addHook("onClose", async () => {
+  await execution.close();
+});
 
 async function start() {
   try {
