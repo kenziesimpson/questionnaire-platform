@@ -27,13 +27,21 @@ function otherModule(name) {
 
 const restrict = (...patterns) => ["error", { patterns }];
 
+const doubleAssertionThrough = (keyword, spelling) =>
+  ["TSAsExpression", "TSTypeAssertion"].map((inner) => ({
+    selector: `TSAsExpression > ${inner}.expression[typeAnnotation.type="${keyword}"]`,
+    message: `Casting through \`${spelling}\` compiles for any two types and switches type checking off. Fix the types; if the cast is genuinely unavoidable, disable this line with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>`,
+  }));
+
+const noDoubleAssertion = ["warn", ...doubleAssertionThrough("TSUnknownKeyword", "unknown"), ...doubleAssertionThrough("TSAnyKeyword", "any")];
+
 export default tseslint.config(
   { ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**"] },
   {
     files: ["**/*.{ts,tsx,mts,cts,js,mjs,cjs}"],
     languageOptions: { parser: tseslint.parser },
     linterOptions: { reportUnusedDisableDirectives: "error" },
-    rules: { "no-restricted-imports": restrict(telemetryOnly) },
+    rules: { "no-restricted-imports": restrict(telemetryOnly), "no-restricted-syntax": noDoubleAssertion },
   },
   {
     files: ["packages/telemetry/**"],
