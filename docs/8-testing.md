@@ -469,6 +469,14 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 
 #### G4 — integration
 
+**Backend integration — `apps/backend`, Fastify `inject()`, Testcontainers Postgres** (milestone **M4**)
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| The definition module registers exactly the 18 `definitionRoutes`, each at its method and `/api/definition`-prefixed URL with the shared `defineRoute` schema object itself (identity, not a copy), and no route the contract does not declare | `_tests/modules/definition/definition-api.test.ts` | One route contract in `@qp/shared` for server and client; no URL or schema is written in the backend ([[7-application-boundary#6.3 Input validation]]) | — conventions |
+| Every `definitionRoutes` entry is routable on the `useDefinitionApp` harness app at its method and prefixed URL | `_tests/modules/definition/definition-api.test.ts` | The contract and the mounted module cannot drift apart unnoticed | — conventions |
+| One flow through `inject()` alone, no database function called: create two questions → create a questionnaire (`201`, no version, draft open) → `GET /draft` (`ETag` revision `0`) → `PUT /draft` with that `ETag` (`200`, `ETag` revision `1`) → `validate` (`valid: true`) → `publish` with the pre-save `ETag` is `409 questionnaire/draft-stale`, with the saved one `201` v1 → the questionnaire lists `currentVersion: 1` with no draft → save a question revision (`201` question version 2) → open the next draft (`201`, a new version id, `ETag` revision `0`, items still pinned to question version 1) → re-pin to question version 2 (`200`, `ETag` revision `1`) → `publish` with the previous draft's `ETag` is `409`, with the new one `201` v2 → `GET /versions` is `[2, 1]` → v1's served snapshot is byte-identical to its payload before v2 and still pins question version 1, v2 pins question version 2 with the relabel, each with its `ETag` → set `closesAt` (`200`, listed) and clear it (`200`, listed `null`) | `_tests/modules/definition/definition-api.test.ts` | The authoring → publish → revise → republish → retire path composes across G1–G3 over HTTP alone: If-Match threads through every draft write, a published version is immutable (#8), items pin a question version and never auto-upgrade (#31), history is `version DESC` (#40), and clearing `closesAt` reopens | Questionnaire versioning: publish, immutability, one draft |
+
 ### Wave 2 — Track 5: execution plugin
 
 **Backend integration — `apps/backend`, `inject()` against Testcontainers Postgres, the module on `qp_execution`** (milestones **M5**, **M6**)
