@@ -564,6 +564,25 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 | `Table` renders a native `<table>` named by its caption, with column headers, body and footer rows, and passes `className` to the table; axe finds nothing | `primitives/table.test.tsx` | #66 | — accessibility commitment |
 | `InputGroup`, which `Command` needs, groups a labelled input with its addon and focuses the input when the addon is clicked; axe finds nothing | `primitives/input-group.test.tsx` | #66 | — accessibility commitment |
 
+### Wave 3 — Track 6: admin app
+
+#### PR0
+
+**Frontend component — `apps/admin`, Vitest + RTL in jsdom, `fetch` stubbed**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| `/questionnaires`, `/questionnaires/:id/draft`, `/questionnaires/:id/versions`, `/questionnaires/:id/versions/:v` and `/questions`, under the `/admin` basepath, each render their screen's stub inside the shell, with the path's questionnaire id and version reaching the screen | `_tests/router.test.tsx` | Every admin screen is registered once in `router.tsx`, so no screen PR edits the route tree ([[4-implementation-plan#How Track 6 runs]]) | — conventions |
+| `/` redirects to `/questionnaires`; an unknown path renders the not-found screen inside the shell; the tree holds exactly those six paths and no question-editor route | `_tests/router.test.tsx` | The question editor is a dialog, not a route ([[10-frontend#5.3 The question editor, and re-pinning]]) | — conventions |
+| `callDefinition` takes the method and `/api/definition` URL from the shared route object, fills and encodes path parameters and the query string, sends a JSON body only for a route that declares one, and returns the body typed and checked against the route's response schema | `_tests/api/client.test.ts` | One route contract in `@qp/shared` for server and client; no URL or schema is written in the app ([[7-application-boundary#6.3 Input validation]]) | — contract |
+| A problem+json `404`, `400 request/invalid` and `422 questionnaire/draft-invalid` become a `ProblemError` holding the shared `Problem` for that slug, `errors` and `items` typed; an HTML `502`, a problem `type` outside the union, a body failing the route schema and an undeclared success status are each an `UnexpectedResponseError` | `_tests/api/client.test.ts` | Errors are the closed RFC 9457 union, switched on by slug and never by message (#20, [[7-application-boundary#6.1 Error format — RFC 9457 problem details]]) | — conventions |
+| The `ETag` from `GET /draft` is sent as `If-Match` on `PUT /draft`, and the `ETag` that response carries is sent as `If-Match` on `POST /publish`; opening a draft captures its `ETag`; a draft response with no `ETag`, a strong one, or one naming another draft version is refused; the four draft routes do not compile through the generic call | `_tests/api/client.test.ts` | The draft `ETag` has one code path from read to write (#43, [[10-frontend#5.2 The draft editor]]) | — conventions |
+| `useDraftMutation` applies a change to the cached draft before the `PUT`, sends the cached `ETag` as `If-Match`, and stores the saved draft with its new `ETag`; two quick changes run one after the other, the second sending the first response's `ETag` | `_tests/api/use-draft-mutation.test.tsx` | Every draft write goes through one optimistic hook, and an author's own writes never read as someone else's (#43) | — conventions |
+| On `409 questionnaire/draft-stale` the hook restores the pre-change draft, refetches it, exposes a `stale` rejection, and never sends a change queued behind the rejected one | `_tests/api/use-draft-mutation.test.tsx` | The author is never shown a draft the server did not accept, and a queued change built on it cannot overwrite another author's edit ([[10-frontend#5.2 The draft editor]], `AdminDraftConflict`) | — conventions |
+| On `422 questionnaire/draft-invalid` the hook rolls the change back and exposes an `invalid` rejection carrying the `items`, with no conflict and no refetch; any other failure is a `failed` rejection; a `409` and a `422` on publish are told apart the same way | `_tests/api/use-draft-mutation.test.tsx` | A `422` from gh#17 is not reported as another author's edit (#65, [[4-implementation-plan#How Track 6 runs]] PR4 note) | — conventions |
+| A `4xx` problem is not retried and a `5xx` or network failure is retried up to three times; `refetchOnWindowFocus` keeps TanStack Query's default | `_tests/api/query-client.test.ts` | Another tab's edit shows up when the author returns (#69) | — conventions |
+| axe finds no violations in the shell on the list, a preview, the bank and the not-found screen; the shell has a banner, a named main navigation and a main landmark; the nav marks Questionnaires current on questionnaire screens and Question bank on the bank, with `/admin`-based links | `_tests/shell/app-shell.test.tsx` | Accessibility is designed in, not audited afterwards ([[10-frontend#7. Accessibility]]) | — conventions |
+
 ## 8. Alternatives considered
 
 ### 8.1 Jest for the frontend
