@@ -1,9 +1,10 @@
-import type { QuestionInput } from "@qp/shared";
+import type { DraftItem, QuestionInput } from "@qp/shared";
 import { v4 as uuidv4, v7 as uuidv7 } from "uuid";
 import type pg from "pg";
 import type { Database, Transaction } from "../../src/db/client.js";
+import type { DraftPrecondition } from "../../src/db/definition/draft-precondition.js";
 import { publishDraft } from "../../src/db/definition/publish.js";
-import { replaceDraft, createQuestionnaire } from "../../src/db/definition/questionnaires.js";
+import { createQuestionnaire, openNextDraft, replaceDraft } from "../../src/db/definition/questionnaires.js";
 import { createQuestion } from "../../src/db/definition/questions.js";
 import type { TestDatabase } from "./harness.js";
 
@@ -56,6 +57,55 @@ export async function aPublishedQuestionnaire(db: Database): Promise<PublishedFi
     throw new Error(`fixture was not published: ${published.outcome}`);
   }
   return { ...draft, version: published.version };
+}
+
+export async function saveAndPublish(
+  db: Database,
+  questionnaireId: string,
+  precondition: DraftPrecondition,
+  title: string,
+  items: readonly DraftItem[],
+): Promise<number> {
+  const edited = await replaceDraft(db, { questionnaireId, precondition, title, items, actorId: "test", traceId: null });
+  if (edited.outcome !== "saved") {
+    throw new Error(`fixture draft was not saved: ${JSON.stringify(edited)}`);
+  }
+  const published = await publishDraft(db, {
+    questionnaireId,
+    precondition: { versionId: edited.draftVersionId, draftRevision: edited.draftRevision },
+    actorId: "test",
+    traceId: null,
+  });
+  if (published.outcome !== "published") {
+    throw new Error(`fixture draft was not published: ${JSON.stringify(published)}`);
+  }
+  return published.version;
+}
+
+export async function publishNextVersion(db: Database, questionnaireId: string, items: readonly DraftItem[]): Promise<number> {
+  const opened = await openNextDraft(db, { questionnaireId, ...actor });
+  if (opened.outcome !== "opened") {
+    throw new Error(`fixture next draft was not opened: ${opened.outcome}`);
+  }
+  return saveAndPublish(
+    db,
+    questionnaireId,
+    { versionId: opened.draft.versionId, draftRevision: opened.draftRevision },
+    opened.draft.title,
+    items,
+  );
+}
+
+export async function aPublishedQuestionnaireOf(db: Database, name: string, items: readonly DraftItem[]): Promise<string> {
+  const created = await createQuestionnaire(db, { key: null, name, title: name, ...actor });
+  await saveAndPublish(
+    db,
+    created.questionnaireId,
+    { versionId: created.draftVersionId, draftRevision: created.draftRevision },
+    name,
+    items,
+  );
+  return created.questionnaireId;
 }
 
 export async function aSession(execution: pg.Client, published: PublishedFixture): Promise<string> {
