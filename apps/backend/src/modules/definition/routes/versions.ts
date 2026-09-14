@@ -40,11 +40,8 @@ export async function versionRoutes(scope: FastifyInstance, { database }: Defini
   });
 
   registerRoute(scope, definitionApi.listVersions, async (request) => {
-    const history = await listVersionSummaries(database, request.params.id);
-    if (history.outcome === "questionnaire-not-found") {
-      return notFound(request);
-    }
-    return { status: 200, body: history.versions };
+    const versions = await listVersionSummaries(database, request.params.id);
+    return versions === undefined ? notFound(request) : { status: 200, body: versions };
   });
 
   registerRoute(scope, definitionApi.getVersion, async (request) => {

@@ -9,6 +9,10 @@ import { questionInputToColumns, storedQuestionToVersion } from "./question-cont
 import { isPublishedVersion, publishedValue } from "./versions.js";
 import { questionVersionIn, questionVersionKey, readOptionsInPosition, readQuestionVersions } from "./question-versions.js";
 
+export interface QuestionNotFound {
+  readonly outcome: "question-not-found";
+}
+
 export interface CreateQuestionCommand {
   readonly questionId?: string;
   readonly key: string | null;
@@ -61,7 +65,7 @@ async function insertQuestionVersion(
     summary: { questionId, questionVersion: version },
     traceId,
   });
-  const saved = await findQuestion(tx, questionId);
+  const saved = await readQuestion(tx, questionId);
   if (saved === undefined) {
     throw new Error(`question ${questionId} could not be read back after saving version ${version}`);
   }
@@ -85,7 +89,7 @@ export interface AppendQuestionVersionCommand {
 
 export type AppendQuestionVersionOutcome =
   | ({ readonly outcome: "saved" } & SavedQuestion)
-  | { readonly outcome: "not-found" };
+  | QuestionNotFound;
 
 async function lockQuestion(tx: Transaction, questionId: string): Promise<boolean> {
   const locked = await tx.select({ id: question.id }).from(question).where(eq(question.id, questionId)).for("update");
@@ -98,7 +102,7 @@ export async function appendQuestionVersion(
 ): Promise<AppendQuestionVersionOutcome> {
   return executor.transaction(async (tx) => {
     if (!(await lockQuestion(tx, command.questionId))) {
-      return { outcome: "not-found" };
+      return { outcome: "question-not-found" };
     }
     const [latest] = await tx
       .select({ version: max(questionVersion.version) })
@@ -164,7 +168,7 @@ export async function listQuestions(executor: Executor, query: ListQuestionsQuer
   return readLatestQuestions(executor, query.includeArchived ? undefined : isNull(question.archivedAt));
 }
 
-export async function findQuestion(executor: Executor, questionId: string): Promise<Question | undefined> {
+export async function readQuestion(executor: Executor, questionId: string): Promise<Question | undefined> {
   const [found] = await readLatestQuestions(executor, eq(question.id, questionId));
   return found;
 }
@@ -194,7 +198,7 @@ export async function listQuestionVersionSummaries(
   return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
 }
 
-export async function findQuestionVersion(
+export async function readQuestionVersion(
   executor: Executor,
   questionId: string,
   version: number,
@@ -229,7 +233,7 @@ export interface ArchiveQuestionCommand {
 
 export type ArchiveQuestionOutcome =
   | { readonly outcome: "archived" | "already-archived"; readonly question: Question }
-  | { readonly outcome: "not-found" };
+  | QuestionNotFound;
 
 export async function archiveQuestion(executor: Executor, command: ArchiveQuestionCommand): Promise<ArchiveQuestionOutcome> {
   return executor.transaction(async (tx) => {
@@ -250,9 +254,9 @@ export async function archiveQuestion(executor: Executor, command: ArchiveQuesti
         traceId: command.traceId,
       });
     }
-    const current = await findQuestion(tx, command.questionId);
+    const current = await readQuestion(tx, command.questionId);
     if (current === undefined) {
-      return { outcome: "not-found" };
+      return { outcome: "question-not-found" };
     }
     return { outcome: archived.length === 1 ? "archived" : "already-archived", question: current };
   });

@@ -25,7 +25,7 @@ export type PublishDraftOutcome =
     }
   | QuestionnaireNotFound
   | { readonly outcome: "no-draft" }
-  | { readonly outcome: "stale"; readonly draftRevision: number }
+  | { readonly outcome: "stale" }
   | { readonly outcome: "invalid"; readonly items: readonly DraftInvalidItem[] };
 
 async function nextVersionNumber(tx: Transaction, questionnaireId: string): Promise<number> {
@@ -43,7 +43,7 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
       return { outcome: "no-draft" };
     }
     if (!isCurrentDraft(command.precondition, { versionId: draft.id, draftRevision: draft.draftRevision })) {
-      return { outcome: "stale", draftRevision: draft.draftRevision };
+      return { outcome: "stale" };
     }
 
     const version = await nextVersionNumber(tx, command.questionnaireId);

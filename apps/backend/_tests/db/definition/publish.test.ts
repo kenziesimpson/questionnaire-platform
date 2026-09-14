@@ -163,7 +163,7 @@ describe("publishDraft", () => {
       traceId: null,
     });
 
-    expect(outcome).toEqual({ outcome: "stale", draftRevision: draft.draftRevision });
+    expect(outcome).toEqual({ outcome: "stale" });
     expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
   });
 
@@ -178,7 +178,7 @@ describe("publishDraft", () => {
       traceId: null,
     });
 
-    expect(outcome).toEqual({ outcome: "stale", draftRevision: draft.draftRevision });
+    expect(outcome).toEqual({ outcome: "stale" });
   });
 
   it.each(invalidDrafts)(

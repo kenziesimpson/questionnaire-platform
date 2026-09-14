@@ -25,10 +25,6 @@ export function publishedValue<Value>(value: Value | null, column: string): Valu
   return value;
 }
 
-export type VersionHistoryOutcome =
-  | { readonly outcome: "found"; readonly versions: VersionSummary[] }
-  | { readonly outcome: "questionnaire-not-found" };
-
 export interface PublishedSnapshot {
   readonly formatVersion: number;
   readonly definition: PublishedDefinition;
@@ -58,11 +54,11 @@ async function selectVersionSummaries(executor: Executor, questionnaireId: strin
   }));
 }
 
-export async function listVersionSummaries(executor: Executor, questionnaireId: string): Promise<VersionHistoryOutcome> {
+export async function listVersionSummaries(executor: Executor, questionnaireId: string): Promise<VersionSummary[] | undefined> {
   if (!(await questionnaireExists(executor, questionnaireId))) {
-    return { outcome: "questionnaire-not-found" };
+    return undefined;
   }
-  return { outcome: "found", versions: await selectVersionSummaries(executor, questionnaireId) };
+  return selectVersionSummaries(executor, questionnaireId);
 }
 
 export async function readVersionSummary(
