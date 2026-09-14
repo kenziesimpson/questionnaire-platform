@@ -6,7 +6,7 @@ import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js"
 import type { Executor, Transaction } from "../client.js";
 import { questionnaireVersion } from "../schema.js";
 import { draftForValidation, itemsWithQuestionContent, readDraftContents } from "./draft-contents.js";
-import { lockQuestionnaire, readOpenDraft } from "./questionnaire-rows.js";
+import { lockOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
 
 export interface PublishDraftCommand {
   readonly questionnaireId: string;
@@ -24,7 +24,7 @@ export type PublishDraftOutcome =
       readonly version: number;
       readonly definition: PublishedDefinition;
     }
-  | { readonly outcome: "questionnaire-not-found" }
+  | QuestionnaireNotFound
   | { readonly outcome: "no-draft" }
   | { readonly outcome: "stale"; readonly draftRevision: number }
   | { readonly outcome: "invalid"; readonly items: readonly DraftInvalidItem[] };
@@ -38,11 +38,8 @@ async function nextVersionNumber(tx: Transaction, questionnaireId: string): Prom
 }
 
 export async function publishDraft(executor: Executor, command: PublishDraftCommand): Promise<PublishDraftOutcome> {
-  return executor.transaction(async (tx) => {
-    if ((await lockQuestionnaire(tx, command.questionnaireId)) === undefined) {
-      return { outcome: "questionnaire-not-found" };
-    }
-    const draft = await readOpenDraft(tx, command.questionnaireId, "for-update");
+  return withLockedQuestionnaire(executor, command.questionnaireId, async (tx): Promise<PublishDraftOutcome> => {
+    const draft = await lockOpenDraft(tx, command.questionnaireId);
     if (draft === undefined) {
       return { outcome: "no-draft" };
     }

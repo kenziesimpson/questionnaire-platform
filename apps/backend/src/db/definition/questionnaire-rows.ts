@@ -7,13 +7,31 @@ export interface LockedQuestionnaire {
   readonly closesAt: Date | null;
 }
 
-export async function lockQuestionnaire(tx: Transaction, questionnaireId: string): Promise<LockedQuestionnaire | undefined> {
+export interface QuestionnaireNotFound {
+  readonly outcome: "questionnaire-not-found";
+}
+
+async function lockQuestionnaire(tx: Transaction, questionnaireId: string): Promise<LockedQuestionnaire | undefined> {
   const [locked] = await tx
     .select({ id: questionnaire.id, closesAt: questionnaire.closesAt })
     .from(questionnaire)
     .where(eq(questionnaire.id, questionnaireId))
     .for("update");
   return locked;
+}
+
+export async function withLockedQuestionnaire<Outcome>(
+  executor: Executor,
+  questionnaireId: string,
+  work: (tx: Transaction, locked: LockedQuestionnaire) => Promise<Outcome>,
+): Promise<Outcome | QuestionnaireNotFound> {
+  return executor.transaction(async (tx): Promise<Outcome | QuestionnaireNotFound> => {
+    const locked = await lockQuestionnaire(tx, questionnaireId);
+    if (locked === undefined) {
+      return { outcome: "questionnaire-not-found" };
+    }
+    return work(tx, locked);
+  });
 }
 
 export async function questionnaireExists(executor: Executor, questionnaireId: string): Promise<boolean> {
@@ -35,14 +53,8 @@ export interface OpenDraftRow {
   readonly draftRevision: number;
 }
 
-export type OpenDraftLock = "for-update" | "unlocked";
-
-export async function readOpenDraft(
-  executor: Executor,
-  questionnaireId: string,
-  lock: OpenDraftLock,
-): Promise<OpenDraftRow | undefined> {
-  const query = executor
+function selectOpenDraft(executor: Executor, questionnaireId: string) {
+  return executor
     .select({
       id: questionnaireVersion.id,
       title: questionnaireVersion.title,
@@ -51,7 +63,15 @@ export async function readOpenDraft(
     })
     .from(questionnaireVersion)
     .where(isOpenDraftOf(questionnaireId));
-  const [draft] = await (lock === "for-update" ? query.for("update") : query);
+}
+
+export async function lockOpenDraft(tx: Transaction, questionnaireId: string): Promise<OpenDraftRow | undefined> {
+  const [draft] = await selectOpenDraft(tx, questionnaireId).for("update");
+  return draft;
+}
+
+export async function readOpenDraft(executor: Executor, questionnaireId: string): Promise<OpenDraftRow | undefined> {
+  const [draft] = await selectOpenDraft(executor, questionnaireId);
   return draft;
 }
 

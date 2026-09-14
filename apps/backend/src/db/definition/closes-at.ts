@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { recordAudit } from "../audit.js";
 import type { Executor } from "../client.js";
 import { questionnaire } from "../schema.js";
-import { hasOpenDraft, lockQuestionnaire } from "./questionnaire-rows.js";
+import { hasOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
 
 export interface SetClosesAtCommand {
   readonly questionnaireId: string;
@@ -14,15 +14,10 @@ export interface SetClosesAtCommand {
 
 export type SetClosesAtOutcome =
   | { readonly outcome: "updated"; readonly questionnaire: QuestionnaireSummary }
-  | { readonly outcome: "questionnaire-not-found" };
+  | QuestionnaireNotFound;
 
 export async function setClosesAt(executor: Executor, command: SetClosesAtCommand): Promise<SetClosesAtOutcome> {
-  return executor.transaction(async (tx) => {
-    const locked = await lockQuestionnaire(tx, command.questionnaireId);
-    if (locked === undefined) {
-      return { outcome: "questionnaire-not-found" };
-    }
-
+  return withLockedQuestionnaire(executor, command.questionnaireId, async (tx, locked): Promise<SetClosesAtOutcome> => {
     const [updated] = await tx
       .update(questionnaire)
       .set({ closesAt: command.closesAt })

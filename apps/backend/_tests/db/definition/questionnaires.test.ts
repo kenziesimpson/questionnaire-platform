@@ -1,8 +1,16 @@
 import type { DraftItem } from "@qp/shared";
 import { describe, expect, it } from "vitest";
-import { replaceDraft } from "../../../src/db/definition/questionnaires.js";
+import { withLockedQuestionnaire } from "../../../src/db/definition/questionnaire-rows.js";
+import { openNextDraft, replaceDraft } from "../../../src/db/definition/questionnaires.js";
 import { createQuestion } from "../../../src/db/definition/questions.js";
-import { aDraftWithOneItem, aPublishedQuestionnaire, aTextQuestion } from "../fixtures.js";
+import {
+  aDraftWithOneItem,
+  aPublishedQuestionnaire,
+  aTextQuestion,
+  QUESTIONNAIRE_LOCK_STATEMENT,
+  theStatementWaitingOnALock,
+  whileHoldingALock,
+} from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 
 const testDatabase = useTestDatabase();
@@ -136,5 +144,29 @@ describe("replaceDraft", () => {
     expect(archivedOutcome).toEqual({ outcome: "archived-question", questionIds: [archived.questionId] });
     expect(unknownOutcome).toEqual({ outcome: "unknown-question-version", itemIds: ["itm_01"] });
     expect(await draftItems(draft.draftVersionId)).toEqual([{ item_id: "itm_01", position: 0 }]);
+  });
+});
+
+describe("openNextDraft", () => {
+  it("waits on the questionnaire lock, as its first statement, while another transaction holds it", async () => {
+    const definitionDb = testDatabase.database("definition");
+    const published = await aPublishedQuestionnaire(definitionDb);
+    const events: string[] = [];
+    let opening: Promise<unknown> = Promise.resolve();
+
+    await whileHoldingALock(
+      definitionDb,
+      (tx) => withLockedQuestionnaire(tx, published.questionnaireId, async () => undefined),
+      async () => {
+        opening = openNextDraft(definitionDb, { questionnaireId: published.questionnaireId, createdBy: null, traceId: null }).then(
+          (outcome) => events.push(`openNextDraft returned ${outcome.outcome}`),
+        );
+        expect(await theStatementWaitingOnALock(testDatabase)).toMatch(QUESTIONNAIRE_LOCK_STATEMENT);
+        events.push("lock holder commits");
+      },
+    );
+    await opening;
+
+    expect(events).toEqual(["lock holder commits", "openNextDraft returned opened"]);
   });
 });

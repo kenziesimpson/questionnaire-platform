@@ -81,17 +81,17 @@ export type AppendQuestionVersionOutcome =
   | ({ readonly outcome: "saved" } & SavedQuestionVersion)
   | { readonly outcome: "not-found" };
 
+async function lockQuestion(tx: Transaction, questionId: string): Promise<boolean> {
+  const locked = await tx.select({ id: question.id }).from(question).where(eq(question.id, questionId)).for("update");
+  return locked.length === 1;
+}
+
 export async function appendQuestionVersion(
   executor: Executor,
   command: AppendQuestionVersionCommand,
 ): Promise<AppendQuestionVersionOutcome> {
   return executor.transaction(async (tx) => {
-    const locked = await tx
-      .select({ id: question.id })
-      .from(question)
-      .where(eq(question.id, command.questionId))
-      .for("update");
-    if (locked.length === 0) {
+    if (!(await lockQuestion(tx, command.questionId))) {
       return { outcome: "not-found" };
     }
     const [latest] = await tx
