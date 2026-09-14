@@ -85,27 +85,34 @@
 
 #### How Track 4 runs
 
-Three groups work in parallel, merging into a **`staging`** branch cut from `main`. A setup commit (G0) goes first and an integration pass (G4) goes last. `staging` merges to `main` once, when **M4** is green. Group PRs target `staging`. CI runs on every pull request whatever the base branch, but a push to `staging` does not trigger it. So before merging `staging → main`, run the four commands from `AGENTS.md` on the merged `staging` head, or open the `staging → main` PR as a draft early so every merge into `staging` re-runs Checks.
+Three groups work in parallel, merging into a **`staging`** branch cut from `main`. A setup commit (G0) goes first and an integration pass (G4) goes last. `staging` merges to `main` once, when **M4** is green. Every change reaches `staging` through a pull request, which is what runs CI: the workflow runs on every pull request whatever the base branch, and a push to `staging` does not trigger it. The final `staging → main` PR runs Checks on the combined result.
 
 **Rules for every group:**
 
 1. **Only the files your group owns** ([[#Track 4 file split]]). `apps/backend/src/db/schema.ts`, `audit.ts`, `client.ts`, `drizzle/**` and `packages/shared/**` are frozen for Track 4. A needed change there is a [[#Stop and ask]], not an edit.
 2. **Set up test data through the database functions, never through another group's routes.** A G3 test that needs a published version calls `createQuestion`, `createQuestionnaire`, `replaceDraft` and `publishDraft` directly. That is what keeps the groups mergeable in any order.
-3. **One route-group test file**, per [[8-testing#2.2 Backend integration — Fastify `inject()` against a real Postgres]], under `apps/backend/_tests/modules/definition/`. Your test rows go under your group's heading in [[8-testing#7. Test case enumeration]].
-4. **The author id is `AUTHOR_PLACEHOLDER`**, never `null` and never a literal typed at a call site. It is exported once from `modules/definition` and passed as `actorId` / `createdBy` everywhere. See [[2-design-doc#17. Decisions Log]] #53 before writing anything that stores it.
+3. **One route-group test file**, per [[8-testing#2.2 Backend integration — Fastify `inject()` against a real Postgres]], at `apps/backend/_tests/modules/definition/routes/<your routes file>.test.ts`, mirroring `src/` as `AGENTS.md` requires. Build the app with `useDefinitionApp`. Your test rows go under your group's heading in [[8-testing#7. Test case enumeration]].
+4. **The author is `authorOf(request)`**, passed as `actorId` / `createdBy` on every write. Never `null`, and never the placeholder string typed at a call site. See [[2-design-doc#17. Decisions Log]] #53 before writing anything that stores it. `traceId` is `null` until Track 8 lands.
 5. **Every list keeps its `ORDER BY`** from [[7-application-boundary#4.1 Endpoints]]. A list test must create at least two rows and assert their order.
 
 #### G0 — the definition plugin skeleton *(serial, lands on `staging` before G1–G3 start)*
 
-**Depends on Track 5's shared HTTP layer.** Track 5 has already written `src/app.ts` (the `buildApp` factory), `src/http/problems.ts` (`sendProblem`, the exact-validation compiler, schema errors → `400 request/invalid` with `schema/<keyword>` codes, unhandled errors → `500 internal`, not-found → `404`), `src/index.ts` and the `@fastify/ajv-compiler` dependency. G0 **reuses them and does not write a second copy**. Cut `staging` from `main` once they have merged, or have Track 5 land them as a small PR first. Track 5 owns them ([[#File ownership]]). G0's changes there are limited to adding the definition module: one `register` line and its options in `app.ts`, and opening the `definition` pool and closing it on shutdown in `index.ts`.
+**G0 also builds the shared HTTP layer Track 5 needs.** Track 5 paused and branches from `staging` once G0 has merged. It then adds its execution module to `buildApp` and `index.ts` rather than writing a second app factory or error handler.
 
-- [ ] `modules/definition/plugin.ts`: an encapsulated plugin at `DEFINITION_PREFIX`. It gets its own `Database` on the `qp_definition` pool through plugin options (no root decorator, per [[7-application-boundary#8.3 What we do now to keep the split cheap]]), uses Track 5's validator compiler and error handler inside its own scope, and has a single `preHandler` author hook that always passes and attaches `AUTHOR_PLACEHOLDER`
-- [ ] Definition-only error mapping inside the module, never in `src/http`: `23505` on `question_version`'s primary key → `409 question/version-conflict`; the `QP001` immutability trigger → `409 version/immutable`
-- [ ] `If-Match` handling on top of `parseDraftEtag`: an unparseable header → `400 request/invalid` (still a client bug); a parseable header naming another version id or a stale revision → `409 questionnaire/draft-stale`
-- [ ] Empty route files `routes/questions.ts` (G1), `routes/drafts.ts` (G2), `routes/versions.ts` (G3), each registered by the plugin, so no group edits `plugin.ts`
-- [ ] `_tests/modules/definition/app.ts`: a `buildApp` + `inject()` harness on top of `useTestDatabase`, plus the placeholder test files `questions.test.ts`, `drafts.test.ts`, `versions.test.ts`
-- [ ] **`GET /questionnaires`** as the pattern every later route copies: a `listQuestionnaires` read in `db/definition/questionnaire-list.ts`, `id DESC`, `currentVersion`, `closesAt` and `hasDraft`, with its test. This is the route Track 6 needs first
-- [ ] Tests: the author hook covers every route registered in the plugin, including routes added later; a missing and a malformed `If-Match` are both `400`; a problem body is `application/problem+json`
+- [x] `src/app.ts`: `buildApp`, the root not-found and error handlers, `/health`, and the definition module mounted at `DEFINITION_PREFIX` on its own `Database` passed through plugin options (no root decorator, per [[7-application-boundary#8.3 What we do now to keep the split cheap]]). `src/index.ts` opens the `qp_definition` pool and closes it on shutdown
+- [x] `src/http/problems.ts`:
+  - `sendProblem`
+  - `requestValidatorCompiler`: path and query strings coerced to their schema types, headers and body exact, additional properties rejected rather than stripped
+  - `replyWithProblem`: schema failures → `400 request/invalid` with a `schema/<keyword>` code per error; any other `4xx` → `400`; everything else → `500 internal`, with the request id as `detail`
+  - `replyNotFound`
+
+  `src/http/database-errors.ts` reads the SQLSTATE and constraint name through drizzle's wrapped `cause` chain
+- [x] `modules/definition/plugin.ts`: an encapsulated plugin with the validator compiler, the not-found handler, the definition error handler, and one `onRequest` author hook. The hook attaches `AUTHOR_PLACEHOLDER` ([[2-design-doc#17. Decisions Log]] #53). `authorOf(request)` throws on a request that did not pass through the hook, so a route registered outside the plugin fails loudly instead of writing no author
+- [x] `modules/definition/errors.ts`, definition-only mapping kept out of `src/http`: `QP001` → `409 version/immutable`; `23505` on `question_version_pkey` only → `409 question/version-conflict`; a malformed `If-Match` → `400` pointing at `/headers/if-match`; everything else falls through to `replyWithProblem`
+- [x] `modules/definition/if-match.ts`: `draftPreconditionOf(ifMatch)` throws `MalformedDraftPrecondition` for anything but a draft ETag the server issued (`*` included); `isCurrentDraft` compares the draft version id **and** the revision. Revision alone is not enough, because a newly opened draft restarts at `0` and an ETag from the previous draft would otherwise match. `replaceDraft` and `publishDraft` check only the revision today, so G2 and G3 must add the version id check
+- [x] Empty route files `routes/questions.ts` (G1), `routes/drafts.ts` (G2), `routes/versions.ts` (G3), already registered by the plugin, so no group edits `plugin.ts`
+- [x] `_tests/modules/definition/harness.ts`: `useDefinitionApp(testDatabase)` registers the module on a bare Fastify instance and returns it for `inject()`; `definitionUrl(path)` adds the prefix
+- [x] **`GET /questionnaires`** as the pattern every later route copies: `routes/questionnaire-list.ts` over `db/definition/questionnaire-list.ts`, `id DESC`, with `currentVersion`, `closesAt` and `hasDraft`. Track 6 needs this route first
 
 #### G1 — question bank *(parallel)*
 
@@ -143,13 +150,14 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
 
 #### Track 4 file split
 
+Test paths mirror `src/` under `apps/backend/_tests/`.
+
 | Path | Group |
 | --- | --- |
-| `src/modules/definition/plugin.ts`, `author.ts`, `errors.ts`, `if-match.ts` | G0 |
-| `src/db/definition/questionnaire-list.ts`, `_tests/modules/definition/app.ts` | G0 |
-| `src/modules/definition/routes/questions.ts`, `src/db/definition/questions.ts`, `question-content.ts`, `_tests/modules/definition/questions.test.ts` | G1 |
-| `src/modules/definition/routes/drafts.ts`, `src/db/definition/questionnaires.ts`, `_tests/modules/definition/drafts.test.ts` | G2 |
-| `src/modules/definition/routes/versions.ts`, `src/db/definition/publish.ts`, `versions.ts`, `closes-at.ts`, `_tests/modules/definition/versions.test.ts` | G3, apart from G2's pure extraction from `publish.ts` |
+| `src/app.ts`, `src/index.ts`, `src/http/**`, `src/modules/definition/{plugin,author,errors,if-match}.ts`, `routes/questionnaire-list.ts`, `src/db/definition/questionnaire-list.ts`, `_tests/modules/definition/harness.ts` | G0 |
+| `src/modules/definition/routes/questions.ts`, `src/db/definition/questions.ts`, `question-content.ts` | G1 |
+| `src/modules/definition/routes/drafts.ts`, `src/db/definition/questionnaires.ts` | G2 |
+| `src/modules/definition/routes/versions.ts`, `src/db/definition/publish.ts`, `versions.ts`, `closes-at.ts` | G3, apart from G2's pure extraction from `publish.ts` |
 | `_tests/modules/definition/definition-api.test.ts` | G4 |
 
 The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change there must keep the seed test green, and the seed files themselves stay unedited.
@@ -176,7 +184,7 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 | --- | --- |
 | `packages/shared/**` | 1 |
 | `apps/backend/drizzle/**`, `apps/backend/src/db/**`, `db/init/**` | 2 — **except** `apps/backend/src/db/definition/**`, which passes to Track 4 for Wave 2 (split in [[#Track 4 file split]]) |
-| `apps/backend/src/app.ts`, `apps/backend/src/index.ts`, `apps/backend/src/http/**` | 5, which wrote them first. Track 4's G0 adds only the definition module's registration and pool |
+| `apps/backend/src/app.ts`, `apps/backend/src/index.ts`, `apps/backend/src/http/**` | 4 (G0). Track 5 adds its module's registration and pool to `app.ts` and `index.ts` and may extend `src/http`, keeping G0's exports working |
 | `packages/ui/**` | 3 |
 | `apps/backend/src/modules/definition/**` | 4 |
 | `apps/backend/src/modules/execution/**` | 5 |

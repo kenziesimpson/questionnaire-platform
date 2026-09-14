@@ -354,20 +354,6 @@ Tracked as a Phase 2 item in [[4-implementation-plan]].
 | An item with several codes shows the first; codes that never attach to a rendered item are skipped and on their own render no error and no `aria-invalid`; messages are built from the question alone, never the answer | `questionnaire/messages.test.tsx` | Error bodies and messages never echo an answer ([[7-application-boundary#5.5 Error bodies must not echo answers]]) | No respondent answer in telemetry |
 | axe-core finds no violations for the demo after *no* and after *yes*; for all five response types unanswered, answered with both other text boxes filled, each carrying an error, and in `readonly` mode; for a required checkbox group, a unitless integer and a single-line text question; and after a reveal has been announced | `questionnaire/accessibility.test.tsx` | The committed accessibility minimum at the component layer; `color-contrast` is disabled because jsdom does not lay out | — accessibility commitment |
 
-### Wave 2 — Track 4: definition plugin
-
-One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two parallel tracks)*]]), so parallel groups add rows in different places. Each group adds rows only under its own heading.
-
-#### G0 — the definition plugin skeleton
-
-#### G1 — question bank
-
-#### G2 — draft lifecycle
-
-#### G3 — publish, version history, retirement
-
-#### G4 — integration
-
 ## 8. Alternatives considered
 
 ### 8.1 Jest for the frontend
