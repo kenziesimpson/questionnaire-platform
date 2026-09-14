@@ -564,6 +564,28 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 | `Table` renders a native `<table>` named by its caption, with column headers, body and footer rows, and passes `className` to the table; axe finds nothing | `primitives/table.test.tsx` | #66 | — accessibility commitment |
 | `InputGroup`, which `Command` needs, groups a labelled input with its addon and focuses the input when the addon is clicked; axe finds nothing | `primitives/input-group.test.tsx` | #66 | — accessibility commitment |
 
+### Wave 3 — Track 7: respondent app
+
+#### PR 1
+
+**Frontend component — `apps/respondent`, Vitest in jsdom with `fetch` and `localStorage` stubbed**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| `createSession` posts `{ questionnaireId }` to `/api/run/sessions` and returns the session and definition on `201`; `getSession` gets `/api/run/sessions/:sessionId` with no body and returns an in-progress or a submitted session with its definition on `200`; `submitSession` posts `{ answers }` to `.../submit` and returns the receipt on `200`. Every success body is checked against the route's shared response schema | `_tests/api/execution-client.test.ts` | URLs, bodies and response schemas come from `executionApi` in `@qp/shared`, never rewritten in the app ([[7-application-boundary#6.3 Input validation]]) | Sessions: start, resume, version pinning |
+| Each problem a route can return parses into `{ kind: "problem", slug, problem }`: `request/invalid`, `resource/not-found`, `questionnaire/closed` and `internal` for start and resume, plus `session/already-submitted` and `submission/invalid` for submit; switching on the slug reaches `submission/invalid`'s `items` | `_tests/api/execution-client.test.ts` | The closed problem union is exhaustive on the client ([[7-application-boundary#6.1 Error format — RFC 9457 problem details]]), so later PRs switch on it for the closed page (§4.2), `errorsByItemId` (#55) and the `409` receipt (#72) | Submit idempotency: same digest replays, different digest conflicts |
+| A thrown `fetch`, and a body that fails to arrive, are `{ kind: "network-error" }` on each route | `_tests/api/execution-client.test.ts` | A network failure is distinguishable from any server answer, so it can get a manual retry (#73) | — reliability |
+| A success status with a body failing its schema, a success body under another status, a non-JSON proxy page, a problem whose status disagrees with its slug, a type outside the union, a shared slug the route cannot return, a submission code that is not a submission code, and a problem missing its required extension are each `{ kind: "unexpected-response", status }` | `_tests/api/execution-client.test.ts` | Nothing unvalidated is typed as a contract body | — contract |
+| Across a receipt, both submit problems, a proxy error and a network failure, no outcome serializes a planted answer value; the answers argument is `Sensitive` and stringifies redacted | `_tests/api/execution-client.test.ts` | Answer values never reach an error or a log ([[7-application-boundary#5.5 Error bodies must not echo answers]]) | No respondent answer in telemetry |
+| `pathOf` percent-encodes path parameters and throws naming a missing parameter, not a value | `_tests/api/request.test.ts` | A session id cannot break out of its path segment | — contract |
+| Partials are keyed `qp:respondent:<questionnaireId>` and round-trip as `{ formatVersion: 1, sessionId, questionnaireId, answers, updatedAt }`, keeping answers to hidden items and explicit `null`s | `_tests/storage/partials.test.ts` | One key per questionnaire in a versioned envelope (#71); hidden answers are kept, filtered once at submit (#29) | Sessions: start, resume, version pinning |
+| Unparseable JSON, a `formatVersion` other than `1`, and foreign shapes — `null`, a string, an array, `{}`, a missing or non-uuid `sessionId`, non-object answers, a non-item-id answer key, a non-timestamp `updatedAt`, an extra field, and an envelope naming another questionnaire — each read as empty without throwing | `_tests/storage/partials.test.ts` | A mismatched or corrupt value is discarded, not a crash (#71) | Sessions: start, resume, version pinning |
+| A stored answer that is not a valid client answer, such as a half-typed number `72.`, is dropped while the rest of the envelope is kept | `_tests/storage/partials.test.ts` | The renderer reports number text as typed, so one unfinished field must not discard every answer on reload (#71) | Sessions: start, resume, version pinning |
+| Clearing after submit leaves `{ sessionId, questionnaireId }` with empty answers and no answer value in storage | `_tests/storage/partials.test.ts` | A successful submit clears the answers and keeps the session, so the link reopens to the receipt (#70) | Sessions: start, resume, version pinning |
+| Removing deletes the key and leaves other questionnaires' partials untouched | `_tests/storage/partials.test.ts` | A stale session id (`404` on resume) is cleared before starting again ([[10-frontend#4.2 Entry and resume]]) | Sessions: start, resume, version pinning |
+| With every `Storage` operation throwing, with a quota error on write (the previous envelope still reads back), and with `localStorage` absent, no operation throws and reads are empty | `_tests/storage/partials.test.ts` | Private mode and full storage degrade to no persistence, not a white screen ([[3-scaling#7. Known tradeoffs of browser-held partial answers]]) | — reliability |
+| `App` renders its heading through `@qp/ui` under jsdom | `_tests/app.test.tsx` | The Vitest and RTL setup resolves the shared UI package | — tooling |
+
 ## 8. Alternatives considered
 
 ### 8.1 Jest for the frontend
