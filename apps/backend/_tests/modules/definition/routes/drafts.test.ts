@@ -153,6 +153,7 @@ describe("POST /questionnaires", () => {
     published(
       await publishDraft(db, {
         questionnaireId,
+        expectedDraftVersionId: savedPrecondition?.versionId ?? "",
         expectedDraftRevision: savedPrecondition?.draftRevision ?? -1,
         actorId: "test",
         traceId: null,
@@ -480,6 +481,7 @@ describe("POST /questionnaires/:id/draft", () => {
     published(
       await publishDraft(db, {
         questionnaireId: v1.questionnaireId,
+        expectedDraftVersionId: v2Draft.draftVersionId,
         expectedDraftRevision: v2Draft.draftRevision,
         actorId: "test",
         traceId: null,
@@ -566,6 +568,7 @@ describe("POST /questionnaires/:id/draft/validate", () => {
     expect((await getDraft(draft.questionnaireId)).headers.etag).toBe(before.headers.etag);
     const publish = await publishDraft(db, {
       questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: draft.draftVersionId,
       expectedDraftRevision: draft.draftRevision,
       actorId: "test",
       traceId: null,
