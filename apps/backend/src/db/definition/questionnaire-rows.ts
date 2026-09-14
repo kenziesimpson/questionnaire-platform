@@ -42,7 +42,7 @@ export async function questionnaireExists(executor: Executor, questionnaireId: s
   return rows.length === 1;
 }
 
-export function isOpenDraftOf(questionnaireId: string | typeof questionnaire.id) {
+function isOpenDraftOf(questionnaireId: string | typeof questionnaire.id) {
   return and(eq(questionnaireVersion.questionnaireId, questionnaireId), eq(questionnaireVersion.status, "draft"));
 }
 
