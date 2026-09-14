@@ -27,17 +27,41 @@ function otherModule(name) {
 
 const restrict = (...patterns) => ["error", { patterns }];
 
+const doubleAssertionThrough = (keyword, spelling) =>
+  ["TSAsExpression", "TSTypeAssertion"].map((inner) => ({
+    selector: `TSAsExpression > ${inner}.expression[typeAnnotation.type="${keyword}"]`,
+    message: `Casting through \`${spelling}\` compiles for any two types and switches type checking off. Fix the types; if the cast is genuinely unavoidable, disable this line with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>`,
+  }));
+
+const doubleAssertions = [...doubleAssertionThrough("TSUnknownKeyword", "unknown"), ...doubleAssertionThrough("TSAnyKeyword", "any")];
+
+const rawSqlMessage =
+  "Raw SQL through drizzle's `sql` bypasses the query builder's types. Use the builder (eq, and, exists, notExists, max, inArray, …); if Postgres needs something the builder cannot express, such as calling a database function or DDL, disable it with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>";
+
+const rawSql = [
+  { selector: 'TaggedTemplateExpression[tag.type="Identifier"][tag.name="sql"]', message: rawSqlMessage },
+  { selector: 'CallExpression[callee.type="MemberExpression"][callee.object.name="sql"]', message: rawSqlMessage },
+];
+
+const noDoubleAssertion = ["warn", ...doubleAssertions];
+const noDoubleAssertionOrRawSql = ["warn", ...doubleAssertions, ...rawSql];
+
 export default tseslint.config(
   { ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**"] },
   {
     files: ["**/*.{ts,tsx,mts,cts,js,mjs,cjs}"],
     languageOptions: { parser: tseslint.parser },
     linterOptions: { reportUnusedDisableDirectives: "error" },
-    rules: { "no-restricted-imports": restrict(telemetryOnly) },
+    rules: { "no-restricted-imports": restrict(telemetryOnly), "no-restricted-syntax": noDoubleAssertion },
   },
   {
     files: ["packages/telemetry/**"],
     rules: { "no-restricted-imports": "off" },
+  },
+  {
+    files: ["apps/backend/**/*.ts"],
+    ignores: ["apps/backend/src/db/schema.ts"],
+    rules: { "no-restricted-syntax": noDoubleAssertionOrRawSql },
   },
   {
     files: ["apps/backend/src/modules/definition/**"],
