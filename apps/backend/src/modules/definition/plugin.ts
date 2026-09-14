@@ -4,7 +4,7 @@ import { replyNotFound, requestValidatorCompiler } from "../../http/problems.js"
 import { authenticateAuthor } from "./author.js";
 import { replyWithDefinitionProblem } from "./errors.js";
 import { draftRoutes } from "./routes/drafts.js";
-import { questionnaireListRoutes } from "./routes/questionnaires.js";
+import { questionnaireRoutes } from "./routes/questionnaires.js";
 import { questionRoutes } from "./routes/questions.js";
 import { versionRoutes } from "./routes/versions.js";
 
@@ -19,7 +19,7 @@ export async function definitionModule(scope: FastifyInstance, options: Definiti
   scope.addHook("onRequest", authenticateAuthor);
 
   const routeOptions = { database: options.database };
-  await scope.register(questionnaireListRoutes, routeOptions);
+  await scope.register(questionnaireRoutes, routeOptions);
   await scope.register(questionRoutes, routeOptions);
   await scope.register(draftRoutes, routeOptions);
   await scope.register(versionRoutes, routeOptions);

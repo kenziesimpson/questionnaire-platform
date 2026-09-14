@@ -7,7 +7,6 @@ import {
   validateOpenDraft,
   type CurrentDraft,
 } from "../../../db/definition/drafts.js";
-import { createQuestionnaire } from "../../../db/definition/questionnaires.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { draftPreconditionOf } from "../if-match.js";
@@ -22,17 +21,6 @@ function notFound(request: FastifyRequest) {
 }
 
 export async function draftRoutes(scope: FastifyInstance, { database }: DefinitionModuleOptions): Promise<void> {
-  registerRoute(scope, definitionApi.createQuestionnaire, async (request) => {
-    const created = await createQuestionnaire(database, {
-      key: request.body.key ?? null,
-      name: request.body.name,
-      title: request.body.title,
-      createdBy: authorOf(request),
-      traceId: null,
-    });
-    return { status: 201, body: created.summary };
-  });
-
   registerRoute(scope, definitionApi.getDraft, async (request) => {
     const current = await readDraft(database, request.params.id);
     if (current === undefined) {

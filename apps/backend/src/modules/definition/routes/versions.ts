@@ -1,7 +1,6 @@
 import { definitionApi, problem, type Problem } from "@qp/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { publishDraft } from "../../../db/definition/publish.js";
-import { setClosesAt } from "../../../db/definition/questionnaires.js";
 import { listVersionSummaries, readPublishedSnapshot } from "../../../db/definition/versions.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
@@ -61,19 +60,5 @@ export async function versionRoutes(scope: FastifyInstance, { database }: Defini
         "cache-control": IMMUTABLE_SNAPSHOT_CACHE_CONTROL,
       },
     };
-  });
-
-  registerRoute(scope, definitionApi.setClosesAt, async (request) => {
-    const closesAt = request.body.closesAt;
-    const updated = await setClosesAt(database, {
-      questionnaireId: request.params.id,
-      closesAt: closesAt === null ? null : new Date(closesAt),
-      actorId: authorOf(request),
-      traceId: null,
-    });
-    if (updated.outcome === "questionnaire-not-found") {
-      return notFound(request);
-    }
-    return { status: 200, body: updated.questionnaire };
   });
 }

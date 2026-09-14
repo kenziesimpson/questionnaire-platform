@@ -1,7 +1,6 @@
 import {
   PROBLEM_CONTENT_TYPE,
   QuestionnaireDraft,
-  QuestionnaireSummary,
   formatDraftEtag,
   parseDraftEtag,
   problemType,
@@ -113,29 +112,7 @@ async function aDraftWithAForwardReference(): Promise<DraftFixture & { readonly 
   return { ...draft, draftRevision: edited.draftRevision, items };
 }
 
-describe("POST /questionnaires", () => {
-  it("returns the new questionnaire's summary, and its draft opens at revision 0 with an ETag", async () => {
-    const created = await app().inject({
-      method: "POST",
-      url: definitionUrl("/questionnaires"),
-      payload: { name: "Intake", title: "Patient intake", key: "intake" },
-    });
-
-    expect(created.statusCode).toBe(201);
-    const summary = created.json();
-    expect(Value.Check(QuestionnaireSummary, summary)).toBe(true);
-    expect(summary).toMatchObject({ key: "intake", name: "Intake", currentVersion: null, closesAt: null, hasDraft: true });
-
-    const draft = await getDraft(summary.questionnaireId);
-
-    expect(draft.statusCode).toBe(200);
-    const body = draft.json();
-    expect(Value.Check(QuestionnaireDraft, body)).toBe(true);
-    expect(body).toMatchObject({ questionnaireId: summary.questionnaireId, title: "Patient intake", items: [], questions: [] });
-    expect(draft.headers.etag).toBe(formatDraftEtag(body.versionId, 0));
-    expect(draft.headers["cache-control"]).toBe("no-store");
-  });
-
+describe("the draft lifecycle's author", () => {
   it("records prototype-author as the actor of create, save and open-next-draft", async () => {
     const db = testDatabase.database("definition");
     const question = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
