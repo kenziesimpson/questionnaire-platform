@@ -38,6 +38,7 @@ export function canonicalResponseRows(rows: readonly ResponseRow[]): string {
 }
 
 export async function responseDigest(rows: readonly ResponseRow[]): Promise<Uint8Array> {
+  // eslint-disable-next-line no-restricted-syntax -- this package compiles without environment types because it runs in both the browser and Node; both provide Web Crypto and TextEncoder at runtime
   const { crypto, TextEncoder } = globalThis as unknown as WebCryptoGlobals;
   const bytes = new TextEncoder().encode(canonicalResponseRows(rows));
   return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
