@@ -75,7 +75,7 @@
 
 - [x] `.github/workflows/ci.yml` — one **Checks** job on every push to `main` and every pull request: `npm ci`, `lint`, `typecheck`, `npm test`, `build`, Node from `.nvmrc`. No Postgres service; Testcontainers supplies its own ([[8-testing#5.3 CI details that actually bite]])
 - [ ] Checks green on `main` on GitHub, and required as a status check on `main`'s branch protection
-- [ ] ~~Wave 2 does not start until both boxes above are ticked~~ **Waived 2026-09-13.** Wave 2 starts with CI running but no branch protection. Until the box above is ticked, checking for a green run before merging is the reviewer's job, not GitHub's
+- [ ] ~~Wave 2 does not start until both boxes above are ticked~~ **Waived 2026-09-13.** Wave 2 starts with CI running but no branch protection. Until the box above is ticked, checking for a green run before merging is the reviewer's job, not GitHub's. **Branch protection is unavailable on the current plan:** GitHub refuses it for a private repository on the free plan (`403`, "Upgrade to GitHub Pro or make this repository public"), so the box above stays unticked while Checks itself is green on `main`
 
 ### Wave 2 — API plugins *(two parallel tracks)*
 
@@ -120,35 +120,37 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
 
 `GET /questions`, `POST /questions`, `GET /questions/:questionId`, `GET /questions/:questionId/versions`, `GET /questions/:questionId/versions/:v`, `POST /questions/:questionId/versions`, `POST /questions/:questionId/archive`, `GET /questions/:questionId/usage`
 
-- [ ] Bank reads: latest version of each question with its options in `position` order, `?includeArchived=`, `id DESC`; version history `version DESC`; one version; usage from `version_question_index` ordered `questionnaire_id, version DESC`
-- [ ] `archiveQuestion`: sets `archived_at` once (archiving an already-archived question is a no-op that returns `200` and writes no second audit row), audited `archive_question`. Existing placements are unaffected
-- [ ] Question-rule failures (`QUESTION_RULE_CODES`) on create and on saving a version map to the `request/invalid` `errors` extension, as the shared types already define
-- [ ] Tests → **M4** *bank CRUD*, *deterministic list order*: create → v1; save → v2 with v1 unchanged; archived hidden by default and shown with `includeArchived`; unknown ids `404`; two concurrent saves become v2 and v3; usage lists only published versions
+- [x] Bank reads: latest version of each question with its options in `position` order, `?includeArchived=`, `id DESC`; version history `version DESC`; one version; usage from `version_question_index` ordered `questionnaire_id, version DESC`
+- [x] `archiveQuestion`: sets `archived_at` once (archiving an already-archived question is a no-op that returns `200` and writes no second audit row), audited `archive_question`. Existing placements are unaffected
+- [x] Question-rule failures (`QUESTION_RULE_CODES`) on create and on saving a version map to the `request/invalid` `errors` extension, as the shared types already define
+- [x] Tests → **M4** *bank CRUD*, *deterministic list order*: create → v1; save → v2 with v1 unchanged; archived hidden by default and shown with `includeArchived`; unknown ids `404`; two concurrent saves become v2 and v3; usage lists only published versions
 
 #### G2 — draft lifecycle *(parallel)*
 
 `POST /questionnaires`, `GET /questionnaires/:id/draft`, `PUT /questionnaires/:id/draft`, `POST /questionnaires/:id/draft`, `POST /questionnaires/:id/draft/validate`
 
-- [ ] Draft read: `items` in `position` order and `questions` holding each pinned question version once; `ETag` from `formatDraftEtag`; `Cache-Control: no-store`
-- [ ] `PUT /draft` maps `replaceDraft`'s outcomes: `stale-or-missing-draft` → `409 questionnaire/draft-stale` when a draft exists, `404` when none does; `archived-question` and `unknown-question-version` → `422 questionnaire/draft-invalid` with the offending items in `items`. Responds with the new `ETag`
-- [ ] `openNextDraft` (new, in `db/definition/questionnaires.ts`): `FOR UPDATE` on the questionnaire as the **first** statement ([[9-database-schema#5. Concurrency control]]), `409 questionnaire/draft-exists` when a draft is open, `404` when nothing has been published, then copy the latest published version's items with their pinned question versions, audited `create_draft`. A copied item whose question has since been archived is kept; publish validation reports it
-- [ ] `validate` runs the same read-and-`validateDraft` path publish uses and never writes. If that needs `publishDraft`'s private helpers exported, G2 does that in `publish.ts` as a **pure extraction, no behaviour change**, and tells G3 before merging
-- [ ] Tests → **M4** *stale-ETag `409`*, *archived question rejected at add time*: two tabs, one gets `409`; the missing-`If-Match` `400`; two concurrent next-draft opens, where exactly one gets `201`; the copy pins the same question versions as the source; validate reports what publish would refuse and writes no audit row
+- [x] Draft read: `items` in `position` order and `questions` holding each pinned question version once; `ETag` from `formatDraftEtag`; `Cache-Control: no-store`
+- [x] `PUT /draft` maps `replaceDraft`'s outcomes: `stale-or-missing-draft` → `409 questionnaire/draft-stale` when a draft exists, `404` when none does; `archived-question` and `unknown-question-version` → `422 questionnaire/draft-invalid` with the offending items in `items`. Responds with the new `ETag`
+- [x] `openNextDraft` (new, in `db/definition/questionnaires.ts`): `FOR UPDATE` on the questionnaire as the **first** statement ([[9-database-schema#5. Concurrency control]]), `409 questionnaire/draft-exists` when a draft is open, `404` when nothing has been published, then copy the latest published version's items with their pinned question versions, audited `create_draft`. A copied item whose question has since been archived is kept; publish validation reports it
+- [x] `validate` runs the same read-and-`validateDraft` path publish uses and never writes. If that needs `publishDraft`'s private helpers exported, G2 does that in `publish.ts` as a **pure extraction, no behaviour change**, and tells G3 before merging
+- [x] Tests → **M4** *stale-ETag `409`*, *archived question rejected at add time*: two tabs, one gets `409`; the missing-`If-Match` `400`; two concurrent next-draft opens, where exactly one gets `201`; the copy pins the same question versions as the source; validate reports what publish would refuse and writes no audit row
 
 #### G3 — publish, version history, retirement *(parallel)*
 
 `POST /questionnaires/:id/publish`, `GET /questionnaires/:id/versions`, `GET /questionnaires/:id/versions/:v`, `PUT /questionnaires/:id/closes-at`
 
-- [ ] `POST /publish` maps `publishDraft`'s outcomes: `questionnaire-not-found` and `no-draft` → `404`; `stale` → `409 questionnaire/draft-stale`; `invalid` → `422 questionnaire/draft-invalid`; `published` → `201 VersionSummary`
-- [ ] Version reads (new file `db/definition/versions.ts`): history `version DESC`, metadata only, `itemCount` from the snapshot; one snapshot verbatim, with `ETag: "<questionnaireId>:<version>:<formatVersion>"` and `Cache-Control: private, max-age=31536000, immutable` (#44); a draft or an unknown version is `404`
-- [ ] `setClosesAt` (new file `db/definition/closes-at.ts`): questionnaire `FOR UPDATE` first; a non-null value (set or reschedule) is audited `retire` and `null` is audited `reopen`, each with `{ from, to }` in the summary; responds with `QuestionnaireSummary`
-- [ ] Tests → **M4** *publish happy path*, *publish failures as `422`*, *version history*: publish writes v1 then v2, with v1's snapshot byte-identical afterwards; a forward reference and an unsatisfiable predicate each return `422` naming the item; publish with a stale `If-Match` is `409`; the snapshot `ETag` and `Cache-Control` headers; clearing `closesAt` restores it
+- [x] `POST /publish` maps `publishDraft`'s outcomes: `questionnaire-not-found` and `no-draft` → `404`; `stale` → `409 questionnaire/draft-stale`; `invalid` → `422 questionnaire/draft-invalid`; `published` → `201 VersionSummary`
+- [x] Version reads (new file `db/definition/versions.ts`): history `version DESC`, metadata only, `itemCount` from the snapshot; one snapshot verbatim, with `ETag: "<questionnaireId>:<version>:<formatVersion>"` and `Cache-Control: private, max-age=31536000, immutable` (#44); a draft or an unknown version is `404`
+- [x] `setClosesAt` (new file `db/definition/closes-at.ts`): questionnaire `FOR UPDATE` first; a non-null value (set or reschedule) is audited `retire` and `null` is audited `reopen`, each with `{ from, to }` in the summary; responds with `QuestionnaireSummary`
+- [x] Tests → **M4** *publish happy path*, *publish failures as `422`*, *version history*: publish writes v1 then v2, with v1's snapshot byte-identical afterwards; a forward reference and an unsatisfiable predicate each return `422` naming the item; publish with a stale `If-Match` is `409`; the snapshot `ETag` and `Cache-Control` headers; clearing `closesAt` restores it
 
 #### G4 — integration *(serial, on `staging`, after G1–G3)*
 
-- [ ] Route completeness: every entry in `definitionRoutes` is registered at its method and URL with the shared schema object. It lands here because it fails until every group has merged
-- [ ] One flow through `inject()` alone, using no database function directly: create a question → create a questionnaire → `PUT /draft` → `validate` → `publish` → save a question revision → open the next draft → re-pin → publish v2 → list versions → fetch both snapshots → set and clear `closesAt`
-- [ ] **M4** ticked; **H3** done by hand against `staging`; `staging → main` merged with Checks green on its head
+- [x] Route completeness: every entry in `definitionRoutes` is registered at its method and URL with the shared schema object. It lands here because it fails until every group has merged
+- [x] One flow through `inject()` alone, using no database function directly: create a question → create a questionnaire → `PUT /draft` → `validate` → `publish` → save a question revision → open the next draft → re-pin → publish v2 → list versions → fetch both snapshots → set and clear `closesAt`
+- [x] **M4** ticked
+- [x] `staging → main` merged with Checks green on its head
+- [ ] **H3** done by hand against the merged Wave 2 API
 
 #### Track 4 file split
 
@@ -219,9 +221,9 @@ A wave is not done until its milestones are green.
 - [x] **M1** Engine units: branching truth table, every operator against every type, unanswered → `false`, digest determinism under key reordering, timezone cases
 - [x] **M2** DB invariants on Testcontainers: `UPDATE` and `DELETE` on published rows rejected; bad `response_shape` rejected; `qp_execution` denied on authoring tables; `qp_definition` denied on `response` and on `audit.event`; audit reachable only through `audit.record`; no-default-partition behaviour
 - [x] **M3** Renderer components plus the axe check; reveal and removal announced via `aria-live`
-- [ ] **M4** Definition API via `inject()`: bank CRUD, stale-ETag `409`, publish happy path, publish failures as `422`, archived question rejected at add time, version history, deterministic list order
-- [ ] **M5** Execution API via `inject()`: session pins the snapshot and ignores a later publish; resume; submit; idempotent replay returns the original receipt; answer to an invisible item `422`; the v1/v2 predicate-tightening fixture; closed questionnaire `409`
-- [ ] **M6** Cross-version aggregation: v1 and v2 responses aggregate on `opt_hyperten` while each renders through its own pinned `questionVersion`
+- [x] **M4** Definition API via `inject()`: bank CRUD, stale-ETag `409`, publish happy path, publish failures as `422`, archived question rejected at add time, version history, deterministic list order
+- [x] **M5** Execution API via `inject()`: session pins the snapshot and ignores a later publish; resume; submit; idempotent replay returns the original receipt; answer to an invisible item `422`; the v1/v2 predicate-tightening fixture; closed questionnaire `409`
+- [x] **M6** Cross-version aggregation: v1 and v2 responses aggregate on `opt_hyperten` while each renders through its own pinned `questionVersion`
 - [ ] **M7** Telemetry sentinel canary: a planted answer value reaches no exporter
 - [ ] **M8** Three Playwright specs against the composed stack
 - [ ] **M9** Whole suite, one command, headless, both CI jobs green from a clean clone
