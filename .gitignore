@@ -28,4 +28,4 @@ coverage/
 Claude outputs/
 
 # Seeded design canvases (regenerated from the .dc.html sources beside them)
-docs/design/**/*-ui.html
+docs/designs/**/*-ui.html
