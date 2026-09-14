@@ -1,4 +1,5 @@
 import type { DraftItemCode, ItemError, Predicate } from "@qp/shared";
+import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { publishDraft } from "../../../src/db/definition/publish.js";
 import { replaceDraft } from "../../../src/db/definition/questionnaires.js";
@@ -47,6 +48,7 @@ describe("publishDraft", () => {
 
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: draft.draftVersionId,
       expectedDraftRevision: draft.draftRevision,
       actorId: "author-1",
       traceId: "trace-1",
@@ -106,6 +108,7 @@ describe("publishDraft", () => {
       await expect(
         publishDraft(definitionDb, {
           questionnaireId: draft.questionnaireId,
+          expectedDraftVersionId: draft.draftVersionId,
           expectedDraftRevision: draft.draftRevision,
           actorId: "audit-must-fail",
           traceId: null,
@@ -138,6 +141,7 @@ describe("publishDraft", () => {
 
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: draft.draftVersionId,
       expectedDraftRevision: draft.draftRevision - 1,
       actorId: null,
       traceId: null,
@@ -145,6 +149,21 @@ describe("publishDraft", () => {
 
     expect(outcome).toEqual({ outcome: "stale", draftRevision: draft.draftRevision });
     expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
+  });
+
+  it("refuses the current revision when it names a different draft version", async () => {
+    const definitionDb = testDatabase.database("definition");
+    const draft = await aDraftWithOneItem(definitionDb);
+
+    const outcome = await publishDraft(definitionDb, {
+      questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: uuidv7(),
+      expectedDraftRevision: draft.draftRevision,
+      actorId: null,
+      traceId: null,
+    });
+
+    expect(outcome).toEqual({ outcome: "stale", draftRevision: draft.draftRevision });
   });
 
   it.each(invalidDrafts)(
@@ -190,6 +209,7 @@ describe("publishDraft", () => {
 
       const outcome = await publishDraft(definitionDb, {
         questionnaireId: draft.questionnaireId,
+        expectedDraftVersionId: draft.draftVersionId,
         expectedDraftRevision: edited.draftRevision,
         actorId: null,
         traceId: null,
@@ -221,6 +241,7 @@ describe("publishDraft", () => {
 
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: draft.draftVersionId,
       expectedDraftRevision: draft.draftRevision,
       actorId: null,
       traceId: null,
@@ -235,6 +256,7 @@ describe("publishDraft", () => {
 
     const outcome = await publishDraft(definitionDb, {
       questionnaireId: published.questionnaireId,
+      expectedDraftVersionId: published.draftVersionId,
       expectedDraftRevision: published.draftRevision,
       actorId: null,
       traceId: null,
@@ -248,6 +270,7 @@ describe("publishDraft", () => {
     const draft = await aDraftWithOneItem(definitionDb);
     const command = {
       questionnaireId: draft.questionnaireId,
+      expectedDraftVersionId: draft.draftVersionId,
       expectedDraftRevision: draft.draftRevision,
       actorId: null,
       traceId: null,

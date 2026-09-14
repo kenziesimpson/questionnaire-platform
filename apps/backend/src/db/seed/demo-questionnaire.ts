@@ -113,6 +113,7 @@ export async function seedDemoQuestionnaire(db: Database): Promise<DemoSeedOutco
     }
     const published = await publishDraft(tx, {
       questionnaireId: INTAKE_QUESTIONNAIRE_ID,
+      expectedDraftVersionId: edited.draftVersionId,
       expectedDraftRevision: edited.draftRevision,
       actorId: SEED_ACTOR,
       traceId: null,
