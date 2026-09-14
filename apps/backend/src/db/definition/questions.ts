@@ -14,6 +14,8 @@ export interface QuestionNotFound {
   readonly outcome: "question-not-found";
 }
 
+const QUESTION_NOT_FOUND: QuestionNotFound = { outcome: "question-not-found" };
+
 export interface CreateQuestionCommand {
   readonly questionId?: string;
   readonly key: string | null;
@@ -108,7 +110,7 @@ export async function appendQuestionVersion(
 ): Promise<AppendQuestionVersionOutcome> {
   return executor.transaction(async (tx) => {
     if ((await lockQuestion(tx, command.questionId)) === undefined) {
-      return { outcome: "question-not-found" };
+      return QUESTION_NOT_FOUND;
     }
     const [latest] = await tx
       .select({ version: max(questionVersion.version) })
@@ -262,7 +264,7 @@ export async function archiveQuestion(executor: Executor, command: ArchiveQuesti
     }
     const current = await readQuestion(tx, command.questionId);
     if (current === undefined) {
-      return { outcome: "question-not-found" };
+      return QUESTION_NOT_FOUND;
     }
     return { outcome: archived.length === 1 ? "archived" : "already-archived", question: current };
   });

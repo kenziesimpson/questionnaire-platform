@@ -11,6 +11,8 @@ export interface QuestionnaireNotFound {
   readonly outcome: "questionnaire-not-found";
 }
 
+const QUESTIONNAIRE_NOT_FOUND: QuestionnaireNotFound = { outcome: "questionnaire-not-found" };
+
 function selectQuestionnaire(executor: Executor, questionnaireId: string) {
   return executor
     .select({ id: questionnaire.id, closesAt: questionnaire.closesAt })
@@ -31,7 +33,7 @@ export async function withLockedQuestionnaire<Outcome>(
   return executor.transaction(async (tx): Promise<Outcome | QuestionnaireNotFound> => {
     const locked = await lockQuestionnaire(tx, questionnaireId);
     if (locked === undefined) {
-      return { outcome: "questionnaire-not-found" };
+      return QUESTIONNAIRE_NOT_FOUND;
     }
     return work(tx, locked);
   });
