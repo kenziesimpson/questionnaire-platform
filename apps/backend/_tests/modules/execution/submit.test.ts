@@ -65,6 +65,10 @@ async function storedSession(sessionId: string) {
   return result.rows[0];
 }
 
+function otherTextOf(row: StoredResponse): { otherText?: string } {
+  return row.other_text === null ? {} : { otherText: row.other_text };
+}
+
 function rowFromColumns(row: StoredResponse): ResponseRow {
   const head = { itemId: row.item_id, questionId: row.question_id, questionVersion: row.question_version };
   switch (row.question_type) {
@@ -75,13 +79,9 @@ function rowFromColumns(row: StoredResponse): ResponseRow {
     case "date":
       return { ...head, type: "date", date: row.date_value! };
     case "single_choice":
+      return { ...head, type: "single_choice", optionIds: row.option_ids!, ...otherTextOf(row) };
     case "multiple_choice":
-      return {
-        ...head,
-        type: row.question_type,
-        optionIds: row.option_ids!,
-        ...(row.other_text === null ? {} : { otherText: row.other_text }),
-      } as ResponseRow;
+      return { ...head, type: "multiple_choice", optionIds: row.option_ids!, ...otherTextOf(row) };
   }
 }
 

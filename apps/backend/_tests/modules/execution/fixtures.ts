@@ -10,13 +10,11 @@ import {
   type QuestionInput,
 } from "@qp/shared";
 import Fastify, { type FastifyInstance, type LightMyRequestResponse } from "fastify";
-import { v7 as uuidv7 } from "uuid";
 import { afterEach, beforeEach, vi } from "vitest";
 import type { Database } from "../../../src/db/client.js";
 import { publishDraft } from "../../../src/db/definition/publish.js";
-import { createQuestionnaire, replaceDraft } from "../../../src/db/definition/questionnaires.js";
+import { createQuestionnaire, openNextDraft, replaceDraft } from "../../../src/db/definition/questionnaires.js";
 import { appendQuestionVersion, createQuestion } from "../../../src/db/definition/questions.js";
-import { questionnaireVersion } from "../../../src/db/schema.js";
 import { seedDemoQuestionnaire } from "../../../src/db/seed/demo-questionnaire.js";
 import { executionModule } from "../../../src/modules/execution/plugin.js";
 import type { TestDatabase } from "../../db/harness.js";
@@ -90,14 +88,14 @@ export async function publishNextVersion(
   questionnaireId: string,
   items: readonly Item[],
 ): Promise<number> {
-  const [draft] = await definition
-    .insert(questionnaireVersion)
-    .values({ id: uuidv7(), questionnaireId, status: "draft", title: "Patient Intake", createdBy: "test" })
-    .returning({ draftRevision: questionnaireVersion.draftRevision });
+  const opened = await openNextDraft(definition, { questionnaireId, ...actor });
+  if (opened.outcome !== "opened") {
+    throw new Error(`next draft was not opened: ${opened.outcome}`);
+  }
   const edited = await replaceDraft(definition, {
     questionnaireId,
-    expectedDraftRevision: draft!.draftRevision,
-    title: "Patient Intake",
+    precondition: { versionId: opened.draft.versionId, draftRevision: opened.draftRevision },
+    title: opened.draft.title,
     items: items.map(draftItemOf),
     actorId: "test",
     traceId: null,
@@ -107,7 +105,7 @@ export async function publishNextVersion(
   }
   const published = await publishDraft(definition, {
     questionnaireId,
-    expectedDraftRevision: edited.draftRevision,
+    precondition: { versionId: edited.draftVersionId, draftRevision: edited.draftRevision },
     actorId: "test",
     traceId: null,
   });
@@ -178,7 +176,7 @@ export async function publishMeasurementsQuestionnaire(testDatabase: TestDatabas
   const created = await createQuestionnaire(definition, { key: null, name: "Measurements", title: "Measurements", ...actor });
   const edited = await replaceDraft(definition, {
     questionnaireId: created.questionnaireId,
-    expectedDraftRevision: created.draftRevision,
+    precondition: { versionId: created.draftVersionId, draftRevision: created.draftRevision },
     title: "Measurements",
     items: [
       { itemId: "itm_weight", required: true, visibleWhen: null, questionId: weight.questionId, questionVersion: 1 },
@@ -192,7 +190,7 @@ export async function publishMeasurementsQuestionnaire(testDatabase: TestDatabas
   }
   const published = await publishDraft(definition, {
     questionnaireId: created.questionnaireId,
-    expectedDraftRevision: edited.draftRevision,
+    precondition: { versionId: edited.draftVersionId, draftRevision: edited.draftRevision },
     actorId: "test",
     traceId: null,
   });
