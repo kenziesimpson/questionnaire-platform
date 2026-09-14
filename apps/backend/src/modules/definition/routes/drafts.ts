@@ -5,7 +5,6 @@ import {
   type DraftItem,
   type DraftItemCode,
   type ItemError,
-  type ReplyOf,
 } from "@qp/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
@@ -20,8 +19,6 @@ import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { draftPreconditionOf } from "../if-match.js";
 import type { DefinitionModuleOptions } from "../plugin.js";
-
-type DraftValidationBody = ReplyOf<typeof definitionApi.validateDraft, 200>;
 
 function draftHeaders({ draft, draftRevision }: CurrentDraft): Record<string, string> {
   return { etag: formatDraftEtag(draft.versionId, draftRevision), "cache-control": "no-store" };
@@ -119,6 +116,6 @@ export async function draftRoutes(scope: FastifyInstance, { database }: Definiti
     if (validation === undefined) {
       return notFound(request);
     }
-    return { status: 200, body: validation as DraftValidationBody };
+    return { status: 200, body: validation };
   });
 }
