@@ -11,12 +11,15 @@ export interface QuestionnaireNotFound {
   readonly outcome: "questionnaire-not-found";
 }
 
-async function lockQuestionnaire(tx: Transaction, questionnaireId: string): Promise<LockedQuestionnaire | undefined> {
-  const [locked] = await tx
+function selectQuestionnaire(executor: Executor, questionnaireId: string) {
+  return executor
     .select({ id: questionnaire.id, closesAt: questionnaire.closesAt })
     .from(questionnaire)
-    .where(eq(questionnaire.id, questionnaireId))
-    .for("update");
+    .where(eq(questionnaire.id, questionnaireId));
+}
+
+async function lockQuestionnaire(tx: Transaction, questionnaireId: string): Promise<LockedQuestionnaire | undefined> {
+  const [locked] = await selectQuestionnaire(tx, questionnaireId).for("update");
   return locked;
 }
 
@@ -35,10 +38,7 @@ export async function withLockedQuestionnaire<Outcome>(
 }
 
 export async function questionnaireExists(executor: Executor, questionnaireId: string): Promise<boolean> {
-  const rows = await executor
-    .select({ id: questionnaire.id })
-    .from(questionnaire)
-    .where(eq(questionnaire.id, questionnaireId));
+  const rows = await selectQuestionnaire(executor, questionnaireId);
   return rows.length === 1;
 }
 

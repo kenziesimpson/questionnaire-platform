@@ -91,9 +91,17 @@ export type AppendQuestionVersionOutcome =
   | ({ readonly outcome: "saved" } & SavedQuestion)
   | QuestionNotFound;
 
-async function lockQuestion(tx: Transaction, questionId: string): Promise<boolean> {
-  const locked = await tx.select({ id: question.id }).from(question).where(eq(question.id, questionId)).for("update");
-  return locked.length === 1;
+interface LockedQuestion {
+  readonly id: string;
+}
+
+function selectQuestion(executor: Executor, questionId: string) {
+  return executor.select({ id: question.id }).from(question).where(eq(question.id, questionId));
+}
+
+async function lockQuestion(tx: Transaction, questionId: string): Promise<LockedQuestion | undefined> {
+  const [locked] = await selectQuestion(tx, questionId).for("update");
+  return locked;
 }
 
 export async function appendQuestionVersion(
@@ -101,7 +109,7 @@ export async function appendQuestionVersion(
   command: AppendQuestionVersionCommand,
 ): Promise<AppendQuestionVersionOutcome> {
   return executor.transaction(async (tx) => {
-    if (!(await lockQuestion(tx, command.questionId))) {
+    if ((await lockQuestion(tx, command.questionId)) === undefined) {
       return { outcome: "question-not-found" };
     }
     const [latest] = await tx
@@ -174,7 +182,7 @@ export async function readQuestion(executor: Executor, questionId: string): Prom
 }
 
 async function questionExists(executor: Executor, questionId: string): Promise<boolean> {
-  const rows = await executor.select({ id: question.id }).from(question).where(eq(question.id, questionId));
+  const rows = await selectQuestion(executor, questionId);
   return rows.length === 1;
 }
 
