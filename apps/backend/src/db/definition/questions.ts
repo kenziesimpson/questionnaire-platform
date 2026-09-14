@@ -1,11 +1,12 @@
 import type { Question, QuestionInput, QuestionUsage, QuestionVersion, QuestionVersionSummary } from "@qp/shared";
-import { and, asc, desc, eq, gt, isNotNull, isNull, max, notExists, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, max, notExists, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
 import { question, questionnaireVersion, questionVersion, questionVersionOption, versionQuestionIndex } from "../schema.js";
 import { questionInputToColumns, storedQuestionToVersion } from "./question-content.js";
+import { isPublishedVersion, publishedValue } from "./questionnaire-rows.js";
 import { questionVersionIn, questionVersionKey, readOptionsInPosition, readQuestionVersions } from "./question-versions.js";
 
 export interface CreateQuestionCommand {
@@ -210,15 +211,9 @@ export async function listQuestionUsage(executor: Executor, questionId: string):
     })
     .from(versionQuestionIndex)
     .innerJoin(questionnaireVersion, eq(questionnaireVersion.id, versionQuestionIndex.questionnaireVersionId))
-    .where(
-      and(
-        eq(versionQuestionIndex.questionId, questionId),
-        eq(questionnaireVersion.status, "published"),
-        isNotNull(questionnaireVersion.version),
-      ),
-    )
+    .where(and(eq(versionQuestionIndex.questionId, questionId), isPublishedVersion()))
     .orderBy(asc(questionnaireVersion.questionnaireId), desc(questionnaireVersion.version));
-  return rows.flatMap((row) => (row.version === null ? [] : [{ ...row, version: row.version }]));
+  return rows.map((row) => ({ ...row, version: publishedValue(row.version, "version") }));
 }
 
 export interface ArchiveQuestionCommand {

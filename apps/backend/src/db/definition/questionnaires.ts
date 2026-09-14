@@ -6,7 +6,7 @@ import {
   type QuestionnaireSummary,
 } from "@qp/shared";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
 import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
@@ -23,7 +23,13 @@ import {
   type DraftInvalidItem,
 } from "./draft-contents.js";
 import { readQuestionnaireSummary } from "./questionnaire-list.js";
-import { lockOpenDraft, readOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
+import {
+  isPublishedVersionOf,
+  lockOpenDraft,
+  readOpenDraft,
+  withLockedQuestionnaire,
+  type QuestionnaireNotFound,
+} from "./questionnaire-rows.js";
 import { existingQuestionVersionKeys, questionVersionKey, type QuestionVersionKey } from "./question-versions.js";
 
 const READ_ONLY_SNAPSHOT: PgTransactionConfig = { isolationLevel: "repeatable read", accessMode: "read only" };
@@ -213,7 +219,7 @@ async function latestPublishedVersion(tx: Transaction, questionnaireId: string) 
   const [latest] = await tx
     .select({ id: questionnaireVersion.id, title: questionnaireVersion.title, version: questionnaireVersion.version })
     .from(questionnaireVersion)
-    .where(and(eq(questionnaireVersion.questionnaireId, questionnaireId), eq(questionnaireVersion.status, "published")))
+    .where(isPublishedVersionOf(questionnaireId))
     .orderBy(desc(questionnaireVersion.version))
     .limit(1);
   return latest;
