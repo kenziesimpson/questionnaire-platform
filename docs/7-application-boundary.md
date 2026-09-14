@@ -88,10 +88,10 @@ Mounted at `/api/definition`. Every route requires an authenticated author (§7)
 | `GET /questions/:questionId` | Latest version plus metadata | `200` |
 | `GET /questions/:questionId/versions` | Version history (metadata only) | `200` |
 | `GET /questions/:questionId/versions/:v` | One immutable question version | `200` |
-| `POST /questions/:questionId/versions` | Save a revision — append-only, so saving is publishing (Decisions Log #13) | `201` |
+| `POST /questions/:questionId/versions` | Save a revision — append-only, so saving is publishing (Decisions Log #13). The response type cannot change (#61) | `201` |
 | `POST /questions/:questionId/archive` | Hide from the bank; existing placements unaffected | `200` |
 | `GET /questions/:questionId/usage` | Which published versions embed this question — reads `version_question_index` | `200` |
-| `GET /questionnaires` | List with current version and `closesAt` | `200` |
+| `GET /questionnaires` | List with current version, `closesAt` and `updatedAt` — the latest version's `updated_at`, which draft writes bump and a `closesAt` change does not (Decisions Log #59) | `200` |
 | `POST /questionnaires` | Create; opens draft version 1 | `201` |
 | `GET /questionnaires/:id/draft` | The working draft, normalized | `200` |
 | `PUT /questionnaires/:id/draft` | Replace draft items, order and predicates | `200` |
@@ -139,7 +139,7 @@ Version history, snapshot inspection and "which questionnaires use this question
 
 Collapsing these into one endpoint to avoid writing the handler twice is what would break the boundary: it would give the respondent surface a way to name an arbitrary version, and it would give the two audiences one access model when they need two. The handler body is a few lines either side of a different lookup; the contract is the part that matters.
 
-Version history is metadata only — `version`, `publishedAt`, `publishedBy`, `itemCount`, `formatVersion` — because the history screen is a list and snapshots are the largest documents in the system. Fetching a snapshot is the explicit second click.
+Version history is metadata only — `version`, `publishedAt`, `publishedBy`, `itemCount`, `formatVersion` — because the history screen is a list and snapshots are the largest documents in the system. Fetching a snapshot is the explicit second click. `publishedBy` is always `null` until authentication exists: nothing records a publisher, and the history screen renders it as absent (Decisions Log #64).
 
 ### 4.3 Publish and retire
 
@@ -278,12 +278,13 @@ A standard beats a bespoke envelope here for one reason worth more than familiar
 | `question/version-conflict` | 409 | Two saves of one question raced past the row lock |
 | `internal` | 500 | Unhandled; `detail` is a correlation id, never a stack |
 
-Four cases the union is easy to read as not covering, resolved rather than left to a handler:
+Five cases the union is easy to read as not covering, resolved rather than left to a handler:
 
 - **An archived or nonexistent question version in `PUT /draft`** is `422 questionnaire/draft-invalid`, with the offending item named in the `items` extension. It is draft content that fails validation, which is what that slug means.
 - **Two concurrent saves of one question** are serialized by `SELECT ... FOR UPDATE` on the question row before the next version number is computed ([[9-database-schema#5. Concurrency control]]), so both succeed as *N+1* and *N+2*. `question/version-conflict` maps the `23505` that the lock is supposed to make unreachable — a safety net that should never fire, not the normal path. This does not reopen Decisions Log #31: concurrent edits stay unguarded against *lost updates*, which is a different question from the primary-key race.
 - **Publish or validate with no open draft** is `404 resource/not-found` — the questionnaire exists, the draft does not.
 - **A missing `If-Match`** is `400 request/invalid`, because the header is required by the schema (§4.1). `400` keeps its meaning from Decisions Log #20: always a client bug, never a user mistake.
+- **A question version whose response type differs from the latest** is `400 request/invalid` with `question/type-changed` in `errors`, like the other question rules the editor makes unrepresentable. It is checked under the question row lock, so it compares against the version the new one will follow (Decisions Log #61).
 
 ### 6.2 Status codes
 

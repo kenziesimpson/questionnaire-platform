@@ -31,7 +31,7 @@ Five response types. Constraints belong to the question version and compile into
 
 **Yes / No is not a type.** The brief lists "yes or no" among the practical response types and the platform
 supports it — as a `single_choice` question with two options, which is what it is. The editor offers a
-**Yes / No** template that creates one with option ids `yes` and `no` and labels "Yes" and "No". The labels
+**Yes / No** template (optional polish in Wave 3, [[2-design-doc#17. Decisions Log]] #58) that creates one with option ids `yes` and `no` and labels "Yes" and "No". The labels
 are editable like any others, so the same question can read True / False or Agree / Disagree without
 becoming a different kind of thing. A distinct type bought a duplicated operator set, a second branch in the
 response shape constraint and a `display` render hint, and cost the author the ability to phrase the
@@ -308,6 +308,8 @@ Questions are **append-only**. There is no draft state on the question bank: eve
 
 - a stable `questionId` — what makes it "the same question" across every revision and every questionnaire that uses it;
 - an ordered series of `questionVersion`s, each an immutable snapshot of prompt, type and constraints.
+
+**The response type is fixed by the first save.** Prompt and constraints may change from version to version; the type may not. A condition is typed to the question it reads (§4.2), so a new type would turn every rule reading that question into a `predicate/type-mismatch` in questionnaires the author cannot see, the next time one re-pins it. Appending a version whose type differs from the latest is `400 request/invalid` with `question/type-changed`, one of the question rules the editor makes unrepresentable ([[2-design-doc#17. Decisions Log]] #61). A different type is a different question.
 
 **Saving is explicit.** Append-only means a naive autosave would spray versions, so the editor holds its working state client-side and writes only when the author commits — presented in the UI as closing out the edit dialog. One deliberate save, one version. This is the real cost of having no draft state on the bank, and it is a UI convention rather than a data-model one.
 
