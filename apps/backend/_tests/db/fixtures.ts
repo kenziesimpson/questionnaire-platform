@@ -4,7 +4,7 @@ import type pg from "pg";
 import type { Database, Transaction } from "../../src/db/client.js";
 import type { DraftPrecondition } from "../../src/db/definition/draft-precondition.js";
 import { publishDraft } from "../../src/db/definition/publish.js";
-import { createQuestionnaire, openNextDraft, replaceDraft } from "../../src/db/definition/questionnaires.js";
+import { createQuestionnaire, openNextDraft, replaceDraft } from "../../src/db/definition/drafts.js";
 import { createQuestion } from "../../src/db/definition/questions.js";
 import type { TestDatabase } from "./harness.js";
 

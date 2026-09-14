@@ -9,7 +9,7 @@ import {
 import { eq } from "drizzle-orm";
 import type { Database, Transaction } from "../client.js";
 import { publishDraft } from "../definition/publish.js";
-import { createQuestionnaire, replaceDraft } from "../definition/questionnaires.js";
+import { createQuestionnaire, replaceDraft } from "../definition/drafts.js";
 import { appendQuestionVersion, createQuestion } from "../definition/questions.js";
 import { questionnaire } from "../schema.js";
 

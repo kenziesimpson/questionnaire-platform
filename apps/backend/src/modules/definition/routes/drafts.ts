@@ -7,7 +7,7 @@ import {
   replaceDraft,
   validateOpenDraft,
   type CurrentDraft,
-} from "../../../db/definition/questionnaires.js";
+} from "../../../db/definition/drafts.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { draftPreconditionOf } from "../if-match.js";

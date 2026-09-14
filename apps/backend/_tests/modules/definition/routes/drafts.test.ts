@@ -13,7 +13,7 @@ import { Value } from "typebox/value";
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { publishDraft } from "../../../../src/db/definition/publish.js";
-import { openNextDraft, replaceDraft } from "../../../../src/db/definition/questionnaires.js";
+import { openNextDraft, replaceDraft } from "../../../../src/db/definition/drafts.js";
 import { appendQuestionVersion, createQuestion } from "../../../../src/db/definition/questions.js";
 import { AUTHOR_PLACEHOLDER } from "../../../../src/modules/definition/author.js";
 import { aDraftWithOneItem, aPublishedQuestionnaire, aTextQuestion, type DraftFixture } from "../../../db/fixtures.js";

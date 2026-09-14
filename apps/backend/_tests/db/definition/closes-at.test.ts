@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { setClosesAt } from "../../../src/db/definition/closes-at.js";
 import { withLockedQuestionnaire } from "../../../src/db/definition/questionnaire-rows.js";
-import { createQuestionnaire } from "../../../src/db/definition/questionnaires.js";
+import { createQuestionnaire } from "../../../src/db/definition/drafts.js";
 import { QUESTIONNAIRE_LOCK_STATEMENT, theStatementWaitingOnALock, whileHoldingALock } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 

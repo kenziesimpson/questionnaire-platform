@@ -1,7 +1,7 @@
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { setClosesAt } from "../../../src/db/definition/closes-at.js";
-import { createQuestionnaire, openNextDraft } from "../../../src/db/definition/questionnaires.js";
+import { createQuestionnaire, openNextDraft } from "../../../src/db/definition/drafts.js";
 import {
   lockOpenDraft,
   questionnaireExists,

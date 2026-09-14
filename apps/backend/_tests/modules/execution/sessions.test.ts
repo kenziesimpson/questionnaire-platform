@@ -1,7 +1,7 @@
 import { INTAKE_QUESTIONNAIRE_ID, intakeDefinition, problemType, PROBLEM_CONTENT_TYPE } from "@qp/shared";
 import { v4 as uuidv4 } from "uuid";
 import { describe, expect, it } from "vitest";
-import { createQuestionnaire } from "../../../src/db/definition/questionnaires.js";
+import { createQuestionnaire } from "../../../src/db/definition/drafts.js";
 import { useTestDatabase } from "../../db/harness.js";
 import {
   answersNo,

@@ -1,7 +1,7 @@
 import type { DraftItem } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import { withLockedQuestionnaire } from "../../../src/db/definition/questionnaire-rows.js";
-import { openNextDraft, replaceDraft } from "../../../src/db/definition/questionnaires.js";
+import { openNextDraft, replaceDraft } from "../../../src/db/definition/drafts.js";
 import { createQuestion } from "../../../src/db/definition/questions.js";
 import {
   aDraftWithOneItem,

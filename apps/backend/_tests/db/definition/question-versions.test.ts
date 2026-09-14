@@ -1,7 +1,7 @@
 import type { DraftItem, QuestionInput } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../../../src/db/client.js";
-import { createQuestionnaire, replaceDraft } from "../../../src/db/definition/questionnaires.js";
+import { createQuestionnaire, replaceDraft } from "../../../src/db/definition/drafts.js";
 import { appendQuestionVersion, createQuestion } from "../../../src/db/definition/questions.js";
 import {
   pinnedByDraft,

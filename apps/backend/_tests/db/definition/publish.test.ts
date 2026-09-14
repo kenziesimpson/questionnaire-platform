@@ -3,7 +3,7 @@ import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { publishDraft } from "../../../src/db/definition/publish.js";
 import { withLockedQuestionnaire } from "../../../src/db/definition/questionnaire-rows.js";
-import { replaceDraft } from "../../../src/db/definition/questionnaires.js";
+import { replaceDraft } from "../../../src/db/definition/drafts.js";
 import { createQuestion } from "../../../src/db/definition/questions.js";
 import {
   aDraftWithOneItem,

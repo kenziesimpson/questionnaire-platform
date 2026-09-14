@@ -1,7 +1,7 @@
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { listQuestionnaireSummaries, readQuestionnaireSummary } from "../../../src/db/definition/questionnaire-list.js";
-import { createQuestionnaire, openNextDraft } from "../../../src/db/definition/questionnaires.js";
+import { createQuestionnaire, openNextDraft } from "../../../src/db/definition/drafts.js";
 import { aPublishedQuestionnaire } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 

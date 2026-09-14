@@ -1,6 +1,6 @@
 import type pg from "pg";
 import { describe, expect, it } from "vitest";
-import { replaceDraft } from "../../src/db/definition/questionnaires.js";
+import { replaceDraft } from "../../src/db/definition/drafts.js";
 import { createQuestion } from "../../src/db/definition/questions.js";
 import { aDraftWithOneItem, aTextQuestion } from "./fixtures.js";
 import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
