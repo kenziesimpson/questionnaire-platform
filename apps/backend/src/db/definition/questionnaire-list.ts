@@ -1,16 +1,10 @@
 import type { QuestionnaireSummary } from "@qp/shared";
-import { and, desc, eq, exists } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import type { Executor } from "../client.js";
-import { questionnaire, questionnaireVersion } from "../schema.js";
+import { questionnaire } from "../schema.js";
+import { openDraftExists } from "./questionnaire-rows.js";
 
 export async function listQuestionnaireSummaries(executor: Executor): Promise<QuestionnaireSummary[]> {
-  const draftExists = exists(
-    executor
-      .select({ id: questionnaireVersion.id })
-      .from(questionnaireVersion)
-      .where(and(eq(questionnaireVersion.questionnaireId, questionnaire.id), eq(questionnaireVersion.status, "draft"))),
-  ).mapWith(Boolean);
-
   const rows = await executor
     .select({
       questionnaireId: questionnaire.id,
@@ -18,7 +12,7 @@ export async function listQuestionnaireSummaries(executor: Executor): Promise<Qu
       name: questionnaire.name,
       currentVersion: questionnaire.currentVersion,
       closesAt: questionnaire.closesAt,
-      hasDraft: draftExists,
+      hasDraft: openDraftExists(executor, questionnaire.id),
       createdAt: questionnaire.createdAt,
     })
     .from(questionnaire)

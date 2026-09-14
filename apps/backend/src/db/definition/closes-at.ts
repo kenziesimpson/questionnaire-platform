@@ -1,8 +1,9 @@
 import type { QuestionnaireSummary } from "@qp/shared";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { recordAudit } from "../audit.js";
-import type { Executor, Transaction } from "../client.js";
-import { questionnaire, questionnaireVersion } from "../schema.js";
+import type { Executor } from "../client.js";
+import { questionnaire } from "../schema.js";
+import { hasOpenDraft, lockQuestionnaire } from "./questionnaire-rows.js";
 
 export interface SetClosesAtCommand {
   readonly questionnaireId: string;
@@ -15,26 +16,9 @@ export type SetClosesAtOutcome =
   | { readonly outcome: "updated"; readonly questionnaire: QuestionnaireSummary }
   | { readonly outcome: "questionnaire-not-found" };
 
-async function lockClosesAt(tx: Transaction, questionnaireId: string): Promise<{ closesAt: Date | null } | undefined> {
-  const [locked] = await tx
-    .select({ closesAt: questionnaire.closesAt })
-    .from(questionnaire)
-    .where(eq(questionnaire.id, questionnaireId))
-    .for("update");
-  return locked;
-}
-
-async function hasOpenDraft(tx: Transaction, questionnaireId: string): Promise<boolean> {
-  const drafts = await tx
-    .select({ id: questionnaireVersion.id })
-    .from(questionnaireVersion)
-    .where(and(eq(questionnaireVersion.questionnaireId, questionnaireId), eq(questionnaireVersion.status, "draft")));
-  return drafts.length > 0;
-}
-
 export async function setClosesAt(executor: Executor, command: SetClosesAtCommand): Promise<SetClosesAtOutcome> {
   return executor.transaction(async (tx) => {
-    const locked = await lockClosesAt(tx, command.questionnaireId);
+    const locked = await lockQuestionnaire(tx, command.questionnaireId);
     if (locked === undefined) {
       return { outcome: "questionnaire-not-found" };
     }

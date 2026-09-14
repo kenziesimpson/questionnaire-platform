@@ -13,6 +13,7 @@ import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js"
 import type { Database, Executor, Transaction } from "../client.js";
 import { question, questionnaire, questionnaireItem, questionnaireVersion, questionVersion } from "../schema.js";
 import { draftForValidation, itemsWithQuestionContent, pinnedQuestionVersionsInPlacementOrder, readDraftContents } from "./draft-contents.js";
+import { lockQuestionnaire, readOpenDraft } from "./questionnaire-rows.js";
 import { questionVersionKey } from "./question-versions.js";
 
 const READ_ONLY_SNAPSHOT: PgTransactionConfig = { isolationLevel: "repeatable read", accessMode: "read only" };
@@ -88,21 +89,8 @@ export interface CurrentDraft {
   readonly draftRevision: number;
 }
 
-async function findDraftVersion(executor: Executor, questionnaireId: string) {
-  const [draft] = await executor
-    .select({
-      id: questionnaireVersion.id,
-      title: questionnaireVersion.title,
-      updatedAt: questionnaireVersion.updatedAt,
-      draftRevision: questionnaireVersion.draftRevision,
-    })
-    .from(questionnaireVersion)
-    .where(and(eq(questionnaireVersion.questionnaireId, questionnaireId), eq(questionnaireVersion.status, "draft")));
-  return draft;
-}
-
 async function readCurrentDraft(executor: Executor, questionnaireId: string): Promise<CurrentDraft | undefined> {
-  const version = await findDraftVersion(executor, questionnaireId);
+  const version = await readOpenDraft(executor, questionnaireId, "unlocked");
   if (version === undefined) {
     return undefined;
   }
@@ -183,18 +171,9 @@ async function refusedPlacement(tx: Transaction, items: readonly DraftItem[]): P
   return unknownItemIds.length > 0 ? { outcome: "unknown-question-version", itemIds: unknownItemIds } : undefined;
 }
 
-async function lockDraftVersion(tx: Transaction, questionnaireId: string) {
-  const [draft] = await tx
-    .select({ id: questionnaireVersion.id, draftRevision: questionnaireVersion.draftRevision })
-    .from(questionnaireVersion)
-    .where(and(eq(questionnaireVersion.questionnaireId, questionnaireId), eq(questionnaireVersion.status, "draft")))
-    .for("update");
-  return draft;
-}
-
 export async function replaceDraft(executor: Executor, command: ReplaceDraftCommand): Promise<ReplaceDraftOutcome> {
   return executor.transaction(async (tx) => {
-    const draft = await lockDraftVersion(tx, command.questionnaireId);
+    const draft = await readOpenDraft(tx, command.questionnaireId, "for-update");
     if (draft === undefined) {
       return { outcome: "no-draft" };
     }
@@ -258,15 +237,6 @@ export type OpenNextDraftOutcome =
   | { readonly outcome: "draft-exists" }
   | { readonly outcome: "nothing-published" };
 
-async function lockQuestionnaire(tx: Transaction, questionnaireId: string): Promise<boolean> {
-  const rows = await tx
-    .select({ id: questionnaire.id })
-    .from(questionnaire)
-    .where(eq(questionnaire.id, questionnaireId))
-    .for("update");
-  return rows.length === 1;
-}
-
 async function latestPublishedVersion(tx: Transaction, questionnaireId: string) {
   const [latest] = await tx
     .select({ id: questionnaireVersion.id, title: questionnaireVersion.title, version: questionnaireVersion.version })
@@ -279,10 +249,10 @@ async function latestPublishedVersion(tx: Transaction, questionnaireId: string) 
 
 export async function openNextDraft(executor: Executor, command: OpenNextDraftCommand): Promise<OpenNextDraftOutcome> {
   return executor.transaction(async (tx) => {
-    if (!(await lockQuestionnaire(tx, command.questionnaireId))) {
+    if ((await lockQuestionnaire(tx, command.questionnaireId)) === undefined) {
       return { outcome: "questionnaire-not-found" };
     }
-    if ((await findDraftVersion(tx, command.questionnaireId)) !== undefined) {
+    if ((await readOpenDraft(tx, command.questionnaireId, "unlocked")) !== undefined) {
       return { outcome: "draft-exists" };
     }
     const source = await latestPublishedVersion(tx, command.questionnaireId);
@@ -333,7 +303,7 @@ export async function openNextDraft(executor: Executor, command: OpenNextDraftCo
 
 export async function validateOpenDraft(database: Database, questionnaireId: string): Promise<DraftValidation | undefined> {
   return database.transaction(async (tx) => {
-    const draft = await findDraftVersion(tx, questionnaireId);
+    const draft = await readOpenDraft(tx, questionnaireId, "unlocked");
     if (draft === undefined) {
       return undefined;
     }

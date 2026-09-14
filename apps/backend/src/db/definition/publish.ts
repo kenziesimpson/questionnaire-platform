@@ -1,11 +1,12 @@
 import { FORMAT_VERSION, PublishedDefinition, validateDraft, type DraftItemCode, type ItemError } from "@qp/shared";
-import { and, eq, max, sql } from "drizzle-orm";
+import { eq, max, sql } from "drizzle-orm";
 import { Value } from "typebox/value";
 import { recordAudit } from "../audit.js";
 import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
 import type { Executor, Transaction } from "../client.js";
-import { questionnaire, questionnaireVersion } from "../schema.js";
+import { questionnaireVersion } from "../schema.js";
 import { draftForValidation, itemsWithQuestionContent, readDraftContents } from "./draft-contents.js";
+import { lockQuestionnaire, readOpenDraft } from "./questionnaire-rows.js";
 
 export interface PublishDraftCommand {
   readonly questionnaireId: string;
@@ -28,28 +29,6 @@ export type PublishDraftOutcome =
   | { readonly outcome: "stale"; readonly draftRevision: number }
   | { readonly outcome: "invalid"; readonly items: readonly DraftInvalidItem[] };
 
-async function lockQuestionnaire(tx: Transaction, questionnaireId: string): Promise<boolean> {
-  const rows = await tx
-    .select({ id: questionnaire.id })
-    .from(questionnaire)
-    .where(eq(questionnaire.id, questionnaireId))
-    .for("update");
-  return rows.length === 1;
-}
-
-async function lockDraft(tx: Transaction, questionnaireId: string) {
-  const [draft] = await tx
-    .select({
-      id: questionnaireVersion.id,
-      title: questionnaireVersion.title,
-      draftRevision: questionnaireVersion.draftRevision,
-    })
-    .from(questionnaireVersion)
-    .where(and(eq(questionnaireVersion.questionnaireId, questionnaireId), eq(questionnaireVersion.status, "draft")))
-    .for("update");
-  return draft;
-}
-
 async function nextVersionNumber(tx: Transaction, questionnaireId: string): Promise<number> {
   const [row] = await tx
     .select({ latest: max(questionnaireVersion.version) })
@@ -60,10 +39,10 @@ async function nextVersionNumber(tx: Transaction, questionnaireId: string): Prom
 
 export async function publishDraft(executor: Executor, command: PublishDraftCommand): Promise<PublishDraftOutcome> {
   return executor.transaction(async (tx) => {
-    if (!(await lockQuestionnaire(tx, command.questionnaireId))) {
+    if ((await lockQuestionnaire(tx, command.questionnaireId)) === undefined) {
       return { outcome: "questionnaire-not-found" };
     }
-    const draft = await lockDraft(tx, command.questionnaireId);
+    const draft = await readOpenDraft(tx, command.questionnaireId, "for-update");
     if (draft === undefined) {
       return { outcome: "no-draft" };
     }

@@ -1,7 +1,8 @@
 import type { PublishedDefinition, VersionSummary } from "@qp/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Executor } from "../client.js";
-import { questionnaire, questionnaireVersion } from "../schema.js";
+import { questionnaireVersion } from "../schema.js";
+import { questionnaireExists } from "./questionnaire-rows.js";
 
 const PUBLISHER_IS_NOT_RECORDED = null;
 
@@ -12,14 +13,6 @@ export type VersionHistoryOutcome =
 export interface PublishedSnapshot {
   readonly formatVersion: number;
   readonly definition: PublishedDefinition;
-}
-
-async function questionnaireExists(executor: Executor, questionnaireId: string): Promise<boolean> {
-  const rows = await executor
-    .select({ id: questionnaire.id })
-    .from(questionnaire)
-    .where(eq(questionnaire.id, questionnaireId));
-  return rows.length === 1;
 }
 
 async function selectVersionSummaries(executor: Executor, questionnaireId: string, version?: number): Promise<VersionSummary[]> {
