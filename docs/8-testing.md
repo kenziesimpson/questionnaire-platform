@@ -354,6 +354,32 @@ Tracked as a Phase 2 item in [[4-implementation-plan]].
 | An item with several codes shows the first; codes that never attach to a rendered item are skipped and on their own render no error and no `aria-invalid`; messages are built from the question alone, never the answer | `questionnaire/messages.test.tsx` | Error bodies and messages never echo an answer ([[7-application-boundary#5.5 Error bodies must not echo answers]]) | No respondent answer in telemetry |
 | axe-core finds no violations for the demo after *no* and after *yes*; for all five response types unanswered, answered with both other text boxes filled, each carrying an error, and in `readonly` mode; for a required checkbox group, a unitless integer and a single-line text question; and after a reveal has been announced | `questionnaire/accessibility.test.tsx` | The committed accessibility minimum at the component layer; `color-contrast` is disabled because jsdom does not lay out | — accessibility commitment |
 
+### Wave 2 — Track 4: definition plugin
+
+One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two parallel tracks)*]]), so groups working in parallel add rows in different places. Each group adds rows only under its own heading.
+
+#### G0 — the definition plugin skeleton
+
+**Backend integration — `apps/backend`, Fastify `inject()`, Testcontainers Postgres**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| Path and query strings are coerced to their schema types; the body is not, so `"1"` for an integer is `schema/type`; an additional body property is `schema/additionalProperties` rather than stripped; missing and out-of-range values point at `/body/…` and `/params/…` | `_tests/http/problems.test.ts` | [[7-application-boundary#6.3 Input validation]]: the schema is the contract, and a `400` is always a client bug (#20) | — conventions |
+| Unparseable JSON is `400 request/invalid`; an unhandled error is `500 internal` with the request id as `detail` and none of the error message; an unknown route is `404 resource/not-found`; every one is `application/problem+json` | `_tests/http/problems.test.ts` | [[7-application-boundary#6.1 Error format — RFC 9457 problem details]]; `500` bodies never carry a message or a stack (§6.2) | — conventions |
+| `buildApp` serves `/health`, mounts the definition module at `/api/definition`, and answers an unknown path outside any module with a problem body | `_tests/app.test.ts` | [[7-application-boundary#8.1 Now — two plugins, one process]] | The definition/execution barrier |
+| The author hook attaches `prototype-author`; `authorOf` on a request that did not pass through the hook fails as `500` instead of writing no author | `_tests/modules/definition/author.test.ts` | One hook on the whole plugin, so a route cannot forget authentication ([[7-application-boundary#7. Access model and data barriers]]); the placeholder is one constant (#53) | — access model |
+| The draft ETag round-trips through `draftPreconditionOf`; `*`, a strong ETag, a missing revision and a negative revision are malformed rather than unconditional; a precondition is current only when both the draft version id and the revision match | `_tests/modules/definition/if-match.test.ts` | #43: a revision from an earlier draft, which restarts at `0`, must not match the next draft | Questionnaire versioning: publish, immutability, one draft |
+| A malformed `If-Match` is `400` pointing at `/headers/if-match`; the immutability trigger raised through drizzle (deleting a published version's items as `qp_definition`) is `409 version/immutable`; a duplicate `question_version_pkey` is `409 question/version-conflict`; any other unique violation stays `500 internal` | `_tests/modules/definition/errors.test.ts` | [[7-application-boundary#6.1 Error format — RFC 9457 problem details]]: `version/immutable` can only surface from the trigger, and the version-conflict mapping is a safety net scoped to the one constraint it names | Questionnaire versioning: publish, immutability, one draft |
+| `GET /questionnaires` is `[]` when empty; lists newest first by `id`, each with `currentVersion`, `closesAt` and `hasDraft`, matching `QuestionnaireSummary`; the order survives an `UPDATE` to an earlier row; an unknown definition path is a `404` problem | `_tests/modules/definition/routes/questionnaire-list.test.ts` | #40: every list has an explicit `ORDER BY` on a unique, monotonic key | List endpoints return a deterministic order |
+
+#### G1 — question bank
+
+#### G2 — draft lifecycle
+
+#### G3 — publish, version history, retirement
+
+#### G4 — integration
+
 ## 8. Alternatives considered
 
 ### 8.1 Jest for the frontend
