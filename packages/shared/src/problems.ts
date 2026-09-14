@@ -1,5 +1,5 @@
 import Type, { type Static } from "typebox";
-import { LiteralUnion, Slug } from "./primitives.js";
+import { Slug } from "./primitives.js";
 
 /**
  * RFC 9457 problem details ([[7-application-boundary]] §6.1). The slug set is closed: a handler
@@ -146,7 +146,7 @@ const strict = { additionalProperties: false } as const;
 /** The wire schema, for `4xx` / `5xx` responses on every route. */
 export const ProblemDetails = Type.Object(
   {
-    type: LiteralUnion(PROBLEM_SLUGS.map(problemType)),
+    type: Type.Enum(PROBLEM_SLUGS.map(problemType)),
     title: Type.String(),
     status: Type.Integer({ minimum: 400, maximum: 599 }),
     detail: Type.Optional(Type.String()),
@@ -155,7 +155,7 @@ export const ProblemDetails = Type.Object(
     items: Type.Optional(
       Type.Array(
         Type.Object(
-          { itemId: Slug, code: LiteralUnion([...DRAFT_ITEM_CODES, ...SUBMISSION_ITEM_CODES]) },
+          { itemId: Slug, code: Type.Enum([...DRAFT_ITEM_CODES, ...SUBMISSION_ITEM_CODES]) },
           strict,
         ),
       ),

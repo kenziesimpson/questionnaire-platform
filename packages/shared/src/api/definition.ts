@@ -1,6 +1,6 @@
 import Type from "typebox";
 import { DRAFT_ITEM_CODES } from "../problems.js";
-import { IsoDateTime, LiteralUnion, PositiveInt, Slug, Uuid } from "../primitives.js";
+import { IsoDateTime, PositiveInt, Slug, Uuid } from "../primitives.js";
 import { PublishedDefinition, VersionSummary } from "../domain/definition.js";
 import { DraftItem, QuestionnaireDraft, QuestionnaireSummary } from "../domain/draft.js";
 import {
@@ -150,7 +150,7 @@ export const validateDraft = defineRoute({
         {
           valid: Type.Boolean(),
           items: Type.Array(
-            Type.Object({ itemId: Slug, code: LiteralUnion(DRAFT_ITEM_CODES) }, strict),
+            Type.Object({ itemId: Slug, code: Type.Enum(DRAFT_ITEM_CODES) }, strict),
           ),
         },
         strict,
