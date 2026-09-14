@@ -20,23 +20,51 @@ export interface DraftFixture {
   readonly questionId: string;
 }
 
+export async function saveDraft(
+  db: Database,
+  questionnaireId: string,
+  precondition: DraftPrecondition,
+  title: string,
+  items: readonly DraftItem[],
+): Promise<DraftPrecondition> {
+  const edited = await replaceDraft(db, { questionnaireId, precondition, title, items, actorId: "test", traceId: null });
+  if (edited.outcome !== "saved") {
+    throw new Error(`fixture draft was not saved: ${JSON.stringify(edited)}`);
+  }
+  return { versionId: edited.draftVersionId, draftRevision: edited.draftRevision };
+}
+
+export async function publishSavedDraft(db: Database, questionnaireId: string, precondition: DraftPrecondition): Promise<number> {
+  const published = await publishDraft(db, { questionnaireId, precondition, actorId: "test", traceId: null });
+  if (published.outcome !== "published") {
+    throw new Error(`fixture draft was not published: ${JSON.stringify(published)}`);
+  }
+  return published.version;
+}
+
+export async function saveAndPublish(
+  db: Database,
+  questionnaireId: string,
+  precondition: DraftPrecondition,
+  title: string,
+  items: readonly DraftItem[],
+): Promise<number> {
+  return publishSavedDraft(db, questionnaireId, await saveDraft(db, questionnaireId, precondition, title, items));
+}
+
 export async function aDraftWithOneItem(db: Database): Promise<DraftFixture> {
   const saved = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
   const created = await createQuestionnaire(db, { key: null, name: "Fixture", title: "Fixture", ...actor });
-  const edited = await replaceDraft(db, {
-    questionnaireId: created.questionnaireId,
-    precondition: { versionId: created.draftVersionId, draftRevision: created.draftRevision },
-    title: "Fixture",
-    items: [{ itemId: "itm_01", required: true, visibleWhen: null, questionId: saved.questionId, questionVersion: 1 }],
-    actorId: "test",
-    traceId: null,
-  });
-  if (edited.outcome !== "saved") {
-    throw new Error(`fixture draft was not saved: ${edited.outcome}`);
-  }
+  const edited = await saveDraft(
+    db,
+    created.questionnaireId,
+    { versionId: created.draftVersionId, draftRevision: created.draftRevision },
+    "Fixture",
+    [{ itemId: "itm_01", required: true, visibleWhen: null, questionId: saved.questionId, questionVersion: 1 }],
+  );
   return {
     questionnaireId: created.questionnaireId,
-    draftVersionId: created.draftVersionId,
+    draftVersionId: edited.versionId,
     draftRevision: edited.draftRevision,
     questionId: saved.questionId,
   };
@@ -48,39 +76,11 @@ export interface PublishedFixture extends DraftFixture {
 
 export async function aPublishedQuestionnaire(db: Database): Promise<PublishedFixture> {
   const draft = await aDraftWithOneItem(db);
-  const published = await publishDraft(db, {
-    questionnaireId: draft.questionnaireId,
-    precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
-    actorId: "test",
-    traceId: null,
+  const version = await publishSavedDraft(db, draft.questionnaireId, {
+    versionId: draft.draftVersionId,
+    draftRevision: draft.draftRevision,
   });
-  if (published.outcome !== "published") {
-    throw new Error(`fixture was not published: ${published.outcome}`);
-  }
-  return { ...draft, version: published.version };
-}
-
-export async function saveAndPublish(
-  db: Database,
-  questionnaireId: string,
-  precondition: DraftPrecondition,
-  title: string,
-  items: readonly DraftItem[],
-): Promise<number> {
-  const edited = await replaceDraft(db, { questionnaireId, precondition, title, items, actorId: "test", traceId: null });
-  if (edited.outcome !== "saved") {
-    throw new Error(`fixture draft was not saved: ${JSON.stringify(edited)}`);
-  }
-  const published = await publishDraft(db, {
-    questionnaireId,
-    precondition: { versionId: edited.draftVersionId, draftRevision: edited.draftRevision },
-    actorId: "test",
-    traceId: null,
-  });
-  if (published.outcome !== "published") {
-    throw new Error(`fixture draft was not published: ${JSON.stringify(published)}`);
-  }
-  return published.version;
+  return { ...draft, version };
 }
 
 export async function publishNextVersion(db: Database, questionnaireId: string, items: readonly DraftItem[]): Promise<number> {
