@@ -15,6 +15,7 @@
     "db:seed": "tsx src/db/seed/seed.ts"
   },
   "dependencies": {
+    "@fastify/ajv-compiler": "^4.0.6",
     "@fastify/otel": "^0.21.0",
     "@qp/shared": "*",
     "drizzle-orm": "^0.45.2",
