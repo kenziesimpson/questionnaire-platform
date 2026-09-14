@@ -1,16 +1,9 @@
 import { render } from "@testing-library/react";
 import type { ClientAnswers } from "@qp/shared";
-import axe from "axe-core";
 import { describe, expect, it } from "vitest";
 import { QuestionnaireItems } from "../../src/questionnaire";
+import { violationsIn } from "../axe";
 import { answeredNo, answeredYes, aNumberItem, aSymptomsItem, aTextItem, everyType, rendererProps } from "../fixtures";
-
-const JSDOM_CANNOT_EVALUATE = { "color-contrast": { enabled: false } };
-
-async function violationsIn(container: HTMLElement) {
-  const results = await axe.run(container, { rules: JSDOM_CANNOT_EVALUATE });
-  return results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }));
-}
 
 const everyTypeAnswered: ClientAnswers = {
   itm_01: { type: "single_choice", optionId: "yes" },
