@@ -3,6 +3,7 @@ import { config, databaseUrl } from "./config.js";
 import { openDatabase } from "./db/client.js";
 
 const definition = openDatabase(databaseUrl("definition"));
+const execution = openDatabase(databaseUrl("execution"));
 
 const app = await buildApp({
   logger: {
@@ -13,10 +14,11 @@ const app = await buildApp({
         : undefined,
   },
   definition: { database: definition.db },
+  execution: { database: execution.db },
 });
 
 app.addHook("onClose", async () => {
-  await definition.close();
+  await Promise.all([definition.close(), execution.close()]);
 });
 
 async function start() {
