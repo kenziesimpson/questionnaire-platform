@@ -3,7 +3,8 @@
 // ([[7-application-boundary]] §3.1, [[6-observability]] §3.1):
 //
 //   1. Only packages/telemetry may import pino or OpenTelemetry.
-//   2. The backend's definition and execution modules may not import each other.
+//   2. The backend's definition and execution modules may not import each other, execution may not
+//      import the definition side of the db layer, and db/definition may not import any module.
 //
 // `no-restricted-imports` is configured once per file, so a later block replaces an earlier one's
 // options rather than merging; each block therefore restates the telemetry patterns it inherits.
@@ -24,6 +25,17 @@ function otherModule(name) {
     message: `The definition and execution modules share nothing but @qp/shared. Importing modules/${name} crosses the boundary.`,
   };
 }
+
+const definitionDbLayer = {
+  regex: "(^|/)db/(definition|seed)(/|$)|(^|/)db/audit(\\.[cm]?[jt]s)?$",
+  message:
+    "db/definition, db/seed and db/audit belong to the definition side. Execution may use db/client, db/schema and the rest of the db layer, but not those.",
+};
+
+const anyModule = {
+  regex: "(^|/)modules(/|$)",
+  message: "db/definition sits below the backend modules and imports none of them.",
+};
 
 const restrict = (...patterns) => ["error", { patterns }];
 
@@ -69,7 +81,11 @@ export default tseslint.config(
   },
   {
     files: ["apps/backend/src/modules/execution/**"],
-    rules: { "no-restricted-imports": restrict(telemetryOnly, otherModule("definition")) },
+    rules: { "no-restricted-imports": restrict(telemetryOnly, otherModule("definition"), definitionDbLayer) },
+  },
+  {
+    files: ["apps/backend/src/db/definition/**"],
+    rules: { "no-restricted-imports": restrict(telemetryOnly, anyModule) },
   },
   {
     ...reactHooks.configs.flat.recommended,
