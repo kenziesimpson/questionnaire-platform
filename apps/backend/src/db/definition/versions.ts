@@ -56,6 +56,7 @@ async function selectVersionSummaries(executor: Executor, questionnaireId: strin
 }
 
 export async function listVersionSummaries(executor: Executor, questionnaireId: string): Promise<VersionSummary[] | undefined> {
+  // undefined: no such questionnaire, so the route answers 404. []: it exists but has no published version yet.
   if (!(await questionnaireExists(executor, questionnaireId))) {
     return undefined;
   }
