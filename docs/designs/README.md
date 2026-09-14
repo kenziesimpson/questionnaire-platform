@@ -16,7 +16,7 @@ copy wholesale.
 
 | Page | Artboard | Shows |
 | --- | --- | --- |
-| Respondent | `RespondentStart` | Landing on a resumed session — storage-first resume, the restore strip |
+| Respondent | `RespondentStart` | Landing on a resumed session — storage-first resume, the restore strip. Its *Start over* button is punted ([gh#35](https://github.com/kenziesimpson/questionnaire-platform/issues/35), #74) |
 | Respondent | `Main` | The graded branching demo: *Yes* reveals two questions in place, with the `aria-live` text |
 | Respondent | `RespondentErrors` | A `422` rejected submit: reachable summary, per-item messages from the code catalogue |
 | Respondent | `RespondentDone` | The receipt — session, version, submitted-at, and nothing derived |
@@ -47,7 +47,7 @@ changed, not the decision:
 | #55 — one `errorsByItemId` in `packages/ui` for both apps, dropping the two non-item codes (gh#23) | `ErrorMapping` |
 | Response-type controls, settled in [[10-frontend#3. `packages/ui` — primitives and the renderer]] | `ControlSheet` |
 | #58 — the question editor's constraint fields per type, with the six cross-field rules unrepresentable in the controls rather than reported after a save | `QuestionFields` |
-| #58 — the options-authoring widget: drag to reorder, generated option ids shown and locked, freeform marked on its row; the Yes / No template is optional polish | `AdminQuestionEditor` |
+| #58 — the options-authoring widget: drag to reorder, generated option ids shown and locked, freeform marked on its row; the Yes / No template is required | `AdminQuestionEditor` |
 
 Both were the open items in [[2-design-doc#20. Pending UI experimentation]], which is now empty.
 

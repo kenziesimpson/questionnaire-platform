@@ -14,7 +14,7 @@
 Decisions from the design discussion that shape the numbers:
 
 - **Whole definition sent once per session.** The client receives the full published version at session start and computes branching locally using the shared rule engine. No per-answer definition reads.
-- **Partial answers live in the browser.** Answers-in-progress are kept client-side (IndexedDB/localStorage) keyed by session id. The server sees one submission per completed session.
+- **Partial answers live in the browser.** Answers-in-progress are kept client-side in `localStorage`, one key per questionnaire ([[10-frontend#4.3 Local persistence]]). The server sees one submission per completed session.
 - **Server-side session record.** A small session row (id, questionnaire, pinned version, started_at, status) is created at session start. It pins the version, makes submit idempotent, supports the republish/retire policy, and gives visibility into where respondents abandon.
 - **No checkpoint endpoint.** A debounced `PUT /sessions/:id/progress` upserting answers-so-far was considered and deferred ([[2-design-doc#17. Decisions Log]] #25): without auth the session id sits in the same browser storage as the answers, so the server-side copy is unreachable in the cases that would need it. Partial answers stay client-side and nothing is written to the server between session start and submit.
 - **Server is the authority.** On submit the server recomputes the reachable path from stored answers and the pinned version, rejects answers to unreachable questions and missing required ones. Client-side branching is a convenience, not trust.

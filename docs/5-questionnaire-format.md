@@ -31,7 +31,7 @@ Five response types. Constraints belong to the question version and compile into
 
 **Yes / No is not a type.** The brief lists "yes or no" among the practical response types and the platform
 supports it — as a `single_choice` question with two options, which is what it is. The editor offers a
-**Yes / No** template (optional polish in Wave 3, [[2-design-doc#17. Decisions Log]] #58) that creates one with option ids `yes` and `no` and labels "Yes" and "No". The labels
+**Yes / No** template that creates one with option ids `yes` and `no` and labels "Yes" and "No". The labels
 are editable like any others, so the same question can read True / False or Agree / Disagree without
 becoming a different kind of thing. A distinct type bought a duplicated operator set, a second branch in the
 response shape constraint and a `display` render hint, and cost the author the ability to phrase the
