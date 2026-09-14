@@ -24,6 +24,7 @@ import { storedQuestionToContent, type StoredOption } from "./question-content.j
 
 export interface PublishDraftCommand {
   readonly questionnaireId: string;
+  readonly expectedDraftVersionId: string;
   readonly expectedDraftRevision: number;
   readonly actorId: string | null;
   readonly traceId: string | null;
@@ -162,7 +163,7 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
     if (draft === undefined) {
       return { outcome: "no-draft" };
     }
-    if (draft.draftRevision !== command.expectedDraftRevision) {
+    if (draft.id !== command.expectedDraftVersionId || draft.draftRevision !== command.expectedDraftRevision) {
       return { outcome: "stale", draftRevision: draft.draftRevision };
     }
 

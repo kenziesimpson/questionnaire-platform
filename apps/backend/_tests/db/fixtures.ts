@@ -48,6 +48,7 @@ export async function aPublishedQuestionnaire(db: Database): Promise<PublishedFi
   const draft = await aDraftWithOneItem(db);
   const published = await publishDraft(db, {
     questionnaireId: draft.questionnaireId,
+    expectedDraftVersionId: draft.draftVersionId,
     expectedDraftRevision: draft.draftRevision,
     actorId: "test",
     traceId: null,
