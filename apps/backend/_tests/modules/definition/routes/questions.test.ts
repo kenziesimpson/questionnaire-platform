@@ -240,6 +240,68 @@ describe("POST /questions/:questionId/versions", () => {
     expect((await get(`/questions/${questionId}/versions`)).json()).toHaveLength(1);
   });
 
+  it("rejects a version whose response type differs from the latest as request/invalid with question/type-changed, and saves nothing", async () => {
+    const questionId = await aQuestion();
+    const auditBefore = await testDatabase.readAuditEvents();
+
+    const response = await post(`/questions/${questionId}/versions`, { question: aChoiceQuestion });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
+    expect(response.json()).toEqual({
+      type: problemType("request/invalid"),
+      title: expect.any(String),
+      status: 400,
+      errors: [{ pointer: "/body/question/type", code: "question/type-changed" }],
+    });
+    expect((await get(`/questions/${questionId}/versions`)).json()).toMatchObject([{ questionVersion: 1, type: "text" }]);
+    expect(await testDatabase.readAuditEvents()).toEqual(auditBefore);
+  });
+
+  it("compares the type against the latest version, not version 1, and accepts the same type after several saves", async () => {
+    const db = testDatabase.database("definition");
+    const questionId = await aQuestion(aChoiceQuestion);
+    await appendQuestionVersion(db, { questionId, content: { ...aChoiceQuestion, prompt: "Second" }, ...actor });
+
+    const changed = await post(`/questions/${questionId}/versions`, {
+      question: { type: "multiple_choice", prompt: "Third", options: [{ optionId: "opt_alpha", label: "Alpha" }] },
+    });
+    const kept = await post(`/questions/${questionId}/versions`, { question: { ...aChoiceQuestion, prompt: "Third" } });
+
+    expect(changed.statusCode).toBe(400);
+    expect(changed.json().errors).toEqual([{ pointer: "/body/question/type", code: "question/type-changed" }]);
+    expect(kept.statusCode).toBe(201);
+    expect(kept.json()).toMatchObject({ questionVersion: 3, type: "single_choice", prompt: "Third" });
+  });
+
+  it("reports question-rule failures before a type change, the same as on create", async () => {
+    const questionId = await aQuestion();
+
+    const response = await post(`/questions/${questionId}/versions`, {
+      question: { type: "number", prompt: "Age", numberKind: "integer", min: 120, max: 0 },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().errors).toEqual([{ pointer: "/body/question/min", code: "question/min-exceeds-max" }]);
+  });
+
+  it("serializes a concurrent same-type save and type-changing save: only the same-type save lands", async () => {
+    const questionId = await aQuestion();
+
+    const [sameType, changedType] = await Promise.all([
+      post(`/questions/${questionId}/versions`, { question: { type: "text", prompt: "Still text" } }),
+      post(`/questions/${questionId}/versions`, { question: aChoiceQuestion }),
+    ]);
+
+    expect(sameType?.statusCode).toBe(201);
+    expect(changedType?.statusCode).toBe(400);
+    expect(changedType?.json().errors).toEqual([{ pointer: "/body/question/type", code: "question/type-changed" }]);
+    expect((await get(`/questions/${questionId}/versions`)).json()).toMatchObject([
+      { questionVersion: 2, type: "text" },
+      { questionVersion: 1, type: "text" },
+    ]);
+  });
+
   it("serializes two concurrent saves into versions 2 and 3", async () => {
     const questionId = await aQuestion();
 
@@ -258,8 +320,8 @@ describe("GET /questions/:questionId/versions", () => {
   it("lists version metadata newest first", async () => {
     const db = testDatabase.database("definition");
     const questionId = await aQuestion();
-    await appendQuestionVersion(db, { questionId, content: aChoiceQuestion, ...actor });
-    await post(`/questions/${questionId}/versions`, { question: aTextQuestion });
+    await appendQuestionVersion(db, { questionId, content: { type: "text", prompt: "Second" }, ...actor });
+    await post(`/questions/${questionId}/versions`, { question: { type: "text", prompt: "Third" } });
 
     const response = await get(`/questions/${questionId}/versions`);
 
@@ -267,7 +329,7 @@ describe("GET /questions/:questionId/versions", () => {
     expect(Value.Check(Type.Array(QuestionVersionSummary), response.json())).toBe(true);
     expect(response.json()).toMatchObject([
       { questionVersion: 3, type: "text", createdBy: AUTHOR_PLACEHOLDER },
-      { questionVersion: 2, type: "single_choice", createdBy: "test" },
+      { questionVersion: 2, type: "text", createdBy: "test" },
       { questionVersion: 1, type: "text", createdBy: "test" },
     ]);
   });
