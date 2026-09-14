@@ -1,9 +1,11 @@
+import type { Static } from "typebox";
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import { ClientAnswerValue, ClientAnswers, ResponseRow } from "../../src/domain/answer.js";
 import { Condition, Predicate, type ConditionOf } from "../../src/domain/condition.js";
 import { PublishedDefinition } from "../../src/domain/definition.js";
-import { QuestionInput } from "../../src/domain/question.js";
+import { QuestionInput, QuestionVersionSummary, RESPONSE_TYPES, ResponseType } from "../../src/domain/question.js";
+import type { Equal } from "../type-equality.js";
 
 /**
  * The worked example from [[5-questionnaire-format]] §3, verbatim. Schema conformance of the documented
@@ -221,5 +223,18 @@ describe("QuestionInput", () => {
 
   it("does not let a save request assign identity", () => {
     expect(Value.Check(QuestionInput, { type: "text", prompt: "x", questionId: "01a0950f-4223-73df-8544-fa8f63877e0b" })).toBe(false);
+  });
+});
+
+describe("ResponseType", () => {
+  it("types the schema, and QuestionVersionSummary.type, as the five response types, never `never`", () => {
+    const exact: [Equal<Static<typeof ResponseType>, ResponseType>, Equal<QuestionVersionSummary["type"], ResponseType>] = [true, true];
+
+    expect(exact).not.toContain(false);
+  });
+
+  it("admits exactly RESPONSE_TYPES", () => {
+    for (const type of RESPONSE_TYPES) expect(Value.Check(ResponseType, type)).toBe(true);
+    expect(Value.Check(ResponseType, "yes_no")).toBe(false);
   });
 });
