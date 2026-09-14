@@ -1,5 +1,5 @@
 import type { QuestionnaireSummary } from "@qp/shared";
-import { desc, eq, type SQL } from "drizzle-orm";
+import { desc, eq, max, type SQL } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
 import type { Executor } from "../client.js";
@@ -7,7 +7,26 @@ import { questionnaire, questionnaireVersion } from "../schema.js";
 import { openDraftExists, readOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
 import { readBack } from "./read-back.js";
 
+function latestVersionEdits(executor: Executor) {
+  return executor
+    .select({
+      questionnaireId: questionnaireVersion.questionnaireId,
+      updatedAt: max(questionnaireVersion.updatedAt).as("latest_updated_at"),
+    })
+    .from(questionnaireVersion)
+    .groupBy(questionnaireVersion.questionnaireId)
+    .as("latest_version_edit");
+}
+
+function lastEditedAt(questionnaireId: string, updatedAt: Date | null): string {
+  if (updatedAt === null) {
+    throw new Error(`questionnaire ${questionnaireId} has no version to take updatedAt from`);
+  }
+  return updatedAt.toISOString();
+}
+
 async function selectQuestionnaireSummaries(executor: Executor, filter?: SQL): Promise<QuestionnaireSummary[]> {
+  const latestEdit = latestVersionEdits(executor);
   const rows = await executor
     .select({
       questionnaireId: questionnaire.id,
@@ -17,8 +36,10 @@ async function selectQuestionnaireSummaries(executor: Executor, filter?: SQL): P
       closesAt: questionnaire.closesAt,
       hasDraft: openDraftExists(executor, questionnaire.id),
       createdAt: questionnaire.createdAt,
+      updatedAt: latestEdit.updatedAt,
     })
     .from(questionnaire)
+    .innerJoin(latestEdit, eq(latestEdit.questionnaireId, questionnaire.id))
     .where(filter)
     .orderBy(desc(questionnaire.id));
 
@@ -30,6 +51,7 @@ async function selectQuestionnaireSummaries(executor: Executor, filter?: SQL): P
     closesAt: row.closesAt?.toISOString() ?? null,
     hasDraft: row.hasDraft,
     createdAt: row.createdAt.toISOString(),
+    updatedAt: lastEditedAt(row.questionnaireId, row.updatedAt),
   }));
 }
 

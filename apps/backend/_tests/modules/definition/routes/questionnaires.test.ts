@@ -79,6 +79,93 @@ describe("GET /questionnaires", () => {
   });
 });
 
+describe("QuestionnaireSummary.updatedAt", () => {
+  const EARLIER = "2026-01-01T00:00:00.000Z";
+
+  async function backdateDraft(questionnaireId: string): Promise<void> {
+    const client = await testDatabase.connect("definition");
+    await client.query("UPDATE definition.questionnaire_version SET updated_at = $1 WHERE questionnaire_id = $2 AND status = 'draft'", [
+      EARLIER,
+      questionnaireId,
+    ]);
+  }
+
+  function getDraft(questionnaireId: string) {
+    return app().inject({ method: "GET", url: definitionUrl(`/questionnaires/${questionnaireId}/draft`) });
+  }
+
+  async function listedUpdatedAt(questionnaireId: string): Promise<string | undefined> {
+    const listed = await app().inject({ method: "GET", url: definitionUrl("/questionnaires") });
+    return listed.json().find((row: QuestionnaireSummary) => row.questionnaireId === questionnaireId)?.updatedAt;
+  }
+
+  it("is the draft's updated_at on create, and moves to the new updated_at when the draft is written", async () => {
+    const created = await app().inject({ method: "POST", url: definitionUrl("/questionnaires"), payload: { name: "Edited", title: "Edited" } });
+    const { questionnaireId, updatedAt: createdUpdatedAt } = created.json();
+    const opened = await getDraft(questionnaireId);
+    expect(createdUpdatedAt).toBe(opened.json().updatedAt);
+    await backdateDraft(questionnaireId);
+    expect(await listedUpdatedAt(questionnaireId)).toBe(EARLIER);
+
+    const written = await app().inject({
+      method: "PUT",
+      url: definitionUrl(`/questionnaires/${questionnaireId}/draft`),
+      headers: { "if-match": opened.headers.etag ?? "" },
+      payload: { title: "Edited again", items: [] },
+    });
+
+    expect(written.statusCode).toBe(200);
+    expect(written.json().updatedAt).not.toBe(EARLIER);
+    expect(await listedUpdatedAt(questionnaireId)).toBe(written.json().updatedAt);
+  });
+
+  it("does not move when closesAt is set or cleared, in the closes-at response or on the list", async () => {
+    const draft = await aDraftWithOneItem(testDatabase.database("definition"));
+    await backdateDraft(draft.questionnaireId);
+
+    const set = await setClosesAt(draft.questionnaireId, "2026-10-01T00:00:00.000Z");
+    const cleared = await setClosesAt(draft.questionnaireId, null);
+
+    expect(set.json()).toMatchObject({ closesAt: "2026-10-01T00:00:00.000Z", updatedAt: EARLIER });
+    expect(cleared.json()).toMatchObject({ closesAt: null, updatedAt: EARLIER });
+    expect(await listedUpdatedAt(draft.questionnaireId)).toBe(EARLIER);
+  });
+
+  it("is the latest version's updated_at across a published version and the next draft", async () => {
+    const db = testDatabase.database("definition");
+    const published = await aPublishedQuestionnaire(db);
+    const client = await testDatabase.connect("definition");
+    const stored = await client.query<{ updated_at: Date }>("SELECT updated_at FROM definition.questionnaire_version WHERE questionnaire_id = $1", [
+      published.questionnaireId,
+    ]);
+    expect(await listedUpdatedAt(published.questionnaireId)).toBe(stored.rows[0]?.updated_at.toISOString());
+
+    const next = await app().inject({ method: "POST", url: definitionUrl(`/questionnaires/${published.questionnaireId}/draft`) });
+
+    expect(next.statusCode).toBe(201);
+    expect(await listedUpdatedAt(published.questionnaireId)).toBe((await getDraft(published.questionnaireId)).json().updatedAt);
+  });
+
+  it("leaves the list in id order after an older questionnaire's draft is written; sorting on it is the client's", async () => {
+    const db = testDatabase.database("definition");
+    const older = await createQuestionnaire(db, { key: null, name: "Older", title: "Older", ...actor });
+    const newer = await createQuestionnaire(db, { key: null, name: "Newer", title: "Newer", ...actor });
+    await backdateDraft(newer.questionnaireId);
+    const opened = await getDraft(older.questionnaireId);
+    await app().inject({
+      method: "PUT",
+      url: definitionUrl(`/questionnaires/${older.questionnaireId}/draft`),
+      headers: { "if-match": opened.headers.etag ?? "" },
+      payload: { title: "Older, edited", items: [] },
+    });
+
+    const listed = await app().inject({ method: "GET", url: definitionUrl("/questionnaires") });
+
+    expect(listed.json().map((row: QuestionnaireSummary) => row.questionnaireId)).toEqual([newer.questionnaireId, older.questionnaireId]);
+    expect(listed.json()[1].updatedAt > listed.json()[0].updatedAt).toBe(true);
+  });
+});
+
 describe("POST /questionnaires", () => {
   it("returns the new questionnaire's summary, and its draft opens at revision 0 with an ETag", async () => {
     const created = await app().inject({
