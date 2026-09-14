@@ -9,13 +9,12 @@ import { questionnaireItem, questionnaireVersion } from "../schema.js";
 import {
   archivedQuestionIds,
   draftForValidation,
-  insertItems,
   itemsWithQuestionContent,
   pinnedQuestionVersionsInPlacementOrder,
   readDraftContents,
-  readItems,
   type DraftInvalidItem,
 } from "./draft-contents.js";
+import { insertItems, readItems } from "./questionnaire-items.js";
 import { lockOpenDraft, readOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
 import { existingQuestionVersionKeys, questionVersionKey, type QuestionVersionKey } from "./question-versions.js";
 import { isPublishedVersionOf } from "./versions.js";

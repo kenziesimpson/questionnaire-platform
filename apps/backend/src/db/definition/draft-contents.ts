@@ -1,7 +1,8 @@
-import type { DraftForValidation, DraftItem, DraftItemCode, Item, ItemError, Predicate, QuestionVersion } from "@qp/shared";
-import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
-import type { Executor, Transaction } from "../client.js";
-import { question, questionnaireItem } from "../schema.js";
+import type { DraftForValidation, DraftItem, DraftItemCode, Item, ItemError, QuestionVersion } from "@qp/shared";
+import { and, inArray, isNotNull } from "drizzle-orm";
+import type { Executor } from "../client.js";
+import { question } from "../schema.js";
+import { readItems } from "./questionnaire-items.js";
 import { storedQuestionToContent, storedQuestionToVersion } from "./question-content.js";
 import { pinnedByDraft, questionVersionKey, readQuestionVersions, type LoadedQuestionVersion } from "./question-versions.js";
 
@@ -10,38 +11,6 @@ export type DraftInvalidItem = ItemError<DraftItemCode>;
 export interface DraftContents {
   readonly items: readonly DraftItem[];
   readonly pinned: ReadonlyMap<string, LoadedQuestionVersion>;
-}
-
-export async function readItems(executor: Executor, questionnaireVersionId: string): Promise<DraftItem[]> {
-  const rows = await executor
-    .select({
-      itemId: questionnaireItem.itemId,
-      required: questionnaireItem.required,
-      visibleWhen: questionnaireItem.visibleWhen,
-      questionId: questionnaireItem.questionId,
-      questionVersion: questionnaireItem.questionVersion,
-    })
-    .from(questionnaireItem)
-    .where(eq(questionnaireItem.questionnaireVersionId, questionnaireVersionId))
-    .orderBy(asc(questionnaireItem.position));
-  return rows.map((row) => ({ ...row, visibleWhen: row.visibleWhen as Predicate | null }));
-}
-
-export async function insertItems(tx: Transaction, questionnaireVersionId: string, items: readonly DraftItem[]): Promise<void> {
-  if (items.length === 0) {
-    return;
-  }
-  await tx.insert(questionnaireItem).values(
-    items.map((item, position) => ({
-      questionnaireVersionId,
-      itemId: item.itemId,
-      position,
-      required: item.required,
-      visibleWhen: item.visibleWhen,
-      questionId: item.questionId,
-      questionVersion: item.questionVersion,
-    })),
-  );
 }
 
 export async function readDraftContents(executor: Executor, draftVersionId: string): Promise<DraftContents> {
