@@ -170,11 +170,25 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 
 ### Wave 3 — the two apps *(two parallel tracks)*
 
-> **Unblocked 2026-09-13.** Four of the five gaps in [[#Stop and ask]] are answered — [[2-design-doc#17. Decisions Log]] #53–#55 — and the fifth (response-type controls) was already settled in [[10-frontend#3. `packages/ui` — primitives and the renderer]]; the plan text above it was stale. **Track 7 (respondent app) is fully unblocked.** Track 6 (admin app) is unblocked except for two screens that wait on a design pass — [[2-design-doc#20. Pending UI experimentation]] — before an agent builds them: the question bank/draft editor's options-authoring widget, and the question editor's constraint-field layout. Everything else in Track 6 can start now.
+> **Unblocked 2026-09-14.** Every Wave 3 gap in [[#Stop and ask]] is answered — [[2-design-doc#17. Decisions Log]] #53–#55 on 2026-09-13, and #58–#65 on 2026-09-14, which adopt the prototypes in `docs/designs/` for the question editor's constraint fields and options widget and defer `publishedBy` with authentication. **Once the contract commit below lands, Track 6 (admin app) and Track 7 (respondent app) are both fully unblocked.**
+
+#### Wave 3 contract commit *(serial, one agent, before Tracks 6 and 7 branch)*
+
+> **The only Wave 3 change to `packages/shared`, `packages/ui` and `apps/backend`.** After it, Tracks 6 and 7 each touch only their own app. It crosses files Tracks 1, 3 and 4 own, which is why one agent does it before anything branches: both apps consume `errorsByItemId` (#62), and Track 6 builds against the other two contract changes.
+
+- [ ] `errorsByItemId` in `packages/ui/src/questionnaire/`, with tests (#55, #62)
+- [ ] `QuestionnaireSummary.updatedAt` in `packages/shared`, plus the backend list query: the latest `questionnaire_version.updated_at` per questionnaire, not moved by a `closesAt` change (#59)
+- [ ] `question/type-changed` in `QUESTION_RULE_CODES`, plus the check in the backend's append-question-version path — `appendQuestionVersion`, under the question row lock it already takes — with a test (#61)
+- [ ] Its rows in [[8-testing#7. Test case enumeration]]
 
 **Track 6 — admin app.** Five screens, code-based TanStack Router, TanStack Query, hand-rolled form state, dnd-kit reorders as optimistic draft mutations through the `If-Match` path with rollback on `409 questionnaire/draft-stale`.
 
-**Track 7 — respondent app.** No router; a state machine after one entry URL. Plain `fetch`, TanStack Form, `localStorage` partials including hidden items, filtered to visible once at submit. Storage-first resume. Client-side date validation against the **browser's** local date.
+- The question editor's constraint fields and options widget follow `QuestionFields` and `AdminQuestionEditor` ([[10-frontend#5.3 The question editor, and re-pinning]], #58); the Yes / No template is optional polish. The type selector is disabled after a question's first save (#61)
+- The author-facing `DraftItemCode` message catalogue (#60) gets a design subagent pass on its wording and presentation during execution
+- `publishedBy` is always `null`; the history screen renders it as absent (#64)
+- **Two known bugs, punted (#65).** Track 6 will hit both and neither fixes nor works around them. [gh#17](https://github.com/kenziesimpson/questionnaire-platform/issues/17): an archived question already placed in a draft blocks every `PUT /draft` for that questionnaire. [gh#15](https://github.com/kenziesimpson/questionnaire-platform/issues/15): a taken `key` returns `500`, and `key` may be removed — so do not present a key input as required
+
+**Track 7 — respondent app.** No router; a state machine after one entry URL. Plain `fetch`, TanStack Form, `localStorage` partials including hidden items, filtered to visible once at submit. Storage-first resume. Client-side date validation against the **browser's** local date. The primitives' sizes are used as they are; the prototypes' larger touch scale is deferred (#63).
 
 ### Wave 3b — observability and pipeline
 
@@ -202,17 +216,17 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 
 ### Stop and ask
 
-An agent must not decide these alone. The first five blocked Wave 3; four are now closed and the fifth is narrowed to two specific screens.
+An agent must not decide these alone. The first five blocked Wave 3 and are all closed; `publishedBy` is deferred with authentication and no longer blocks anything.
 
 - [x] Admin list sort and filter UI — resolved: client-side "most recently edited" only, nothing else ships in Wave 3. [[2-design-doc#17. Decisions Log]] #53, [gh#21](https://github.com/kenziesimpson/questionnaire-platform/issues/21) tracks the fuller sort/filter surface
-- [x] Which control renders each of the five response types — already settled in [[10-frontend#3. `packages/ui` — primitives and the renderer]]; this plan just hadn't caught up. The *authoring* widget for options is separate and still open — see below
+- [x] Which control renders each of the five response types — already settled in [[10-frontend#3. `packages/ui` — primitives and the renderer]]; this plan just hadn't caught up. The *authoring* widget for options was separate and is resolved below
 - [x] The draft editor's publish-validation error surface — resolved: a summary panel with jump-to-item links for the first pass. [[2-design-doc#17. Decisions Log]] #54, [gh#22](https://github.com/kenziesimpson/questionnaire-platform/issues/22) tracks inline per-item rendering as a follow-up
 - [x] How `errorsByItemId` is built from the RFC 9457 body — resolved: one function in `packages/ui`, used by both apps, dropping `answer/not-visible` and `answer/unknown-item` for now. [[2-design-doc#17. Decisions Log]] #55, [gh#23](https://github.com/kenziesimpson/questionnaire-platform/issues/23) tracks revisiting the two dropped codes
-- [ ] The question editor's constraint fields per response type — **still open**, pending a design pass. [[2-design-doc#20. Pending UI experimentation]]
-- [ ] **`publishedBy` has no column** (blocks G3's `VersionSummary`). `questionnaire_version` stores `created_by`, which is whoever opened the draft, and `qp_definition` cannot read the publish row in `audit.event`. Filling `publishedBy` from `created_by` would label the draft's opener as the publisher; adding a `published_by` column needs a migration and a change to `promote_draft`
+- [x] The question editor's constraint fields per response type — resolved: the `QuestionFields` prototype, with the six cross-field rules unrepresentable in the controls. [[2-design-doc#17. Decisions Log]] #58
+- [ ] ~~**`publishedBy` has no column** (blocks G3's `VersionSummary`).~~ **Deferred with authentication, not resolved** — [[2-design-doc#17. Decisions Log]] #64. `publishedBy` stays `null` and the admin history screen renders it as absent. Not blocking. The original question: `questionnaire_version` stores `created_by`, which is whoever opened the draft, and `qp_definition` cannot read the publish row in `audit.event`. Filling `publishedBy` from `created_by` would label the draft's opener as the publisher; adding a `published_by` column needs a migration and a change to `promote_draft`
 - [ ] Anything that would add a custom migration, widen a grant, put an unpersisted value in the digest, or change what crosses the definition/execution boundary
 
-**Also pending the same design pass, not originally on this list:** the options-authoring widget (add/remove/reorder/mark-freeform) for `single_choice` and `multiple_choice` questions in the question editor — [[2-design-doc#20. Pending UI experimentation]]. Both items block only the question editor and the draft editor's options UI in Track 6; nothing else in Wave 3 waits on them.
+**The same design pass also settled one item not originally on this list:** the options-authoring widget (add/remove/reorder/mark-freeform) for `single_choice` and `multiple_choice` questions follows the `AdminQuestionEditor` prototype — drag to reorder, generated option ids shown and locked, freeform "Other" marked on its row ([[2-design-doc#17. Decisions Log]] #58). Both design items are resolved; nothing in Wave 3 waits on them.
 
 ### Agent-verified milestones
 

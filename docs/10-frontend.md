@@ -56,7 +56,7 @@ Single origin is preserved, so the trace-context propagation in [[6-observabilit
 
 The package holds two folders and one rule.
 
-`primitives/` is the shared component set — shadcn components over Radix, styled with Tailwind. Both applications import from it directly, so a button in the admin portal and a button in the respondent form are the same button.
+`primitives/` is the shared component set — shadcn components over Radix, styled with Tailwind. Both applications import from it directly, so a button in the admin portal and a button in the respondent form are the same button. Both apps use the primitives' sizes as they are for Wave 3. The prototypes in `docs/designs/` draw the respondent at a larger touch scale — 52px option rows and 44px inputs against the primitives' 32px controls — as a first approach rather than a pixel spec, and tuning to it is deferred ([[2-design-doc#17. Decisions Log]] #63).
 
 `questionnaire/` is the renderer: given a published definition and a set of answers, render the items that are visible. It is built from `primitives/` rather than from raw elements.
 
@@ -78,7 +78,7 @@ Visibility is computed inside the renderer by calling the shared rule engine, no
 
 **One control per response type.** `single_choice` is a Radix radio group inside a `<fieldset>` and `<legend>`, and `multiple_choice` a checkbox group inside the same. `text` is an input, or a textarea when the question is `multiline`. `number` is a text input with `inputMode` `decimal` (`numeric` for integer questions) and the unit shown after it, because answers are exact decimal strings (Decisions Log #42) and `type="number"` accepts forms the schema rejects. `date` is the native date input (§7). A freeform option's text box is always visible beside its radio or checkbox, with the option label as a hint that hides while the box has focus, and typing in it selects the option. Moving off the option (another radio, or unchecking it) keeps the typed text in the box but omits `otherText` from the answer, since the server rejects `otherText` without the option (`choice/other-text-without-other`); selecting the option again puts the text back. The retained text is local UI state seeded from the answer, so `answers` stays the source of truth for what is answered, and text retained for a deselected option is lost if its item unmounts, for example when a branch hides it. The single-choice control keeps the answer mapping apart from the view that draws the radios, so a dropdown presentation would be a second view rather than a second control — recorded as future work ([[2-design-doc#19. Future Work]]).
 
-**Errors are codes, not messages.** `errors` maps each `itemId` to the `SubmissionItemCode`s it failed, whether they came from the problem body's `items` extension ([[7-application-boundary#6.1 Error format — RFC 9457 problem details]]) or from the shared validator run client-side. One catalogue in `questionnaire/` turns a code into a message built from the question alone, so client and server errors read the same and no message can carry an answer. An item shows its first code; a view listing every current error per question is future work ([[2-design-doc#19. Future Work]]). `answer/not-visible` and `answer/unknown-item` never attach to a rendered item, so the renderer ignores them and the app decides what to do with them.
+**Errors are codes, not messages.** `errors` maps each `itemId` to the `SubmissionItemCode`s it failed, whether they came from the problem body's `items` extension ([[7-application-boundary#6.1 Error format — RFC 9457 problem details]]) or from the shared validator run client-side. One catalogue in `questionnaire/` turns a code into a message built from the question alone, so client and server errors read the same and no message can carry an answer. An item shows its first code; a view listing every current error per question is future work ([[2-design-doc#19. Future Work]]). `answer/not-visible` and `answer/unknown-item` never attach to a rendered item, so the renderer ignores them and the app decides what to do with them. `errorsByItemId`, which groups a problem body into that shape for both apps, lives in `questionnaire/` and is built in the serial Wave 3 contract commit before either app's track branches (Decisions Log #55, #62).
 
 ## 4. Respondent app
 
@@ -135,9 +135,9 @@ A `422` names item ids and rule codes and never carries values ([[7-application-
 
 | Screen | Purpose |
 | --- | --- |
-| Questionnaire list | Status, current version, `closesAt`; create, open, retire |
+| Questionnaire list | Status, current version, `closesAt`; create, open, retire. Sorted most recently edited, on `updatedAt` (Decisions Log #53, #59) |
 | Draft editor | Item list — add from the bank, reorder, `required`, `visibleWhen`, publish |
-| Question bank | List, create, edit, archive; usage per question |
+| Question bank | List, create, edit, archive; usage per question. Sorted most recently edited, on `latest.createdAt` (#59) |
 | Version history | Published versions for one questionnaire, each openable |
 | Preview | One snapshot rendered through `questionnaire/` in `readonly` mode |
 
@@ -153,11 +153,29 @@ Reordering uses dnd-kit, and each drop is a draft mutation — optimistic throug
 
 **Validation runs while editing, not at publish.** `POST /questionnaires/:id/draft/validate` is a dry run of the publish checks using the identical code path, so an unsatisfiable predicate or a forward reference surfaces as the author creates it. Publish then refuses on the same result, which means the editor cannot show a green state that publish disagrees with.
 
+Failures render as a summary panel with jump-to-item links (Decisions Log #54). Each `DraftItemCode` becomes a sentence through an **author-facing catalogue in `apps/admin`**, typed `Record<DraftItemCode, …>` so a code without a message fails to compile. A message names the problem and the fix. It is separate from the renderer's catalogue in §3, because authors see these codes and respondents never do. Its wording and presentation get a design pass during Track 6 (Decisions Log #60).
+
 ### 5.3 The question editor, and re-pinning
 
 The editor is a dialog. Questions are append-only and **saving is publishing** ([[5-questionnaire-format#6.2 Question identity and versioning]]), so the dialog holds working state client-side and writes exactly one new version when the author commits — one deliberate save, one version.
 
-Creating a question starts with choosing one of the five response types, which drives the constraint fields the rest of the dialog shows (§8, §9.4). A **Yes / No** template button shortcuts that choice: it creates a `single_choice` question pre-populated with two options — reserved ids `yes` / `no`, labels "Yes" and "No" — with those labels left editable, so the same question can read True / False or Agree / Disagree without becoming a different kind of thing. This is the editor's answer to the brief's "yes or no" response type now that `yes_no` is not a stored type ([[5-questionnaire-format#2. Question types]], Decisions Log #36).
+Creating a question starts with choosing one of the five response types, which drives the constraint fields the rest of the dialog shows (§8, §9.4). **The type is locked after the question's first save.** The dialog disables the selector, and the server refuses a version whose type differs from the latest with `400 request/invalid` and `question/type-changed`, because a condition is typed to the question it reads and a type change would break rules in questionnaires the author cannot see (Decisions Log #61).
+
+The fields follow the `QuestionFields` and `AdminQuestionEditor` prototypes in `docs/designs/` (Decisions Log #58):
+
+| Type | Fields after the prompt | What the controls hold |
+| --- | --- | --- |
+| `text` | Min length and max length inputs; `multiline` checkbox | Max clamped at or above min while typing — `question/min-length-exceeds-max-length` |
+| `single_choice` | Options list; "Allow a freeform Other" checkbox | Ids generated, never typed; only `other` can be freeform — `question/duplicate-option-id`, `question/freeform-not-other` |
+| `multiple_choice` | Options list; min and max selections inputs | Both bounds capped by the option count, max never below min — `question/min-selections-exceeds-max-selections`, `question/selections-exceed-options` |
+| `number` | `numberKind` as a Whole number / Decimal segmented control, required; min, max and unit inputs | Max never below min — `question/min-exceeds-max` |
+| `date` | Earliest and latest as native date inputs; `relative` as an Any / Not in the future / Not in the past segmented control | Latest never before earliest — `question/min-exceeds-max`. The fixed bounds and the relative rule are independent |
+
+**The six `QUESTION_RULE_CODES` cross-field rules are made unrepresentable in the controls, not reported after a save** — the predicate editor's move (§5.4). Their `400` exists for clients that are not this editor; an author who sees one has found an editor bug.
+
+**Options** are one row each: a drag handle for reordering (dnd-kit, as everywhere else), the generated option id shown in a locked chip, an editable label, and a remove button, with "Add option" below the list. The id is set once and never changes, so relabelling stays safe ([[5-questionnaire-format#2.1 Option ids are stable across question versions]]). The freeform `other` option is marked on its own row.
+
+A **Yes / No** template button is optional polish in Wave 3 (Decisions Log #58). Where it ships, it shortcuts the type choice: it creates a `single_choice` question pre-populated with two options — reserved ids `yes` / `no`, labels "Yes" and "No" — with those labels left editable, so the same question can read True / False or Agree / Disagree without becoming a different kind of thing. This is the editor's answer to the brief's "yes or no" response type now that `yes_no` is not a stored type ([[5-questionnaire-format#2. Question types]], Decisions Log #36).
 
 That collides with pinning. Items pin a question version at add time and keep it, so an author who edits a question from inside the draft editor would create version *N+1* while the item stayed on *N*, and the edit would appear to do nothing.
 
