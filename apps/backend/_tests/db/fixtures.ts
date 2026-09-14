@@ -1,10 +1,13 @@
-import type { QuestionInput } from "@qp/shared";
+import { FORMAT_VERSION, type DraftItem, type QuestionInput } from "@qp/shared";
 import { v4 as uuidv4, v7 as uuidv7 } from "uuid";
 import type pg from "pg";
-import type { Database } from "../../src/db/client.js";
+import type { Database, Transaction } from "../../src/db/client.js";
+import type { DraftPrecondition } from "../../src/db/definition/draft-precondition.js";
 import { publishDraft } from "../../src/db/definition/publish.js";
-import { replaceDraft, createQuestionnaire } from "../../src/db/definition/questionnaires.js";
+import { createNextDraft, replaceDraft } from "../../src/db/definition/drafts.js";
+import { createQuestionnaire } from "../../src/db/definition/questionnaires.js";
 import { createQuestion } from "../../src/db/definition/questions.js";
+import type { TestDatabase } from "./harness.js";
 
 const actor = { createdBy: "test", traceId: null };
 
@@ -17,26 +20,76 @@ export interface DraftFixture {
   readonly questionId: string;
 }
 
+export async function saveDraft(
+  db: Database,
+  questionnaireId: string,
+  precondition: DraftPrecondition,
+  title: string,
+  items: readonly DraftItem[],
+): Promise<DraftPrecondition> {
+  const edited = await replaceDraft(db, { questionnaireId, precondition, title, items, actorId: "test", traceId: null });
+  if (edited.outcome !== "saved") {
+    throw new Error(`fixture draft was not saved: ${JSON.stringify(edited)}`);
+  }
+  return { versionId: edited.draftVersionId, draftRevision: edited.draftRevision };
+}
+
+export async function publishSavedDraft(db: Database, questionnaireId: string, precondition: DraftPrecondition): Promise<number> {
+  const published = await publishDraft(db, { questionnaireId, precondition, actorId: "test", traceId: null });
+  if (published.outcome !== "published") {
+    throw new Error(`fixture draft was not published: ${JSON.stringify(published)}`);
+  }
+  return published.version;
+}
+
+export async function saveAndPublish(
+  db: Database,
+  questionnaireId: string,
+  precondition: DraftPrecondition,
+  title: string,
+  items: readonly DraftItem[],
+): Promise<number> {
+  return publishSavedDraft(db, questionnaireId, await saveDraft(db, questionnaireId, precondition, title, items));
+}
+
 export async function aDraftWithOneItem(db: Database): Promise<DraftFixture> {
   const saved = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
   const created = await createQuestionnaire(db, { key: null, name: "Fixture", title: "Fixture", ...actor });
-  const edited = await replaceDraft(db, {
-    questionnaireId: created.questionnaireId,
-    precondition: { versionId: created.draftVersionId, draftRevision: created.draftRevision },
-    title: "Fixture",
-    items: [{ itemId: "itm_01", required: true, visibleWhen: null, questionId: saved.questionId, questionVersion: 1 }],
-    actorId: "test",
-    traceId: null,
-  });
-  if (edited.outcome !== "saved") {
-    throw new Error(`fixture draft was not saved: ${edited.outcome}`);
-  }
+  const edited = await saveDraft(
+    db,
+    created.questionnaireId,
+    { versionId: created.draftVersionId, draftRevision: created.draftRevision },
+    "Fixture",
+    [{ itemId: "itm_01", required: true, visibleWhen: null, questionId: saved.questionId, questionVersion: 1 }],
+  );
   return {
     questionnaireId: created.questionnaireId,
-    draftVersionId: created.draftVersionId,
+    draftVersionId: edited.versionId,
     draftRevision: edited.draftRevision,
     questionId: saved.questionId,
   };
+}
+
+export async function aQuestionnairePublishedAs(testDatabase: TestDatabase, snapshotChanges: Record<string, unknown>): Promise<DraftFixture> {
+  const draft = await aDraftWithOneItem(testDatabase.database("definition"));
+  const snapshot = {
+    formatVersion: FORMAT_VERSION,
+    questionnaireId: draft.questionnaireId,
+    version: 1,
+    title: "Fixture",
+    items: [
+      {
+        itemId: "itm_01",
+        required: true,
+        visibleWhen: null,
+        question: { questionId: draft.questionId, questionVersion: 1, ...aTextQuestion },
+      },
+    ],
+    ...snapshotChanges,
+  };
+  const definition = await testDatabase.connect("definition");
+  await definition.query("SELECT definition.promote_draft($1::uuid, $2::jsonb)", [draft.draftVersionId, JSON.stringify(snapshot)]);
+  return draft;
 }
 
 export interface PublishedFixture extends DraftFixture {
@@ -45,16 +98,37 @@ export interface PublishedFixture extends DraftFixture {
 
 export async function aPublishedQuestionnaire(db: Database): Promise<PublishedFixture> {
   const draft = await aDraftWithOneItem(db);
-  const published = await publishDraft(db, {
-    questionnaireId: draft.questionnaireId,
-    precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
-    actorId: "test",
-    traceId: null,
+  const version = await publishSavedDraft(db, draft.questionnaireId, {
+    versionId: draft.draftVersionId,
+    draftRevision: draft.draftRevision,
   });
-  if (published.outcome !== "published") {
-    throw new Error(`fixture was not published: ${published.outcome}`);
+  return { ...draft, version };
+}
+
+export async function publishNextVersion(db: Database, questionnaireId: string, items: readonly DraftItem[]): Promise<number> {
+  const opened = await createNextDraft(db, { questionnaireId, ...actor });
+  if (opened.outcome !== "created") {
+    throw new Error(`fixture next draft was not opened: ${opened.outcome}`);
   }
-  return { ...draft, version: published.version };
+  return saveAndPublish(
+    db,
+    questionnaireId,
+    { versionId: opened.draft.versionId, draftRevision: opened.draftRevision },
+    opened.draft.title,
+    items,
+  );
+}
+
+export async function aPublishedQuestionnaireOf(db: Database, name: string, items: readonly DraftItem[]): Promise<string> {
+  const created = await createQuestionnaire(db, { key: null, name, title: name, ...actor });
+  await saveAndPublish(
+    db,
+    created.questionnaireId,
+    { versionId: created.draftVersionId, draftRevision: created.draftRevision },
+    name,
+    items,
+  );
+  return created.questionnaireId;
 }
 
 export async function aSession(execution: pg.Client, published: PublishedFixture): Promise<string> {
@@ -104,4 +178,48 @@ export function insertResponse(
       values.other_text ?? null,
     ],
   );
+}
+
+export const QUESTIONNAIRE_LOCK_STATEMENT = /from "definition"\."questionnaire" where "definition"\."questionnaire"\."id" = \$1 for update$/;
+
+export async function theStatementWaitingOnALock(testDatabase: TestDatabase): Promise<string> {
+  const client = await testDatabase.connect("definition");
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await client.query<{ query: string }>(
+      "SELECT query FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+    );
+    const [waiting, ...others] = result.rows;
+    if (waiting !== undefined && others.length === 0) {
+      return waiting.query;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("no single statement was seen waiting on a lock");
+}
+
+export async function whileHoldingALock(
+  db: Database,
+  holdLock: (tx: Transaction) => Promise<unknown>,
+  whileHeld: () => Promise<void>,
+): Promise<void> {
+  let release: () => void = () => undefined;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let signalHeld: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    signalHeld = resolve;
+  });
+  const holder = db.transaction(async (tx) => {
+    await holdLock(tx);
+    signalHeld();
+    await released;
+  });
+  await held;
+  try {
+    await whileHeld();
+  } finally {
+    release();
+    await holder;
+  }
 }

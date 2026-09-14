@@ -15,7 +15,8 @@ import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../../../../src/db/client.js";
 import { publishDraft } from "../../../../src/db/definition/publish.js";
-import { createQuestionnaire, replaceDraft } from "../../../../src/db/definition/questionnaires.js";
+import { replaceDraft } from "../../../../src/db/definition/drafts.js";
+import { createQuestionnaire } from "../../../../src/db/definition/questionnaires.js";
 import { appendQuestionVersion, createQuestion } from "../../../../src/db/definition/questions.js";
 import { AUTHOR_PLACEHOLDER } from "../../../../src/modules/definition/author.js";
 import { aTextQuestion } from "../../../db/fixtures.js";
@@ -87,7 +88,7 @@ async function publish(db: Database, questionnaireId: string, draft: OpenDraft, 
   }
 }
 
-async function openNextDraftDirectly(questionnaireId: string): Promise<OpenDraft> {
+async function createNextDraftDirectly(questionnaireId: string): Promise<OpenDraft> {
   const draftVersionId = uuidv7();
   const definition = await testDatabase.connect("definition");
   await definition.query(
@@ -311,12 +312,12 @@ describe("GET /questions/:questionId/usage", () => {
 
     const early = await createQuestionnaire(db, { key: null, name: "Early", title: "Early", ...actor });
     await publish(db, early.questionnaireId, early, [placement("itm_01", questionId, 1), placement("itm_02", unrelated, 1)]);
-    const earlyNext = await openNextDraftDirectly(early.questionnaireId);
+    const earlyNext = await createNextDraftDirectly(early.questionnaireId);
     await publish(db, early.questionnaireId, earlyNext, [placement("itm_01", questionId, 2)]);
 
     const late = await createQuestionnaire(db, { key: null, name: "Late", title: "Late", ...actor });
     await publish(db, late.questionnaireId, late, [placement("itm_01", questionId, 2)]);
-    const lateNext = await openNextDraftDirectly(late.questionnaireId);
+    const lateNext = await createNextDraftDirectly(late.questionnaireId);
     await saveDraft(db, late.questionnaireId, lateNext, [placement("itm_01", questionId, 1)]);
 
     const draftOnly = await createQuestionnaire(db, { key: null, name: "Draft only", title: "Draft only", ...actor });

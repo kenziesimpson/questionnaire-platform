@@ -1,12 +1,14 @@
-import { FORMAT_VERSION, PublishedDefinition, validateDraft, type DraftItemCode, type ItemError } from "@qp/shared";
+import { FORMAT_VERSION, PublishedDefinition, validateDraft, type VersionSummary } from "@qp/shared";
 import { eq, max, sql } from "drizzle-orm";
 import { Value } from "typebox/value";
 import { recordAudit } from "../audit.js";
 import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
 import type { Executor, Transaction } from "../client.js";
 import { questionnaireVersion } from "../schema.js";
-import { draftForValidation, itemsWithQuestionContent, readDraftContents } from "./draft-contents.js";
-import { lockQuestionnaire, readOpenDraft } from "./questionnaire-rows.js";
+import { draftForValidation, itemsWithQuestionContent, readDraftContents, type DraftInvalidItem } from "./draft-contents.js";
+import { lockOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
+import { readBack } from "./read-back.js";
+import { readVersionSummary } from "./versions.js";
 
 export interface PublishDraftCommand {
   readonly questionnaireId: string;
@@ -15,18 +17,16 @@ export interface PublishDraftCommand {
   readonly traceId: string | null;
 }
 
-export type DraftInvalidItem = ItemError<DraftItemCode>;
-
 export type PublishDraftOutcome =
   | {
       readonly outcome: "published";
       readonly questionnaireVersionId: string;
       readonly version: number;
-      readonly definition: PublishedDefinition;
+      readonly summary: VersionSummary;
     }
-  | { readonly outcome: "questionnaire-not-found" }
+  | QuestionnaireNotFound
   | { readonly outcome: "no-draft" }
-  | { readonly outcome: "stale"; readonly draftRevision: number }
+  | { readonly outcome: "stale" }
   | { readonly outcome: "invalid"; readonly items: readonly DraftInvalidItem[] };
 
 async function nextVersionNumber(tx: Transaction, questionnaireId: string): Promise<number> {
@@ -38,16 +38,13 @@ async function nextVersionNumber(tx: Transaction, questionnaireId: string): Prom
 }
 
 export async function publishDraft(executor: Executor, command: PublishDraftCommand): Promise<PublishDraftOutcome> {
-  return executor.transaction(async (tx) => {
-    if ((await lockQuestionnaire(tx, command.questionnaireId)) === undefined) {
-      return { outcome: "questionnaire-not-found" };
-    }
-    const draft = await readOpenDraft(tx, command.questionnaireId, "for-update");
+  return withLockedQuestionnaire(executor, command.questionnaireId, async (tx): Promise<PublishDraftOutcome> => {
+    const draft = await lockOpenDraft(tx, command.questionnaireId);
     if (draft === undefined) {
       return { outcome: "no-draft" };
     }
     if (!isCurrentDraft(command.precondition, { versionId: draft.id, draftRevision: draft.draftRevision })) {
-      return { outcome: "stale", draftRevision: draft.draftRevision };
+      return { outcome: "stale" };
     }
 
     const version = await nextVersionNumber(tx, command.questionnaireId);
@@ -85,6 +82,7 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
       traceId: command.traceId,
     });
 
-    return { outcome: "published", questionnaireVersionId: draft.id, version, definition };
+    const summary = readBack(await readVersionSummary(tx, command.questionnaireId, version), "the version just published");
+    return { outcome: "published", questionnaireVersionId: draft.id, version, summary };
   });
 }

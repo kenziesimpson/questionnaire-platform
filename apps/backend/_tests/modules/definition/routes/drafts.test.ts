@@ -1,7 +1,6 @@
 import {
   PROBLEM_CONTENT_TYPE,
   QuestionnaireDraft,
-  QuestionnaireSummary,
   formatDraftEtag,
   parseDraftEtag,
   problemType,
@@ -13,7 +12,7 @@ import { Value } from "typebox/value";
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { publishDraft } from "../../../../src/db/definition/publish.js";
-import { openNextDraft, replaceDraft } from "../../../../src/db/definition/questionnaires.js";
+import { createNextDraft, replaceDraft } from "../../../../src/db/definition/drafts.js";
 import { appendQuestionVersion, createQuestion } from "../../../../src/db/definition/questions.js";
 import { AUTHOR_PLACEHOLDER } from "../../../../src/modules/definition/author.js";
 import { aDraftWithOneItem, aPublishedQuestionnaire, aTextQuestion, type DraftFixture } from "../../../db/fixtures.js";
@@ -113,29 +112,7 @@ async function aDraftWithAForwardReference(): Promise<DraftFixture & { readonly 
   return { ...draft, draftRevision: edited.draftRevision, items };
 }
 
-describe("POST /questionnaires", () => {
-  it("returns the new questionnaire's summary, and its draft opens at revision 0 with an ETag", async () => {
-    const created = await app().inject({
-      method: "POST",
-      url: definitionUrl("/questionnaires"),
-      payload: { name: "Intake", title: "Patient intake", key: "intake" },
-    });
-
-    expect(created.statusCode).toBe(201);
-    const summary = created.json();
-    expect(Value.Check(QuestionnaireSummary, summary)).toBe(true);
-    expect(summary).toMatchObject({ key: "intake", name: "Intake", currentVersion: null, closesAt: null, hasDraft: true });
-
-    const draft = await getDraft(summary.questionnaireId);
-
-    expect(draft.statusCode).toBe(200);
-    const body = draft.json();
-    expect(Value.Check(QuestionnaireDraft, body)).toBe(true);
-    expect(body).toMatchObject({ questionnaireId: summary.questionnaireId, title: "Patient intake", items: [], questions: [] });
-    expect(draft.headers.etag).toBe(formatDraftEtag(body.versionId, 0));
-    expect(draft.headers["cache-control"]).toBe("no-store");
-  });
-
+describe("the draft lifecycle's author", () => {
   it("records prototype-author as the actor of create, save and open-next-draft", async () => {
     const db = testDatabase.database("definition");
     const question = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
@@ -287,8 +264,8 @@ describe("PUT /questionnaires/:id/draft", () => {
   it("refuses an ETag from the previous draft even when the new draft has reached the same revision", async () => {
     const db = testDatabase.database("definition");
     const previous = await aPublishedQuestionnaire(db);
-    const opened = await openNextDraft(db, { questionnaireId: previous.questionnaireId, ...actor });
-    if (opened.outcome !== "opened") {
+    const opened = await createNextDraft(db, { questionnaireId: previous.questionnaireId, ...actor });
+    if (opened.outcome !== "created") {
       throw new Error(opened.outcome);
     }
     const next = saved(
@@ -455,8 +432,8 @@ describe("POST /questionnaires/:id/draft", () => {
     const v1 = await aPublishedQuestionnaire(db);
     await appendQuestionVersion(db, { questionId: v1.questionId, content: { ...aTextQuestion, prompt: "Anything more?" }, ...actor });
     const choice = await createQuestion(db, { key: null, content: yesNo, ...actor });
-    const second = await openNextDraft(db, { questionnaireId: v1.questionnaireId, ...actor });
-    if (second.outcome !== "opened") {
+    const second = await createNextDraft(db, { questionnaireId: v1.questionnaireId, ...actor });
+    if (second.outcome !== "created") {
       throw new Error(second.outcome);
     }
     const sourceItems = [

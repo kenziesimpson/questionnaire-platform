@@ -4,8 +4,8 @@ import {
   appendQuestionVersion,
   archiveQuestion,
   createQuestion,
-  findQuestion,
-  findQuestionVersion,
+  readQuestion,
+  readQuestionVersion,
   listQuestions,
   listQuestionUsage,
   listQuestionVersionSummaries,
@@ -39,21 +39,17 @@ export async function questionRoutes(scope: FastifyInstance, { database }: Defin
     if (invalid !== undefined) {
       return invalid;
     }
-    const saved = await createQuestion(database, {
+    const created = await createQuestion(database, {
       key: request.body.key ?? null,
       content: request.body.question,
       createdBy: authorOf(request),
       traceId: null,
     });
-    const created = await findQuestion(database, saved.questionId);
-    if (created === undefined) {
-      throw new Error(`question ${saved.questionId} was not readable after it was created`);
-    }
-    return { status: 201, body: created };
+    return { status: 201, body: created.question };
   });
 
   registerRoute(scope, definitionApi.getQuestion, async (request) => {
-    const found = await findQuestion(database, request.params.questionId);
+    const found = await readQuestion(database, request.params.questionId);
     return found === undefined ? notFound(request) : { status: 200, body: found };
   });
 
@@ -63,7 +59,7 @@ export async function questionRoutes(scope: FastifyInstance, { database }: Defin
   });
 
   registerRoute(scope, definitionApi.getQuestionVersion, async (request) => {
-    const found = await findQuestionVersion(database, request.params.questionId, request.params.v);
+    const found = await readQuestionVersion(database, request.params.questionId, request.params.v);
     return found === undefined ? notFound(request) : { status: 200, body: found };
   });
 
@@ -78,14 +74,10 @@ export async function questionRoutes(scope: FastifyInstance, { database }: Defin
       createdBy: authorOf(request),
       traceId: null,
     });
-    if (appended.outcome === "not-found") {
+    if (appended.outcome === "question-not-found") {
       return notFound(request);
     }
-    const saved = await findQuestionVersion(database, appended.questionId, appended.questionVersion);
-    if (saved === undefined) {
-      throw new Error(`version ${appended.questionVersion} of question ${appended.questionId} was not readable after it was saved`);
-    }
-    return { status: 201, body: saved };
+    return { status: 201, body: appended.question.latest };
   });
 
   registerRoute(scope, definitionApi.archiveQuestion, async (request) => {
@@ -94,7 +86,7 @@ export async function questionRoutes(scope: FastifyInstance, { database }: Defin
       actorId: authorOf(request),
       traceId: null,
     });
-    return archived.outcome === "not-found" ? notFound(request) : { status: 200, body: archived.question };
+    return archived.outcome === "question-not-found" ? notFound(request) : { status: 200, body: archived.question };
   });
 
   registerRoute(scope, definitionApi.getQuestionUsage, async (request) => {

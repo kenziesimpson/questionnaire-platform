@@ -11,12 +11,10 @@ import {
 } from "@qp/shared";
 import Fastify, { type FastifyInstance, type LightMyRequestResponse } from "fastify";
 import { afterEach, beforeEach, vi } from "vitest";
-import type { Database } from "../../../src/db/client.js";
-import { publishDraft } from "../../../src/db/definition/publish.js";
-import { createQuestionnaire, openNextDraft, replaceDraft } from "../../../src/db/definition/questionnaires.js";
 import { appendQuestionVersion, createQuestion } from "../../../src/db/definition/questions.js";
 import { seedDemoQuestionnaire } from "../../../src/db/seed/demo-questionnaire.js";
 import { executionModule } from "../../../src/modules/execution/plugin.js";
+import { aPublishedQuestionnaireOf, publishNextVersion } from "../../db/fixtures.js";
 import type { TestDatabase } from "../../db/harness.js";
 
 export const NOW = new Date("2026-09-14T10:00:00.000Z");
@@ -83,38 +81,6 @@ export async function seedIntakeV1(testDatabase: TestDatabase): Promise<void> {
   }
 }
 
-export async function publishNextVersion(
-  definition: Database,
-  questionnaireId: string,
-  items: readonly Item[],
-): Promise<number> {
-  const opened = await openNextDraft(definition, { questionnaireId, ...actor });
-  if (opened.outcome !== "opened") {
-    throw new Error(`next draft was not opened: ${opened.outcome}`);
-  }
-  const edited = await replaceDraft(definition, {
-    questionnaireId,
-    precondition: { versionId: opened.draft.versionId, draftRevision: opened.draftRevision },
-    title: opened.draft.title,
-    items: items.map(draftItemOf),
-    actorId: "test",
-    traceId: null,
-  });
-  if (edited.outcome !== "saved") {
-    throw new Error(`next draft was not saved: ${edited.outcome}`);
-  }
-  const published = await publishDraft(definition, {
-    questionnaireId,
-    precondition: { versionId: edited.draftVersionId, draftRevision: edited.draftRevision },
-    actorId: "test",
-    traceId: null,
-  });
-  if (published.outcome !== "published") {
-    throw new Error(`next version was not published: ${JSON.stringify(published)}`);
-  }
-  return published.version;
-}
-
 export async function publishIntakeV2Relabel(testDatabase: TestDatabase): Promise<void> {
   const definition = testDatabase.database("definition");
   const v2 = intakeDefinition(2);
@@ -127,7 +93,7 @@ export async function publishIntakeV2Relabel(testDatabase: TestDatabase): Promis
   if (appended.outcome !== "saved" || appended.questionVersion !== relabelled.question.questionVersion) {
     throw new Error("the relabelled question version does not match intake v2");
   }
-  await publishNextVersion(definition, INTAKE_QUESTIONNAIRE_ID, v2.items);
+  await publishNextVersion(definition, INTAKE_QUESTIONNAIRE_ID, v2.items.map(draftItemOf));
 }
 
 export async function publishIntakeV2TighteningDiagnosisDate(testDatabase: TestDatabase): Promise<void> {
@@ -144,7 +110,7 @@ export async function publishIntakeV2TighteningDiagnosisDate(testDatabase: TestD
         }
       : item,
   );
-  await publishNextVersion(testDatabase.database("definition"), INTAKE_QUESTIONNAIRE_ID, items);
+  await publishNextVersion(testDatabase.database("definition"), INTAKE_QUESTIONNAIRE_ID, items.map(draftItemOf));
 }
 
 export interface MeasurementsFixture {
@@ -173,32 +139,12 @@ export async function publishMeasurementsQuestionnaire(testDatabase: TestDatabas
     },
     ...actor,
   });
-  const created = await createQuestionnaire(definition, { key: null, name: "Measurements", title: "Measurements", ...actor });
-  const edited = await replaceDraft(definition, {
-    questionnaireId: created.questionnaireId,
-    precondition: { versionId: created.draftVersionId, draftRevision: created.draftRevision },
-    title: "Measurements",
-    items: [
-      { itemId: "itm_weight", required: true, visibleWhen: null, questionId: weight.questionId, questionVersion: 1 },
-      { itemId: "itm_symptoms", required: false, visibleWhen: null, questionId: symptoms.questionId, questionVersion: 1 },
-    ],
-    actorId: "test",
-    traceId: null,
-  });
-  if (edited.outcome !== "saved") {
-    throw new Error(`measurements draft was not saved: ${edited.outcome}`);
-  }
-  const published = await publishDraft(definition, {
-    questionnaireId: created.questionnaireId,
-    precondition: { versionId: edited.draftVersionId, draftRevision: edited.draftRevision },
-    actorId: "test",
-    traceId: null,
-  });
-  if (published.outcome !== "published") {
-    throw new Error(`measurements questionnaire was not published: ${published.outcome}`);
-  }
+  const questionnaireId = await aPublishedQuestionnaireOf(definition, "Measurements", [
+    { itemId: "itm_weight", required: true, visibleWhen: null, questionId: weight.questionId, questionVersion: 1 },
+    { itemId: "itm_symptoms", required: false, visibleWhen: null, questionId: symptoms.questionId, questionVersion: 1 },
+  ]);
   return {
-    questionnaireId: created.questionnaireId,
+    questionnaireId,
     weightQuestionId: weight.questionId,
     symptomsQuestionId: symptoms.questionId,
   };

@@ -61,14 +61,19 @@ This is the same technique as the audit role ([[6-observability#5.1 Isolation �
 
 ### 3.3 What stays shared
 
-`@qp/shared` is the only shared code, and it holds exactly two things:
+`@qp/shared` is the only shared code, and it holds exactly three things:
 
 1. **Wire types** — `PublishedDefinition` and its sub-types, request/response types for both APIs, the problem-details type.
 2. **The rule engine** — one evaluator over `visibleWhen`, used by the client to render and by the server to validate on submit.
+3. **The snapshot loader** — `readStoredDefinition(stored, formatVersion)`, which runs the format upgrade chain from the stored `format_version` and then checks the result against `PublishedDefinition`, refusing a snapshot that fails either step ([[5-questionnaire-format#6.5 Snapshot format version]]).
 
 The rule engine is shared for a correctness reason, not a convenience one. The client decides what to show and the server decides what to accept; if those are two implementations, they drift, and the failure mode is a respondent being rejected for answering exactly what they were asked. One function, tested once ([[2-design-doc#15. Testing]]).
 
-Note the engine takes a `PublishedDefinition` and answers, and returns visibility. It has no database access and no knowledge of drafts, so sharing it does not leak the boundary.
+The loader is shared for the same reason. Snapshots are upgraded in memory at read time, never rewritten, so the upgrade chain is logic every reader of a stored snapshot must apply identically. Two copies drift exactly as two evaluators would, and the failure mode is one reader interpreting a stored document differently from what the respondent was shown — or accepting a format the other refuses. The chain is empty while only format 1 exists; the first format change adds its upgrade in one place (Decisions Log #56).
+
+Note the engine takes a `PublishedDefinition` and answers, and returns visibility; the loader takes a stored value and its format version, and returns a `PublishedDefinition`. Neither has database access or knowledge of drafts, so sharing them does not leak the boundary. Each side still runs its own query, against its own grants (§4.2).
+
+Execution loads every pinned snapshot through the loader. The definition side does not call it: `GET /questionnaires/:id/versions/:v` serves the stored bytes verbatim, even after a future format change, because the stored document is the record of what was published and its `ETag` already carries `formatVersion` (§6.4), so a client can tell formats apart without the server rewriting what it serves. It still checks each stored snapshot against the known formats before serving it; Decisions Log #56 lists what a format change must update, including that check and the endpoint's response schema.
 
 ## 4. Definition API
 

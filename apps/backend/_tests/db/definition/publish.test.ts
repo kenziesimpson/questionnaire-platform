@@ -2,9 +2,16 @@ import type { DraftItemCode, ItemError, Predicate } from "@qp/shared";
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { publishDraft } from "../../../src/db/definition/publish.js";
-import { replaceDraft } from "../../../src/db/definition/questionnaires.js";
+import { withLockedQuestionnaire } from "../../../src/db/definition/questionnaire-rows.js";
+import { replaceDraft } from "../../../src/db/definition/drafts.js";
 import { createQuestion } from "../../../src/db/definition/questions.js";
-import { aDraftWithOneItem, aPublishedQuestionnaire } from "../fixtures.js";
+import {
+  aDraftWithOneItem,
+  aPublishedQuestionnaire,
+  QUESTIONNAIRE_LOCK_STATEMENT,
+  theStatementWaitingOnALock,
+  whileHoldingALock,
+} from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 
 const testDatabase = useTestDatabase();
@@ -53,7 +60,19 @@ describe("publishDraft", () => {
       traceId: "trace-1",
     });
 
-    expect(outcome).toMatchObject({ outcome: "published", questionnaireVersionId: draft.draftVersionId, version: 1 });
+    expect(outcome).toEqual({
+      outcome: "published",
+      questionnaireVersionId: draft.draftVersionId,
+      version: 1,
+      summary: {
+        questionnaireId: draft.questionnaireId,
+        version: 1,
+        publishedAt: expect.any(String),
+        publishedBy: null,
+        itemCount: 1,
+        formatVersion: 1,
+      },
+    });
     const client = await testDatabase.connect("definition");
     const version = await client.query(
       `SELECT status, version, format_version, snapshot, published_at IS NOT NULL AS stamped
@@ -144,7 +163,7 @@ describe("publishDraft", () => {
       traceId: null,
     });
 
-    expect(outcome).toEqual({ outcome: "stale", draftRevision: draft.draftRevision });
+    expect(outcome).toEqual({ outcome: "stale" });
     expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
   });
 
@@ -159,7 +178,7 @@ describe("publishDraft", () => {
       traceId: null,
     });
 
-    expect(outcome).toEqual({ outcome: "stale", draftRevision: draft.draftRevision });
+    expect(outcome).toEqual({ outcome: "stale" });
   });
 
   it.each(invalidDrafts)(
@@ -271,5 +290,30 @@ describe("publishDraft", () => {
     const outcomes = await Promise.all([publishDraft(definitionDb, command), publishDraft(definitionDb, command)]);
 
     expect(outcomes.map((outcome) => outcome.outcome).sort()).toEqual(["no-draft", "published"]);
+  });
+
+  it("waits on the questionnaire lock, as its first statement, while another transaction holds it", async () => {
+    const definitionDb = testDatabase.database("definition");
+    const draft = await aDraftWithOneItem(definitionDb);
+    const events: string[] = [];
+    let publishing: Promise<unknown> = Promise.resolve();
+
+    await whileHoldingALock(
+      definitionDb,
+      (tx) => withLockedQuestionnaire(tx, draft.questionnaireId, async () => undefined),
+      async () => {
+        publishing = publishDraft(definitionDb, {
+          questionnaireId: draft.questionnaireId,
+          precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
+          actorId: null,
+          traceId: null,
+        }).then((outcome) => events.push(`publish returned ${outcome.outcome}`));
+        expect(await theStatementWaitingOnALock(testDatabase)).toMatch(QUESTIONNAIRE_LOCK_STATEMENT);
+        events.push("lock holder commits");
+      },
+    );
+    await publishing;
+
+    expect(events).toEqual(["lock holder commits", "publish returned published"]);
   });
 });

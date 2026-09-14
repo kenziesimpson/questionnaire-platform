@@ -1,14 +1,30 @@
-import type { PublishedDefinition, VersionSummary } from "@qp/shared";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { PublishedDefinition, type VersionSummary } from "@qp/shared";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
+import { Value } from "typebox/value";
 import type { Executor } from "../client.js";
 import { questionnaireVersion } from "../schema.js";
 import { questionnaireExists } from "./questionnaire-rows.js";
 
 const PUBLISHER_IS_NOT_RECORDED = null;
 
-export type VersionHistoryOutcome =
-  | { readonly outcome: "found"; readonly versions: VersionSummary[] }
-  | { readonly outcome: "questionnaire-not-found" };
+export function isPublishedVersion(): SQL {
+  return eq(questionnaireVersion.status, "published");
+}
+
+export function isPublishedVersionOf(questionnaireId: string, version?: number): SQL | undefined {
+  return and(
+    eq(questionnaireVersion.questionnaireId, questionnaireId),
+    isPublishedVersion(),
+    version === undefined ? undefined : eq(questionnaireVersion.version, version),
+  );
+}
+
+export function publishedValue<Value>(value: Value | null, column: string): Value {
+  if (value === null) {
+    throw new Error(`a published questionnaire version is missing its ${column}`);
+  }
+  return value;
+}
 
 export interface PublishedSnapshot {
   readonly formatVersion: number;
@@ -26,35 +42,25 @@ async function selectVersionSummaries(executor: Executor, questionnaireId: strin
       formatVersion: questionnaireVersion.formatVersion,
     })
     .from(questionnaireVersion)
-    .where(
-      and(
-        eq(questionnaireVersion.questionnaireId, questionnaireId),
-        eq(questionnaireVersion.status, "published"),
-        version === undefined ? undefined : eq(questionnaireVersion.version, version),
-      ),
-    )
+    .where(isPublishedVersionOf(questionnaireId, version))
     .orderBy(desc(questionnaireVersion.version));
 
-  return rows.map((row) => {
-    if (row.version === null || row.publishedAt === null || row.formatVersion === null) {
-      throw new Error("a published questionnaire version is missing its version, publishedAt or formatVersion");
-    }
-    return {
-      questionnaireId: row.questionnaireId,
-      version: row.version,
-      publishedAt: row.publishedAt.toISOString(),
-      publishedBy: PUBLISHER_IS_NOT_RECORDED,
-      itemCount: Number(row.itemCount),
-      formatVersion: row.formatVersion,
-    };
-  });
+  return rows.map((row) => ({
+    questionnaireId: row.questionnaireId,
+    version: publishedValue(row.version, "version"),
+    publishedAt: publishedValue(row.publishedAt, "publishedAt").toISOString(),
+    publishedBy: PUBLISHER_IS_NOT_RECORDED,
+    itemCount: Number(row.itemCount),
+    formatVersion: publishedValue(row.formatVersion, "formatVersion"),
+  }));
 }
 
-export async function listVersionSummaries(executor: Executor, questionnaireId: string): Promise<VersionHistoryOutcome> {
+export async function listVersionSummaries(executor: Executor, questionnaireId: string): Promise<VersionSummary[] | undefined> {
+  // undefined: no such questionnaire, so the route answers 404. []: it exists but has no published version yet.
   if (!(await questionnaireExists(executor, questionnaireId))) {
-    return { outcome: "questionnaire-not-found" };
+    return undefined;
   }
-  return { outcome: "found", versions: await selectVersionSummaries(executor, questionnaireId) };
+  return selectVersionSummaries(executor, questionnaireId);
 }
 
 export async function readVersionSummary(
@@ -74,18 +80,13 @@ export async function readPublishedSnapshot(
   const [row] = await executor
     .select({ snapshot: questionnaireVersion.snapshot, formatVersion: questionnaireVersion.formatVersion })
     .from(questionnaireVersion)
-    .where(
-      and(
-        eq(questionnaireVersion.questionnaireId, questionnaireId),
-        eq(questionnaireVersion.status, "published"),
-        eq(questionnaireVersion.version, version),
-      ),
-    );
+    .where(isPublishedVersionOf(questionnaireId, version));
   if (row === undefined) {
     return undefined;
   }
-  if (row.snapshot === null || row.formatVersion === null) {
-    throw new Error("a published questionnaire version is missing its snapshot or formatVersion");
+  const definition = publishedValue(row.snapshot, "snapshot");
+  if (!Value.Check(PublishedDefinition, definition)) {
+    throw new Error("a published snapshot does not match any known format");
   }
-  return { formatVersion: row.formatVersion, definition: row.snapshot as PublishedDefinition };
+  return { formatVersion: publishedValue(row.formatVersion, "formatVersion"), definition };
 }

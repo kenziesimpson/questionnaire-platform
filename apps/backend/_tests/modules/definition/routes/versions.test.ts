@@ -1,7 +1,6 @@
 import {
   PROBLEM_CONTENT_TYPE,
   PublishedDefinition,
-  QuestionnaireSummary,
   VersionSummary,
   formatDraftEtag,
   problemType,
@@ -14,10 +13,11 @@ import { Value } from "typebox/value";
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../../../../src/db/client.js";
-import { createQuestionnaire, replaceDraft } from "../../../../src/db/definition/questionnaires.js";
+import { replaceDraft } from "../../../../src/db/definition/drafts.js";
+import { createQuestionnaire } from "../../../../src/db/definition/questionnaires.js";
 import { createQuestion } from "../../../../src/db/definition/questions.js";
 import { AUTHOR_PLACEHOLDER } from "../../../../src/modules/definition/author.js";
-import { aDraftWithOneItem, aPublishedQuestionnaire, aTextQuestion } from "../../../db/fixtures.js";
+import { aDraftWithOneItem, aPublishedQuestionnaire, aQuestionnairePublishedAs, aTextQuestion } from "../../../db/fixtures.js";
 import { useTestDatabase } from "../../../db/harness.js";
 import { definitionUrl, useDefinitionApp } from "../harness.js";
 
@@ -37,14 +37,6 @@ function publish(questionnaireId: string, draft: OpenDraft) {
   });
 }
 
-function setClosesAt(questionnaireId: string, closesAt: string | null) {
-  return app().inject({
-    method: "PUT",
-    url: definitionUrl(`/questionnaires/${questionnaireId}/closes-at`),
-    payload: { closesAt },
-  });
-}
-
 async function saveDraft(db: Database, questionnaireId: string, draft: OpenDraft, items: DraftItem[]): Promise<OpenDraft> {
   const saved = await replaceDraft(db, {
     questionnaireId,
@@ -60,7 +52,7 @@ async function saveDraft(db: Database, questionnaireId: string, draft: OpenDraft
   return { draftVersionId: saved.draftVersionId, draftRevision: saved.draftRevision };
 }
 
-async function openNextDraftDirectly(questionnaireId: string): Promise<OpenDraft> {
+async function createNextDraftDirectly(questionnaireId: string): Promise<OpenDraft> {
   const draftVersionId = uuidv7();
   const client = await testDatabase.connect("definition");
   await client.query(
@@ -150,7 +142,7 @@ describe("POST /questionnaires/:id/publish", () => {
     const storedBefore = await storedSnapshotText(draft.questionnaireId, 1);
     const servedBefore = await app().inject({ method: "GET", url: definitionUrl(`/questionnaires/${draft.questionnaireId}/versions/1`) });
 
-    const opened = await openNextDraftDirectly(draft.questionnaireId);
+    const opened = await createNextDraftDirectly(draft.questionnaireId);
     const next = await saveDraft(db, draft.questionnaireId, opened, [firstItemOf(draft.questionId), await aSecondItem(db)]);
     const second = await publish(draft.questionnaireId, next);
 
@@ -198,7 +190,7 @@ describe("POST /questionnaires/:id/publish", () => {
   it("refuses the previous draft's ETag with 409 even when the next draft has reached the same revision", async () => {
     const db = testDatabase.database("definition");
     const published = await aPublishedQuestionnaire(db);
-    const opened = await openNextDraftDirectly(published.questionnaireId);
+    const opened = await createNextDraftDirectly(published.questionnaireId);
     const next = await saveDraft(db, published.questionnaireId, opened, [firstItemOf(published.questionId)]);
     expect(next.draftRevision).toBe(published.draftRevision);
 
@@ -238,10 +230,10 @@ describe("GET /questionnaires/:id/versions", () => {
   it("lists published versions newest first with metadata only, leaving out the open draft", async () => {
     const db = testDatabase.database("definition");
     const published = await aPublishedQuestionnaire(db);
-    const opened = await openNextDraftDirectly(published.questionnaireId);
+    const opened = await createNextDraftDirectly(published.questionnaireId);
     const next = await saveDraft(db, published.questionnaireId, opened, [firstItemOf(published.questionId), await aSecondItem(db)]);
     expect((await publish(published.questionnaireId, next)).statusCode).toBe(201);
-    await openNextDraftDirectly(published.questionnaireId);
+    await createNextDraftDirectly(published.questionnaireId);
 
     const response = await app().inject({ method: "GET", url: definitionUrl(`/questionnaires/${published.questionnaireId}/versions`) });
 
@@ -284,10 +276,23 @@ describe("GET /questionnaires/:id/versions/:v", () => {
     expect(response.json()).toEqual(JSON.parse(await storedSnapshotText(published.questionnaireId, 1)));
   });
 
+  it("answers 500 internal, naming no schema, for a stored snapshot that matches no known format", async () => {
+    const { questionnaireId } = await aQuestionnairePublishedAs(testDatabase, { title: "" });
+
+    const response = await app().inject({ method: "GET", url: definitionUrl(`/questionnaires/${questionnaireId}/versions/1`) });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
+    expect(response.json()).toMatchObject({ type: problemType("internal"), status: 500 });
+    expect(response.body).not.toContain("PublishedDefinition");
+    expect(response.body).not.toContain("format");
+    expect(response.headers.etag).toBeUndefined();
+  });
+
   it("answers 404 for a draft, an unknown version and an unknown questionnaire", async () => {
     const db = testDatabase.database("definition");
     const published = await aPublishedQuestionnaire(db);
-    await openNextDraftDirectly(published.questionnaireId);
+    await createNextDraftDirectly(published.questionnaireId);
 
     const paths = [
       `/questionnaires/${published.questionnaireId}/versions/2`,
@@ -299,76 +304,5 @@ describe("GET /questionnaires/:id/versions/:v", () => {
       expect(response.statusCode).toBe(404);
       expect(response.json()).toMatchObject({ type: problemType("resource/not-found") });
     }
-  });
-});
-
-describe("PUT /questionnaires/:id/closes-at", () => {
-  it("sets, reschedules and clears closesAt, auditing retire, retire and reopen with from and to", async () => {
-    const db = testDatabase.database("definition");
-    const published = await aPublishedQuestionnaire(db);
-
-    const set = await setClosesAt(published.questionnaireId, "2026-10-01T02:00:00+02:00");
-    const rescheduled = await setClosesAt(published.questionnaireId, "2026-11-01T00:00:00.000Z");
-    const cleared = await setClosesAt(published.questionnaireId, null);
-
-    expect([set.statusCode, rescheduled.statusCode, cleared.statusCode]).toEqual([200, 200, 200]);
-    expect(Value.Check(QuestionnaireSummary, set.json())).toBe(true);
-    expect(set.json()).toMatchObject({
-      questionnaireId: published.questionnaireId,
-      name: "Fixture",
-      currentVersion: 1,
-      hasDraft: false,
-      closesAt: "2026-10-01T00:00:00.000Z",
-    });
-    expect(rescheduled.json()).toMatchObject({ closesAt: "2026-11-01T00:00:00.000Z" });
-    expect(cleared.json()).toMatchObject({ closesAt: null, currentVersion: 1 });
-    const client = await testDatabase.connect("definition");
-    const stored = await client.query(`SELECT closes_at FROM definition.questionnaire WHERE id = $1`, [published.questionnaireId]);
-    expect(stored.rows[0].closes_at).toBeNull();
-    const retirementEvents = (await testDatabase.readAuditEvents()).filter((event) => ["retire", "reopen"].includes(event.action));
-    expect(retirementEvents).toEqual([
-      {
-        action: "retire",
-        questionnaire_id: published.questionnaireId,
-        questionnaire_version_id: null,
-        version: null,
-        actor_id: AUTHOR_PLACEHOLDER,
-        summary: { from: null, to: "2026-10-01T00:00:00.000Z" },
-      },
-      {
-        action: "retire",
-        questionnaire_id: published.questionnaireId,
-        questionnaire_version_id: null,
-        version: null,
-        actor_id: AUTHOR_PLACEHOLDER,
-        summary: { from: "2026-10-01T00:00:00.000Z", to: "2026-11-01T00:00:00.000Z" },
-      },
-      {
-        action: "reopen",
-        questionnaire_id: published.questionnaireId,
-        questionnaire_version_id: null,
-        version: null,
-        actor_id: AUTHOR_PLACEHOLDER,
-        summary: { from: "2026-11-01T00:00:00.000Z", to: null },
-      },
-    ]);
-  });
-
-  it("reports an open draft on a questionnaire that has never been published", async () => {
-    const db = testDatabase.database("definition");
-    const draft = await aDraftWithOneItem(db);
-
-    const response = await setClosesAt(draft.questionnaireId, "2026-10-01T00:00:00.000Z");
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ currentVersion: null, hasDraft: true, closesAt: "2026-10-01T00:00:00.000Z" });
-  });
-
-  it("answers 404 for an unknown questionnaire and writes no audit row", async () => {
-    const response = await setClosesAt(uuidv7(), "2026-10-01T00:00:00.000Z");
-
-    expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({ type: problemType("resource/not-found") });
-    expect(await testDatabase.readAuditEvents()).toEqual([]);
   });
 });

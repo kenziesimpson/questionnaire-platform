@@ -1,8 +1,7 @@
 import { definitionApi, problem, type Problem } from "@qp/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { setClosesAt } from "../../../db/definition/closes-at.js";
 import { publishDraft } from "../../../db/definition/publish.js";
-import { listVersionSummaries, readPublishedSnapshot, readVersionSummary } from "../../../db/definition/versions.js";
+import { listVersionSummaries, readPublishedSnapshot } from "../../../db/definition/versions.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { draftPreconditionOf } from "../if-match.js";
@@ -35,22 +34,14 @@ export async function versionRoutes(scope: FastifyInstance, { database }: Defini
         return problem("questionnaire/draft-stale", { instance: request.url });
       case "invalid":
         return problem("questionnaire/draft-invalid", { instance: request.url, items: [...published.items] });
-      case "published": {
-        const summary = await readVersionSummary(database, request.params.id, published.version);
-        if (summary === undefined) {
-          throw new Error("a version publishDraft committed could not be read back");
-        }
-        return { status: 201, body: summary };
-      }
+      case "published":
+        return { status: 201, body: published.summary };
     }
   });
 
   registerRoute(scope, definitionApi.listVersions, async (request) => {
-    const history = await listVersionSummaries(database, request.params.id);
-    if (history.outcome === "questionnaire-not-found") {
-      return notFound(request);
-    }
-    return { status: 200, body: history.versions };
+    const versions = await listVersionSummaries(database, request.params.id);
+    return versions === undefined ? notFound(request) : { status: 200, body: versions };
   });
 
   registerRoute(scope, definitionApi.getVersion, async (request) => {
@@ -66,19 +57,5 @@ export async function versionRoutes(scope: FastifyInstance, { database }: Defini
         "cache-control": IMMUTABLE_SNAPSHOT_CACHE_CONTROL,
       },
     };
-  });
-
-  registerRoute(scope, definitionApi.setClosesAt, async (request) => {
-    const closesAt = request.body.closesAt;
-    const updated = await setClosesAt(database, {
-      questionnaireId: request.params.id,
-      closesAt: closesAt === null ? null : new Date(closesAt),
-      actorId: authorOf(request),
-      traceId: null,
-    });
-    if (updated.outcome === "questionnaire-not-found") {
-      return notFound(request);
-    }
-    return { status: 200, body: updated.questionnaire };
   });
 }

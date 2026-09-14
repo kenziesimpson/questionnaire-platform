@@ -1,7 +1,6 @@
-import { PublishedDefinition } from "@qp/shared";
+import { readStoredDefinition, type PublishedDefinition } from "@qp/shared";
 import { eq } from "drizzle-orm";
-import { jsonb, uuid } from "drizzle-orm/pg-core";
-import { Value } from "typebox/value";
+import { integer, jsonb, uuid } from "drizzle-orm/pg-core";
 import type { Executor } from "../../db/client.js";
 import { definitionSchema } from "../../db/schema.js";
 
@@ -9,15 +8,9 @@ export const publishedQuestionnaireVersion = definitionSchema
   .view("published_questionnaire_version", {
     id: uuid("id").notNull(),
     snapshot: jsonb("snapshot").notNull(),
+    formatVersion: integer("format_version").notNull(),
   })
   .existing();
-
-export function publishedDefinitionOf(stored: unknown): PublishedDefinition {
-  if (Value.Check(PublishedDefinition, stored)) {
-    return stored;
-  }
-  throw new Error("stored snapshot is not a PublishedDefinition in a supported format");
-}
 
 export class PublishedDefinitions {
   readonly #byVersionId = new Map<string, PublishedDefinition>();
@@ -28,13 +21,13 @@ export class PublishedDefinitions {
       return cached;
     }
     const [row] = await executor
-      .select({ snapshot: publishedQuestionnaireVersion.snapshot })
+      .select({ snapshot: publishedQuestionnaireVersion.snapshot, formatVersion: publishedQuestionnaireVersion.formatVersion })
       .from(publishedQuestionnaireVersion)
       .where(eq(publishedQuestionnaireVersion.id, questionnaireVersionId));
     if (row === undefined) {
       throw new Error("a session pins a questionnaire version that is not published");
     }
-    const definition = publishedDefinitionOf(row.snapshot);
+    const definition = readStoredDefinition(row.snapshot, row.formatVersion);
     this.#byVersionId.set(questionnaireVersionId, definition);
     return definition;
   }

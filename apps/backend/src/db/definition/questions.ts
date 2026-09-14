@@ -1,12 +1,20 @@
 import type { Question, QuestionInput, QuestionUsage, QuestionVersion, QuestionVersionSummary } from "@qp/shared";
-import { and, asc, desc, eq, gt, isNotNull, isNull, max, notExists, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, max, notExists, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
 import { question, questionnaireVersion, questionVersion, questionVersionOption, versionQuestionIndex } from "../schema.js";
 import { questionInputToColumns, storedQuestionToVersion } from "./question-content.js";
+import { readBack } from "./read-back.js";
+import { isPublishedVersion, publishedValue } from "./versions.js";
 import { questionVersionIn, questionVersionKey, readOptionsInPosition, readQuestionVersions } from "./question-versions.js";
+
+export interface QuestionNotFound {
+  readonly outcome: "question-not-found";
+}
+
+const QUESTION_NOT_FOUND: QuestionNotFound = { outcome: "question-not-found" };
 
 export interface CreateQuestionCommand {
   readonly questionId?: string;
@@ -19,6 +27,7 @@ export interface CreateQuestionCommand {
 export interface SavedQuestionVersion {
   readonly questionId: string;
   readonly questionVersion: number;
+  readonly question: Question;
 }
 
 async function insertQuestionVersion(
@@ -59,7 +68,8 @@ async function insertQuestionVersion(
     summary: { questionId, questionVersion: version },
     traceId,
   });
-  return { questionId, questionVersion: version };
+  const saved = readBack(await readQuestion(tx, questionId), "the question version just saved");
+  return { questionId, questionVersion: version, question: saved };
 }
 
 export async function createQuestion(executor: Executor, command: CreateQuestionCommand): Promise<SavedQuestionVersion> {
@@ -79,20 +89,28 @@ export interface AppendQuestionVersionCommand {
 
 export type AppendQuestionVersionOutcome =
   | ({ readonly outcome: "saved" } & SavedQuestionVersion)
-  | { readonly outcome: "not-found" };
+  | QuestionNotFound;
+
+interface LockedQuestion {
+  readonly id: string;
+}
+
+function selectQuestion(executor: Executor, questionId: string) {
+  return executor.select({ id: question.id }).from(question).where(eq(question.id, questionId));
+}
+
+async function lockQuestion(tx: Transaction, questionId: string): Promise<LockedQuestion | undefined> {
+  const [locked] = await selectQuestion(tx, questionId).for("update");
+  return locked;
+}
 
 export async function appendQuestionVersion(
   executor: Executor,
   command: AppendQuestionVersionCommand,
 ): Promise<AppendQuestionVersionOutcome> {
   return executor.transaction(async (tx) => {
-    const locked = await tx
-      .select({ id: question.id })
-      .from(question)
-      .where(eq(question.id, command.questionId))
-      .for("update");
-    if (locked.length === 0) {
-      return { outcome: "not-found" };
+    if ((await lockQuestion(tx, command.questionId)) === undefined) {
+      return QUESTION_NOT_FOUND;
     }
     const [latest] = await tx
       .select({ version: max(questionVersion.version) })
@@ -158,13 +176,13 @@ export async function listQuestions(executor: Executor, query: ListQuestionsQuer
   return readLatestQuestions(executor, query.includeArchived ? undefined : isNull(question.archivedAt));
 }
 
-export async function findQuestion(executor: Executor, questionId: string): Promise<Question | undefined> {
+export async function readQuestion(executor: Executor, questionId: string): Promise<Question | undefined> {
   const [found] = await readLatestQuestions(executor, eq(question.id, questionId));
   return found;
 }
 
 async function questionExists(executor: Executor, questionId: string): Promise<boolean> {
-  const rows = await executor.select({ id: question.id }).from(question).where(eq(question.id, questionId));
+  const rows = await selectQuestion(executor, questionId);
   return rows.length === 1;
 }
 
@@ -188,7 +206,7 @@ export async function listQuestionVersionSummaries(
   return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
 }
 
-export async function findQuestionVersion(
+export async function readQuestionVersion(
   executor: Executor,
   questionId: string,
   version: number,
@@ -210,15 +228,9 @@ export async function listQuestionUsage(executor: Executor, questionId: string):
     })
     .from(versionQuestionIndex)
     .innerJoin(questionnaireVersion, eq(questionnaireVersion.id, versionQuestionIndex.questionnaireVersionId))
-    .where(
-      and(
-        eq(versionQuestionIndex.questionId, questionId),
-        eq(questionnaireVersion.status, "published"),
-        isNotNull(questionnaireVersion.version),
-      ),
-    )
+    .where(and(eq(versionQuestionIndex.questionId, questionId), isPublishedVersion()))
     .orderBy(asc(questionnaireVersion.questionnaireId), desc(questionnaireVersion.version));
-  return rows.flatMap((row) => (row.version === null ? [] : [{ ...row, version: row.version }]));
+  return rows.map((row) => ({ ...row, version: publishedValue(row.version, "version") }));
 }
 
 export interface ArchiveQuestionCommand {
@@ -229,7 +241,7 @@ export interface ArchiveQuestionCommand {
 
 export type ArchiveQuestionOutcome =
   | { readonly outcome: "archived" | "already-archived"; readonly question: Question }
-  | { readonly outcome: "not-found" };
+  | QuestionNotFound;
 
 export async function archiveQuestion(executor: Executor, command: ArchiveQuestionCommand): Promise<ArchiveQuestionOutcome> {
   return executor.transaction(async (tx) => {
@@ -250,9 +262,9 @@ export async function archiveQuestion(executor: Executor, command: ArchiveQuesti
         traceId: command.traceId,
       });
     }
-    const current = await findQuestion(tx, command.questionId);
+    const current = await readQuestion(tx, command.questionId);
     if (current === undefined) {
-      return { outcome: "not-found" };
+      return QUESTION_NOT_FOUND;
     }
     return { outcome: archived.length === 1 ? "archived" : "already-archived", question: current };
   });
