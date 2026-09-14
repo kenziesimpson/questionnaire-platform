@@ -320,7 +320,9 @@ Auth is out of scope (design doc §4), but the model is stated now so that addin
 | Surface | `/api/definition/*` | `/api/run/*` |
 | Identity | Authenticated user from an upstream IdP (OIDC assumed) | Anonymous |
 | Enforcement | One `preHandler` hook on the definition plugin — all routes, reads included | None; the session id is the credential |
-| Prototype stub | Hook present, always passes | n/a |
+| Prototype stub | Hook present, always passes, records the author as the placeholder `prototype-author` (Decisions Log #57) | n/a |
+
+**The placeholder author is permanent in what it touches.** Every authoring write until real authentication exists records `prototype-author` in append-only columns (`created_by` and the audit `actor_id`), and those rows cannot be rewritten later. Read the value as "unknown author". [[2-design-doc#17. Decisions Log]] #57 has the reasoning.
 
 Applying the hook to the whole plugin rather than per route is deliberate: a new definition endpoint is protected by default, and forgetting is not one of the available mistakes.
 

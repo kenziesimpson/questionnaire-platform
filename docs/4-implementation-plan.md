@@ -64,10 +64,10 @@
 - [x] DB invariant tests → **M2**
 
 **Track 3 — UI package and restructure** (`apps/respondent`, `apps/admin`, `packages/ui`)
-- [ ] Replace `apps/frontend` with `apps/respondent` + `apps/admin`; fix root scripts (they hardcode `-w apps/frontend`), tsconfig refs, Vite configs
-- [ ] `packages/ui`: Tailwind v4, then the shadcn setup — `components.json`, path aliases, CLI writing into a package rather than an app. That setup is the real cost of #32; budget for it
-- [ ] The renderer: controlled-props-only, one component per response type, the `aria-live` region, ARIA off error/touched state
-- [ ] Component tests and the axe check → **M3**; nginx serving both builds at one origin
+- [x] Replace `apps/frontend` with `apps/respondent` + `apps/admin`; fix root scripts (they hardcode `-w apps/frontend`), tsconfig refs, Vite configs
+- [x] `packages/ui`: Tailwind v4, then the shadcn setup — `components.json`, path aliases, CLI writing into a package rather than an app. That setup is the real cost of #32; budget for it
+- [x] The renderer: controlled-props-only, one component per response type, the `aria-live` region, ARIA off error/touched state
+- [x] Component tests and the axe check → **M3**; nginx serving both builds at one origin
 
 ### Gate C — CI before Wave 2
 
@@ -75,11 +75,94 @@
 
 - [x] `.github/workflows/ci.yml` — one **Checks** job on every push to `main` and every pull request: `npm ci`, `lint`, `typecheck`, `npm test`, `build`, Node from `.nvmrc`. No Postgres service; Testcontainers supplies its own ([[8-testing#5.3 CI details that actually bite]])
 - [ ] Checks green on `main` on GitHub, and required as a status check on `main`'s branch protection
-- [ ] Wave 2 does not start until both boxes above are ticked
+- [ ] ~~Wave 2 does not start until both boxes above are ticked~~ **Waived 2026-09-13.** Wave 2 starts with CI running but no branch protection. Until the box above is ticked, checking for a green run before merging is the reviewer's job, not GitHub's
 
 ### Wave 2 — API plugins *(two parallel tracks)*
 
-**Track 4 — definition plugin.** 18 routes. Land `GET /questionnaires` first to unblock Track 6. Publish is the hard one: snapshot serialization, validation, promote-in-place, and the audit write in the same transaction under the documented locks. → **M4**
+**Track 4 — definition plugin.** 18 routes. Publish is the hard one: snapshot serialization, validation, promote-in-place, and the audit write in the same transaction under the documented locks. → **M4**
+
+> **Most of the hard part already exists.** Track 2 built `publishDraft`, `replaceDraft`, `createQuestionnaire`, `createQuestion` and `appendQuestionVersion` in `apps/backend/src/db/definition/`, each with its locks, audit write and integration tests. Track 4 is mostly route handlers that turn those functions' outcomes into HTTP responses, plus the read queries and three writes that don't exist yet: archive, open the next draft, and set `closesAt`.
+
+#### How Track 4 runs
+
+Three groups work in parallel, merging into a **`staging`** branch cut from `main`. A setup commit (G0) goes first and an integration pass (G4) goes last. `staging` merges to `main` once, when **M4** is green. Every change reaches `staging` through a pull request, which is what runs CI: the workflow runs on every pull request whatever the base branch, and a push to `staging` does not trigger it. The final `staging → main` PR runs Checks on the combined result.
+
+**Rules for every group:**
+
+1. **Only the files your group owns** ([[#Track 4 file split]]). `apps/backend/src/db/schema.ts`, `audit.ts`, `client.ts`, `drizzle/**` and `packages/shared/**` are frozen for Track 4. A needed change there is a [[#Stop and ask]], not an edit.
+2. **Set up test data through the database functions, never through another group's routes.** A G3 test that needs a published version calls `createQuestion`, `createQuestionnaire`, `replaceDraft` and `publishDraft` directly. That is what keeps the groups mergeable in any order.
+3. **One route-group test file**, per [[8-testing#2.2 Backend integration — Fastify `inject()` against a real Postgres]], at `apps/backend/_tests/modules/definition/routes/<your routes file>.test.ts`, mirroring `src/` as `AGENTS.md` requires. Build the app with `useDefinitionApp`. Your test rows go under your group's heading in [[8-testing#7. Test case enumeration]].
+4. **The author is `authorOf(request)`**, passed as `actorId` / `createdBy` on every write. Never `null`, and never the placeholder string typed at a call site. See [[2-design-doc#17. Decisions Log]] #57 before writing anything that stores it. `traceId` is `null` until Track 8 lands.
+5. **Every route is registered with `registerRoute` and the `definitionApi` object from `@qp/shared`.** No `scope.get` / `scope.route`, and no URL or schema written in the backend. G4's completeness test checks the result
+6. **Every list keeps its `ORDER BY`** from [[7-application-boundary#4.1 Endpoints]]. A list test must create at least two rows and assert their order.
+
+#### G0 — the definition plugin skeleton *(serial, lands on `staging` before G1–G3 start)*
+
+**G0 also builds the shared HTTP layer Track 5 needs.** Track 5 paused and branches from `staging` once G0 has merged. It then adds its execution module to `buildApp` and `index.ts` rather than writing a second app factory or error handler.
+
+- [x] `src/app.ts`: `buildApp`, the root not-found and error handlers, `/health`, and the definition module mounted at `DEFINITION_PREFIX` on its own `Database` passed through plugin options (no root decorator, per [[7-application-boundary#8.3 What we do now to keep the split cheap]]). `src/index.ts` opens the `qp_definition` pool and closes it on shutdown
+- [x] `src/http/problems.ts`:
+  - `sendProblem`
+  - `requestValidatorCompiler`: path and query strings coerced to their schema types, headers and body exact, additional properties rejected rather than stripped
+  - `replyWithProblem`: schema failures → `400 request/invalid` with a `schema/<keyword>` code per error; any other `4xx` → `400`; everything else → `500 internal`, with the request id as `detail`
+  - `replyNotFound`
+
+  `src/http/database-errors.ts` reads the SQLSTATE and constraint name through drizzle's wrapped `cause` chain
+- [x] `modules/definition/plugin.ts`: an encapsulated plugin with the validator compiler, the not-found handler, the definition error handler, and one `onRequest` author hook. The hook attaches `AUTHOR_PLACEHOLDER` ([[2-design-doc#17. Decisions Log]] #57). `authorOf(request)` throws on a request that did not pass through the hook, so a route registered outside the plugin fails loudly instead of writing no author
+- [x] `modules/definition/errors.ts`, definition-only mapping kept out of `src/http`: `QP001` → `409 version/immutable`; `23505` on `question_version_pkey` only → `409 question/version-conflict`; a malformed `If-Match` → `400` pointing at `/headers/if-match`; everything else falls through to `replyWithProblem`
+- [x] `modules/definition/if-match.ts`: `draftPreconditionOf(ifMatch)` throws `MalformedDraftPrecondition` for anything but a draft ETag the server issued (`*` included); `isCurrentDraft` compares the draft version id **and** the revision. Revision alone is not enough, because a newly opened draft restarts at `0` and an ETag from the previous draft would otherwise match. `replaceDraft` and `publishDraft` check only the revision today, so G2 and G3 must add the version id check
+- [x] `src/http/routes.ts`: `registerRoute(scope, sharedRoute, handler)`. The handler's params, query, headers and body are typed from the shared `defineRoute` object, and it returns `{ status, body, headers? }` for a status the route declares, or a `Problem`. A wrong status, a body that does not match the schema, or an undeclared request part is a compile error
+- [x] Empty route files `routes/questions.ts` (G1), `routes/drafts.ts` (G2), `routes/versions.ts` (G3), already registered by the plugin, so no group edits `plugin.ts`
+- [x] `_tests/modules/definition/harness.ts`: `useDefinitionApp(testDatabase)` registers the module on a bare Fastify instance and returns it for `inject()`; `definitionUrl(path)` adds the prefix
+- [x] **`GET /questionnaires`** as the pattern every later route copies: `routes/questionnaire-list.ts` over `db/definition/questionnaire-list.ts`, `id DESC`, with `currentVersion`, `closesAt` and `hasDraft`. Track 6 needs this route first
+
+#### G1 — question bank *(parallel)*
+
+`GET /questions`, `POST /questions`, `GET /questions/:questionId`, `GET /questions/:questionId/versions`, `GET /questions/:questionId/versions/:v`, `POST /questions/:questionId/versions`, `POST /questions/:questionId/archive`, `GET /questions/:questionId/usage`
+
+- [ ] Bank reads: latest version of each question with its options in `position` order, `?includeArchived=`, `id DESC`; version history `version DESC`; one version; usage from `version_question_index` ordered `questionnaire_id, version DESC`
+- [ ] `archiveQuestion`: sets `archived_at` once (archiving an already-archived question is a no-op that returns `200` and writes no second audit row), audited `archive_question`. Existing placements are unaffected
+- [ ] Question-rule failures (`QUESTION_RULE_CODES`) on create and on saving a version map to the `request/invalid` `errors` extension, as the shared types already define
+- [ ] Tests → **M4** *bank CRUD*, *deterministic list order*: create → v1; save → v2 with v1 unchanged; archived hidden by default and shown with `includeArchived`; unknown ids `404`; two concurrent saves become v2 and v3; usage lists only published versions
+
+#### G2 — draft lifecycle *(parallel)*
+
+`POST /questionnaires`, `GET /questionnaires/:id/draft`, `PUT /questionnaires/:id/draft`, `POST /questionnaires/:id/draft`, `POST /questionnaires/:id/draft/validate`
+
+- [ ] Draft read: `items` in `position` order and `questions` holding each pinned question version once; `ETag` from `formatDraftEtag`; `Cache-Control: no-store`
+- [ ] `PUT /draft` maps `replaceDraft`'s outcomes: `stale-or-missing-draft` → `409 questionnaire/draft-stale` when a draft exists, `404` when none does; `archived-question` and `unknown-question-version` → `422 questionnaire/draft-invalid` with the offending items in `items`. Responds with the new `ETag`
+- [ ] `openNextDraft` (new, in `db/definition/questionnaires.ts`): `FOR UPDATE` on the questionnaire as the **first** statement ([[9-database-schema#5. Concurrency control]]), `409 questionnaire/draft-exists` when a draft is open, `404` when nothing has been published, then copy the latest published version's items with their pinned question versions, audited `create_draft`. A copied item whose question has since been archived is kept; publish validation reports it
+- [ ] `validate` runs the same read-and-`validateDraft` path publish uses and never writes. If that needs `publishDraft`'s private helpers exported, G2 does that in `publish.ts` as a **pure extraction, no behaviour change**, and tells G3 before merging
+- [ ] Tests → **M4** *stale-ETag `409`*, *archived question rejected at add time*: two tabs, one gets `409`; the missing-`If-Match` `400`; two concurrent next-draft opens, where exactly one gets `201`; the copy pins the same question versions as the source; validate reports what publish would refuse and writes no audit row
+
+#### G3 — publish, version history, retirement *(parallel)*
+
+`POST /questionnaires/:id/publish`, `GET /questionnaires/:id/versions`, `GET /questionnaires/:id/versions/:v`, `PUT /questionnaires/:id/closes-at`
+
+- [ ] `POST /publish` maps `publishDraft`'s outcomes: `questionnaire-not-found` and `no-draft` → `404`; `stale` → `409 questionnaire/draft-stale`; `invalid` → `422 questionnaire/draft-invalid`; `published` → `201 VersionSummary`
+- [ ] Version reads (new file `db/definition/versions.ts`): history `version DESC`, metadata only, `itemCount` from the snapshot; one snapshot verbatim, with `ETag: "<questionnaireId>:<version>:<formatVersion>"` and `Cache-Control: private, max-age=31536000, immutable` (#44); a draft or an unknown version is `404`
+- [ ] `setClosesAt` (new file `db/definition/closes-at.ts`): questionnaire `FOR UPDATE` first; a non-null value (set or reschedule) is audited `retire` and `null` is audited `reopen`, each with `{ from, to }` in the summary; responds with `QuestionnaireSummary`
+- [ ] Tests → **M4** *publish happy path*, *publish failures as `422`*, *version history*: publish writes v1 then v2, with v1's snapshot byte-identical afterwards; a forward reference and an unsatisfiable predicate each return `422` naming the item; publish with a stale `If-Match` is `409`; the snapshot `ETag` and `Cache-Control` headers; clearing `closesAt` restores it
+
+#### G4 — integration *(serial, on `staging`, after G1–G3)*
+
+- [ ] Route completeness: every entry in `definitionRoutes` is registered at its method and URL with the shared schema object. It lands here because it fails until every group has merged
+- [ ] One flow through `inject()` alone, using no database function directly: create a question → create a questionnaire → `PUT /draft` → `validate` → `publish` → save a question revision → open the next draft → re-pin → publish v2 → list versions → fetch both snapshots → set and clear `closesAt`
+- [ ] **M4** ticked; **H3** done by hand against `staging`; `staging → main` merged with Checks green on its head
+
+#### Track 4 file split
+
+Test paths mirror `src/` under `apps/backend/_tests/`.
+
+| Path | Group |
+| --- | --- |
+| `src/app.ts`, `src/index.ts`, `src/http/**` (including `routes.ts`), `src/modules/definition/{plugin,author,errors,if-match}.ts`, `routes/questionnaire-list.ts`, `src/db/definition/questionnaire-list.ts`, `_tests/modules/definition/harness.ts` | G0 |
+| `src/modules/definition/routes/questions.ts`, `src/db/definition/questions.ts`, `question-content.ts` | G1 |
+| `src/modules/definition/routes/drafts.ts`, `src/db/definition/questionnaires.ts` | G2 |
+| `src/modules/definition/routes/versions.ts`, `src/db/definition/publish.ts`, `versions.ts`, `closes-at.ts` | G3, apart from G2's pure extraction from `publish.ts` |
+| `_tests/modules/definition/definition-api.test.ts` | G4 |
+
+The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change there must keep the seed test green, and the seed files themselves stay unedited.
 
 **Track 5 — execution plugin.** Three routes, the trickiest correctness in the project: pin the snapshot and never re-resolve; resume; submit re-evaluated against the *pinned* definition, all-or-nothing, idempotent on the digest under `FOR UPDATE`. Runs on `qp_execution`, and a test must prove it cannot reach authoring tables. → **M5**, **M6**
 
@@ -102,7 +185,8 @@
 | Path | Track |
 | --- | --- |
 | `packages/shared/**` | 1 |
-| `apps/backend/drizzle/**`, `apps/backend/src/db/**`, `db/init/**` | 2 |
+| `apps/backend/drizzle/**`, `apps/backend/src/db/**`, `db/init/**` | 2 — **except** `apps/backend/src/db/definition/**`, which passes to Track 4 for Wave 2 (split in [[#Track 4 file split]]) |
+| `apps/backend/src/app.ts`, `apps/backend/src/index.ts`, `apps/backend/src/http/**` | 4 (G0). Track 5 adds its module's registration and pool to `app.ts` and `index.ts` and may extend `src/http`, keeping G0's exports working |
 | `packages/ui/**` | 3 |
 | `apps/backend/src/modules/definition/**` | 4 |
 | `apps/backend/src/modules/execution/**` | 5 |
@@ -123,6 +207,7 @@ An agent must not decide these alone. The first five blocked Wave 3; four are no
 - [x] The draft editor's publish-validation error surface — resolved: a summary panel with jump-to-item links for the first pass. [[2-design-doc#17. Decisions Log]] #54, [gh#22](https://github.com/kenziesimpson/questionnaire-platform/issues/22) tracks inline per-item rendering as a follow-up
 - [x] How `errorsByItemId` is built from the RFC 9457 body — resolved: one function in `packages/ui`, used by both apps, dropping `answer/not-visible` and `answer/unknown-item` for now. [[2-design-doc#17. Decisions Log]] #55, [gh#23](https://github.com/kenziesimpson/questionnaire-platform/issues/23) tracks revisiting the two dropped codes
 - [ ] The question editor's constraint fields per response type — **still open**, pending a design pass. [[2-design-doc#20. Pending UI experimentation]]
+- [ ] **`publishedBy` has no column** (blocks G3's `VersionSummary`). `questionnaire_version` stores `created_by`, which is whoever opened the draft, and `qp_definition` cannot read the publish row in `audit.event`. Filling `publishedBy` from `created_by` would label the draft's opener as the publisher; adding a `published_by` column needs a migration and a change to `promote_draft`
 - [ ] Anything that would add a custom migration, widen a grant, put an unpersisted value in the digest, or change what crosses the definition/execution boundary
 
 **Also pending the same design pass, not originally on this list:** the options-authoring widget (add/remove/reorder/mark-freeform) for `single_choice` and `multiple_choice` questions in the question editor — [[2-design-doc#20. Pending UI experimentation]]. Both items block only the question editor and the draft editor's options UI in Track 6; nothing else in Wave 3 waits on them.
@@ -133,7 +218,7 @@ A wave is not done until its milestones are green.
 
 - [x] **M1** Engine units: branching truth table, every operator against every type, unanswered → `false`, digest determinism under key reordering, timezone cases
 - [x] **M2** DB invariants on Testcontainers: `UPDATE` and `DELETE` on published rows rejected; bad `response_shape` rejected; `qp_execution` denied on authoring tables; `qp_definition` denied on `response` and on `audit.event`; audit reachable only through `audit.record`; no-default-partition behaviour
-- [ ] **M3** Renderer components plus the axe check; reveal and removal announced via `aria-live`
+- [x] **M3** Renderer components plus the axe check; reveal and removal announced via `aria-live`
 - [ ] **M4** Definition API via `inject()`: bank CRUD, stale-ETag `409`, publish happy path, publish failures as `422`, archived question rejected at add time, version history, deterministic list order
 - [ ] **M5** Execution API via `inject()`: session pins the snapshot and ignores a later publish; resume; submit; idempotent replay returns the original receipt; answer to an invisible item `422`; the v1/v2 predicate-tightening fixture; closed questionnaire `409`
 - [ ] **M6** Cross-version aggregation: v1 and v2 responses aggregate on `opt_hyperten` while each renders through its own pinned `questionVersion`

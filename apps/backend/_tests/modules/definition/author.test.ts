@@ -5,7 +5,7 @@ import { replyWithProblem } from "../../../src/http/problems.js";
 import { AUTHOR_PLACEHOLDER, authenticateAuthor, authorOf } from "../../../src/modules/definition/author.js";
 
 describe("the author hook", () => {
-  it("is the placeholder author, pending real authentication (Decisions Log #53)", () => {
+  it("is the placeholder author, pending real authentication (Decisions Log #57)", () => {
     expect(AUTHOR_PLACEHOLDER).toBe("prototype-author");
   });
 
