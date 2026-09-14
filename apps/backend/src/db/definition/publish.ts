@@ -73,7 +73,7 @@ async function nextVersionNumber(tx: Transaction, questionnaireId: string): Prom
   return Number(row?.next ?? 1);
 }
 
-async function readDraftItems(tx: Transaction, draftVersionId: string): Promise<Item[]> {
+export async function readDraftItems(tx: Transaction, draftVersionId: string): Promise<Item[]> {
   const rows = await tx
     .select({
       itemId: questionnaireItem.itemId,
@@ -139,7 +139,7 @@ async function archivedQuestionIds(tx: Transaction, items: readonly Item[]): Pro
   return new Set(archived.map((row) => row.id));
 }
 
-async function draftForValidation(tx: Transaction, items: readonly Item[]): Promise<DraftForValidation> {
+export async function draftForValidation(tx: Transaction, items: readonly Item[]): Promise<DraftForValidation> {
   return {
     items: items.map((item) => ({
       itemId: item.itemId,
