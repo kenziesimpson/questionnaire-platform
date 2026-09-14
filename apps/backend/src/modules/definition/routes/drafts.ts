@@ -1,7 +1,7 @@
 import { definitionApi, formatDraftEtag, problem } from "@qp/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
-  openNextDraft,
+  createNextDraft,
   readDraft,
   replaceDraft,
   validateOpenDraft,
@@ -53,13 +53,13 @@ export async function draftRoutes(scope: FastifyInstance, { database }: Definiti
   });
 
   registerRoute(scope, definitionApi.openDraft, async (request) => {
-    const outcome = await openNextDraft(database, {
+    const outcome = await createNextDraft(database, {
       questionnaireId: request.params.id,
       createdBy: authorOf(request),
       traceId: null,
     });
     switch (outcome.outcome) {
-      case "opened":
+      case "created":
         return { status: 201, body: outcome.draft, headers: draftHeaders(outcome) };
       case "draft-exists":
         return problem("questionnaire/draft-exists", { instance: request.url });

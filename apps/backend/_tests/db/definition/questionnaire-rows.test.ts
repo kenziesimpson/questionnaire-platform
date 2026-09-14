@@ -1,6 +1,6 @@
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
-import { openNextDraft } from "../../../src/db/definition/drafts.js";
+import { createNextDraft } from "../../../src/db/definition/drafts.js";
 import { createQuestionnaire, setClosesAt } from "../../../src/db/definition/questionnaires.js";
 import {
   lockOpenDraft,
@@ -76,8 +76,8 @@ describe("lockOpenDraft and readOpenDraft", () => {
 
     const lockedBeforeOpening = await db.transaction((tx) => lockOpenDraft(tx, published.questionnaireId));
     const readBeforeOpening = await readOpenDraft(db, published.questionnaireId);
-    const opened = await openNextDraft(db, { questionnaireId: published.questionnaireId, ...actor });
-    if (opened.outcome !== "opened") {
+    const opened = await createNextDraft(db, { questionnaireId: published.questionnaireId, ...actor });
+    if (opened.outcome !== "created") {
       throw new Error(opened.outcome);
     }
     const read = await readOpenDraft(db, published.questionnaireId);

@@ -137,14 +137,14 @@ export async function replaceDraft(executor: Executor, command: ReplaceDraftComm
   });
 }
 
-export interface OpenNextDraftCommand {
+export interface CreateNextDraftCommand {
   readonly questionnaireId: string;
   readonly createdBy: string | null;
   readonly traceId: string | null;
 }
 
-export type OpenNextDraftOutcome =
-  | ({ readonly outcome: "opened" } & CurrentDraft)
+export type CreateNextDraftOutcome =
+  | ({ readonly outcome: "created" } & CurrentDraft)
   | QuestionnaireNotFound
   | { readonly outcome: "draft-exists" }
   | { readonly outcome: "nothing-published" };
@@ -159,8 +159,8 @@ async function latestPublishedVersion(tx: Transaction, questionnaireId: string) 
   return latest;
 }
 
-export async function openNextDraft(executor: Executor, command: OpenNextDraftCommand): Promise<OpenNextDraftOutcome> {
-  return withLockedQuestionnaire(executor, command.questionnaireId, async (tx): Promise<OpenNextDraftOutcome> => {
+export async function createNextDraft(executor: Executor, command: CreateNextDraftCommand): Promise<CreateNextDraftOutcome> {
+  return withLockedQuestionnaire(executor, command.questionnaireId, async (tx): Promise<CreateNextDraftOutcome> => {
     if ((await readOpenDraft(tx, command.questionnaireId)) !== undefined) {
       return { outcome: "draft-exists" };
     }
@@ -188,8 +188,8 @@ export async function openNextDraft(executor: Executor, command: OpenNextDraftCo
       traceId: command.traceId,
     });
 
-    const opened = readBack(await readCurrentDraft(tx, command.questionnaireId), "the draft just opened");
-    return { outcome: "opened", ...opened };
+    const created = readBack(await readCurrentDraft(tx, command.questionnaireId), "the next draft just created");
+    return { outcome: "created", ...created };
   });
 }
 

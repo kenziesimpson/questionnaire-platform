@@ -52,7 +52,7 @@ async function saveDraft(db: Database, questionnaireId: string, draft: OpenDraft
   return { draftVersionId: saved.draftVersionId, draftRevision: saved.draftRevision };
 }
 
-async function openNextDraftDirectly(questionnaireId: string): Promise<OpenDraft> {
+async function createNextDraftDirectly(questionnaireId: string): Promise<OpenDraft> {
   const draftVersionId = uuidv7();
   const client = await testDatabase.connect("definition");
   await client.query(
@@ -142,7 +142,7 @@ describe("POST /questionnaires/:id/publish", () => {
     const storedBefore = await storedSnapshotText(draft.questionnaireId, 1);
     const servedBefore = await app().inject({ method: "GET", url: definitionUrl(`/questionnaires/${draft.questionnaireId}/versions/1`) });
 
-    const opened = await openNextDraftDirectly(draft.questionnaireId);
+    const opened = await createNextDraftDirectly(draft.questionnaireId);
     const next = await saveDraft(db, draft.questionnaireId, opened, [firstItemOf(draft.questionId), await aSecondItem(db)]);
     const second = await publish(draft.questionnaireId, next);
 
@@ -190,7 +190,7 @@ describe("POST /questionnaires/:id/publish", () => {
   it("refuses the previous draft's ETag with 409 even when the next draft has reached the same revision", async () => {
     const db = testDatabase.database("definition");
     const published = await aPublishedQuestionnaire(db);
-    const opened = await openNextDraftDirectly(published.questionnaireId);
+    const opened = await createNextDraftDirectly(published.questionnaireId);
     const next = await saveDraft(db, published.questionnaireId, opened, [firstItemOf(published.questionId)]);
     expect(next.draftRevision).toBe(published.draftRevision);
 
@@ -230,10 +230,10 @@ describe("GET /questionnaires/:id/versions", () => {
   it("lists published versions newest first with metadata only, leaving out the open draft", async () => {
     const db = testDatabase.database("definition");
     const published = await aPublishedQuestionnaire(db);
-    const opened = await openNextDraftDirectly(published.questionnaireId);
+    const opened = await createNextDraftDirectly(published.questionnaireId);
     const next = await saveDraft(db, published.questionnaireId, opened, [firstItemOf(published.questionId), await aSecondItem(db)]);
     expect((await publish(published.questionnaireId, next)).statusCode).toBe(201);
-    await openNextDraftDirectly(published.questionnaireId);
+    await createNextDraftDirectly(published.questionnaireId);
 
     const response = await app().inject({ method: "GET", url: definitionUrl(`/questionnaires/${published.questionnaireId}/versions`) });
 
@@ -292,7 +292,7 @@ describe("GET /questionnaires/:id/versions/:v", () => {
   it("answers 404 for a draft, an unknown version and an unknown questionnaire", async () => {
     const db = testDatabase.database("definition");
     const published = await aPublishedQuestionnaire(db);
-    await openNextDraftDirectly(published.questionnaireId);
+    await createNextDraftDirectly(published.questionnaireId);
 
     const paths = [
       `/questionnaires/${published.questionnaireId}/versions/2`,

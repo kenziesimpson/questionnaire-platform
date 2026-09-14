@@ -4,7 +4,7 @@ import type pg from "pg";
 import type { Database, Transaction } from "../../src/db/client.js";
 import type { DraftPrecondition } from "../../src/db/definition/draft-precondition.js";
 import { publishDraft } from "../../src/db/definition/publish.js";
-import { openNextDraft, replaceDraft } from "../../src/db/definition/drafts.js";
+import { createNextDraft, replaceDraft } from "../../src/db/definition/drafts.js";
 import { createQuestionnaire } from "../../src/db/definition/questionnaires.js";
 import { createQuestion } from "../../src/db/definition/questions.js";
 import type { TestDatabase } from "./harness.js";
@@ -106,8 +106,8 @@ export async function aPublishedQuestionnaire(db: Database): Promise<PublishedFi
 }
 
 export async function publishNextVersion(db: Database, questionnaireId: string, items: readonly DraftItem[]): Promise<number> {
-  const opened = await openNextDraft(db, { questionnaireId, ...actor });
-  if (opened.outcome !== "opened") {
+  const opened = await createNextDraft(db, { questionnaireId, ...actor });
+  if (opened.outcome !== "created") {
     throw new Error(`fixture next draft was not opened: ${opened.outcome}`);
   }
   return saveAndPublish(

@@ -1,6 +1,6 @@
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
-import { openNextDraft } from "../../../src/db/definition/drafts.js";
+import { createNextDraft } from "../../../src/db/definition/drafts.js";
 import { withLockedQuestionnaire } from "../../../src/db/definition/questionnaire-rows.js";
 import {
   createQuestionnaire,
@@ -20,7 +20,7 @@ describe("readQuestionnaireSummary", () => {
     const draftOnly = await createQuestionnaire(db, { key: null, name: "Draft only", title: "Draft only", ...actor });
     const publishedOnly = await aPublishedQuestionnaire(db);
     const reopened = await aPublishedQuestionnaire(db);
-    await openNextDraft(db, { questionnaireId: reopened.questionnaireId, ...actor });
+    await createNextDraft(db, { questionnaireId: reopened.questionnaireId, ...actor });
 
     const listed = await listQuestionnaireSummaries(db);
     const read = await Promise.all(listed.map((entry) => readQuestionnaireSummary(db, entry.questionnaireId)));

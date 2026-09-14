@@ -88,7 +88,7 @@ async function publish(db: Database, questionnaireId: string, draft: OpenDraft, 
   }
 }
 
-async function openNextDraftDirectly(questionnaireId: string): Promise<OpenDraft> {
+async function createNextDraftDirectly(questionnaireId: string): Promise<OpenDraft> {
   const draftVersionId = uuidv7();
   const definition = await testDatabase.connect("definition");
   await definition.query(
@@ -312,12 +312,12 @@ describe("GET /questions/:questionId/usage", () => {
 
     const early = await createQuestionnaire(db, { key: null, name: "Early", title: "Early", ...actor });
     await publish(db, early.questionnaireId, early, [placement("itm_01", questionId, 1), placement("itm_02", unrelated, 1)]);
-    const earlyNext = await openNextDraftDirectly(early.questionnaireId);
+    const earlyNext = await createNextDraftDirectly(early.questionnaireId);
     await publish(db, early.questionnaireId, earlyNext, [placement("itm_01", questionId, 2)]);
 
     const late = await createQuestionnaire(db, { key: null, name: "Late", title: "Late", ...actor });
     await publish(db, late.questionnaireId, late, [placement("itm_01", questionId, 2)]);
-    const lateNext = await openNextDraftDirectly(late.questionnaireId);
+    const lateNext = await createNextDraftDirectly(late.questionnaireId);
     await saveDraft(db, late.questionnaireId, lateNext, [placement("itm_01", questionId, 1)]);
 
     const draftOnly = await createQuestionnaire(db, { key: null, name: "Draft only", title: "Draft only", ...actor });

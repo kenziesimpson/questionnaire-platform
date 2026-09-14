@@ -1,7 +1,7 @@
 import type { DraftItem } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import { withLockedQuestionnaire } from "../../../src/db/definition/questionnaire-rows.js";
-import { openNextDraft, replaceDraft } from "../../../src/db/definition/drafts.js";
+import { createNextDraft, replaceDraft } from "../../../src/db/definition/drafts.js";
 import { createQuestion } from "../../../src/db/definition/questions.js";
 import {
   aDraftWithOneItem,
@@ -200,26 +200,26 @@ describe("replaceDraft", () => {
   });
 });
 
-describe("openNextDraft", () => {
+describe("createNextDraft", () => {
   it("waits on the questionnaire lock, as its first statement, while another transaction holds it", async () => {
     const definitionDb = testDatabase.database("definition");
     const published = await aPublishedQuestionnaire(definitionDb);
     const events: string[] = [];
-    let opening: Promise<unknown> = Promise.resolve();
+    let creating: Promise<unknown> = Promise.resolve();
 
     await whileHoldingALock(
       definitionDb,
       (tx) => withLockedQuestionnaire(tx, published.questionnaireId, async () => undefined),
       async () => {
-        opening = openNextDraft(definitionDb, { questionnaireId: published.questionnaireId, createdBy: null, traceId: null }).then(
-          (outcome) => events.push(`openNextDraft returned ${outcome.outcome}`),
+        creating = createNextDraft(definitionDb, { questionnaireId: published.questionnaireId, createdBy: null, traceId: null }).then(
+          (outcome) => events.push(`createNextDraft returned ${outcome.outcome}`),
         );
         expect(await theStatementWaitingOnALock(testDatabase)).toMatch(QUESTIONNAIRE_LOCK_STATEMENT);
         events.push("lock holder commits");
       },
     );
-    await opening;
+    await creating;
 
-    expect(events).toEqual(["lock holder commits", "openNextDraft returned opened"]);
+    expect(events).toEqual(["lock holder commits", "createNextDraft returned created"]);
   });
 });
