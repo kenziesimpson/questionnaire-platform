@@ -1,5 +1,5 @@
 import Type, { type Static, type TProperties } from "typebox";
-import { IsoDate, IsoDateTime, NonNegativeInt, PositiveInt, Slug, Uuid } from "../primitives.js";
+import { IsoDate, IsoDateTime, LiteralUnion, NonNegativeInt, PositiveInt, Slug, Uuid } from "../primitives.js";
 import { strict } from "./utils.js";
 
 /**
@@ -7,7 +7,7 @@ import { strict } from "./utils.js";
  * editor template with option ids `yes` / `no` (Decisions Log #36).
  */
 export const RESPONSE_TYPES = ["text", "single_choice", "multiple_choice", "number", "date"] as const;
-export const ResponseType = Type.Union(RESPONSE_TYPES.map((t) => Type.Literal(t)));
+export const ResponseType = LiteralUnion(RESPONSE_TYPES);
 export type ResponseType = (typeof RESPONSE_TYPES)[number];
 
 /** Option ids are stable across question versions; rules and responses key on them, never on labels. */

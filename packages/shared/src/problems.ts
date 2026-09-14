@@ -1,5 +1,5 @@
 import Type, { type Static } from "typebox";
-import { Slug } from "./primitives.js";
+import { LiteralUnion, Slug } from "./primitives.js";
 
 /**
  * RFC 9457 problem details ([[7-application-boundary]] §6.1). The slug set is closed: a handler
@@ -26,8 +26,11 @@ export const PROBLEM_SLUGS = Object.keys(PROBLEMS) as ProblemSlug[];
 export const PROBLEM_TYPE_BASE = "https://qp.example/problems/";
 
 /** `version/immutable` → `https://qp.example/problems/version-immutable`, as in §6.1's example. */
-export function problemType<S extends ProblemSlug>(slug: S): string {
-  return PROBLEM_TYPE_BASE + slug.replace("/", "-");
+export type ProblemType<S extends ProblemSlug = ProblemSlug> =
+  `${typeof PROBLEM_TYPE_BASE}${S extends `${infer Area}/${infer Name}` ? `${Area}-${Name}` : S}`;
+
+export function problemType<S extends ProblemSlug>(slug: S): ProblemType<S> {
+  return (PROBLEM_TYPE_BASE + slug.replace("/", "-")) as ProblemType<S>;
 }
 
 const slugByType = new Map<string, ProblemSlug>(PROBLEM_SLUGS.map((s) => [problemType(s), s]));
@@ -143,7 +146,7 @@ const strict = { additionalProperties: false } as const;
 /** The wire schema, for `4xx` / `5xx` responses on every route. */
 export const ProblemDetails = Type.Object(
   {
-    type: Type.Union(PROBLEM_SLUGS.map((s) => Type.Literal(problemType(s)))),
+    type: LiteralUnion(PROBLEM_SLUGS.map(problemType)),
     title: Type.String(),
     status: Type.Integer({ minimum: 400, maximum: 599 }),
     detail: Type.Optional(Type.String()),
@@ -152,7 +155,7 @@ export const ProblemDetails = Type.Object(
     items: Type.Optional(
       Type.Array(
         Type.Object(
-          { itemId: Slug, code: Type.Union([...DRAFT_ITEM_CODES, ...SUBMISSION_ITEM_CODES].map((c) => Type.Literal(c))) },
+          { itemId: Slug, code: LiteralUnion([...DRAFT_ITEM_CODES, ...SUBMISSION_ITEM_CODES]) },
           strict,
         ),
       ),

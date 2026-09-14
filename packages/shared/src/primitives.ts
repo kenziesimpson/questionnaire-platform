@@ -1,4 +1,4 @@
-import Type from "typebox";
+import Type, { type TLiteral, type TUnion } from "typebox";
 
 /** Bank rows, questionnaires, sessions and published versions. UUIDv7 or v4, never sequential. */
 export const Uuid = Type.String({ format: "uuid" });
@@ -26,3 +26,7 @@ export const DecimalString = Type.String({ pattern: DECIMAL_PATTERN });
 
 export const PositiveInt = Type.Integer({ minimum: 1 });
 export const NonNegativeInt = Type.Integer({ minimum: 0 });
+
+export function LiteralUnion<const Value extends string>(values: readonly Value[]): TUnion<[TLiteral<Value>]> {
+  return Type.Union(values.map((value) => Type.Literal(value))) as unknown as TUnion<[TLiteral<Value>]>;
+}
