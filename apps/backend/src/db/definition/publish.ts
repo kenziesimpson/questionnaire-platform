@@ -7,6 +7,7 @@ import type { Executor, Transaction } from "../client.js";
 import { questionnaireVersion } from "../schema.js";
 import { draftForValidation, itemsWithQuestionContent, readDraftContents, type DraftInvalidItem } from "./draft-contents.js";
 import { lockOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
+import { readBack } from "./read-back.js";
 import { readVersionSummary } from "./versions.js";
 
 export interface PublishDraftCommand {
@@ -81,10 +82,7 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
       traceId: command.traceId,
     });
 
-    const summary = await readVersionSummary(tx, command.questionnaireId, version);
-    if (summary === undefined) {
-      throw new Error("the version just published could not be read back");
-    }
+    const summary = readBack(await readVersionSummary(tx, command.questionnaireId, version), "the version just published");
     return { outcome: "published", questionnaireVersionId: draft.id, version, summary };
   });
 }

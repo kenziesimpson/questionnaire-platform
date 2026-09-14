@@ -4,7 +4,8 @@ import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
 import type { Executor } from "../client.js";
 import { questionnaire, questionnaireVersion } from "../schema.js";
-import { openDraftExists, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
+import { openDraftExists, readOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
+import { readBack } from "./read-back.js";
 
 async function selectQuestionnaireSummaries(executor: Executor, filter?: SQL): Promise<QuestionnaireSummary[]> {
   const rows = await executor
@@ -68,20 +69,13 @@ export async function createQuestionnaire(
     const questionnaireId = command.questionnaireId ?? uuidv7();
     const draftVersionId = uuidv7();
     await tx.insert(questionnaire).values({ id: questionnaireId, key: command.key, name: command.name });
-    const [draft] = await tx
-      .insert(questionnaireVersion)
-      .values({
-        id: draftVersionId,
-        questionnaireId,
-        status: "draft",
-        title: command.title,
-        createdBy: command.createdBy,
-      })
-      .returning({ draftRevision: questionnaireVersion.draftRevision });
-    const summary = await readQuestionnaireSummary(tx, questionnaireId);
-    if (draft === undefined || summary === undefined) {
-      throw new Error("creating a questionnaire returned no row");
-    }
+    await tx.insert(questionnaireVersion).values({
+      id: draftVersionId,
+      questionnaireId,
+      status: "draft",
+      title: command.title,
+      createdBy: command.createdBy,
+    });
     await recordAudit(tx, {
       action: "create_draft",
       questionnaireId,
@@ -91,7 +85,9 @@ export async function createQuestionnaire(
       summary: null,
       traceId: command.traceId,
     });
-    return { questionnaireId, draftVersionId, draftRevision: draft.draftRevision, summary };
+    const draft = readBack(await readOpenDraft(tx, questionnaireId), "the draft just created");
+    const summary = readBack(await readQuestionnaireSummary(tx, questionnaireId), "the questionnaire just created");
+    return { questionnaireId, draftVersionId: draft.id, draftRevision: draft.draftRevision, summary };
   });
 }
 
@@ -109,13 +105,9 @@ export type SetClosesAtOutcome =
 export async function setClosesAt(executor: Executor, command: SetClosesAtCommand): Promise<SetClosesAtOutcome> {
   return withLockedQuestionnaire(executor, command.questionnaireId, async (tx, locked): Promise<SetClosesAtOutcome> => {
     await tx.update(questionnaire).set({ closesAt: command.closesAt }).where(eq(questionnaire.id, command.questionnaireId));
-    const summary = await readQuestionnaireSummary(tx, command.questionnaireId);
-    if (summary === undefined) {
-      throw new Error("the locked questionnaire could not be read back");
-    }
 
     const from = locked.closesAt?.toISOString() ?? null;
-    const to = summary.closesAt;
+    const to = command.closesAt?.toISOString() ?? null;
     await recordAudit(tx, {
       action: to === null ? "reopen" : "retire",
       questionnaireId: command.questionnaireId,
@@ -126,6 +118,7 @@ export async function setClosesAt(executor: Executor, command: SetClosesAtComman
       traceId: command.traceId,
     });
 
+    const summary = readBack(await readQuestionnaireSummary(tx, command.questionnaireId), "the questionnaire just updated");
     return { outcome: "updated", questionnaire: summary };
   });
 }

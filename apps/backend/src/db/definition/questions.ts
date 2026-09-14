@@ -6,6 +6,7 @@ import { recordAudit } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
 import { question, questionnaireVersion, questionVersion, questionVersionOption, versionQuestionIndex } from "../schema.js";
 import { questionInputToColumns, storedQuestionToVersion } from "./question-content.js";
+import { readBack } from "./read-back.js";
 import { isPublishedVersion, publishedValue } from "./versions.js";
 import { questionVersionIn, questionVersionKey, readOptionsInPosition, readQuestionVersions } from "./question-versions.js";
 
@@ -65,10 +66,7 @@ async function insertQuestionVersion(
     summary: { questionId, questionVersion: version },
     traceId,
   });
-  const saved = await readQuestion(tx, questionId);
-  if (saved === undefined) {
-    throw new Error(`question ${questionId} could not be read back after saving version ${version}`);
-  }
+  const saved = readBack(await readQuestion(tx, questionId), "the question version just saved");
   return { questionId, questionVersion: version, question: saved };
 }
 

@@ -15,6 +15,7 @@ import {
   type DraftInvalidItem,
 } from "./draft-contents.js";
 import { insertItems, readItems } from "./questionnaire-items.js";
+import { readBack } from "./read-back.js";
 import { lockOpenDraft, readOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
 import { existingQuestionVersionKeys, questionVersionKey, type QuestionVersionKey } from "./question-versions.js";
 import { isPublishedVersionOf } from "./versions.js";
@@ -131,10 +132,7 @@ export async function replaceDraft(executor: Executor, command: ReplaceDraftComm
       summary: { title: command.title, itemIds: command.items.map((item) => item.itemId) },
       traceId: command.traceId,
     });
-    const saved = await readCurrentDraft(tx, command.questionnaireId);
-    if (saved === undefined) {
-      throw new Error("the draft just saved could not be read back");
-    }
+    const saved = readBack(await readCurrentDraft(tx, command.questionnaireId), "the draft just saved");
     return { outcome: "saved", draftVersionId: draft.id, ...saved };
   });
 }
@@ -190,10 +188,7 @@ export async function openNextDraft(executor: Executor, command: OpenNextDraftCo
       traceId: command.traceId,
     });
 
-    const opened = await readCurrentDraft(tx, command.questionnaireId);
-    if (opened === undefined) {
-      throw new Error("the draft just opened could not be read back");
-    }
+    const opened = readBack(await readCurrentDraft(tx, command.questionnaireId), "the draft just opened");
     return { outcome: "opened", ...opened };
   });
 }
