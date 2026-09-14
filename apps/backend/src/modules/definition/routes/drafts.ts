@@ -61,8 +61,7 @@ export async function draftRoutes(scope: FastifyInstance, { database }: Definiti
     const { title, items } = request.body;
     const outcome = await replaceDraft(database, {
       questionnaireId: request.params.id,
-      expectedDraftVersionId: precondition.versionId,
-      expectedDraftRevision: precondition.draftRevision,
+      precondition,
       title,
       items,
       actorId: authorOf(request),

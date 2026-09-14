@@ -11,6 +11,7 @@ import {
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { Value } from "typebox/value";
 import { recordAudit } from "../audit.js";
+import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
 import type { Executor, Transaction } from "../client.js";
 import {
   question,
@@ -24,8 +25,7 @@ import { storedQuestionToContent, type StoredOption } from "./question-content.j
 
 export interface PublishDraftCommand {
   readonly questionnaireId: string;
-  readonly expectedDraftVersionId: string;
-  readonly expectedDraftRevision: number;
+  readonly precondition: DraftPrecondition;
   readonly actorId: string | null;
   readonly traceId: string | null;
 }
@@ -163,7 +163,7 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
     if (draft === undefined) {
       return { outcome: "no-draft" };
     }
-    if (draft.id !== command.expectedDraftVersionId || draft.draftRevision !== command.expectedDraftRevision) {
+    if (!isCurrentDraft(command.precondition, { versionId: draft.id, draftRevision: draft.draftRevision })) {
       return { outcome: "stale", draftRevision: draft.draftRevision };
     }
 

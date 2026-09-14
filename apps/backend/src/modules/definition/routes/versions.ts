@@ -23,8 +23,7 @@ export async function versionRoutes(scope: FastifyInstance, { database }: Defini
     const precondition = draftPreconditionOf(request.headers["if-match"]);
     const published = await publishDraft(database, {
       questionnaireId: request.params.id,
-      expectedDraftVersionId: precondition.versionId,
-      expectedDraftRevision: precondition.draftRevision,
+      precondition,
       actorId: authorOf(request),
       traceId: null,
     });

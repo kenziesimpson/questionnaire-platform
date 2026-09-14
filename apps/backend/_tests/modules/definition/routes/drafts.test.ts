@@ -103,8 +103,7 @@ async function aDraftWithAForwardReference(): Promise<DraftFixture & { readonly 
   const edited = saved(
     await replaceDraft(db, {
       questionnaireId: draft.questionnaireId,
-      expectedDraftVersionId: draft.draftVersionId,
-      expectedDraftRevision: draft.draftRevision,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
       title: "Fixture",
       items,
       actorId: "test",
@@ -153,8 +152,7 @@ describe("POST /questionnaires", () => {
     published(
       await publishDraft(db, {
         questionnaireId,
-        expectedDraftVersionId: savedPrecondition?.versionId ?? "",
-        expectedDraftRevision: savedPrecondition?.draftRevision ?? -1,
+        precondition: { versionId: savedPrecondition?.versionId ?? "", draftRevision: savedPrecondition?.draftRevision ?? -1 },
         actorId: "test",
         traceId: null,
       }),
@@ -196,8 +194,7 @@ describe("GET /questionnaires/:id/draft", () => {
     const edited = saved(
       await replaceDraft(db, {
         questionnaireId: draft.questionnaireId,
-        expectedDraftVersionId: draft.draftVersionId,
-        expectedDraftRevision: draft.draftRevision,
+        precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
         title: "Ordered",
         items: [
           placement("itm_c", text.questionId),
@@ -297,8 +294,7 @@ describe("PUT /questionnaires/:id/draft", () => {
     const next = saved(
       await replaceDraft(db, {
         questionnaireId: previous.questionnaireId,
-        expectedDraftVersionId: opened.draft.versionId,
-        expectedDraftRevision: opened.draftRevision,
+        precondition: { versionId: opened.draft.versionId, draftRevision: opened.draftRevision },
         title: "Fixture",
         items: [],
         actorId: "test",
@@ -470,8 +466,7 @@ describe("POST /questionnaires/:id/draft", () => {
     const v2Draft = saved(
       await replaceDraft(db, {
         questionnaireId: v1.questionnaireId,
-        expectedDraftVersionId: second.draft.versionId,
-        expectedDraftRevision: second.draftRevision,
+        precondition: { versionId: second.draft.versionId, draftRevision: second.draftRevision },
         title: "Second edition",
         items: sourceItems,
         actorId: "test",
@@ -481,8 +476,7 @@ describe("POST /questionnaires/:id/draft", () => {
     published(
       await publishDraft(db, {
         questionnaireId: v1.questionnaireId,
-        expectedDraftVersionId: v2Draft.draftVersionId,
-        expectedDraftRevision: v2Draft.draftRevision,
+        precondition: { versionId: v2Draft.draftVersionId, draftRevision: v2Draft.draftRevision },
         actorId: "test",
         traceId: null,
       }),
@@ -568,8 +562,7 @@ describe("POST /questionnaires/:id/draft/validate", () => {
     expect((await getDraft(draft.questionnaireId)).headers.etag).toBe(before.headers.etag);
     const publish = await publishDraft(db, {
       questionnaireId: draft.questionnaireId,
-      expectedDraftVersionId: draft.draftVersionId,
-      expectedDraftRevision: draft.draftRevision,
+      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
       actorId: "test",
       traceId: null,
     });

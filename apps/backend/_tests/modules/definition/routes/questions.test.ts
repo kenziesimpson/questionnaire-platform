@@ -62,8 +62,7 @@ interface OpenDraft {
 async function saveDraft(db: Database, questionnaireId: string, draft: OpenDraft, items: DraftItem[]) {
   const saved = await replaceDraft(db, {
     questionnaireId,
-    expectedDraftVersionId: draft.draftVersionId,
-    expectedDraftRevision: draft.draftRevision,
+    precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
     title: "Usage",
     items,
     actorId: "test",
@@ -79,8 +78,7 @@ async function publish(db: Database, questionnaireId: string, draft: OpenDraft, 
   const saved = await saveDraft(db, questionnaireId, draft, items);
   const published = await publishDraft(db, {
     questionnaireId,
-    expectedDraftVersionId: saved.draftVersionId,
-    expectedDraftRevision: saved.draftRevision,
+    precondition: { versionId: saved.draftVersionId, draftRevision: saved.draftRevision },
     actorId: "test",
     traceId: null,
   });

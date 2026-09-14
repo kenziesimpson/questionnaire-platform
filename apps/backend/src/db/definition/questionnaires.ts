@@ -11,6 +11,7 @@ import type { PgColumn, PgTransactionConfig } from "drizzle-orm/pg-core";
 import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
+import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
 import type { Database, Executor, Transaction } from "../client.js";
 import { question, questionnaire, questionnaireItem, questionnaireVersion, questionVersion, questionVersionOption } from "../schema.js";
 import { draftForValidation, readDraftItems } from "./publish.js";
@@ -197,8 +198,7 @@ export async function readDraft(database: Database, questionnaireId: string): Pr
 
 export interface ReplaceDraftCommand {
   readonly questionnaireId: string;
-  readonly expectedDraftVersionId: string;
-  readonly expectedDraftRevision: number;
+  readonly precondition: DraftPrecondition;
   readonly title: string;
   readonly items: readonly DraftItem[];
   readonly actorId: string | null;
@@ -270,7 +270,7 @@ export async function replaceDraft(executor: Executor, command: ReplaceDraftComm
     if (draft === undefined) {
       return { outcome: "no-draft" };
     }
-    if (draft.id !== command.expectedDraftVersionId || draft.draftRevision !== command.expectedDraftRevision) {
+    if (!isCurrentDraft(command.precondition, { versionId: draft.id, draftRevision: draft.draftRevision })) {
       return { outcome: "stale" };
     }
     const refused = await refusedPlacement(tx, command.items);
