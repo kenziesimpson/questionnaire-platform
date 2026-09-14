@@ -1,4 +1,4 @@
-import { FORMAT_VERSION, PublishedDefinition, validateDraft } from "@qp/shared";
+import { FORMAT_VERSION, PublishedDefinition, validateDraft, type VersionSummary } from "@qp/shared";
 import { eq, max, sql } from "drizzle-orm";
 import { Value } from "typebox/value";
 import { recordAudit } from "../audit.js";
@@ -7,6 +7,7 @@ import type { Executor, Transaction } from "../client.js";
 import { questionnaireVersion } from "../schema.js";
 import { draftForValidation, itemsWithQuestionContent, readDraftContents, type DraftInvalidItem } from "./draft-contents.js";
 import { lockOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
+import { readVersionSummary } from "./versions.js";
 
 export interface PublishDraftCommand {
   readonly questionnaireId: string;
@@ -20,7 +21,7 @@ export type PublishDraftOutcome =
       readonly outcome: "published";
       readonly questionnaireVersionId: string;
       readonly version: number;
-      readonly definition: PublishedDefinition;
+      readonly summary: VersionSummary;
     }
   | QuestionnaireNotFound
   | { readonly outcome: "no-draft" }
@@ -80,6 +81,10 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
       traceId: command.traceId,
     });
 
-    return { outcome: "published", questionnaireVersionId: draft.id, version, definition };
+    const summary = await readVersionSummary(tx, command.questionnaireId, version);
+    if (summary === undefined) {
+      throw new Error("the version just published could not be read back");
+    }
+    return { outcome: "published", questionnaireVersionId: draft.id, version, summary };
   });
 }

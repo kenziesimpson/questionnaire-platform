@@ -17,9 +17,10 @@ export interface CreateQuestionCommand {
   readonly traceId: string | null;
 }
 
-export interface SavedQuestionVersion {
+export interface SavedQuestion {
   readonly questionId: string;
   readonly questionVersion: number;
+  readonly question: Question;
 }
 
 async function insertQuestionVersion(
@@ -29,7 +30,7 @@ async function insertQuestionVersion(
   content: QuestionInput,
   createdBy: string | null,
   traceId: string | null,
-): Promise<SavedQuestionVersion> {
+): Promise<SavedQuestion> {
   const columns = questionInputToColumns(content);
   await tx.insert(questionVersion).values({
     questionId,
@@ -60,10 +61,14 @@ async function insertQuestionVersion(
     summary: { questionId, questionVersion: version },
     traceId,
   });
-  return { questionId, questionVersion: version };
+  const saved = await findQuestion(tx, questionId);
+  if (saved === undefined) {
+    throw new Error(`question ${questionId} could not be read back after saving version ${version}`);
+  }
+  return { questionId, questionVersion: version, question: saved };
 }
 
-export async function createQuestion(executor: Executor, command: CreateQuestionCommand): Promise<SavedQuestionVersion> {
+export async function createQuestion(executor: Executor, command: CreateQuestionCommand): Promise<SavedQuestion> {
   return executor.transaction(async (tx) => {
     const questionId = command.questionId ?? uuidv7();
     await tx.insert(question).values({ id: questionId, key: command.key });
@@ -79,7 +84,7 @@ export interface AppendQuestionVersionCommand {
 }
 
 export type AppendQuestionVersionOutcome =
-  | ({ readonly outcome: "saved" } & SavedQuestionVersion)
+  | ({ readonly outcome: "saved" } & SavedQuestion)
   | { readonly outcome: "not-found" };
 
 async function lockQuestion(tx: Transaction, questionId: string): Promise<boolean> {

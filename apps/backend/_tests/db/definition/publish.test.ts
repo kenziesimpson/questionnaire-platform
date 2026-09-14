@@ -60,7 +60,19 @@ describe("publishDraft", () => {
       traceId: "trace-1",
     });
 
-    expect(outcome).toMatchObject({ outcome: "published", questionnaireVersionId: draft.draftVersionId, version: 1 });
+    expect(outcome).toEqual({
+      outcome: "published",
+      questionnaireVersionId: draft.draftVersionId,
+      version: 1,
+      summary: {
+        questionnaireId: draft.questionnaireId,
+        version: 1,
+        publishedAt: expect.any(String),
+        publishedBy: null,
+        itemCount: 1,
+        formatVersion: 1,
+      },
+    });
     const client = await testDatabase.connect("definition");
     const version = await client.query(
       `SELECT status, version, format_version, snapshot, published_at IS NOT NULL AS stamped

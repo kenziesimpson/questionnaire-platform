@@ -2,7 +2,7 @@ import { definitionApi, problem, type Problem } from "@qp/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { setClosesAt } from "../../../db/definition/closes-at.js";
 import { publishDraft } from "../../../db/definition/publish.js";
-import { listVersionSummaries, readPublishedSnapshot, readVersionSummary } from "../../../db/definition/versions.js";
+import { listVersionSummaries, readPublishedSnapshot } from "../../../db/definition/versions.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { draftPreconditionOf } from "../if-match.js";
@@ -35,13 +35,8 @@ export async function versionRoutes(scope: FastifyInstance, { database }: Defini
         return problem("questionnaire/draft-stale", { instance: request.url });
       case "invalid":
         return problem("questionnaire/draft-invalid", { instance: request.url, items: [...published.items] });
-      case "published": {
-        const summary = await readVersionSummary(database, request.params.id, published.version);
-        if (summary === undefined) {
-          throw new Error("a version publishDraft committed could not be read back");
-        }
-        return { status: 201, body: summary };
-      }
+      case "published":
+        return { status: 201, body: published.summary };
     }
   });
 
