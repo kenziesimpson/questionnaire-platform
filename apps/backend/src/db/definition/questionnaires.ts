@@ -6,21 +6,24 @@ import {
   type QuestionnaireSummary,
 } from "@qp/shared";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
-import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
 import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
 import type { Database, Executor, Transaction } from "../client.js";
-import { question, questionnaire, questionnaireItem, questionnaireVersion, questionVersion } from "../schema.js";
+import { questionnaire, questionnaireItem, questionnaireVersion } from "../schema.js";
 import {
+  archivedQuestionIds,
   draftForValidation,
+  insertItems,
   itemsWithQuestionContent,
   pinnedQuestionVersionsInPlacementOrder,
   readDraftContents,
+  readItems,
   type DraftInvalidItem,
 } from "./draft-contents.js";
 import { lockOpenDraft, readOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
-import { questionVersionKey } from "./question-versions.js";
+import { existingQuestionVersionKeys, questionVersionKey, type QuestionVersionKey } from "./question-versions.js";
 
 const READ_ONLY_SNAPSHOT: PgTransactionConfig = { isolationLevel: "repeatable read", accessMode: "read only" };
 
@@ -145,32 +148,24 @@ function duplicatedItemIds(items: readonly DraftItem[]): string[] {
   return [...duplicated];
 }
 
+function pinnedVersionOf(item: DraftItem): QuestionVersionKey {
+  return { questionId: item.questionId, version: item.questionVersion };
+}
+
 async function refusedItems(tx: Transaction, items: readonly DraftItem[]): Promise<DraftInvalidItem[]> {
   const duplicated = duplicatedItemIds(items);
   if (duplicated.length > 0) {
     return duplicated.map((itemId) => ({ itemId, code: "draft/duplicate-item-id" }));
   }
-  const questionIds = [...new Set(items.map((item) => item.questionId))];
-  if (questionIds.length === 0) {
-    return [];
-  }
-  const archived = await tx
-    .select({ id: question.id })
-    .from(question)
-    .where(and(inArray(question.id, questionIds), isNotNull(question.archivedAt)));
-  const archivedIds = new Set(archived.map((row) => row.id));
+  const archivedIds = await archivedQuestionIds(tx, items.map((item) => item.questionId));
   if (archivedIds.size > 0) {
     return items
       .filter((item) => archivedIds.has(item.questionId))
       .map((item) => ({ itemId: item.itemId, code: "draft/question-archived" }));
   }
-  const known = await tx
-    .select({ questionId: questionVersion.questionId, version: questionVersion.version })
-    .from(questionVersion)
-    .where(inArray(questionVersion.questionId, questionIds));
-  const knownKeys = new Set(known.map((row) => questionVersionKey(row)));
+  const knownKeys = await existingQuestionVersionKeys(tx, items.map(pinnedVersionOf));
   return items
-    .filter((item) => !knownKeys.has(questionVersionKey({ questionId: item.questionId, version: item.questionVersion })))
+    .filter((item) => !knownKeys.has(questionVersionKey(pinnedVersionOf(item))))
     .map((item) => ({ itemId: item.itemId, code: "draft/question-version-unknown" }));
 }
 
@@ -198,19 +193,7 @@ export async function replaceDraft(executor: Executor, command: ReplaceDraftComm
       })
       .where(eq(questionnaireVersion.id, draft.id));
     await tx.delete(questionnaireItem).where(eq(questionnaireItem.questionnaireVersionId, draft.id));
-    if (command.items.length > 0) {
-      await tx.insert(questionnaireItem).values(
-        command.items.map((item, position) => ({
-          questionnaireVersionId: draft.id,
-          itemId: item.itemId,
-          position,
-          required: item.required,
-          visibleWhen: item.visibleWhen,
-          questionId: item.questionId,
-          questionVersion: item.questionVersion,
-        })),
-      );
-    }
+    await insertItems(tx, draft.id, command.items);
     await recordAudit(tx, {
       action: "edit_draft",
       questionnaireId: command.questionnaireId,
@@ -268,21 +251,7 @@ export async function openNextDraft(executor: Executor, command: OpenNextDraftCo
       title: source.title,
       createdBy: command.createdBy,
     });
-    const sourceItems = await tx
-      .select({
-        itemId: questionnaireItem.itemId,
-        position: questionnaireItem.position,
-        required: questionnaireItem.required,
-        visibleWhen: questionnaireItem.visibleWhen,
-        questionId: questionnaireItem.questionId,
-        questionVersion: questionnaireItem.questionVersion,
-      })
-      .from(questionnaireItem)
-      .where(eq(questionnaireItem.questionnaireVersionId, source.id))
-      .orderBy(asc(questionnaireItem.position));
-    if (sourceItems.length > 0) {
-      await tx.insert(questionnaireItem).values(sourceItems.map((item) => ({ ...item, questionnaireVersionId: draftVersionId })));
-    }
+    await insertItems(tx, draftVersionId, await readItems(tx, source.id));
     await recordAudit(tx, {
       action: "create_draft",
       questionnaireId: command.questionnaireId,

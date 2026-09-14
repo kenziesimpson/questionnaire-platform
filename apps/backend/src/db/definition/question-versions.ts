@@ -41,6 +41,18 @@ export function questionVersionIn(keys: readonly QuestionVersionKey[]): Question
     or(...keys.map((key) => and(eq(questionIdColumn, key.questionId), eq(versionColumn, key.version))));
 }
 
+export async function existingQuestionVersionKeys(executor: Executor, keys: readonly QuestionVersionKey[]): Promise<Set<string>> {
+  const inScope = questionVersionIn(keys)(executor, questionVersion.questionId, questionVersion.version);
+  if (inScope === undefined) {
+    return new Set();
+  }
+  const rows = await executor
+    .select({ questionId: questionVersion.questionId, version: questionVersion.version })
+    .from(questionVersion)
+    .where(inScope);
+  return new Set(rows.map((row) => questionVersionKey(row)));
+}
+
 export async function readOptionsInPosition(executor: Executor, scope: QuestionVersionScope): Promise<Map<string, StoredOption[]>> {
   const optionsByKey = new Map<string, StoredOption[]>();
   const inScope = scope(executor, questionVersionOption.questionId, questionVersionOption.version);
