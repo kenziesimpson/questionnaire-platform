@@ -22,6 +22,7 @@ import {
   readItems,
   type DraftInvalidItem,
 } from "./draft-contents.js";
+import { readQuestionnaireSummary } from "./questionnaire-list.js";
 import { lockOpenDraft, readOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
 import { existingQuestionVersionKeys, questionVersionKey, type QuestionVersionKey } from "./question-versions.js";
 
@@ -50,10 +51,7 @@ export async function createQuestionnaire(
   return executor.transaction(async (tx) => {
     const questionnaireId = command.questionnaireId ?? uuidv7();
     const draftVersionId = uuidv7();
-    const [created] = await tx
-      .insert(questionnaire)
-      .values({ id: questionnaireId, key: command.key, name: command.name })
-      .returning({ createdAt: questionnaire.createdAt });
+    await tx.insert(questionnaire).values({ id: questionnaireId, key: command.key, name: command.name });
     const [draft] = await tx
       .insert(questionnaireVersion)
       .values({
@@ -64,6 +62,10 @@ export async function createQuestionnaire(
         createdBy: command.createdBy,
       })
       .returning({ draftRevision: questionnaireVersion.draftRevision });
+    const summary = await readQuestionnaireSummary(tx, questionnaireId);
+    if (draft === undefined || summary === undefined) {
+      throw new Error("creating a questionnaire returned no row");
+    }
     await recordAudit(tx, {
       action: "create_draft",
       questionnaireId,
@@ -73,23 +75,7 @@ export async function createQuestionnaire(
       summary: null,
       traceId: command.traceId,
     });
-    if (created === undefined || draft === undefined) {
-      throw new Error("creating a questionnaire returned no row");
-    }
-    return {
-      questionnaireId,
-      draftVersionId,
-      draftRevision: draft.draftRevision,
-      summary: {
-        questionnaireId,
-        key: command.key,
-        name: command.name,
-        currentVersion: null,
-        closesAt: null,
-        hasDraft: true,
-        createdAt: created.createdAt.toISOString(),
-      },
-    };
+    return { questionnaireId, draftVersionId, draftRevision: draft.draftRevision, summary };
   });
 }
 

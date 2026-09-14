@@ -75,14 +75,6 @@ export async function readOpenDraft(executor: Executor, questionnaireId: string)
   return draft;
 }
 
-export async function hasOpenDraft(executor: Executor, questionnaireId: string): Promise<boolean> {
-  const drafts = await executor
-    .select({ id: questionnaireVersion.id })
-    .from(questionnaireVersion)
-    .where(isOpenDraftOf(questionnaireId));
-  return drafts.length > 0;
-}
-
 export function openDraftExists(executor: Executor, questionnaireId: string | typeof questionnaire.id) {
   return exists(
     executor.select({ id: questionnaireVersion.id }).from(questionnaireVersion).where(isOpenDraftOf(questionnaireId)),

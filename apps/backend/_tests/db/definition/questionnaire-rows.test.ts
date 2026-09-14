@@ -1,17 +1,13 @@
-import { desc } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { setClosesAt } from "../../../src/db/definition/closes-at.js";
 import { createQuestionnaire, openNextDraft } from "../../../src/db/definition/questionnaires.js";
 import {
-  hasOpenDraft,
   lockOpenDraft,
-  openDraftExists,
   questionnaireExists,
   readOpenDraft,
   withLockedQuestionnaire,
 } from "../../../src/db/definition/questionnaire-rows.js";
-import { questionnaire } from "../../../src/db/schema.js";
 import { aPublishedQuestionnaire, QUESTIONNAIRE_LOCK_STATEMENT, theStatementWaitingOnALock, whileHoldingALock } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 
@@ -119,33 +115,5 @@ describe("lockOpenDraft and readOpenDraft", () => {
     await waiter;
 
     expect(events).toEqual(["read returned true", "first transaction commits", "second lock acquired"]);
-  });
-});
-
-describe("hasOpenDraft and openDraftExists", () => {
-  it("agree for a draft-only, a published-only and a republished-with-draft questionnaire", async () => {
-    const db = testDatabase.database("definition");
-    const draftOnly = await createQuestionnaire(db, { key: null, name: "Draft only", title: "Draft only", ...actor });
-    const publishedOnly = await aPublishedQuestionnaire(db);
-    const reopened = await aPublishedQuestionnaire(db);
-    await openNextDraft(db, { questionnaireId: reopened.questionnaireId, ...actor });
-
-    const correlated = await db
-      .select({ questionnaireId: questionnaire.id, hasDraft: openDraftExists(db, questionnaire.id) })
-      .from(questionnaire)
-      .orderBy(desc(questionnaire.id));
-    const direct = await Promise.all(
-      correlated.map(async (row) => ({ questionnaireId: row.questionnaireId, hasDraft: await hasOpenDraft(db, row.questionnaireId) })),
-    );
-
-    expect(correlated).toEqual(direct);
-    expect(new Map(direct.map((row) => [row.questionnaireId, row.hasDraft]))).toEqual(
-      new Map([
-        [draftOnly.questionnaireId, true],
-        [publishedOnly.questionnaireId, false],
-        [reopened.questionnaireId, true],
-      ]),
-    );
-    expect(await hasOpenDraft(db, uuidv7())).toBe(false);
   });
 });

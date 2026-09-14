@@ -1,10 +1,10 @@
 import type { QuestionnaireSummary } from "@qp/shared";
-import { desc } from "drizzle-orm";
+import { desc, eq, type SQL } from "drizzle-orm";
 import type { Executor } from "../client.js";
 import { questionnaire } from "../schema.js";
 import { openDraftExists } from "./questionnaire-rows.js";
 
-export async function listQuestionnaireSummaries(executor: Executor): Promise<QuestionnaireSummary[]> {
+async function selectQuestionnaireSummaries(executor: Executor, filter?: SQL): Promise<QuestionnaireSummary[]> {
   const rows = await executor
     .select({
       questionnaireId: questionnaire.id,
@@ -16,6 +16,7 @@ export async function listQuestionnaireSummaries(executor: Executor): Promise<Qu
       createdAt: questionnaire.createdAt,
     })
     .from(questionnaire)
+    .where(filter)
     .orderBy(desc(questionnaire.id));
 
   return rows.map((row) => ({
@@ -27,4 +28,16 @@ export async function listQuestionnaireSummaries(executor: Executor): Promise<Qu
     hasDraft: row.hasDraft,
     createdAt: row.createdAt.toISOString(),
   }));
+}
+
+export async function listQuestionnaireSummaries(executor: Executor): Promise<QuestionnaireSummary[]> {
+  return selectQuestionnaireSummaries(executor);
+}
+
+export async function readQuestionnaireSummary(
+  executor: Executor,
+  questionnaireId: string,
+): Promise<QuestionnaireSummary | undefined> {
+  const [summary] = await selectQuestionnaireSummaries(executor, eq(questionnaire.id, questionnaireId));
+  return summary;
 }
