@@ -48,6 +48,7 @@ export const QuestionnaireSummary = Type.Object(
     closesAt: Type.Union([IsoDateTime, Type.Null()]),
     hasDraft: Type.Boolean(),
     createdAt: IsoDateTime,
+    updatedAt: IsoDateTime,
   },
   strict,
 );

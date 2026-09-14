@@ -51,6 +51,7 @@ export const QUESTION_RULE_CODES = [
   "question/selections-exceed-options",
   "question/duplicate-option-id",
   "question/freeform-not-other",
+  "question/type-changed",
 ] as const;
 export type QuestionRuleCode = (typeof QUESTION_RULE_CODES)[number];
 

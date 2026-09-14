@@ -1,5 +1,5 @@
 import type { Question, QuestionInput, QuestionUsage, QuestionVersion, QuestionVersionSummary } from "@qp/shared";
-import { and, asc, desc, eq, gt, isNull, max, notExists, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, notExists, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
@@ -87,9 +87,16 @@ export interface AppendQuestionVersionCommand {
   readonly traceId: string | null;
 }
 
+export interface QuestionTypeChanged {
+  readonly outcome: "type-changed";
+}
+
+const QUESTION_TYPE_CHANGED: QuestionTypeChanged = { outcome: "type-changed" };
+
 export type AppendQuestionVersionOutcome =
   | ({ readonly outcome: "saved" } & SavedQuestionVersion)
-  | QuestionNotFound;
+  | QuestionNotFound
+  | QuestionTypeChanged;
 
 interface LockedQuestion {
   readonly id: string;
@@ -113,9 +120,14 @@ export async function appendQuestionVersion(
       return QUESTION_NOT_FOUND;
     }
     const [latest] = await tx
-      .select({ version: max(questionVersion.version) })
+      .select({ version: questionVersion.version, type: questionVersion.type })
       .from(questionVersion)
-      .where(eq(questionVersion.questionId, command.questionId));
+      .where(eq(questionVersion.questionId, command.questionId))
+      .orderBy(desc(questionVersion.version))
+      .limit(1);
+    if (latest !== undefined && latest.type !== command.content.type) {
+      return QUESTION_TYPE_CHANGED;
+    }
     const saved = await insertQuestionVersion(
       tx,
       command.questionId,

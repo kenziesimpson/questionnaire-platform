@@ -63,7 +63,7 @@ async function saveBankHistoryFor(tx: Transaction, item: Item): Promise<void> {
   for (const content of later) {
     const appended = await appendQuestionVersion(tx, { questionId, content, ...common });
     if (appended.outcome !== "saved") {
-      throw new Error(`question ${questionId} disappeared while seeding`);
+      throw new Error(`question ${questionId} was not appended while seeding: ${appended.outcome}`);
     }
     saved = appended;
   }

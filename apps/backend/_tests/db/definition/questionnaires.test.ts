@@ -1,6 +1,6 @@
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
-import { createNextDraft } from "../../../src/db/definition/drafts.js";
+import { createNextDraft, replaceDraft } from "../../../src/db/definition/drafts.js";
 import { withLockedQuestionnaire } from "../../../src/db/definition/questionnaire-rows.js";
 import {
   createQuestionnaire,
@@ -39,6 +39,36 @@ describe("readQuestionnaireSummary", () => {
     const db = testDatabase.database("definition");
 
     expect(await readQuestionnaireSummary(db, uuidv7())).toBeUndefined();
+  });
+});
+
+describe("listQuestionnaireSummaries updatedAt", () => {
+  it("is the latest questionnaire_version.updated_at, moved by a draft write and not by setClosesAt", async () => {
+    const db = testDatabase.database("definition");
+    const created = await createQuestionnaire(db, { key: null, name: "Edited", title: "Edited", ...actor });
+    const client = await testDatabase.connect("definition");
+    await client.query("UPDATE definition.questionnaire_version SET updated_at = $1 WHERE id = $2", ["2026-01-01T00:00:00.000Z", created.draftVersionId]);
+    const updatedAtOf = async () => (await readQuestionnaireSummary(db, created.questionnaireId))?.updatedAt;
+    expect(await updatedAtOf()).toBe("2026-01-01T00:00:00.000Z");
+
+    await setClosesAt(db, { questionnaireId: created.questionnaireId, closesAt: new Date("2031-01-01T00:00:00.000Z"), actorId: null, traceId: null });
+    expect(await updatedAtOf()).toBe("2026-01-01T00:00:00.000Z");
+
+    const written = await replaceDraft(db, {
+      questionnaireId: created.questionnaireId,
+      precondition: { versionId: created.draftVersionId, draftRevision: created.draftRevision },
+      title: "Edited again",
+      items: [],
+      actorId: null,
+      traceId: null,
+    });
+    const stored = await client.query<{ updated_at: Date }>("SELECT updated_at FROM definition.questionnaire_version WHERE id = $1", [
+      created.draftVersionId,
+    ]);
+
+    expect(written.outcome).toBe("saved");
+    expect(await updatedAtOf()).toBe(stored.rows[0]?.updated_at.toISOString());
+    expect(await updatedAtOf()).not.toBe("2026-01-01T00:00:00.000Z");
   });
 });
 

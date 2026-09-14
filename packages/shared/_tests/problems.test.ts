@@ -6,6 +6,7 @@ import {
   PROBLEMS,
   PROBLEM_SLUGS,
   ProblemDetails,
+  QUESTION_RULE_CODES,
   SUBMISSION_ITEM_CODES,
   problem,
   problemSlug,
@@ -37,6 +38,25 @@ describe("problem slugs", () => {
     expect(problemType("version/immutable")).toBe("https://qp.example/problems/version-immutable");
     for (const slug of PROBLEM_SLUGS) expect(problemSlug(problemType(slug))).toBe(slug);
     expect(problemSlug("https://qp.example/problems/made-up")).toBeUndefined();
+  });
+});
+
+describe("question rule codes", () => {
+  it("is the closed set of question rules, including the type lock", () => {
+    expect([...QUESTION_RULE_CODES]).toEqual([
+      "question/min-exceeds-max",
+      "question/min-length-exceeds-max-length",
+      "question/min-selections-exceeds-max-selections",
+      "question/selections-exceed-options",
+      "question/duplicate-option-id",
+      "question/freeform-not-other",
+      "question/type-changed",
+    ]);
+  });
+
+  it("carries question/type-changed in the request/invalid errors extension on the wire", () => {
+    const body = problem("request/invalid", { errors: [{ pointer: "/body/question/type", code: "question/type-changed" }] });
+    expect(Value.Check(ProblemDetails, body)).toBe(true);
   });
 });
 

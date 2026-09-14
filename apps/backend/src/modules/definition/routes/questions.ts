@@ -77,6 +77,9 @@ export async function questionRoutes(scope: FastifyInstance, { database }: Defin
     if (appended.outcome === "question-not-found") {
       return notFound(request);
     }
+    if (appended.outcome === "type-changed") {
+      return problem("request/invalid", { errors: [{ pointer: "/body/question/type", code: "question/type-changed" }] });
+    }
     return { status: 201, body: appended.question.latest };
   });
 
