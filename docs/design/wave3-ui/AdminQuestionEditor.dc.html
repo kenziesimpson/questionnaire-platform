@@ -1,0 +1,128 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      --bg:oklch(1 0 0);--fg:oklch(0.145 0 0);--muted:oklch(0.97 0 0);--mfg:oklch(0.556 0 0);
+      --border:oklch(0.922 0 0);--primary:oklch(0.205 0 0);--pfg:oklch(0.985 0 0);
+      --destructive:oklch(0.577 0.245 27.325);--ring:oklch(0.708 0 0);
+    }
+    body{margin:0;background:var(--bg);color:var(--fg);font-size:14px;
+      font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+      -webkit-font-smoothing:antialiased;}
+    a{color:oklch(0.205 0 0);text-underline-offset:4px;}
+    a:hover{color:oklch(0.145 0 0);}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;font-size:14px;font-weight:500;cursor:pointer;}
+    .btn.pri{background:var(--primary);color:var(--pfg);border-color:transparent;}
+    .btn.sm{height:28px;padding:0 8px;font-size:13px;border-radius:8px;}
+    .lbl{font-size:13px;font-weight:500;}
+    .meta{font-size:12px;line-height:1.5;color:var(--mfg);}
+    .in{height:32px;padding:0 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;font-size:14px;outline:none;width:100%;box-sizing:border-box;}
+    .idchip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;border:1px solid var(--border);border-radius:8px;background:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--mfg);flex-shrink:0;}
+    .pill{display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid var(--border);border-radius:999px;font-size:11px;font-weight:500;}
+    .seg{display:flex;align-items:center;padding:2px;border:1px solid var(--border);border-radius:10px;background:var(--muted);gap:2px;}
+    .seg span{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:8px;font-size:13px;color:var(--mfg);}
+    .seg span.on{background:var(--bg);color:var(--fg);font-weight:500;box-shadow:0 1px 2px oklch(0 0 0 / 6%);}
+  </style>
+</helmet>
+
+<div style="position: relative; width: 1280px; height: 760px; box-sizing: border-box; overflow: hidden">
+
+  <div style="display: flex; flex-direction: column; width: 1280px; filter: blur(1.5px); opacity: 0.6">
+    <div style="display: flex; align-items: center; height: 52px; padding: 0 20px; border-bottom: 1px solid var(--border); gap: 10px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="oklch(0.145 0 0)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10"></path><path d="M9 8h5"></path><path d="M9 12h5"></path><path d="m17 14 2 2 4-4"></path></svg>
+      <span style="font-size: 14px; font-weight: 600">Questionnaire admin</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 12px; padding: 24px">
+      <div style="width: 220px; height: 20px; border-radius: 6px; background: var(--muted)"></div>
+      <div style="height: 60px; border: 1px solid var(--border); border-radius: 10px"></div>
+      <div style="height: 60px; border: 1px solid var(--border); border-radius: 10px"></div>
+      <div style="height: 60px; border: 1px solid var(--border); border-radius: 10px"></div>
+    </div>
+  </div>
+
+  <div style="position: absolute; inset: 0; background: oklch(0.145 0 0 / 32%)"></div>
+
+  <div style="position: absolute; top: 64px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; width: 620px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); box-shadow: 0 24px 60px oklch(0 0 0 / 22%); overflow: hidden">
+
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--border)">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span style="font-size: 16px; font-weight: 600; letter-spacing: -0.01em">Edit question</span>
+        <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--mfg)">qst_which_condition &middot; version 4</span>
+      </div>
+      <button class="btn" style="width: 32px; padding: 0; border-color: transparent"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+    </div>
+
+    <div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 20px; background: var(--muted); border-bottom: 1px solid var(--border)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+      <span class="meta">Saving writes <strong style="color: var(--fg); font-weight: 600">version 5</strong> and re-pins this question in the Patient Intake draft. Versions 1&ndash;4 and everything published with them are untouched.</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 18px; padding: 20px">
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span class="lbl">Response type</span>
+        <div style="display: flex; align-items: center; gap: 10px">
+          <div class="seg" style="opacity: 0.6"><span>Text</span><span class="on">Single choice</span><span>Multiple choice</span><span>Number</span><span>Date</span></div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="10" x="4" y="11" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+        </div>
+        <span class="meta">Fixed after the first save. A rule that reads this question is typed to it, so a changed type would invalidate rules elsewhere.</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span class="lbl">Prompt</span>
+        <input class="in" type="text" value="Which condition?">
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span class="lbl">Options</span>
+
+        <div style="display: flex; align-items: center; gap: 10px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="oklch(0.708 0 0)" style="flex-shrink: 0"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>
+          <span class="idchip"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="10" x="4" y="11" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>opt_diabetes</span>
+          <input class="in" type="text" value="Diabetes">
+          <button class="btn sm" style="width: 28px; padding: 0; flex-shrink: 0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="oklch(0.708 0 0)" style="flex-shrink: 0"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>
+          <span class="idchip"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="10" x="4" y="11" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>opt_hyperten</span>
+          <input class="in" type="text" value="High blood pressure (hypertension)" style="border-color: var(--primary); box-shadow: 0 0 0 3px oklch(0.708 0 0 / 35%)">
+          <button class="btn sm" style="width: 28px; padding: 0; flex-shrink: 0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="oklch(0.708 0 0)" style="flex-shrink: 0"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>
+          <span class="idchip"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="10" x="4" y="11" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>other</span>
+          <input class="in" type="text" value="Other">
+          <span class="pill" style="flex-shrink: 0; color: var(--mfg)">Freeform</span>
+          <button class="btn sm" style="width: 28px; padding: 0; flex-shrink: 0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 2px">
+          <button class="btn sm"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>Add option</button>
+          <span class="meta" style="text-align: right">Ids are set once and never change. Relabelling is safe &mdash; answers already collected keep their meaning.</span>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 20px; border-top: 1px solid var(--border); background: var(--muted)">
+      <span class="meta">One save, one version.</span>
+      <div style="display: flex; gap: 8px">
+        <button class="btn">Cancel</button>
+        <button class="btn pri">Save as version 5</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

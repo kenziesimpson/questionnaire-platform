@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      --bg:oklch(1 0 0);--fg:oklch(0.145 0 0);--muted:oklch(0.97 0 0);--mfg:oklch(0.556 0 0);
+      --border:oklch(0.922 0 0);--primary:oklch(0.205 0 0);--pfg:oklch(0.985 0 0);
+      --destructive:oklch(0.577 0.245 27.325);--ring:oklch(0.708 0 0);
+    }
+    body{margin:0;background:var(--bg);color:var(--fg);font-size:14px;
+      font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+      -webkit-font-smoothing:antialiased;}
+    a{color:oklch(0.205 0 0);text-underline-offset:4px;}
+    a:hover{color:oklch(0.145 0 0);}
+    pre{margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.65;white-space:pre;overflow:hidden;}
+    .code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;}
+    .panel{display:flex;flex-direction:column;gap:12px;padding:18px;border:1px solid var(--border);border-radius:12px;min-width:0;}
+    .ph{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;}
+    .step{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:999px;background:var(--primary);color:var(--pfg);font-size:11px;font-weight:600;}
+    .note{font-size:12px;line-height:1.55;color:var(--mfg);}
+    .dim{color:var(--mfg);}
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 22px; width: 1240px; box-sizing: border-box; padding: 28px 20px 32px">
+
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -0.015em">From a rejected submit to a sentence under a question</h1>
+    <p style="margin: 0; font-size: 14px; line-height: 1.5; color: var(--mfg); max-width: 880px">The server sends codes keyed by item, never prose and never a value. The renderer turns a code into a message from the question alone, so a failure the browser caught and a failure the server caught read identically.</p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1.15fr 0.85fr 1fr; gap: 18px; align-items: stretch">
+
+    <div class="panel">
+      <span class="ph"><span class="step">1</span> The response body</span>
+      <pre>{
+  <span class="dim">"type"</span>: <span class="dim">"&hellip;/problems/submission-invalid"</span>,
+  <span class="dim">"title"</span>: <span class="dim">"The submission failed validation"</span>,
+  <span class="dim">"status"</span>: 422,
+  <span class="dim">"instance"</span>: <span class="dim">"/api/run/sessions/01a0951b/submit"</span>,
+  <span style="font-weight: 600">"items"</span>: [
+    { "itemId": "itm_02", "code": "answer/required" },
+    { "itemId": "itm_03", "code": "date/in-future" }
+  ]
+}</pre>
+      <span class="note">RFC 9457 problem details, <span class="code">application/problem+json</span>. The <span class="code">items</span> extension is the only part the form reads; it carries an item id and a rule name, and nothing the respondent typed.</span>
+    </div>
+
+    <div class="panel">
+      <span class="ph"><span class="step">2</span> What the app holds</span>
+      <pre>const errors: ItemErrors = {
+  itm_02: ["answer/required"],
+  itm_03: ["date/in-future"],
+}
+
+&lt;QuestionnaireForm
+  definition={definition}
+  answers={answers}
+  <span style="font-weight: 600">errors={errors}</span>
+  onChange={setAnswer}
+  mode="interactive"
+/&gt;</pre>
+      <span class="note">Group <span class="code">items</span> by <span class="code">itemId</span>, keeping server order. The same shape comes out of the shared validator run in the browser before submit, so there is one error path, not two.</span>
+    </div>
+
+    <div class="panel">
+      <span class="ph"><span class="step">3</span> What the respondent reads</span>
+      <div style="display: flex; flex-direction: column; gap: 14px; padding: 14px; border: 1px solid var(--border); border-radius: 10px">
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span style="font-size: 15px; font-weight: 500">Which condition?</span>
+          <div style="height: 38px; border: 1px solid var(--destructive); border-radius: 10px; background: var(--bg)"></div>
+          <span style="display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--destructive)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="oklch(0.577 0.245 27.325)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v5"></path><path d="M12 16h.01"></path></svg>
+            Answer this question.
+          </span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span style="font-size: 15px; font-weight: 500">When were you diagnosed?</span>
+          <div style="height: 38px; border: 1px solid var(--destructive); border-radius: 10px; background: var(--bg)"></div>
+          <span style="display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--destructive)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="oklch(0.577 0.245 27.325)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v5"></path><path d="M12 16h.01"></path></svg>
+            Enter a date that is not in the future.
+          </span>
+        </div>
+      </div>
+      <span class="note">One catalogue in <span class="code">questionnaire/messages.ts</span> builds each sentence from the question &mdash; an item shows its first code, and a message can never carry an answer back onto the screen.</span>
+    </div>
+
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+
+    <div class="panel">
+      <span class="ph">Two codes that never attach to a question</span>
+      <span class="note"><span class="code">answer/not-visible</span> and <span class="code">answer/unknown-item</span> describe the submission, not an item on screen. The renderer ignores them, so the form handles them itself: a banner above the questions, not a red line under one.</span>
+      <div style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--muted)">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="oklch(0.145 0 0)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 1px"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v5"></path><path d="M12 16h.01"></path></svg>
+        <span style="font-size: 13px; line-height: 1.5">Some answers no longer apply after your last change. Check the questions below and submit again.</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <span class="ph">The admin side is the same shape, with one gap</span>
+      <span class="note">A publish rejection is <span class="code">422 questionnaire/draft-invalid</span> with the identical <span class="code">items</span> extension, keyed by item and carrying a <span class="code">DraftItemCode</span>. The draft editor groups it the same way and shows it in the publish-checks rail.</span>
+      <span class="note" style="color: var(--fg)"><strong style="font-weight: 600">To build in Wave 3:</strong> there is no message catalogue for the ten draft codes yet &mdash; <span class="code">questionnaire/messages.ts</span> covers submission codes only. The admin app needs its own, written for an author rather than a respondent, saying what to change and not just what is wrong.</span>
+    </div>
+
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
