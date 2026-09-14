@@ -2,8 +2,9 @@
 
 The only code both halves of the backend (definition and execution) and the frontend share
 ([`docs/7-application-boundary.md`](../../docs/7-application-boundary.md) §3.3): wire types and
-schemas, and the conditional-branching rule engine, so the client (rendering) and the server
-(submit-time authority) evaluate the exact same logic (`docs/2-design-doc.md` §7, §8).
+schemas, the conditional-branching rule engine, so the client (rendering) and the server
+(submit-time authority) evaluate the exact same logic (`docs/2-design-doc.md` §7, §8), and the
+stored-snapshot loader, so every reader upgrades and checks a published snapshot the same way.
 
 ## Conventions
 
@@ -18,7 +19,7 @@ schemas, and the conditional-branching rule engine, so the client (rendering) an
 | Path | Contents |
 | --- | --- |
 | `src/primitives.ts` | Shared TypeBox primitives (`Uuid`, `Slug`, `IsoDate`, …) |
-| `src/domain/` | Questionnaire, question, condition, definition, draft, answer and session schemas |
+| `src/domain/` | Questionnaire, question, condition, definition, draft, answer and session schemas; `readStoredDefinition`, which upgrades a stored snapshot to the current format and checks it |
 | `src/problems.ts` | The closed set of RFC 9457 problem types the API can return |
 | `src/sensitive.ts` | `Sensitive<T>`, the wrapper that keeps a respondent's answer values out of logs |
 | `src/api/` | Route/schema plumbing and ETag helpers shared by the definition and execution APIs |
