@@ -1,5 +1,5 @@
 import type { QuestionnaireSummary } from "@qp/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { recordAudit } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
 import { questionnaire, questionnaireVersion } from "../schema.js";
@@ -26,7 +26,7 @@ async function lockClosesAt(tx: Transaction, questionnaireId: string): Promise<{
 
 async function hasOpenDraft(tx: Transaction, questionnaireId: string): Promise<boolean> {
   const drafts = await tx
-    .select({ one: sql`1` })
+    .select({ id: questionnaireVersion.id })
     .from(questionnaireVersion)
     .where(and(eq(questionnaireVersion.questionnaireId, questionnaireId), eq(questionnaireVersion.status, "draft")));
   return drafts.length > 0;

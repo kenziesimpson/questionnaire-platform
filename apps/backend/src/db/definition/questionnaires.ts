@@ -2,20 +2,18 @@ import {
   validateDraft,
   type DraftItem,
   type DraftValidation,
-  type Predicate,
   type QuestionnaireDraft,
   type QuestionnaireSummary,
-  type QuestionVersion,
 } from "@qp/shared";
-import type { PgColumn, PgTransactionConfig } from "drizzle-orm/pg-core";
-import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
+import type { PgTransactionConfig } from "drizzle-orm/pg-core";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
 import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
 import type { Database, Executor, Transaction } from "../client.js";
-import { question, questionnaire, questionnaireItem, questionnaireVersion, questionVersion, questionVersionOption } from "../schema.js";
-import { draftForValidation, readDraftItems } from "./publish.js";
-import { storedQuestionToContent, type StoredOption } from "./question-content.js";
+import { question, questionnaire, questionnaireItem, questionnaireVersion, questionVersion } from "../schema.js";
+import { draftForValidation, itemsWithQuestionContent, pinnedQuestionVersionsInPlacementOrder, readDraftContents } from "./draft-contents.js";
+import { questionVersionKey } from "./question-versions.js";
 
 const READ_ONLY_SNAPSHOT: PgTransactionConfig = { isolationLevel: "repeatable read", accessMode: "read only" };
 
@@ -103,90 +101,20 @@ async function findDraftVersion(executor: Executor, questionnaireId: string) {
   return draft;
 }
 
-function questionVersionKey(questionId: string, version: number): string {
-  return `${questionId}:${version}`;
-}
-
-function pinnedByDraft(questionIdColumn: PgColumn, versionColumn: PgColumn, draftVersionId: string): SQL {
-  return sql`(${questionIdColumn}, ${versionColumn}) IN (
-    SELECT ${questionnaireItem.questionId}, ${questionnaireItem.questionVersion}
-      FROM ${questionnaireItem}
-     WHERE ${questionnaireItem.questionnaireVersionId} = ${draftVersionId})`;
-}
-
-async function readPinnedQuestionVersions(
-  executor: Executor,
-  draftVersionId: string,
-  itemsInPosition: readonly DraftItem[],
-): Promise<QuestionVersion[]> {
-  const versions = await executor
-    .select({
-      questionId: questionVersion.questionId,
-      version: questionVersion.version,
-      type: questionVersion.type,
-      prompt: questionVersion.prompt,
-      constraints: questionVersion.constraints,
-      createdAt: questionVersion.createdAt,
-      createdBy: questionVersion.createdBy,
-    })
-    .from(questionVersion)
-    .where(pinnedByDraft(questionVersion.questionId, questionVersion.version, draftVersionId));
-  const options = await executor
-    .select({
-      questionId: questionVersionOption.questionId,
-      version: questionVersionOption.version,
-      optionId: questionVersionOption.optionId,
-      label: questionVersionOption.label,
-      freeform: questionVersionOption.freeform,
-    })
-    .from(questionVersionOption)
-    .where(pinnedByDraft(questionVersionOption.questionId, questionVersionOption.version, draftVersionId))
-    .orderBy(asc(questionVersionOption.position));
-
-  const optionsByQuestionVersion = new Map<string, StoredOption[]>();
-  for (const option of options) {
-    const key = questionVersionKey(option.questionId, option.version);
-    optionsByQuestionVersion.set(key, [...(optionsByQuestionVersion.get(key) ?? []), option]);
-  }
-  const versionsByKey = new Map(
-    versions.map((row) => [
-      questionVersionKey(row.questionId, row.version),
-      {
-        ...storedQuestionToContent(row, optionsByQuestionVersion.get(questionVersionKey(row.questionId, row.version)) ?? []),
-        createdAt: row.createdAt.toISOString(),
-        createdBy: row.createdBy,
-      },
-    ]),
-  );
-  const firstPlacementOrder = [...new Set(itemsInPosition.map((item) => questionVersionKey(item.questionId, item.questionVersion)))];
-  return firstPlacementOrder.flatMap((key) => versionsByKey.get(key) ?? []);
-}
-
 async function readCurrentDraft(executor: Executor, questionnaireId: string): Promise<CurrentDraft | undefined> {
   const version = await findDraftVersion(executor, questionnaireId);
   if (version === undefined) {
     return undefined;
   }
-  const rows = await executor
-    .select({
-      itemId: questionnaireItem.itemId,
-      required: questionnaireItem.required,
-      visibleWhen: questionnaireItem.visibleWhen,
-      questionId: questionnaireItem.questionId,
-      questionVersion: questionnaireItem.questionVersion,
-    })
-    .from(questionnaireItem)
-    .where(eq(questionnaireItem.questionnaireVersionId, version.id))
-    .orderBy(asc(questionnaireItem.position));
-  const items: DraftItem[] = rows.map((row) => ({ ...row, visibleWhen: row.visibleWhen as Predicate | null }));
+  const contents = await readDraftContents(executor, version.id);
   return {
     draft: {
       questionnaireId,
       versionId: version.id,
       title: version.title,
       updatedAt: version.updatedAt.toISOString(),
-      items,
-      questions: await readPinnedQuestionVersions(executor, version.id, items),
+      items: [...contents.items],
+      questions: pinnedQuestionVersionsInPlacementOrder(contents),
     },
     draftRevision: version.draftRevision,
   };
@@ -248,9 +176,9 @@ async function refusedPlacement(tx: Transaction, items: readonly DraftItem[]): P
     .select({ questionId: questionVersion.questionId, version: questionVersion.version })
     .from(questionVersion)
     .where(inArray(questionVersion.questionId, questionIds));
-  const knownKeys = new Set(known.map((row) => questionVersionKey(row.questionId, row.version)));
+  const knownKeys = new Set(known.map((row) => questionVersionKey(row)));
   const unknownItemIds = items
-    .filter((item) => !knownKeys.has(questionVersionKey(item.questionId, item.questionVersion)))
+    .filter((item) => !knownKeys.has(questionVersionKey({ questionId: item.questionId, version: item.questionVersion })))
     .map((item) => item.itemId);
   return unknownItemIds.length > 0 ? { outcome: "unknown-question-version", itemIds: unknownItemIds } : undefined;
 }
@@ -282,7 +210,8 @@ export async function replaceDraft(executor: Executor, command: ReplaceDraftComm
       .update(questionnaireVersion)
       .set({
         title: command.title,
-        draftRevision: sql`${questionnaireVersion.draftRevision} + 1`,
+        draftRevision: draft.draftRevision + 1,
+        // eslint-disable-next-line no-restricted-syntax -- updated_at takes the database's transaction timestamp, the same clock as every column default
         updatedAt: sql`now()`,
       })
       .where(eq(questionnaireVersion.id, draft.id));
@@ -408,6 +337,6 @@ export async function validateOpenDraft(database: Database, questionnaireId: str
     if (draft === undefined) {
       return undefined;
     }
-    return validateDraft(await draftForValidation(tx, await readDraftItems(tx, draft.id)));
+    return validateDraft(await draftForValidation(tx, itemsWithQuestionContent(await readDraftContents(tx, draft.id))));
   }, READ_ONLY_SNAPSHOT);
 }

@@ -1,11 +1,12 @@
 import type { Question, QuestionInput, QuestionUsage, QuestionVersion, QuestionVersionSummary } from "@qp/shared";
-import { and, asc, desc, eq, gt, isNotNull, isNull, notExists, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNotNull, isNull, max, notExists, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
 import { question, questionnaireVersion, questionVersion, questionVersionOption, versionQuestionIndex } from "../schema.js";
-import { questionInputToColumns, storedQuestionToVersion, type StoredOption } from "./question-content.js";
+import { questionInputToColumns, storedQuestionToVersion } from "./question-content.js";
+import { questionVersionIn, questionVersionKey, readOptionsInPosition, readQuestionVersions } from "./question-versions.js";
 
 export interface CreateQuestionCommand {
   readonly questionId?: string;
@@ -94,13 +95,13 @@ export async function appendQuestionVersion(
       return { outcome: "not-found" };
     }
     const [latest] = await tx
-      .select({ next: sql<number>`coalesce(max(${questionVersion.version}), 0) + 1` })
+      .select({ version: max(questionVersion.version) })
       .from(questionVersion)
       .where(eq(questionVersion.questionId, command.questionId));
     const saved = await insertQuestionVersion(
       tx,
       command.questionId,
-      Number(latest?.next ?? 1),
+      (latest?.version ?? 0) + 1,
       command.content,
       command.createdBy,
       command.traceId,
@@ -111,40 +112,10 @@ export async function appendQuestionVersion(
 
 const newerVersion = alias(questionVersion, "newer_version");
 
-function questionVersionColumns(executor: Executor) {
-  const optionsInPosition = executor
-    .select({
-      options: sql`json_agg(
-        json_build_object(
-          'optionId', ${questionVersionOption.optionId},
-          'label', ${questionVersionOption.label},
-          'freeform', ${questionVersionOption.freeform})
-        ORDER BY ${questionVersionOption.position})`,
-    })
-    .from(questionVersionOption)
-    .where(
-      and(
-        eq(questionVersionOption.questionId, questionVersion.questionId),
-        eq(questionVersionOption.version, questionVersion.version),
-      ),
-    );
-
-  return {
-    questionId: questionVersion.questionId,
-    version: questionVersion.version,
-    type: questionVersion.type,
-    prompt: questionVersion.prompt,
-    constraints: questionVersion.constraints,
-    createdAt: questionVersion.createdAt,
-    createdBy: questionVersion.createdBy,
-    options: sql<StoredOption[]>`coalesce((${optionsInPosition}), '[]'::json)`,
-  };
-}
-
 async function readLatestQuestions(executor: Executor, filter: SQL | undefined): Promise<Question[]> {
   const isLatestVersion = notExists(
     executor
-      .select({ one: sql`1` })
+      .select({ version: newerVersion.version })
       .from(newerVersion)
       .where(and(eq(newerVersion.questionId, questionVersion.questionId), gt(newerVersion.version, questionVersion.version))),
   );
@@ -154,19 +125,28 @@ async function readLatestQuestions(executor: Executor, filter: SQL | undefined):
       key: question.key,
       archivedAt: question.archivedAt,
       questionCreatedAt: question.createdAt,
-      latest: questionVersionColumns(executor),
+      latest: {
+        questionId: questionVersion.questionId,
+        version: questionVersion.version,
+        type: questionVersion.type,
+        prompt: questionVersion.prompt,
+        constraints: questionVersion.constraints,
+        createdAt: questionVersion.createdAt,
+        createdBy: questionVersion.createdBy,
+      },
     })
     .from(question)
     .innerJoin(questionVersion, eq(questionVersion.questionId, question.id))
     .where(and(isLatestVersion, filter))
     .orderBy(desc(question.id));
 
+  const optionsByKey = await readOptionsInPosition(executor, questionVersionIn(rows.map((row) => row.latest)));
   return rows.map((row) => ({
     questionId: row.latest.questionId,
     key: row.key,
     archivedAt: row.archivedAt?.toISOString() ?? null,
     createdAt: row.questionCreatedAt.toISOString(),
-    latest: storedQuestionToVersion(row.latest, row.latest.options),
+    latest: storedQuestionToVersion(row.latest, optionsByKey.get(questionVersionKey(row.latest)) ?? []),
   }));
 }
 
@@ -213,11 +193,9 @@ export async function findQuestionVersion(
   questionId: string,
   version: number,
 ): Promise<QuestionVersion | undefined> {
-  const [row] = await executor
-    .select(questionVersionColumns(executor))
-    .from(questionVersion)
-    .where(and(eq(questionVersion.questionId, questionId), eq(questionVersion.version, version)));
-  return row === undefined ? undefined : storedQuestionToVersion(row, row.options);
+  const key = { questionId, version };
+  const loaded = (await readQuestionVersions(executor, questionVersionIn([key]))).get(questionVersionKey(key));
+  return loaded === undefined ? undefined : storedQuestionToVersion(loaded.stored, loaded.options);
 }
 
 export async function listQuestionUsage(executor: Executor, questionId: string): Promise<QuestionUsage[] | undefined> {
@@ -257,6 +235,7 @@ export async function archiveQuestion(executor: Executor, command: ArchiveQuesti
   return executor.transaction(async (tx) => {
     const archived = await tx
       .update(question)
+      // eslint-disable-next-line no-restricted-syntax -- archived_at takes the database's transaction timestamp, the same clock as every column default
       .set({ archivedAt: sql`now()` })
       .where(and(eq(question.id, command.questionId), isNull(question.archivedAt)))
       .returning({ id: question.id });

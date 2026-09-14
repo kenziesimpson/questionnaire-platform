@@ -1,27 +1,11 @@
-import {
-  FORMAT_VERSION,
-  PublishedDefinition,
-  validateDraft,
-  type DraftForValidation,
-  type DraftItemCode,
-  type Item,
-  type ItemError,
-  type Predicate,
-} from "@qp/shared";
-import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { FORMAT_VERSION, PublishedDefinition, validateDraft, type DraftItemCode, type ItemError } from "@qp/shared";
+import { and, eq, max, sql } from "drizzle-orm";
 import { Value } from "typebox/value";
 import { recordAudit } from "../audit.js";
 import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
 import type { Executor, Transaction } from "../client.js";
-import {
-  question,
-  questionnaire,
-  questionnaireItem,
-  questionnaireVersion,
-  questionVersion,
-  questionVersionOption,
-} from "../schema.js";
-import { storedQuestionToContent, type StoredOption } from "./question-content.js";
+import { questionnaire, questionnaireVersion } from "../schema.js";
+import { draftForValidation, itemsWithQuestionContent, readDraftContents } from "./draft-contents.js";
 
 export interface PublishDraftCommand {
   readonly questionnaireId: string;
@@ -68,90 +52,10 @@ async function lockDraft(tx: Transaction, questionnaireId: string) {
 
 async function nextVersionNumber(tx: Transaction, questionnaireId: string): Promise<number> {
   const [row] = await tx
-    .select({ next: sql<number>`coalesce(max(${questionnaireVersion.version}), 0) + 1` })
+    .select({ latest: max(questionnaireVersion.version) })
     .from(questionnaireVersion)
     .where(eq(questionnaireVersion.questionnaireId, questionnaireId));
-  return Number(row?.next ?? 1);
-}
-
-export async function readDraftItems(tx: Transaction, draftVersionId: string): Promise<Item[]> {
-  const rows = await tx
-    .select({
-      itemId: questionnaireItem.itemId,
-      required: questionnaireItem.required,
-      visibleWhen: questionnaireItem.visibleWhen,
-      questionId: questionVersion.questionId,
-      version: questionVersion.version,
-      type: questionVersion.type,
-      prompt: questionVersion.prompt,
-      constraints: questionVersion.constraints,
-    })
-    .from(questionnaireItem)
-    .innerJoin(
-      questionVersion,
-      and(
-        eq(questionVersion.questionId, questionnaireItem.questionId),
-        eq(questionVersion.version, questionnaireItem.questionVersion),
-      ),
-    )
-    .where(eq(questionnaireItem.questionnaireVersionId, draftVersionId))
-    .orderBy(asc(questionnaireItem.position));
-
-  const options = await tx
-    .select({
-      questionId: questionVersionOption.questionId,
-      version: questionVersionOption.version,
-      optionId: questionVersionOption.optionId,
-      label: questionVersionOption.label,
-      freeform: questionVersionOption.freeform,
-    })
-    .from(questionVersionOption)
-    .where(
-      sql`(${questionVersionOption.questionId}, ${questionVersionOption.version}) IN (
-        SELECT ${questionnaireItem.questionId}, ${questionnaireItem.questionVersion}
-          FROM ${questionnaireItem}
-         WHERE ${questionnaireItem.questionnaireVersionId} = ${draftVersionId})`,
-    )
-    .orderBy(asc(questionVersionOption.position));
-
-  const optionsByQuestionVersion = new Map<string, StoredOption[]>();
-  for (const option of options) {
-    const key = `${option.questionId}:${option.version}`;
-    optionsByQuestionVersion.set(key, [...(optionsByQuestionVersion.get(key) ?? []), option]);
-  }
-
-  return rows.map((row) => ({
-    itemId: row.itemId,
-    required: row.required,
-    visibleWhen: row.visibleWhen as Predicate | null,
-    question: storedQuestionToContent(row, optionsByQuestionVersion.get(`${row.questionId}:${row.version}`) ?? []),
-  }));
-}
-
-async function archivedQuestionIds(tx: Transaction, items: readonly Item[]): Promise<Set<string>> {
-  const questionIds = [...new Set(items.map((item) => item.question.questionId))];
-  if (questionIds.length === 0) {
-    return new Set();
-  }
-  const archived = await tx
-    .select({ id: question.id })
-    .from(question)
-    .where(and(inArray(question.id, questionIds), isNotNull(question.archivedAt)));
-  return new Set(archived.map((row) => row.id));
-}
-
-export async function draftForValidation(tx: Transaction, items: readonly Item[]): Promise<DraftForValidation> {
-  return {
-    items: items.map((item) => ({
-      itemId: item.itemId,
-      required: item.required,
-      visibleWhen: item.visibleWhen,
-      questionId: item.question.questionId,
-      questionVersion: item.question.questionVersion,
-    })),
-    questions: items.map((item) => item.question),
-    archivedQuestionIds: await archivedQuestionIds(tx, items),
-  };
+  return (row?.latest ?? 0) + 1;
 }
 
 export async function publishDraft(executor: Executor, command: PublishDraftCommand): Promise<PublishDraftOutcome> {
@@ -173,7 +77,7 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
       questionnaireId: command.questionnaireId,
       version,
       title: draft.title,
-      items: await readDraftItems(tx, draft.id),
+      items: itemsWithQuestionContent(await readDraftContents(tx, draft.id)),
     };
 
     const validation = validateDraft(await draftForValidation(tx, definition.items));
@@ -185,6 +89,7 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
     }
 
     const promoted = await tx.execute<{ version: number }>(
+      // eslint-disable-next-line no-restricted-syntax -- definition.promote_draft is a SECURITY DEFINER function (Decisions Log #51); the query builder cannot call a Postgres function
       sql`SELECT definition.promote_draft(${draft.id}::uuid, ${JSON.stringify(definition)}::jsonb) AS version`,
     );
     if (promoted.rows[0]?.version !== version) {

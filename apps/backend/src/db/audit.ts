@@ -17,6 +17,7 @@ export interface AuditEntry {
 export async function recordAudit(tx: Transaction, entry: AuditEntry): Promise<string> {
   const summary = entry.summary === null ? null : JSON.stringify(entry.summary);
   const result = await tx.execute<{ id: string }>(
+    // eslint-disable-next-line no-restricted-syntax -- audit.record is the SECURITY DEFINER function that is the only write path into audit.event (Decisions Log #24); the query builder cannot call a Postgres function
     sql`SELECT audit.record(
           ${entry.action}::text,
           ${entry.questionnaireId}::uuid,
