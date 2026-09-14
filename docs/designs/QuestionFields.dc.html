@@ -1,0 +1,108 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      --bg:oklch(1 0 0);--fg:oklch(0.145 0 0);--muted:oklch(0.97 0 0);--mfg:oklch(0.556 0 0);
+      --border:oklch(0.922 0 0);--primary:oklch(0.205 0 0);--pfg:oklch(0.985 0 0);
+      --destructive:oklch(0.577 0.245 27.325);--ring:oklch(0.708 0 0);
+    }
+    body{margin:0;background:var(--bg);color:var(--fg);font-size:14px;
+      font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+      -webkit-font-smoothing:antialiased;}
+    a{color:oklch(0.205 0 0);text-underline-offset:4px;}
+    a:hover{color:oklch(0.145 0 0);}
+    .code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--mfg);}
+    .row{display:grid;grid-template-columns:170px 1fr 300px;gap:24px;padding:18px 20px;border-bottom:1px solid var(--border);align-items:start;}
+    .tname{font-size:14px;font-weight:600;}
+    .field{display:flex;flex-direction:column;gap:6px;}
+    .flab{font-size:12px;font-weight:500;color:var(--mfg);}
+    .in{height:32px;padding:0 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;font-size:13px;outline:none;box-sizing:border-box;}
+    .seg{display:inline-flex;align-items:center;padding:2px;border:1px solid var(--border);border-radius:10px;background:var(--muted);gap:2px;}
+    .seg span{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:8px;font-size:12px;color:var(--mfg);white-space:nowrap;}
+    .seg span.on{background:var(--bg);color:var(--fg);font-weight:500;box-shadow:0 1px 2px oklch(0 0 0 / 6%);}
+    .note{font-size:12px;line-height:1.55;color:var(--mfg);}
+    .chk{display:inline-flex;align-items:center;gap:8px;font-size:13px;}
+    .box{display:block;width:16px;height:16px;border:1px solid var(--border);border-radius:4px;}
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 20px; width: 1240px; box-sizing: border-box; padding: 28px 20px 32px">
+
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -0.015em">Question editor &mdash; the fields each type shows</h1>
+    <p style="margin: 0; font-size: 14px; line-height: 1.5; color: var(--mfg); max-width: 860px">Choosing the response type decides the rest of the dialog. Every field below is optional unless marked, and the editor's job is to make the six cross-field rules unrepresentable rather than report them: a save that trips one comes back <span class="code">400 request/invalid</span>, which the author should never see.</p>
+  </div>
+
+  <div style="display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; overflow: hidden">
+
+    <div class="row" style="background: var(--muted); padding-top: 10px; padding-bottom: 10px">
+      <span class="flab">Response type</span><span class="flab">Fields after Prompt</span><span class="flab">What the editor prevents</span>
+    </div>
+
+    <div class="row">
+      <div style="display: flex; flex-direction: column; gap: 3px"><span class="tname">Text</span><span class="code">text</span></div>
+      <div style="display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap">
+        <div class="field" style="width: 130px"><span class="flab">Min length</span><input class="in" type="text" value="0"></div>
+        <div class="field" style="width: 130px"><span class="flab">Max length</span><input class="in" type="text" value="120"></div>
+        <label class="chk" style="height: 32px"><span class="box"></span>Multiline</label>
+      </div>
+      <span class="note">Max is clamped to at or above min while typing.<br><span class="code">question/min-length-exceeds-max-length</span></span>
+    </div>
+
+    <div class="row">
+      <div style="display: flex; flex-direction: column; gap: 3px"><span class="tname">Single choice</span><span class="code">single_choice</span></div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div class="field"><span class="flab">Options &mdash; at least one, ids fixed at creation</span>
+          <div style="display: flex; gap: 8px; align-items: center"><span class="in" style="display: inline-flex; align-items: center; width: 210px">Diabetes</span><span class="in" style="display: inline-flex; align-items: center; width: 210px">High blood pressure</span><span class="code">+ Add option</span></div>
+        </div>
+        <label class="chk"><span class="box"></span>Allow a freeform &ldquo;Other&rdquo; option</label>
+      </div>
+      <span class="note">Ids are generated, never typed, and only the <span class="code">other</span> option can be freeform.<br><span class="code">question/duplicate-option-id</span> &middot; <span class="code">question/freeform-not-other</span></span>
+    </div>
+
+    <div class="row">
+      <div style="display: flex; flex-direction: column; gap: 3px"><span class="tname">Multiple choice</span><span class="code">multiple_choice</span></div>
+      <div style="display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap">
+        <div class="field" style="width: 260px"><span class="flab">Options</span><span class="in" style="display: inline-flex; align-items: center">4 options &middot; edit list</span></div>
+        <div class="field" style="width: 140px"><span class="flab">Min selections</span><input class="in" type="text" value="1"></div>
+        <div class="field" style="width: 140px"><span class="flab">Max selections</span><input class="in" type="text" value="3"></div>
+      </div>
+      <span class="note">Both bounds are capped by the number of options, and max cannot fall below min.<br><span class="code">question/min-selections-exceeds-max-selections</span> &middot; <span class="code">question/selections-exceed-options</span></span>
+    </div>
+
+    <div class="row">
+      <div style="display: flex; flex-direction: column; gap: 3px"><span class="tname">Number</span><span class="code">number</span></div>
+      <div style="display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap">
+        <div class="field"><span class="flab">Kind &mdash; required</span><div class="seg"><span class="on">Whole number</span><span>Decimal</span></div></div>
+        <div class="field" style="width: 110px"><span class="flab">Min</span><input class="in" type="text" value="0"></div>
+        <div class="field" style="width: 110px"><span class="flab">Max</span><input class="in" type="text" value="200"></div>
+        <div class="field" style="width: 120px"><span class="flab">Unit</span><input class="in" type="text" value="units"></div>
+      </div>
+      <span class="note">Kind is the only required constraint on any type. The unit is a label the server copies onto each answer; the respondent never types it.<br><span class="code">question/min-exceeds-max</span></span>
+    </div>
+
+    <div class="row" style="border-bottom: 0">
+      <div style="display: flex; flex-direction: column; gap: 3px"><span class="tname">Date</span><span class="code">date</span></div>
+      <div style="display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap">
+        <div class="field" style="width: 150px"><span class="flab">Earliest</span><input class="in" type="date"></div>
+        <div class="field" style="width: 150px"><span class="flab">Latest</span><input class="in" type="date"></div>
+        <div class="field"><span class="flab">Relative to today</span><div class="seg"><span>Any</span><span class="on">Not in the future</span><span>Not in the past</span></div></div>
+      </div>
+      <span class="note">Fixed bounds and the relative rule can both be set; they are checked independently at submit.<br><span class="code">question/min-exceeds-max</span></span>
+    </div>
+
+  </div>
+
+  <p style="margin: 0; font-size: 12px; line-height: 1.6; color: var(--mfg); max-width: 900px">The response type is chosen once, on creation, and locked afterwards &mdash; a branching rule is typed to the question it reads, so changing a published question's type would invalidate rules in questionnaires the author cannot see from here. A <strong style="color: var(--fg); font-weight: 600">Yes / No</strong> button beside the type row creates a single choice pre-filled with <span class="code">yes</span> / <span class="code">no</span> and editable labels.</p>
+
+</div>
+</x-dc>
+</body>
+</html>
