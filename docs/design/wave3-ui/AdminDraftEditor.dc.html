@@ -1,0 +1,226 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      --bg:oklch(1 0 0);--fg:oklch(0.145 0 0);--muted:oklch(0.97 0 0);--mfg:oklch(0.556 0 0);
+      --border:oklch(0.922 0 0);--primary:oklch(0.205 0 0);--pfg:oklch(0.985 0 0);
+      --destructive:oklch(0.577 0.245 27.325);--ring:oklch(0.708 0 0);
+    }
+    body{margin:0;background:var(--bg);color:var(--fg);font-size:14px;
+      font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+      -webkit-font-smoothing:antialiased;}
+    a{color:oklch(0.205 0 0);text-underline-offset:4px;}
+    a:hover{color:oklch(0.145 0 0);}
+    .nav{display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:10px;font-size:14px;color:var(--mfg);}
+    .nav.on{background:var(--muted);color:var(--fg);font-weight:500;}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;font-size:14px;font-weight:500;cursor:pointer;}
+    .btn.pri{background:var(--primary);color:var(--pfg);border-color:transparent;}
+    .btn.off{background:var(--muted);color:var(--mfg);border-color:var(--border);cursor:not-allowed;}
+    .btn.sm{height:28px;padding:0 8px;font-size:13px;border-radius:8px;}
+    .pill{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border:1px solid var(--border);border-radius:999px;font-size:11px;font-weight:500;background:var(--bg);}
+    .meta{font-size:12px;color:var(--mfg);}
+    .code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;}
+    .sel{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;height:30px;padding:0 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);font-size:13px;}
+    .card{border:1px solid var(--border);border-radius:10px;}
+    .rail-h{font-size:13px;font-weight:600;letter-spacing:-0.005em;}
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; width: 1280px; box-sizing: border-box">
+
+  <div style="display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 20px; border-bottom: 1px solid var(--border)">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="oklch(0.145 0 0)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10"></path><path d="M9 8h5"></path><path d="M9 12h5"></path><path d="m17 14 2 2 4-4"></path></svg>
+      <span style="font-size: 14px; font-weight: 600; letter-spacing: -0.01em">Questionnaire admin</span>
+    </div>
+    <span style="font-size: 12px; color: var(--mfg)">No sign-in in this prototype &middot; authoring surface</span>
+  </div>
+
+  <div style="display: flex; align-items: stretch">
+
+    <div style="display: flex; flex-direction: column; gap: 4px; width: 200px; flex-shrink: 0; padding: 16px 12px; border-right: 1px solid var(--border); min-height: 880px">
+      <div class="nav on">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg>
+        Questionnaires
+      </div>
+      <div class="nav">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"></path></svg>
+        Question bank
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 20px; flex-grow: 1; min-width: 0; padding: 20px 24px 32px">
+
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 8px" class="meta">
+          <a href="#">Questionnaires</a>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+          <span>Patient Intake</span>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 24px">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <h1 style="margin: 0; font-size: 20px; line-height: 1.3; font-weight: 600; letter-spacing: -0.01em">Patient Intake</h1>
+            <span class="pill" style="background: var(--muted)">Draft</span>
+            <span class="meta">published v2 &middot; publishing creates v3</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px">
+            <button class="btn">Version history</button>
+            <button class="btn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              Preview
+            </button>
+            <button class="btn off">Publish</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: flex-start; gap: 24px">
+
+        <div style="display: flex; flex-direction: column; gap: 10px; flex-grow: 1; min-width: 0">
+
+          <div style="display: flex; align-items: center; justify-content: space-between">
+            <span style="font-size: 13px; font-weight: 600">5 questions</span>
+            <span class="meta">Drag to reorder &middot; order is the respondent's order</span>
+          </div>
+
+          <div class="card" style="display: flex; flex-direction: column">
+
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="oklch(0.708 0 0)"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>
+              <span class="meta" style="width: 14px">1</span>
+              <div style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-width: 0">
+                <span style="font-weight: 500">Do you have a medical condition?</span>
+                <span class="meta">Single choice &middot; Yes / No &middot; pinned v1 &middot; Required &middot; Always shown</span>
+              </div>
+              <button class="btn sm">Edit</button>
+            </div>
+
+            <div style="display: flex; flex-direction: column; background: var(--muted); border-bottom: 1px solid var(--border)">
+              <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="oklch(0.708 0 0)"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>
+                <span class="meta" style="width: 14px">2</span>
+                <div style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-width: 0">
+                  <span style="font-weight: 500">Which condition?</span>
+                  <span class="meta">Single choice &middot; 3 options &middot; pinned v4 &middot; Required</span>
+                </div>
+                <button class="btn sm">Edit</button>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 10px; margin: 0 14px 14px 54px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg)">
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <span style="font-size: 13px; font-weight: 500">Shown when</span>
+                  <span class="sel" style="width: 76px">All <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span>
+                  <span style="font-size: 13px; font-weight: 500">of these are true</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <span class="sel" style="flex-grow: 1; min-width: 0"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">1. Do you have a medical condition?</span> <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span>
+                  <span class="sel" style="width: 96px">is <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span>
+                  <span class="sel" style="width: 110px">Yes <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span>
+                  <button class="btn sm" style="width: 28px; padding: 0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+                </div>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+                  <button class="btn sm">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+                    Add condition
+                  </button>
+                  <span class="meta">Only questions above this one, and only operators its type allows.</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); background: color-mix(in oklch, var(--destructive) 4%, var(--bg))">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="oklch(0.708 0 0)"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>
+              <span class="meta" style="width: 14px">3</span>
+              <div style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-width: 0">
+                <span style="font-weight: 500">When were you diagnosed?</span>
+                <span style="font-size: 12px; color: var(--destructive)">Date &middot; pinned v1 &middot; Required &middot; Rule points at question 5, which comes later</span>
+              </div>
+              <span class="pill" style="border-color: color-mix(in oklch, var(--destructive) 40%, var(--bg)); color: var(--destructive)">1 problem</span>
+              <button class="btn sm">Edit</button>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="oklch(0.708 0 0)"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>
+              <span class="meta" style="width: 14px">4</span>
+              <div style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-width: 0">
+                <span style="font-weight: 500">Preferred pharmacy</span>
+                <span class="meta">Text &middot; pinned v1 &middot; Required &middot; Always shown</span>
+              </div>
+              <span class="pill" style="color: var(--mfg)">v2 in bank</span>
+              <button class="btn sm">Edit</button>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: color-mix(in oklch, var(--destructive) 4%, var(--bg))">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="oklch(0.708 0 0)"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>
+              <span class="meta" style="width: 14px">5</span>
+              <div style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-width: 0">
+                <span style="font-weight: 500">Do you smoke?</span>
+                <span style="font-size: 12px; color: var(--destructive)">Single choice &middot; pinned v2 &middot; Required &middot; Archived in the bank</span>
+              </div>
+              <span class="pill" style="border-color: color-mix(in oklch, var(--destructive) 40%, var(--bg)); color: var(--destructive)">1 problem</span>
+              <button class="btn sm">Edit</button>
+            </div>
+
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 8px">
+            <button class="btn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+              Add from bank
+            </button>
+            <button class="btn">New question</button>
+          </div>
+
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px; width: 320px; flex-shrink: 0">
+
+          <div class="card" style="display: flex; flex-direction: column">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border)">
+              <span class="rail-h">Publish checks</span>
+              <span class="pill" style="border-color: color-mix(in oklch, var(--destructive) 40%, var(--bg)); color: var(--destructive)">2 problems</span>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--border)">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+                <span style="font-size: 13px; font-weight: 500">Question 3</span>
+                <span class="code" style="color: var(--mfg)">predicate/forward-reference</span>
+              </div>
+              <p style="margin: 0; font-size: 13px; line-height: 1.5">This question sits above the question its rule depends on. Move it below &ldquo;Do you smoke?&rdquo;, or point the rule at an earlier question.</p>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--border)">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+                <span style="font-size: 13px; font-weight: 500">Question 5</span>
+                <span class="code" style="color: var(--mfg)">draft/question-archived</span>
+              </div>
+              <p style="margin: 0; font-size: 13px; line-height: 1.5">&ldquo;Do you smoke?&rdquo; was archived in the bank. Remove it here, or restore it in the bank.</p>
+            </div>
+
+            <div style="padding: 10px 14px">
+              <span class="meta">Checked as you edit, by the code publish runs. Publish cannot disagree with this panel.</span>
+            </div>
+          </div>
+
+          <div class="card" style="display: flex; flex-direction: column; gap: 8px; padding: 12px 14px">
+            <span class="rail-h">Draft</span>
+            <div style="display: flex; justify-content: space-between"><span class="meta">Last saved</span><span style="font-size: 12px">2 minutes ago</span></div>
+            <div style="display: flex; justify-content: space-between"><span class="meta">Questions</span><span style="font-size: 12px">5</span></div>
+            <div style="display: flex; justify-content: space-between"><span class="meta">On publish</span><span style="font-size: 12px">becomes version 3</span></div>
+            <p style="margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: var(--mfg)">Versions 1 and 2 stay exactly as published. Sessions already in progress keep the version they started on.</p>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

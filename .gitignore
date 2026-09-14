@@ -26,3 +26,6 @@ coverage/
 
 # Cowork output folder (delivered files, not project source)
 Claude outputs/
+
+# Seeded design canvases (regenerated from the .dc.html sources beside them)
+docs/design/**/*-ui.html
