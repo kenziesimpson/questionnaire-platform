@@ -176,11 +176,11 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 
 > **The only Wave 3 change to `packages/shared`, `packages/ui` and `apps/backend`.** After it, Tracks 6 and 7 each touch only their own app. It crosses files Tracks 1, 3 and 4 own, which is why one agent does it before anything branches: both apps consume `errorsByItemId` (#62), and Track 6 builds against the other changes.
 
-- [ ] `errorsByItemId` in `packages/ui/src/questionnaire/`, with tests (#55, #62)
-- [ ] `QuestionnaireSummary.updatedAt` in `packages/shared`, plus the backend list query: the latest `questionnaire_version.updated_at` per questionnaire, not moved by a `closesAt` change (#59)
-- [ ] `question/type-changed` in `QUESTION_RULE_CODES`, plus the check in the backend's append-question-version path — `appendQuestionVersion`, under the question row lock it already takes — with a test (#61)
-- [ ] The shadcn primitives Track 6 needs in `packages/ui`: `Dialog`, `Select` / `Combobox`, `Table` and `Popover` (#66). Generated files, no questionnaire logic
-- [ ] Its rows in [[8-testing#7. Test case enumeration]]
+- [x] `errorsByItemId` in `packages/ui/src/questionnaire/`, with tests (#55, #62)
+- [x] `QuestionnaireSummary.updatedAt` in `packages/shared`, plus the backend list query: the latest `questionnaire_version.updated_at` per questionnaire, not moved by a `closesAt` change (#59)
+- [x] `question/type-changed` in `QUESTION_RULE_CODES`, plus the check in the backend's append-question-version path — `appendQuestionVersion`, under the question row lock it already takes — with a test (#61)
+- [x] The shadcn primitives Track 6 needs in `packages/ui`: `Dialog`, `Select` / `Combobox`, `Table` and `Popover` (#66). Generated files, no questionnaire logic
+- [x] Its rows in [[8-testing#7. Test case enumeration]]
 
 **Track 6 — admin app.** Five screens, code-based TanStack Router, TanStack Query, hand-rolled form state, dnd-kit reorders as optimistic draft mutations through the `If-Match` path with rollback on `409 questionnaire/draft-stale`.
 

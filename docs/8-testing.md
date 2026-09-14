@@ -523,6 +523,47 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 | A valid format 1 document stored under a future, zero, negative or fractional format version is refused | `domain/stored-definition.test.ts` | Only formats the upgrade chain reaches load; the chain is empty while format 1 is the only format (#56) | Sessions: start, resume, version pinning |
 | `readStoredDefinition`'s return type is exactly `PublishedDefinition` | `domain/stored-definition.test.ts` | Callers get the wire type without a cast | — contract |
 
+### Wave 3 — contract commit
+
+**Domain unit — `packages/shared`**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| `QUESTION_RULE_CODES` is the closed set of seven question rules, ending with `question/type-changed` | `problems.test.ts` | A question's response type is locked after its first save, and the lock is one of the question rules (#61) | Question versioning: append-only, items pin a version at add time |
+| A `request/invalid` body carrying `{ pointer: "/body/question/type", code: "question/type-changed" }` satisfies the wire schema | `problems.test.ts` | The type lock surfaces in the `errors` extension like every other question rule ([[7-application-boundary#6.1 Error format — RFC 9457 problem details]]) | — contract |
+
+**Backend integration — `apps/backend`, Fastify `inject()`, Testcontainers Postgres**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| `appendQuestionVersion` with a type different from the latest version returns `type-changed` and writes no version and no audit row; the same type saves version 2; an unknown question is `question-not-found` | `_tests/db/definition/questions.test.ts` | #61: the type lock is checked in the repository, not only in the editor | Question versioning: append-only, items pin a version at add time |
+| While another transaction holds the question row lock after appending a same-type version, a type-changing `appendQuestionVersion` waits on the question `FOR UPDATE` as its first statement, then returns `type-changed`; the question ends at version 2 | `_tests/db/definition/questions.test.ts` | #61: the type is compared under the question row lock, against the version the new one would follow ([[9-database-schema#5. Concurrency control]]) | Question versioning: append-only, items pin a version at add time |
+| `POST /questions/:questionId/versions` with a different response type is `400 request/invalid` with exactly `errors: [{ pointer: "/body/question/type", code: "question/type-changed" }]`, saves no version and writes no audit row | `_tests/modules/definition/routes/questions.test.ts` | #61, [[5-questionnaire-format#6.2 Question identity and versioning]]: a different type is a different question | Question versioning: append-only, items pin a version at add time |
+| After two `single_choice` versions, a `multiple_choice` save is `400 question/type-changed` and a `single_choice` save is `201` as version 3 | `_tests/modules/definition/routes/questions.test.ts` | #61: the comparison is against the latest version, and a near type is still a different type | Question versioning: append-only, items pin a version at add time |
+| A save that fails a cross-field rule reports that rule, not a type change | `_tests/modules/definition/routes/questions.test.ts` | Question-rule codes surface in the `request/invalid` `errors` extension ([[7-application-boundary#6.1 Error format — RFC 9457 problem details]]) | — conventions |
+| A concurrent same-type save and type-changing save of one question: the same-type save is `201` as version 2, the other `400 question/type-changed` | `_tests/modules/definition/routes/questions.test.ts` | #61: the row lock serializes the type check with the append | Question versioning: append-only, items pin a version at add time |
+| `readQuestionnaireSummary.updatedAt` is the draft's backdated `updated_at`, is unchanged by `setClosesAt`, and after `replaceDraft` equals the draft row's new `updated_at` | `_tests/db/definition/questionnaires.test.ts` | #59: `updatedAt` is the latest `questionnaire_version.updated_at`; a `closesAt` change is not an edit | — contract |
+| `POST /questionnaires` returns `updatedAt` equal to the new draft's `updatedAt`; after the draft is backdated, `PUT /draft` moves the list's `updatedAt` to the written draft's `updatedAt` | `_tests/modules/definition/routes/questionnaires.test.ts` | #59, #53: the questionnaire list's "most recently edited" sort has a field to sort on, which draft writes bump | — contract |
+| Setting and clearing `closesAt` on a backdated draft leaves `updatedAt` unchanged in both `PUT /closes-at` responses and on `GET /questionnaires` | `_tests/modules/definition/routes/questionnaires.test.ts` | #59: retiring changes whether respondents can answer, not what the questionnaire says | — contract |
+| A published questionnaire's `updatedAt` is its version's `updated_at`; once the next draft opens it is that draft's `updatedAt` | `_tests/modules/definition/routes/questionnaires.test.ts` | #59: the latest version across published versions and the open draft | — contract |
+| After an older questionnaire's draft is written, `GET /questionnaires` still lists the newer questionnaire first, with the older one carrying the later `updatedAt` | `_tests/modules/definition/routes/questionnaires.test.ts` | #40, #53: the list keeps `ORDER BY id DESC` and sorting on `updatedAt` is the client's | List endpoints return a deterministic order |
+
+**Frontend component — `packages/ui`**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| `errorsByItemId` groups a `submission/invalid` body's `items` by `itemId`, keeping the server's order within each item | `questionnaire/errors-by-item-id.test.tsx` | One grouping of the problem body for both apps (#55, #62) | Response validation: required, per-type value rules |
+| A body typed as the `ProblemDetails` wire schema groups the same as one built with `problem()` | `questionnaire/errors-by-item-id.test.tsx` | The apps can pass the parsed wire body straight in, with no cast | — contract |
+| `answer/not-visible` and `answer/unknown-item` are dropped, and an item carrying only those has no entry; every other submission code is kept | `questionnaire/errors-by-item-id.test.tsx` | #55: the two codes never attach to a rendered item ([[10-frontend#3. `packages/ui` — primitives and the renderer]]), revisited in gh#23 | Response validation: required, per-type value rules |
+| A `questionnaire/draft-invalid`, `request/invalid`, `session/already-submitted` or unknown-type body, and a `submission/invalid` body with no items, yield `{}` | `questionnaire/errors-by-item-id.test.tsx` | #55: the output is the renderer's `SubmissionItemCode` shape; `DraftItemCode`s go to the admin catalogue and summary panel (#54, #60), not the renderer | — contract |
+| The grouped result passed as the renderer's `errors` prop shows each item's first code as its message, and nothing for a dropped code | `questionnaire/errors-by-item-id.test.tsx` | Client and server errors read the same through one catalogue ([[10-frontend#3. `packages/ui` — primitives and the renderer]]) | Response validation: required, per-type value rules |
+| `Dialog` opens a dialog named by its title and described by its description with focus inside and a "Close" button; Escape closes it and returns focus to the trigger; `DialogClose` closes it; axe finds nothing closed or open | `primitives/dialog.test.tsx` | Radix carries dialog focus trapping and restoration for the question editor ([[10-frontend#7. Accessibility]], #66) | — accessibility commitment |
+| `Select` is a combobox named by its label showing its placeholder; Enter opens a listbox of its options; choosing one reports the value, closes and shows it; axe finds nothing closed or open | `primitives/select.test.tsx` | Correct `aria-*` wiring on the admin's select control (#66, [[10-frontend#7. Accessibility]]) | — accessibility commitment |
+| `Popover` toggles `aria-expanded` and `aria-controls` on its trigger; Escape closes it and returns focus; axe finds nothing closed or open | `primitives/popover.test.tsx` | #66 | — accessibility commitment |
+| The combobox pattern, `Command` inside a `Popover`: a combobox trigger opens a named, focused search input over every option; typing filters the options and shows the empty message; ArrowDown and Enter select an option and close; axe finds nothing closed or open | `primitives/command.test.tsx` | #66: the searchable picker is shadcn's Radix-based `Popover` + `Command` pattern | — accessibility commitment |
+| `Table` renders a native `<table>` named by its caption, with column headers, body and footer rows, and passes `className` to the table; axe finds nothing | `primitives/table.test.tsx` | #66 | — accessibility commitment |
+| `InputGroup`, which `Command` needs, groups a labelled input with its addon and focuses the input when the addon is clicked; axe finds nothing | `primitives/input-group.test.tsx` | #66 | — accessibility commitment |
+
 ## 8. Alternatives considered
 
 ### 8.1 Jest for the frontend
