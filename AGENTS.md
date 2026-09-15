@@ -29,7 +29,7 @@ A pull request that changes what `apps/admin`, `apps/respondent` or `packages/ui
 - **Never commit screenshots to the pull request's branch.** Push them to the orphan `pr-screenshots` branch as `pr-<number>/<screen>-<state>.png`. If the push is rejected because another agent pushed first, fetch, rebase and push again.
 - **Link each image by its blob URL,** which renders for anyone with access to the repository: `![<caption>](https://github.com/kenziesimpson/questionnaire-platform/blob/pr-screenshots/pr-<number>/<file>.png?raw=true)`. Open the pull request first so the number exists, then add the images with `gh pr edit --body`.
 - **Lay them out** under a `## Screenshots` heading, with one subheading per screen and a one-line caption per image naming the state.
-- **Recapture after a later push** changes what renders.
+- **Recapture on every push that changes what renders**, including pushes that address review feedback. Retake each affected screenshot, delete any that no longer match the UI so no stale image remains, and update the description's screenshots and summary in the same round. A review change is not done until its screenshots are.
 
 ## Commands
 
