@@ -12,9 +12,11 @@ function questionnaireLabel(usage: QuestionnaireUsage): string {
 function UsageLine({ usage }: { usage: QuestionnaireUsage }) {
   const label = questionnaireLabel(usage);
   return (
-    <li className="flex flex-wrap items-baseline gap-x-1.5">
-      <span>{label}</span>
-      <span className="flex gap-1">
+    <li className="grid grid-cols-[minmax(0,max-content)_auto] items-baseline justify-start gap-x-2">
+      <span className="line-clamp-2 break-words" title={label}>
+        {label}
+      </span>
+      <span className="flex max-w-32 flex-wrap gap-x-1 whitespace-nowrap">
         {usage.placements.map(({ version, questionVersion }, index) => (
           <span key={version}>
             <Link
@@ -61,7 +63,7 @@ export function UsageCell({ question }: { question: Question }) {
     return <span className="text-muted-foreground">Not in any published version</span>;
   }
   return (
-    <ul aria-label={`Published versions using ${question.latest.prompt}`} className="flex flex-col gap-0.5 text-muted-foreground">
+    <ul aria-label={`Published versions using ${question.latest.prompt}`} className="flex w-72 flex-col gap-1.5 text-muted-foreground">
       {groupUsage(usage.data, questionnaires.data).map((group) => (
         <UsageLine key={group.questionnaireId} usage={group} />
       ))}

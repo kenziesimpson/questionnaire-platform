@@ -218,6 +218,7 @@ describe("the question bank's usage column", () => {
 
     const lines = within(usage).getAllByRole("listitem");
     expect(lines.map((line) => line.textContent)).toEqual(["Patient Intakev1,v2", "Medication Reviewv1"]);
+    expect(within(lines[0] ?? usage).getByText("Patient Intake")).toHaveAttribute("title", "Patient Intake");
     expect(within(usage).getByRole("link", { name: "Preview Patient Intake v2, which uses question v4" })).toHaveAttribute(
       "href",
       `/admin/questionnaires/${INTAKE_ID}/versions/2`,
