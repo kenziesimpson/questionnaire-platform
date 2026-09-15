@@ -47,7 +47,7 @@ function QuestionnaireRow({ summary, now, drafts }: { summary: QuestionnaireSumm
 
   return (
     <TableRow>
-      <TableCell className="py-3 pl-4">
+      <TableCell className="py-3 pl-4 whitespace-normal">
         <div className="flex flex-col gap-0.5">
           <span className={cn("font-medium", closed && "text-muted-foreground")}>{summary.name}</span>
           {summary.key === null ? null : (
