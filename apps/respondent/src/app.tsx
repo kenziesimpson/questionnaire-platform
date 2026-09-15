@@ -1,10 +1,39 @@
-import { Button } from "@qp/ui/primitives/button";
+import { questionnaireIdFromPath } from "./entry/questionnaire-path.ts";
+import { QuestionnaireScreen } from "./screens/questionnaire-screen.tsx";
+import { ReceiptScreen } from "./screens/receipt-screen.tsx";
+import { ClosedScreen, EntryFailedScreen, LoadingScreen, NotFoundScreen } from "./screens/terminal-screens.tsx";
+import { formContextOf } from "./session/respondent-state.ts";
+import { useRespondentSession } from "./session/use-respondent-session.ts";
 
-export function App() {
-  return (
-    <main className="mx-auto flex min-h-svh max-w-2xl flex-col gap-4 p-6">
-      <h1 className="text-2xl font-semibold">Questionnaire</h1>
-      <Button type="button">Start</Button>
-    </main>
-  );
+function Respondent({ questionnaireId }: { questionnaireId: string }) {
+  const { state, session } = useRespondentSession(questionnaireId);
+  const form = formContextOf(state);
+  if (form !== null) {
+    return (
+      <QuestionnaireScreen
+        form={form}
+        submitting={state.name === "submitting"}
+        submitFailed={state.name === "failed"}
+        onAnswersChange={session.saveAnswers}
+        onSubmit={session.submit}
+      />
+    );
+  }
+  switch (state.name) {
+    case "done":
+      return <ReceiptScreen receipt={state.receipt} definition={state.definition} />;
+    case "closed":
+      return <ClosedScreen />;
+    case "notFound":
+      return <NotFoundScreen />;
+    case "failed":
+      return <EntryFailedScreen />;
+    default:
+      return <LoadingScreen />;
+  }
+}
+
+export function App({ pathname = window.location.pathname }: { pathname?: string }) {
+  const questionnaireId = questionnaireIdFromPath(pathname);
+  return questionnaireId === undefined ? <NotFoundScreen /> : <Respondent questionnaireId={questionnaireId} />;
 }
