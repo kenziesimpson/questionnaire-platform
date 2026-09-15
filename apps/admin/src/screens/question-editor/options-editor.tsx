@@ -38,7 +38,7 @@ function OptionIdChip({ optionId, id }: { optionId: string; id: string }) {
   return (
     <span
       id={id}
-      className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted px-2 font-mono text-[11px] text-muted-foreground"
+      className="inline-flex h-6 min-w-30 shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted px-2 font-mono text-[11px] text-muted-foreground"
     >
       <LockIcon size={10} />
       <span className="sr-only">Option id </span>
