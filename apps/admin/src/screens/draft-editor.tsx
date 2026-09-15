@@ -33,6 +33,18 @@ function publishFacts(summary: QuestionnaireSummary | undefined) {
   return `published v${summary.currentVersion} · publishing creates v${summary.currentVersion + 1}`;
 }
 
+function DraftHeading({ summary, summaryPending }: { summary: QuestionnaireSummary | undefined; summaryPending: boolean }) {
+  if (summary === undefined && summaryPending) {
+    return (
+      <h1 className="text-xl font-semibold tracking-tight">
+        <span className="sr-only">Draft editor</span>
+        <span aria-hidden="true" className="block h-6 w-48 animate-pulse rounded-md bg-muted" />
+      </h1>
+    );
+  }
+  return <h1 className="truncate text-xl font-semibold tracking-tight">{summary?.name ?? "Draft editor"}</h1>;
+}
+
 interface PublishHint {
   lead: string;
   linksToChecks: boolean;
@@ -63,10 +75,12 @@ function DraftEditor({
   questionnaireId,
   draft,
   summary,
+  summaryPending,
 }: {
   questionnaireId: string;
   draft: QuestionnaireDraft;
   summary: QuestionnaireSummary | undefined;
+  summaryPending: boolean;
 }) {
   const navigate = useNavigate();
   const mutation = useDraftMutation(questionnaireId);
@@ -142,7 +156,7 @@ function DraftEditor({
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
           <div className="flex min-w-0 items-center gap-2.5">
             <BackToQuestionnaires />
-            <h1 className="truncate text-xl font-semibold tracking-tight">{draft.title}</h1>
+            <DraftHeading summary={summary} summaryPending={summaryPending} />
             <span className="inline-flex h-5 items-center rounded-full border border-border bg-muted px-2 text-[11px] font-medium">
               Draft
             </span>
@@ -309,7 +323,9 @@ export function DraftEditorScreen() {
   const summary = list.data?.find((candidate) => candidate.questionnaireId === questionnaireId);
 
   if (draft.isSuccess) {
-    return <DraftEditor questionnaireId={questionnaireId} draft={draft.data.draft} summary={summary} />;
+    return (
+      <DraftEditor questionnaireId={questionnaireId} draft={draft.data.draft} summary={summary} summaryPending={list.isPending} />
+    );
   }
 
   const body = (() => {
@@ -335,7 +351,7 @@ export function DraftEditorScreen() {
     <>
       <header className="flex items-center gap-2.5">
         <BackToQuestionnaires />
-        <h1 className="text-xl font-semibold tracking-tight">{summary?.name ?? "Draft editor"}</h1>
+        <DraftHeading summary={summary} summaryPending={list.isPending} />
       </header>
       {body}
     </>

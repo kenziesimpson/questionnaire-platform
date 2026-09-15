@@ -198,7 +198,7 @@ describe("the version history screen", () => {
     await findRows();
     await userEvent.click(screen.getByRole("button", { name: "Open the next draft" }));
 
-    expect(await screen.findByRole("heading", { level: 1, name: opened.title })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: aSummary().name })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe(`/questionnaires/${QUESTIONNAIRE_ID}/draft`);
     expect(requests.filter(({ method, url }) => method === "POST" && url === draftUrl)).toHaveLength(1);
   });

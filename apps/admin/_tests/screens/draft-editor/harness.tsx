@@ -59,7 +59,7 @@ export function aDraftOf(items: DraftItem[]): QuestionnaireDraft {
   return {
     questionnaireId: QUESTIONNAIRE_ID,
     versionId: VERSION_ID,
-    title: "Smoking history",
+    title: "Your smoking history",
     updatedAt: "2026-09-14T09:00:00.000Z",
     items,
     questions: pool.filter((question) =>

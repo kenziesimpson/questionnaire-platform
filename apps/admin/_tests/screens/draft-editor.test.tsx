@@ -45,6 +45,29 @@ describe("the draft editor", () => {
     expect(screen.getByText("published v2 · publishing creates v3")).toBeInTheDocument();
   });
 
+  it("heads the editor with the questionnaire's name, never the respondent-facing title", async () => {
+    renderEditor();
+    await itemList();
+
+    expect(await screen.findByRole("heading", { level: 1, name: summary.name })).toBeInTheDocument();
+    expect(screen.queryByText(standardDraft.title)).not.toBeInTheDocument();
+  });
+
+  it("shows a placeholder, not the title, while the questionnaire list loads, and falls back to Draft editor when it fails", async () => {
+    const listed = deferred<Response>();
+    renderEditor({ overrides: { [`GET ${LIST_URL}`]: () => listed.promise } });
+    await itemList();
+
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading).toHaveAccessibleName("Draft editor");
+    expect(heading).not.toHaveTextContent(standardDraft.title);
+
+    listed.resolve(problemResponse("internal", { detail: "trace-9" }));
+
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^Draft editor$/));
+    expect(screen.queryByText(standardDraft.title)).not.toBeInTheDocument();
+  });
+
   it("adds a bank question pinned to the version the picker showed, and marks questions already placed", async () => {
     const { requests } = renderEditor();
     await itemList();

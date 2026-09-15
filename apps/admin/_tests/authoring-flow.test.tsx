@@ -67,7 +67,7 @@ describe("the authoring flow, across every screen", () => {
     await userEvent.type(within(create).getByRole("textbox", { name: "Title" }), "Your smoking history");
     await userEvent.click(within(create).getByRole("button", { name: "Create questionnaire" }));
 
-    await landOn("Your smoking history");
+    await landOn("Smoking history");
     const [questionnaireId] = path().match(/[0-9a-f-]{36}/) ?? [];
     expect(path()).toBe(`/questionnaires/${questionnaireId}/draft`);
     expect(document.title).toBe("Draft editor · Questionnaire admin");
@@ -126,7 +126,7 @@ describe("the authoring flow, across every screen", () => {
     await userEvent.click(screen.getByRole("link", { name: "Back to version history" }));
     await landOn("Version history");
     await userEvent.click(await screen.findByRole("button", { name: "Open the next draft" }));
-    await landOn("Your smoking history");
+    await landOn("Smoking history");
     expect(path()).toBe(`/questionnaires/${questionnaireId}/draft`);
     expect(await screen.findByRole("heading", { level: 2, name: "2 questions" })).toBeInTheDocument();
 
