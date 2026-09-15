@@ -3,30 +3,17 @@ import { cn } from "@qp/ui/lib/utils";
 import { Button } from "@qp/ui/primitives/button";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@qp/ui/primitives/table";
 import { useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { questionQueries } from "../api/queries";
+import { PlusIcon } from "../components/icons";
+import { Pill } from "../components/pill";
 import { ArchiveQuestionDialog } from "./question-bank/archive-question-dialog";
 import { bankCountLabel, isArchived, sortByLatestEdit } from "./question-bank/bank-display";
 import { UsageCell } from "./question-bank/usage-cell";
-import { PlusIcon } from "./question-editor/icons";
 import { RESPONSE_TYPE_LABELS } from "./question-editor/question-form";
 import { QuestionEditorDialog } from "./question-editor/question-editor-dialog";
+import { useQuestionEditor } from "./question-editor/use-question-editor";
 import { fullTimestamp, lastEditedLabel } from "./questionnaire-list/summary-display";
-
-type EditorTarget = { mode: "closed" } | { mode: "create" } | { mode: "edit"; question: QuestionVersion };
-
-function Pill({ className, children }: { className?: string; children: ReactNode }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex h-5.5 w-fit items-center rounded-full border border-border bg-background px-2 text-xs font-medium whitespace-nowrap",
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
-}
 
 function QuestionRow({
   question,
@@ -134,7 +121,7 @@ function Panel({ children, role }: { children: ReactNode; role?: "status" | "ale
 export function QuestionBankScreen() {
   const list = useQuery(questionQueries.list(true));
   const questions = list.data;
-  const [editor, setEditor] = useState<EditorTarget>({ mode: "closed" });
+  const editor = useQuestionEditor();
 
   return (
     <section className="flex flex-col gap-5">
@@ -148,7 +135,7 @@ export function QuestionBankScreen() {
             {questions === undefined ? null : `${bankCountLabel(questions)} · most recently changed first`}
           </p>
         </div>
-        <Button type="button" onClick={() => setEditor({ mode: "create" })}>
+        <Button type="button" onClick={() => editor.create()}>
           <PlusIcon />
           New question
         </Button>
@@ -176,18 +163,11 @@ export function QuestionBankScreen() {
         <QuestionTable
           questions={questions}
           loadedAt={list.dataUpdatedAt}
-          onEdit={(question) => setEditor({ mode: "edit", question })}
+          onEdit={(question) => editor.edit(question)}
         />
       )}
 
-      <QuestionEditorDialog
-        open={editor.mode !== "closed"}
-        question={editor.mode === "edit" ? editor.question : undefined}
-        onOpenChange={(open) => {
-          if (!open) setEditor({ mode: "closed" });
-        }}
-        onSaved={() => undefined}
-      />
+      <QuestionEditorDialog {...editor.dialogProps} />
     </section>
   );
 }
