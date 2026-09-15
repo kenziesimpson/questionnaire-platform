@@ -40,7 +40,7 @@ error ([`docs/10-frontend.md`](../../docs/10-frontend.md) §5.2, Decisions Log #
 | `src/api/query-keys.ts`, `src/api/queries.ts` | The query keys, and a `queryOptions` factory for every read |
 | `src/api/use-draft-mutation.ts` | `useDraftMutation(questionnaireId)`: the only way to write or publish a draft |
 | `src/api/use-open-draft.ts` | `useOpenDraft()`: open or continue a draft and navigate to it |
-| `src/components/` | Admin-only shared pieces: `icons`, `Pill`, `Panel` (a centred loading, empty or error state), `Notice`, `InfoTip`, `BackToQuestionnaires`, `QuestionnaireNotFound`, and the `counts` labels |
+| `src/components/` | Admin-only shared pieces: `icons`, `Pill`, `Panel` (a centred loading, empty or error state), `Notice`, `InfoTip`, `BackToQuestionnaires`, `QuestionnaireNotFound`, the `counts` labels, and `generateUnusedId` for option and item ids |
 | `src/screens/not-found.tsx` | The not-found screen |
 | `src/screens/questionnaire-list.tsx`, `questionnaire-list/` | The list, the create dialog, the closing-date dialog, and the status and date labels |
 | `src/screens/draft-editor.tsx`, `draft-editor/` | The item list and reorder, the bank picker, the predicate editor, the publish-checks panel, the author-facing `DraftItemCode` catalogue and the refused-write notice |
