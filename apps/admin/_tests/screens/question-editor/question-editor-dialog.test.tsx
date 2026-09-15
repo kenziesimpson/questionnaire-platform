@@ -92,13 +92,22 @@ describe("QuestionEditorDialog — fields per response type", () => {
     expect(inDialog().queryByRole("textbox", { name: "Unit" })).not.toBeInTheDocument();
   });
 
-  it("shows the save-is-publish notice naming the version the save writes", () => {
-    renderEditor({ question: aQuestionVersion({ type: "text", questionVersion: 4 }), repinsInDraft: "Patient Intake" });
+  it("tells the author in create mode that only the response type is fixed, and carries no save notice", () => {
+    renderEditor();
 
-    expect(screen.getByRole("dialog", { name: "Edit question" })).toHaveAccessibleDescription(
-      "Saving writes version 5 and re-pins this question in the Patient Intake draft. Versions 1–4 and everything published with them are untouched.",
+    expect(inDialog().getByRole("group", { name: "Response type" })).toHaveAccessibleDescription(
+      "Response type cannot be changed later. Options, naming, and constraints can be modified later.",
     );
+    expect(screen.getByRole("dialog", { name: "New question" })).not.toHaveAttribute("aria-describedby");
+    expect(inDialog().queryByText(/Saving writes/)).not.toBeInTheDocument();
+    expect(inDialog().queryByText("One save, one version.")).not.toBeInTheDocument();
+  });
+
+  it("names the version the save writes on the Save button in edit mode, with no notice", () => {
+    renderEditor({ question: aQuestionVersion({ type: "text", questionVersion: 4 }) });
+
     expect(inDialog().getByRole("button", { name: "Save as version 5" })).toBeInTheDocument();
+    expect(inDialog().queryByText(/Saving writes/)).not.toBeInTheDocument();
   });
 });
 
@@ -223,11 +232,34 @@ describe("QuestionEditorDialog — option ids and the Yes / No template", () => 
     expect(label).toHaveAccessibleDescription(/opt_hyperten/);
   });
 
-  it("Yes / No creates a single choice seeded with the reserved ids yes and no, whose labels stay editable", async () => {
+  it("offers Yes / No above the prompt only while Single choice is selected in create mode, labelled and reachable by keyboard", async () => {
+    renderEditor();
+    const yesNo = () => inDialog().queryByRole("button", { name: "Use Yes / No options" });
+
+    expect(yesNo()).not.toBeInTheDocument();
+    for (const type of ["Multiple choice", "Number", "Date", "Text"]) {
+      await chooseType(type);
+      expect(yesNo()).not.toBeInTheDocument();
+    }
+
+    await chooseType("Single choice");
+    const button = yesNo();
+    expect(button).toHaveAccessibleDescription("Replaces the options with the reserved ids yes and no. Their labels stay editable.");
+    expect(button!.compareDocumentPosition(field("Prompt")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    typeRadio("Single choice").focus();
+    await userEvent.tab();
+    expect(button).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(optionIdsShown()).toEqual(["yes", "no"]);
+  });
+
+  it("Yes / No fills a single choice with the reserved ids yes and no, whose labels stay editable", async () => {
     const requests = stubFetch(() => jsonResponse(201, aBankQuestion(aQuestionVersion({ type: "single_choice", questionVersion: 1 }))));
     renderEditor();
+    await chooseType("Single choice");
 
-    await userEvent.click(inDialog().getByRole("button", { name: "Yes / No" }));
+    await userEvent.click(inDialog().getByRole("button", { name: "Use Yes / No options" }));
 
     expect(typeRadio("Single choice")).toBeChecked();
     expect(optionIdsShown()).toEqual(["yes", "no"]);
@@ -294,15 +326,15 @@ describe("QuestionEditorDialog — option ids and the Yes / No template", () => 
 });
 
 describe("QuestionEditorDialog — the type lock", () => {
-  it("disables every response type and offers no Yes / No template when editing a saved question", () => {
-    renderEditor({ question: aQuestionVersion({ type: "number" }) });
+  it.each(["number", "single_choice"] as const)("disables every response type and offers no Yes / No template when editing a saved %s question", (type) => {
+    renderEditor({ question: aQuestionVersion({ type }) });
 
     for (const name of ["Text", "Single choice", "Multiple choice", "Number", "Date"]) {
       expect(typeRadio(name)).toBeDisabled();
     }
-    expect(typeRadio("Number")).toBeChecked();
-    expect(inDialog().queryByRole("button", { name: "Yes / No" })).not.toBeInTheDocument();
-    expect(inDialog().getByRole("group", { name: "Response type" })).toHaveAccessibleDescription(/Fixed after the first save/);
+    expect(typeRadio(type === "number" ? "Number" : "Single choice")).toBeChecked();
+    expect(inDialog().queryByRole("button", { name: "Use Yes / No options" })).not.toBeInTheDocument();
+    expect(inDialog().getByRole("group", { name: "Response type" })).toHaveAccessibleDescription("Response type cannot be changed.");
   });
 
   it("surfaces a 400 question/type-changed on the type row", async () => {

@@ -32,7 +32,6 @@ It is controlled: the host owns whether it is open.
   open={open}
   onOpenChange={setOpen}
   question={latestVersion}
-  repinsInDraft="Patient Intake"
   onSaved={(saved) => repin(saved)}
 />
 ```
@@ -41,16 +40,16 @@ It is controlled: the host owns whether it is open.
 | --- | --- | --- |
 | `open` | `boolean` | Whether the dialog is shown. Each opening starts from `question`, or from a blank text question |
 | `onOpenChange` | `(open: boolean) => void` | Called with `false` on Cancel, Escape, the close button, an outside click and after a save. Not called while a save is in flight |
-| `question` | `QuestionVersion`, optional | Edit mode: the version the author starts from, `Question.latest` on the bank. Pass the latest version, since the notice promises version N+1. The response type is locked. Omit it to create |
-| `repinsInDraft` | `string`, optional | The draft's title. Adds "and re-pins this question in the … draft" to the save notice; the host does the re-pin in `onSaved` |
-| `onSaved` | `(saved: QuestionVersion) => void` | The version the save wrote: `latest` of `POST /questions`, or the body of `POST /questions/:id/versions`. The dialog closes itself right after |
+| `question` | `QuestionVersion`, optional | Edit mode: the version the author starts from, `Question.latest` on the bank. Pass the latest version, since the Save button reads "Save as version N+1". The response type is locked. Omit it to create |
+| `onSaved` | `(saved: QuestionVersion) => void` | The version the save wrote: `latest` of `POST /questions`, or the body of `POST /questions/:id/versions`. The dialog closes itself right after. A host that re-pins, such as the draft editor, does it here |
 
 A save invalidates every `questions` query. Focus returns to whatever held it when the dialog opened.
 
 - **Option ids** are `opt_` plus eight random base-36 characters, drawn again on a clash, never typed and
   never changed. They are random rather than counted because the dialog sees only the latest version, so
   a counter could reissue an id an earlier version used for a removed option. `yes` and `no` come only from
-  the Yes / No template, and `other` only from the freeform Other checkbox, which keeps it the last option.
+  the Use Yes / No options button, shown above the prompt while Single choice is selected in create mode,
+  and `other` only from the freeform Other checkbox, which keeps it the last option.
 - **Cross-field rules** cannot be entered. Moving a lower bound above its upper bound moves the upper bound
   with it; an upper bound typed below its lower bound is clamped when the field loses focus, and again when
   the body is built. Selection bounds are capped by the option count.

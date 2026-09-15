@@ -1,13 +1,13 @@
 import { RESPONSE_TYPES, type QuestionVersion } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@qp/ui/primitives/dialog";
+import { Dialog, DialogClose, DialogContent, DialogTitle } from "@qp/ui/primitives/dialog";
 import { Input } from "@qp/ui/primitives/input";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { isProblem } from "../../api/problem-error";
 import { ConstraintFields } from "./constraint-fields";
 import { describedByFor, errorIdFor, FieldMessages } from "./field";
 import { NO_ERRORS, hasErrors, missingEntries, placeErrors, type SaveErrors } from "./field-errors";
-import { InfoIcon, LockIcon } from "./icons";
+import { LockIcon } from "./icons";
 import {
   RESPONSE_TYPE_LABELS,
   blankForm,
@@ -23,7 +23,6 @@ export interface QuestionEditorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   question?: QuestionVersion;
-  repinsInDraft?: string;
   onSaved: (saved: QuestionVersion) => void;
 }
 
@@ -35,24 +34,6 @@ function failureMessage(error: Error): string {
     return "Another save of this question landed at the same moment. Save again to write the next version.";
   }
   return "The question was not saved. Your changes are still here; check the connection and save again.";
-}
-
-function SaveNotice({ question, repinsInDraft }: Pick<QuestionEditorDialogProps, "question" | "repinsInDraft">) {
-  const next = <strong className="font-semibold text-foreground">version {(question?.questionVersion ?? 0) + 1}</strong>;
-  if (question === undefined) {
-    return <>Saving writes {next} of a new question. Its response type is fixed from then on.</>;
-  }
-  const repin = repinsInDraft === undefined ? null : <> and re-pins this question in the {repinsInDraft} draft</>;
-  const earlier =
-    question.questionVersion === 1
-      ? "Version 1 and everything published with it are untouched."
-      : `Versions 1–${question.questionVersion} and everything published with them are untouched.`;
-  return (
-    <>
-      Saving writes {next}
-      {repin}. {earlier}
-    </>
-  );
 }
 
 function TypeRow({
@@ -80,27 +61,33 @@ function TypeRow({
         disabled={editing}
         describedBy={describedByFor(errors.byField, "/type", errorId, noteId)}
         onChange={(type) => onChange({ ...form, type })}
-        trailing={
-          editing ? (
-            <LockIcon className="text-muted-foreground" />
-          ) : (
-            <Button type="button" variant="outline" size="sm" onClick={() => onChange(yesNoForm(form))}>
-              Yes / No
-            </Button>
-          )
-        }
+        trailing={editing ? <LockIcon className="text-muted-foreground" /> : undefined}
       />
       <p id={noteId} className="text-xs leading-normal text-muted-foreground">
         {editing
-          ? "Fixed after the first save. A rule that reads this question is typed to it, so a changed type would invalidate rules elsewhere."
-          : "Fixed once saved. Yes / No creates a single choice with the reserved option ids yes and no; its labels stay editable."}
+          ? "Response type cannot be changed."
+          : "Response type cannot be changed later. Options, naming, and constraints can be modified later."}
       </p>
       <FieldMessages id={errorId} messages={errors.byField["/type"]} />
     </div>
   );
 }
 
-function OpenQuestionEditor({ onOpenChange, question, repinsInDraft, onSaved }: Omit<QuestionEditorDialogProps, "open">) {
+function YesNoTemplate({ onApply }: { onApply: () => void }) {
+  const hintId = useId();
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      <Button type="button" variant="outline" size="sm" aria-describedby={hintId} onClick={onApply}>
+        Use Yes / No options
+      </Button>
+      <p id={hintId} className="text-xs leading-normal text-muted-foreground">
+        Replaces the options with the reserved ids yes and no. Their labels stay editable.
+      </p>
+    </div>
+  );
+}
+
+function OpenQuestionEditor({ onOpenChange, question, onSaved }: Omit<QuestionEditorDialogProps, "open">) {
   const editing = question !== undefined;
   const [form, setForm] = useState(() => (question === undefined ? blankForm() : formFromQuestion(question)));
   const [errors, setErrors] = useState<SaveErrors>(NO_ERRORS);
@@ -151,6 +138,7 @@ function OpenQuestionEditor({ onOpenChange, question, repinsInDraft, onSaved }: 
     <Dialog open onOpenChange={requestOpenChange}>
       <DialogContent
         className="top-16 flex max-h-[calc(100svh-5rem)] translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-[620px]"
+        aria-describedby={undefined}
         onEscapeKeyDown={(event) => {
           if (dragging.current) event.preventDefault();
         }}
@@ -164,12 +152,6 @@ function OpenQuestionEditor({ onOpenChange, question, repinsInDraft, onSaved }: 
             {editing ? "Edit question" : "New question"}
           </DialogTitle>
           {editing && <span className="font-mono text-xs text-muted-foreground">version {question.questionVersion}</span>}
-        </div>
-        <div className="flex items-start gap-2.5 border-b border-border bg-muted px-5 py-3">
-          <InfoIcon />
-          <DialogDescription className="text-xs leading-normal">
-            <SaveNotice question={question} repinsInDraft={repinsInDraft} />
-          </DialogDescription>
         </div>
         <form
           ref={formRef}
@@ -187,6 +169,7 @@ function OpenQuestionEditor({ onOpenChange, question, repinsInDraft, onSaved }: 
               </div>
             )}
             <TypeRow form={form} editing={editing} errors={errors} onChange={change} />
+            {!editing && form.type === "single_choice" && <YesNoTemplate onApply={() => change(yesNoForm(form))} />}
             <div className="flex flex-col gap-1.5">
               <label htmlFor={promptId} className="text-sm font-medium">
                 Prompt
@@ -209,8 +192,7 @@ function OpenQuestionEditor({ onOpenChange, question, repinsInDraft, onSaved }: 
               }}
             />
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted px-5 py-3.5">
-            <span className="text-xs text-muted-foreground">One save, one version.</span>
+          <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border bg-muted px-5 py-3.5">
             <div className="flex gap-2">
               <DialogClose asChild>
                 <Button type="button" variant="outline" disabled={save.isPending}>

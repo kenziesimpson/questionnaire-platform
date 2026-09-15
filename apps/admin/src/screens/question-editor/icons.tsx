@@ -28,16 +28,6 @@ export function LockIcon({ size = 14, className }: { size?: number; className?: 
   );
 }
 
-export function InfoIcon() {
-  return (
-    <Icon size={15} className="mt-0.5 shrink-0 text-muted-foreground">
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 16v-4" />
-      <path d="M12 8h.01" />
-    </Icon>
-  );
-}
-
 export function RemoveIcon() {
   return (
     <Icon size={13}>
