@@ -1,4 +1,4 @@
-import { INTAKE_QUESTIONNAIRE_ID, problem, type ClientAnswers } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID, problem, type ClientAnswers, type ItemError, type SubmissionItemCode } from "@qp/shared";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
@@ -236,6 +236,192 @@ describe("filling the intake form", () => {
   });
 });
 
+function submissionInvalid(...items: ItemError<SubmissionItemCode>[]) {
+  return problemReply(problem("submission/invalid", { items }));
+}
+
+function activeElement(): HTMLElement | null {
+  return document.activeElement instanceof HTMLElement ? document.activeElement : null;
+}
+
+async function answerNoBranch(user: ReturnType<typeof userEvent.setup>, pharmacyText = "Corner pharmacy") {
+  await user.click(within(hasCondition()).getByRole("radio", { name: "No" }));
+  await user.type(pharmacy(), pharmacyText);
+}
+
+describe("a submission the server rejects with 422 submission/invalid", () => {
+  it("returns to the form with an error summary, inline errors and focus on the first invalid item", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerYesBranch(user);
+    server.on("POST", submitUrl, submissionInvalid({ itemId: "itm_04", code: "text/too-long" }, { itemId: "itm_03", code: "date/in-future" }));
+
+    await user.click(submitButton());
+
+    const summary = await screen.findByRole("region", { name: "2 answers need attention" });
+    expect(within(summary).getAllByRole("listitem").map((entry) => entry.textContent)).toEqual([
+      "When were you diagnosed? — Enter a date that is not in the future.",
+      "Preferred pharmacy — Enter no more than 120 characters.",
+    ]);
+    expect(diagnosedOn()).toHaveAttribute("aria-invalid", "true");
+    expect(pharmacy()).toHaveAttribute("aria-invalid", "true");
+    expect(pharmacy()).toHaveAccessibleDescription("Enter no more than 120 characters.");
+    await waitFor(() => expect(diagnosedOn()).toHaveFocus());
+    expect(screen.getByText("Your answers were not submitted. 2 answers need attention.")).toHaveAttribute("role", "status");
+    expect(pharmacy()).toHaveValue("Corner pharmacy");
+    expect(storedAnswers()).toEqual(storedAnswersBeforeSubmit());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(submitButton()).toBeEnabled();
+  });
+
+  it("jumps to an item from the summary, including a choice group", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerYesBranch(user);
+    server.on("POST", submitUrl, submissionInvalid({ itemId: "itm_02", code: "choice/unknown-option" }, { itemId: "itm_04", code: "text/too-long" }));
+    await user.click(submitButton());
+    const summary = await screen.findByRole("region", { name: "2 answers need attention" });
+    await waitFor(() => expect(whichCondition()).toContainElement(activeElement()));
+
+    await user.click(within(summary).getByRole("button", { name: "Preferred pharmacy" }));
+    expect(pharmacy()).toHaveFocus();
+
+    await user.click(within(summary).getByRole("button", { name: "Which condition?" }));
+    expect(whichCondition()).toContainElement(activeElement());
+  });
+
+  it("clears an item's server error when its answer changes, leaving the others", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerYesBranch(user);
+    server.on("POST", submitUrl, submissionInvalid({ itemId: "itm_03", code: "date/in-future" }, { itemId: "itm_04", code: "text/too-long" }));
+    await user.click(submitButton());
+    await screen.findByRole("region", { name: "2 answers need attention" });
+
+    await user.type(pharmacy(), "!");
+
+    expect(pharmacy()).not.toHaveAttribute("aria-invalid");
+    expect(screen.queryByText("Enter no more than 120 characters.")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "1 answer needs attention" })).toBeInTheDocument();
+    expect(diagnosedOn()).toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.change(diagnosedOn(), { target: { value: "2018-01-01" } });
+    expect(screen.queryByRole("region", { name: /attention/ })).not.toBeInTheDocument();
+  });
+
+  it("submits again once the respondent corrects the answer and shows the receipt", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    server.on("POST", submitUrl, submissionInvalid({ itemId: "itm_04", code: "text/too-long" }), jsonReply(200, { receipt }));
+    await user.click(submitButton());
+    await screen.findByRole("region", { name: "1 answer needs attention" });
+
+    await user.clear(pharmacy());
+    await user.type(pharmacy(), "Boots");
+    await user.click(submitButton());
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Your answers were submitted" })).toBeInTheDocument();
+    expect(server.sent("POST", submitUrl)).toHaveLength(2);
+  });
+
+  it.each<[string, ItemError<SubmissionItemCode>[]]>([
+    ["only codes the grouping drops", [{ itemId: "itm_02", code: "answer/not-visible" }, { itemId: "itm_99", code: "answer/unknown-item" }]],
+    ["an item the form is not showing", [{ itemId: "itm_03", code: "answer/required" }]],
+    ["no items at all", []],
+  ])("shows a generic message and focuses the summary for %s", async (_case, items) => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user, ANSWER_SENTINEL);
+    server.on("POST", submitUrl, submissionInvalid(...items));
+
+    await user.click(submitButton());
+
+    const summary = await screen.findByRole("region", { name: "Your answers could not be submitted" });
+    expect(summary).toHaveAccessibleDescription("Some answers could not be accepted. Check your answers and submit again.");
+    expect(within(summary).queryByRole("listitem")).not.toBeInTheDocument();
+    await waitFor(() => expect(summary).toHaveFocus());
+    expect(summary).not.toHaveTextContent(ANSWER_SENTINEL);
+    expect(pharmacy()).toHaveValue(ANSWER_SENTINEL);
+    expect(submitButton()).toBeEnabled();
+  });
+
+  it("keeps the generic line beside the items it could place", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    server.on("POST", submitUrl, submissionInvalid({ itemId: "itm_04", code: "text/too-long" }, { itemId: "itm_02", code: "answer/not-visible" }));
+
+    await user.click(submitButton());
+
+    const summary = await screen.findByRole("region", { name: "1 answer needs attention" });
+    expect(within(summary).getAllByRole("listitem")).toHaveLength(1);
+    expect(summary).toHaveTextContent("Some answers could not be accepted.");
+    await waitFor(() => expect(pharmacy()).toHaveFocus());
+  });
+});
+
+describe("the client pre-check", () => {
+  it("uses the same error summary, focuses the first invalid item and jumps from the summary", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+
+    await user.click(submitButton());
+
+    const summary = await screen.findByRole("region", { name: "2 answers need attention" });
+    expect(within(summary).getAllByRole("listitem").map((entry) => entry.textContent)).toEqual([
+      "Do you have a medical condition? — Answer this question.",
+      "Preferred pharmacy — Answer this question.",
+    ]);
+    await waitFor(() => expect(hasCondition()).toContainElement(activeElement()));
+    expect(screen.getByText("Your answers were not submitted. 2 answers need attention.")).toHaveAttribute("role", "status");
+    expect(server.sent("POST", submitUrl)).toHaveLength(0);
+
+    await user.click(within(summary).getByRole("button", { name: "Preferred pharmacy" }));
+    expect(pharmacy()).toHaveFocus();
+  });
+});
+
+describe("a submission meeting 409 session/already-submitted", () => {
+  it("fetches the session and shows the recorded receipt with a note, clearing the answers but keeping the ids", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    const heldSession = heldReply();
+    server.on("POST", submitUrl, problemReply(problem("session/already-submitted")));
+    server.on("GET", sessionUrl, heldSession.reply);
+
+    await user.click(submitButton());
+    await waitFor(() => expect(server.sent("GET", sessionUrl)).toHaveLength(1));
+    expect(submitButton()).toBeDisabled();
+    await heldSession.release(jsonReply(200, { session: submittedSession, definition: intakeV1 }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "This form was already submitted" })).toBeInTheDocument();
+    expect(screen.getByText(/the answers you just sent were not recorded/)).toBeInTheDocument();
+    expect(screen.getByText(SESSION_ID)).toBeInTheDocument();
+    expect(screen.getByText((_content, element) => element?.tagName === "TIME")).toHaveAttribute("datetime", submittedSession.submittedAt);
+    expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers: {} });
+    expect(server.sent("POST", submitUrl)).toHaveLength(1);
+  });
+
+  it.each([
+    ["a network failure", networkFailure()],
+    ["an in-progress session", jsonReply(200, { session: inProgressSession, definition: intakeV1 })],
+    ["an internal problem", problemReply(problem("internal", { detail: "correlation" }))],
+  ])("falls to the generic error screen, keeping the stored answers, when the session fetch meets %s", async (_case, reply) => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    server.on("POST", submitUrl, problemReply(problem("session/already-submitted")));
+    server.on("GET", sessionUrl, reply);
+
+    await user.click(submitButton());
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Something went wrong" })).toBeInTheDocument();
+    expect(storedAnswers()).toMatchObject({ itm_04: { type: "text", text: "Corner pharmacy" } });
+  });
+});
+
 describe("resuming from storage", () => {
   it("resumes an in-progress session with its answers and the restore strip, without starting another", async () => {
     storeSession(SESSION_ID, {
@@ -340,6 +526,29 @@ describe("accessibility", () => {
     server.on("POST", submitUrl, networkFailure());
     await user.click(submitButton());
     await screen.findByRole("alert");
+    expect(await axeViolations()).toEqual([]);
+  });
+
+  it("finds no axe violations on the error summary after a 422 with placed and generic errors", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    server.on("POST", submitUrl, submissionInvalid({ itemId: "itm_04", code: "text/too-long" }, { itemId: "itm_02", code: "answer/not-visible" }));
+    await user.click(submitButton());
+    await screen.findByRole("region", { name: "1 answer needs attention" });
+
+    expect(await axeViolations()).toEqual([]);
+  });
+
+  it("finds no axe violations on the already-submitted receipt", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    server.on("POST", submitUrl, problemReply(problem("session/already-submitted")));
+    server.on("GET", sessionUrl, jsonReply(200, { session: submittedSession, definition: intakeV1 }));
+    await user.click(submitButton());
+    await screen.findByRole("heading", { level: 1, name: "This form was already submitted" });
+
     expect(await axeViolations()).toEqual([]);
   });
 
