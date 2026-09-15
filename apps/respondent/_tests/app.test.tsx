@@ -206,11 +206,6 @@ describe("filling the intake form", () => {
   it.each([
     ["a network failure", networkFailure()],
     ["an unexpected response", jsonReply(500, "oops")],
-    ["409 session/already-submitted", problemReply(problem("session/already-submitted"))],
-    [
-      "422 submission/invalid",
-      problemReply(problem("submission/invalid", { items: [{ itemId: "itm_04", code: "text/too-long" }] })),
-    ],
   ])("keeps the form and its stored answers after %s on submit", async (_case, reply) => {
     const user = userEvent.setup();
     await startFresh();

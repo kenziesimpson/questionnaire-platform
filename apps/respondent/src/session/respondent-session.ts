@@ -1,4 +1,5 @@
 import { sensitive, visibleAnswers, type ClientAnswers, type Receipt, type Session } from "@qp/shared";
+import { submissionRejectionOf } from "../answers/submission-rejection.ts";
 import { createSession, getSession, submitSession } from "../api/execution-client.ts";
 import type { ExecutionOutcome } from "../api/request.ts";
 import type { ExecutionProblemSlug } from "../api/problems.ts";
@@ -17,7 +18,7 @@ export interface RespondentSession {
   readonly getState: () => RespondentState;
   readonly subscribe: (listener: () => void) => () => void;
   readonly enter: () => Promise<void>;
-  readonly saveAnswers: (answers: ClientAnswers) => void;
+  readonly changeAnswers: (itemId: string, answers: ClientAnswers) => void;
   readonly submit: (answers: ClientAnswers) => Promise<void>;
 }
 
@@ -104,21 +105,45 @@ export function createRespondentSession(questionnaireId: string, client: Executi
     }
   }
 
-  function saveAnswers(answers: ClientAnswers) {
+  function changeAnswers(itemId: string, answers: ClientAnswers) {
     const form = formContextOf(state);
-    if (form !== null) writePartials(form.session, answers);
+    if (form === null) return;
+    writePartials(form.session, answers);
+    dispatch({ type: "answerChanged", itemId });
+  }
+
+  async function fetchRecordedReceipt(session: Session) {
+    const outcome = await client.getSession(session.sessionId);
+    if (outcome.kind !== "ok") {
+      failed(outcome);
+      return;
+    }
+    const receipt = receiptOf(outcome.body.session);
+    if (receipt === undefined) {
+      failed({ kind: "unexpected-response", status: 200 });
+    } else {
+      clearPartialAnswers(session);
+      dispatch({ type: "recordedReceiptFetched", receipt, definition: outcome.body.definition });
+    }
   }
 
   async function submit(answers: ClientAnswers) {
     const form = formContextOf(state);
-    if (form === null || state.name === "submitting") return;
+    if (form === null || state.name === "submitting" || state.name === "fetchingRecordedReceipt") return;
     const { session, definition } = form;
     dispatch({ type: "submitRequested" });
     const outcome = await client.submitSession(session.sessionId, sensitive(visibleAnswers(definition, answers)));
     if (outcome.kind === "ok") {
       clearPartialAnswers(session);
       dispatch({ type: "submitAccepted", receipt: outcome.body.receipt });
-    } else if (outcome.kind === "problem" && outcome.slug === "questionnaire/closed") {
+    } else if (outcome.kind !== "problem") {
+      failed(outcome);
+    } else if (outcome.slug === "submission/invalid") {
+      dispatch({ type: "submissionRejected", rejection: submissionRejectionOf(definition, answers, outcome.problem) });
+    } else if (outcome.slug === "session/already-submitted") {
+      dispatch({ type: "alreadySubmitted" });
+      await fetchRecordedReceipt(session);
+    } else if (outcome.slug === "questionnaire/closed") {
       dispatch({ type: "questionnaireClosed" });
     } else {
       failed(outcome);
@@ -132,7 +157,7 @@ export function createRespondentSession(questionnaireId: string, client: Executi
       return () => listeners.delete(listener);
     },
     enter,
-    saveAnswers,
+    changeAnswers,
     submit,
   };
 }
