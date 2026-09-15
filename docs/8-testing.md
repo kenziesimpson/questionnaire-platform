@@ -622,6 +622,24 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 | axe finds no violations in the open dialog creating a text question and editing a choice question with Other, a number question, a yes / no question and a date question | `_tests/screens/question-editor/question-editor-dialog.test.tsx` | Accessibility is designed in, not audited afterwards ([[10-frontend#7. Accessibility]]) | — accessibility commitment |
 | The bank's New question button opens the dialog with focus inside, Tab and Shift+Tab stay inside it, and Escape or Cancel closes it and returns focus to the button | `_tests/screens/question-bank.test.tsx` | Radix focus trapping and restoration for the question editor ([[10-frontend#7. Accessibility]], #66) | — accessibility commitment |
 
+#### History
+
+**Frontend component — `apps/admin`, Vitest + RTL in jsdom, `fetch` stubbed**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| The versions table lists `GET /versions` in the order the server returns it, newest first, each row with its version, question count and published time | `_tests/screens/version-history.test.tsx` | The history shows the server's `version DESC` order and never re-sorts it ([[7-application-boundary#4.1 Endpoints]], #40) | Questionnaire versioning |
+| The Published by column is present and a `null` `publishedBy` renders as "—", never as "unknown" or a placeholder author | `_tests/screens/version-history.test.tsx` | `publishedBy` is rendered as absent until authentication exists, and nothing presents the placeholder as a user (#64, #57) | — conventions |
+| The columns are exactly Version, Contents, Published, Published by and the row actions; there is no response-count column | `_tests/screens/version-history.test.tsx` | The definition service has no read access to responses, so the history cannot show response counts ([[7-application-boundary#3.2 Database grants]]) | The definition/execution barrier |
+| One paragraph under the table says a published version cannot be edited and sessions stay on their version; no text on the screen mentions response counts or reporting | `_tests/screens/version-history.test.tsx` | Published versions are immutable and sessions are pinned ([[2-design-doc#6. Versioning & Immutability]]); a link to responses waits for their screen (gh#18) | — conventions |
+| Each version row's Preview link points at `/admin/questionnaires/:id/versions/:v` for its own version, and following it opens that version's preview | `_tests/screens/version-history.test.tsx` | Each published version is openable from the history ([[10-frontend#5.1 Screens]]) | — conventions |
+| With `hasDraft` true a Draft row sits above the versions with the questionnaire's `updatedAt` as its edited time and a link to the draft editor; with `hasDraft` false there is no Draft row | `_tests/screens/version-history.test.tsx` | The open draft is shown only when one exists, from the list read rather than a second draft request (#59, `AdminHistory`) | — conventions |
+| A "Back to questionnaires" icon link to `/admin/questionnaires` sits beside the `h1` "Version history", with the questionnaire's name in a muted line under it and no breadcrumb; following it opens the list; the not-found state keeps the same back link | `_tests/screens/version-history.test.tsx` | The same back-arrow header as the preview screen, with the questionnaire still named | — conventions |
+| An empty `GET /versions` shows the draft and a "Never published" row and no Preview link | `_tests/screens/version-history.test.tsx` | A never-published questionnaire has no version to open ([[2-design-doc#6. Versioning & Immutability]]) | — conventions |
+| A pending `GET /versions` shows a loading status that is gone once the table renders | `_tests/screens/version-history.test.tsx` | — | — conventions |
+| `404 resource/not-found` shows "This questionnaire does not exist." with a link back to the list and no table; any other failure shows an alert, not the not-found message, and Try again refetches into the table | `_tests/screens/version-history.test.tsx` | Errors are switched on by problem slug, never by message (#20) | — conventions |
+| axe finds no violations with versions and a draft, never published, not found and a failed load | `_tests/screens/version-history.test.tsx` | Accessibility is designed in, not audited afterwards ([[10-frontend#7. Accessibility]]) | — conventions |
+
 ## 8. Alternatives considered
 
 ### 8.1 Jest for the frontend
