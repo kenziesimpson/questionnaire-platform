@@ -13,8 +13,12 @@ export function ScreenHeading({ title, children }: { title: string; children?: R
   );
 }
 
-export function Lead({ children }: { children: ReactNode }) {
-  return <p className="text-sm leading-relaxed text-muted-foreground sm:text-base">{children}</p>;
+export function Lead({ id, children }: { id?: string; children: ReactNode }) {
+  return (
+    <p id={id} className="text-sm leading-relaxed text-muted-foreground sm:text-base">
+      {children}
+    </p>
+  );
 }
 
 export function Aside({ children }: { children: ReactNode }) {
