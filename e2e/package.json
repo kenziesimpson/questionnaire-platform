@@ -1,0 +1,29 @@
+{
+  "name": "@qp/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:shared": "npm run build -w @qp/shared",
+    "test": "npm run build:shared && playwright test",
+    "test:skip-shared-build": "playwright test",
+    "test:keep-stack":"npm run build:shared && E2E_KEEP_STACK=true playwright test",
+    "test:headed": "npm run build:shared && playwright test --headed",
+    "clean": "rm -rf test-results playwright-report",
+    "stack:up": "npm run build:shared && node stack/stack-cli.ts up",
+    "stack:list": "node stack/stack-cli.ts list",
+    "stack:down": "node stack/stack-cli.ts down",
+    "browsers:install": "playwright install chromium",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@qp/shared": "*",
+    "@types/node": "^24.13.4",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.0",
+    "testcontainers": "^12.1.0",
+    "typebox": "^1.3.30",
+    "typescript": "~6.0.3"
+  }
+}

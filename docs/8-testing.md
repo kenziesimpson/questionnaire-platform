@@ -838,6 +838,16 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 | After `409`, a recorded-receipt fetch meeting a network failure, an in-progress session or `internal` shows *This form was already submitted* with an alert that the submission on record could not be loaded, and focuses Try again. Answers stay stored. A retry that cannot double-fire shows the receipt with its note, clears the answers and keeps the ids, after two `GET`s and one submit. A fetch meeting `404` shows the generic error screen with no button | `_tests/app.test.tsx` | The recorded-receipt fetch gets the same manual retry (#72, #73); answers cleared only when the receipt arrives (#70) | — reliability |
 | axe finds nothing on the load-failure screen, the resume-failure screen and its in-flight retry, the submit failure alert with its retry in flight, the recorded-receipt failure screen, and the generic error screen for a `request/invalid` start | `_tests/app.test.tsx` | Accessibility designed in on every respondent screen ([[10-frontend#7. Accessibility]]) | — accessibility commitment |
 
+### Wave 3 — Track 9: end-to-end harness
+
+**End-to-end — Playwright against `docker-compose.yml` brought up by Testcontainers, each run on its own compose project and ephemeral host ports**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| The seeded demo loads at `/q/<demo id>` with `itm_02` and `itm_03` absent, the respondent envelope appears under `qp:respondent:<id>`, and its session reads back from `execution.session` as `in_progress` on version 1, with no console or page error | `e2e/specs/smoke.spec.ts` | The stack under test is the production compose file behind nginx, and the harness reaches it through the browser, storage and the mapped database port (§2.4) | Sessions: start, resume, version pinning |
+| `/admin/` redirects to the questionnaire list and lists the seeded demo, with no console or page error | `e2e/specs/smoke.spec.ts` | Both apps are served from one origin with the admin base path intact (§2.4) | — harness |
+| A demo-shaped questionnaire created and published through the definition API renders for a respondent, reveals its branch on Yes, and a submission with an `other` answer persists four `response` rows carrying questionnaire version 1, each question version, the option ids and the other text | `e2e/specs/smoke.spec.ts` | Specs isolate themselves by authoring through the definition API instead of sharing the seeded demo (§2.4) | Conditional navigation over one *and* several earlier answers |
+
 ## 8. Alternatives considered
 
 ### 8.1 Jest for the frontend

@@ -5,7 +5,8 @@
   "description": "Dynamic Questionnaire Platform — monorepo (frontend, backend, shared).",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "e2e"
   ],
   "engines": {
     "node": ">=24"
@@ -16,6 +17,7 @@
     "dev:admin": "npm run dev -w apps/admin",
     "build": "npm run build -w packages/shared && npm run build -w packages/telemetry && npm run build -w apps/backend && npm run build -w apps/respondent && npm run build -w apps/admin",
     "test": "vitest run",
+    "test:e2e": "npm run test -w e2e",
     "typecheck": "npm run build -w packages/shared && npm run typecheck --workspaces --if-present",
     "lint": "eslint . && npm run lint --workspaces --if-present"
   },
