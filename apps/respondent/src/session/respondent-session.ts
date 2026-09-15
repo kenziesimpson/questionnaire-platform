@@ -20,6 +20,7 @@ export interface RespondentSession {
   readonly enter: () => Promise<void>;
   readonly changeAnswers: (itemId: string, answers: ClientAnswers) => void;
   readonly submit: (answers: ClientAnswers) => Promise<void>;
+  readonly retry: () => Promise<void>;
 }
 
 type FailedOutcome = Exclude<ExecutionOutcome<unknown, ExecutionProblemSlug>, { kind: "ok" }>;
@@ -150,6 +151,23 @@ export function createRespondentSession(questionnaireId: string, client: Executi
     }
   }
 
+  async function retry() {
+    const failed = state;
+    if (failed.name !== "failed") return;
+    dispatch({ type: "retryRequested" });
+    if (state === failed) return;
+    switch (failed.step) {
+      case "starting":
+        return start();
+      case "resuming":
+        return resume(failed.stored);
+      case "fetchingRecordedReceipt":
+        return fetchRecordedReceipt(failed.session);
+      case "submitting":
+        return;
+    }
+  }
+
   return {
     getState: () => state,
     subscribe(listener) {
@@ -159,5 +177,6 @@ export function createRespondentSession(questionnaireId: string, client: Executi
     enter,
     changeAnswers,
     submit,
+    retry,
   };
 }
