@@ -1,6 +1,7 @@
 import type { QuestionnaireDraft } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import type { DraftRejection } from "../../api/use-draft-mutation";
+import { problemCount } from "../../components/counts";
 import { AlertCircleIcon } from "../../components/icons";
 import { DRAFT_ITEM_MESSAGES } from "./draft-item-messages";
 
@@ -29,9 +30,9 @@ function copyFor(rejection: DraftRejection, write: DraftWrite): Copy {
         ? {
             title: "The draft was not published",
             body:
-              found === 1
-                ? "Publishing found the problem below. It is also listed under Publish checks."
-                : "Publishing found the problems below. They are also listed under Publish checks.",
+              found === 0
+                ? "Publishing found problems in the draft. They are listed under Publish checks."
+                : `Publishing found ${problemCount(found)}. ${found === 1 ? "It is" : "They are"} listed under Publish checks.`,
             tone: "destructive",
           }
         : {
@@ -77,9 +78,8 @@ export function DraftRejectionNotice({
   onDismiss: () => void;
 }) {
   const { title, body, tone } = copyFor(rejection, write);
-  const refusedItems = rejection.kind === "invalid" ? rejection.problem.items : [];
+  const refusedItems = rejection.kind === "invalid" && write === "change" ? rejection.problem.items : [];
   const pointsToChecks = rejection.kind === "invalid" && write === "publish";
-  const missingItemLabel = write === "publish" ? "A question no longer in this draft" : "The question being added";
   return (
     <div
       role="alert"
@@ -97,7 +97,7 @@ export function DraftRejectionNotice({
               const position = draft.items.findIndex((item) => item.itemId === itemId) + 1;
               return (
                 <li key={`${itemId}:${code}`} data-code={code}>
-                  {position === 0 ? missingItemLabel : `Question ${position}`} · {DRAFT_ITEM_MESSAGES[code].title}
+                  {position === 0 ? "The question being added" : `Question ${position}`} · {DRAFT_ITEM_MESSAGES[code].title}
                 </li>
               );
             })}

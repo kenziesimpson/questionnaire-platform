@@ -475,7 +475,8 @@ describe("the draft editor", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("The draft was not published");
-    expect(alert).toHaveTextContent("Question 1 · Can never be reached");
+    expect(alert).toHaveTextContent("Publishing found 1 problem. It is listed under Publish checks.");
+    expect(within(alert).queryByRole("listitem")).not.toBeInTheDocument();
     expect(alert).not.toHaveTextContent(/someone else/i);
   });
 
@@ -535,7 +536,7 @@ describe("the draft editor", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("The draft was not published");
-    expect(alert).toHaveTextContent("Question 2 · Rules can never be met");
+    expect(alert).toHaveTextContent("Publishing found 1 problem. It is listed under Publish checks.");
     await waitFor(() => expect(second.getByRole("checkbox", { name: "Required" })).toBeEnabled());
     expect(puts(requests)).toHaveLength(0);
   });
