@@ -1,6 +1,6 @@
 import type { PublishedDefinition, Receipt } from "@qp/shared";
 import type { ReactNode } from "react";
-import { Aside, Lead, ScreenHeading, ScreenLayout, StatusBadge } from "./screen-layout.tsx";
+import { Aside, ScreenHeading, ScreenLayout, StatusBadge } from "./screen-layout.tsx";
 
 const submittedAtFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "long", timeStyle: "short" });
 
@@ -19,9 +19,7 @@ export function ReceiptScreen({ receipt, definition }: { receipt: Receipt; defin
       <StatusBadge>
         <path d="M20 6 9 17l-5-5" />
       </StatusBadge>
-      <ScreenHeading title="Your answers were submitted">
-        <Lead>Nothing further is needed. The copy held on this device has been cleared.</Lead>
-      </ScreenHeading>
+      <ScreenHeading title="Your answers were submitted" />
       <dl className="flex flex-col gap-3 rounded-lg border bg-muted p-5 text-sm">
         <ReceiptRow term="Questionnaire">
           {definition.title} · version {receipt.version}
@@ -33,10 +31,7 @@ export function ReceiptScreen({ receipt, definition }: { receipt: Receipt; defin
           <time dateTime={receipt.submittedAt}>{submittedAtFormat.format(new Date(receipt.submittedAt))}</time>
         </ReceiptRow>
       </dl>
-      <Aside>
-        Keep the reference if you need to talk to the clinic about this form. Opening this link again shows this page, not a blank
-        form.
-      </Aside>
+      <Aside>Keep the reference if you need to talk to the clinic about this form.</Aside>
     </ScreenLayout>
   );
 }

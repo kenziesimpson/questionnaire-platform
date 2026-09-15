@@ -18,9 +18,7 @@ export function ClosedScreen() {
         <path d="m15 9-6 6" />
         <path d="m9 9 6 6" />
       </StatusBadge>
-      <ScreenHeading title="This questionnaire is closed">
-        <Lead>It is no longer accepting responses. Answers already submitted are unaffected.</Lead>
-      </ScreenHeading>
+      <ScreenHeading title="This questionnaire is closed" />
       <Aside>If your clinic sent you this link, ask them for a current one.</Aside>
     </ScreenLayout>
   );

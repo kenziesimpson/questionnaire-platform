@@ -1,4 +1,4 @@
-import type { ClientAnswers, ClientAnswerValue, PublishedDefinition } from "@qp/shared";
+import type { ClientAnswers, ClientAnswerValue } from "@qp/shared";
 import { QuestionnaireForm } from "@qp/ui/questionnaire";
 import { Button } from "@qp/ui/primitives/button";
 import { revalidateLogic, useForm, useStore } from "@tanstack/react-form";
@@ -15,10 +15,6 @@ export interface QuestionnaireScreenProps {
 }
 
 const NO_ERRORS = {};
-
-function everyItemRequired(definition: PublishedDefinition): boolean {
-  return definition.items.every((item) => item.required);
-}
 
 function RestoreStrip() {
   return (
@@ -70,10 +66,7 @@ export function QuestionnaireScreen({ form: context, submitting, submitFailed, o
   return (
     <ScreenLayout>
       <ScreenHeading title={definition.title}>
-        <Lead>
-          {everyItemRequired(definition) && "All questions are required. "}
-          Your answers are saved on this device as you go.
-        </Lead>
+        <Lead>Your answers are saved on this device as you go.</Lead>
       </ScreenHeading>
       {restored && <RestoreStrip />}
       <form
@@ -87,11 +80,10 @@ export function QuestionnaireScreen({ form: context, submitting, submitFailed, o
       >
         <QuestionnaireForm definition={definition} answers={answers} errors={errors} mode="interactive" onChange={changeAnswer} />
         {submitFailed && <SubmitFailedAlert />}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+        <div className="flex flex-col sm:flex-row">
           <Button type="submit" size="lg" disabled={submitting}>
             {submitting ? "Submitting…" : "Submit answers"}
           </Button>
-          <p className="text-sm text-muted-foreground">You can change your answers until you submit.</p>
         </div>
       </form>
       <p className="border-t pt-4 text-xs text-muted-foreground">
