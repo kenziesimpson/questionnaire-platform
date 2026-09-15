@@ -20,6 +20,8 @@ export interface RespondentSession {
   readonly enter: () => Promise<void>;
   readonly changeAnswers: (itemId: string, answers: ClientAnswers) => void;
   readonly submit: (answers: ClientAnswers) => Promise<void>;
+  readonly retry: () => Promise<void>;
+  readonly startNewSession: () => Promise<void>;
 }
 
 type FailedOutcome = Exclude<ExecutionOutcome<unknown, ExecutionProblemSlug>, { kind: "ok" }>;
@@ -54,11 +56,11 @@ export function createRespondentSession(questionnaireId: string, client: Executi
     dispatch({ type: "requestFailed", reason: failureReasonOf(outcome) });
   }
 
-  async function start() {
+  async function start(carriedAnswers: ClientAnswers) {
     const outcome = await client.createSession(questionnaireId);
     if (outcome.kind === "ok") {
       const { session, definition } = outcome.body;
-      writePartials(session, {});
+      writePartials(session, carriedAnswers);
       dispatch({ type: "sessionStarted", session, definition });
     } else if (outcome.kind === "problem" && outcome.slug === "questionnaire/closed") {
       dispatch({ type: "questionnaireClosed" });
@@ -85,7 +87,7 @@ export function createRespondentSession(questionnaireId: string, client: Executi
     } else if (outcome.kind === "problem" && outcome.slug === "resource/not-found") {
       removePartials(questionnaireId);
       dispatch({ type: "storedSessionStale" });
-      await start();
+      await start({});
     } else if (outcome.kind === "problem" && outcome.slug === "questionnaire/closed") {
       dispatch({ type: "questionnaireClosed" });
     } else {
@@ -98,7 +100,7 @@ export function createRespondentSession(questionnaireId: string, client: Executi
     const stored = readPartials(questionnaireId);
     if (stored === undefined) {
       dispatch({ type: "noStoredSession" });
-      await start();
+      await start({});
     } else {
       dispatch({ type: "storedSessionFound", stored });
       await resume(stored);
@@ -150,6 +152,31 @@ export function createRespondentSession(questionnaireId: string, client: Executi
     }
   }
 
+  async function retry() {
+    const failed = state;
+    if (failed.name !== "failed") return;
+    dispatch({ type: "retryRequested" });
+    if (state === failed) return;
+    switch (failed.step) {
+      case "starting":
+        return start(failed.carriedAnswers);
+      case "resuming":
+        return resume(failed.stored);
+      case "fetchingRecordedReceipt":
+        return fetchRecordedReceipt(failed.session);
+      case "submitting":
+        return;
+    }
+  }
+
+  async function startNewSession() {
+    const failed = state;
+    if (failed.name !== "failed" || failed.step !== "resuming") return;
+    dispatch({ type: "newSessionRequested" });
+    if (state === failed) return;
+    await start(failed.stored.answers);
+  }
+
   return {
     getState: () => state,
     subscribe(listener) {
@@ -159,5 +186,7 @@ export function createRespondentSession(questionnaireId: string, client: Executi
     enter,
     changeAnswers,
     submit,
+    retry,
+    startNewSession,
   };
 }
