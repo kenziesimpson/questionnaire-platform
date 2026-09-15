@@ -204,10 +204,10 @@ Every PR is staged on a **`staging/track-6`** branch cut from `main` after the W
 
 **PR0 — the skeleton** *(serial, lands on `staging/track-6` before any screen PR)*
 
-- [ ] `router.tsx`: every screen's route registered with a stub component, so no screen PR edits the route tree
-- [ ] The API client: typed calls over `definitionApi` from `@qp/shared`, problem+json parsed into the shared error union, and the draft `ETag` captured and sent back as `If-Match`
-- [ ] Query keys, one module, so every screen invalidates the same keys
-- [ ] The shared optimistic-draft-mutation hook: apply locally, `PUT /draft` with `If-Match`, roll back and refetch on `409 questionnaire/draft-stale`
+- [x] `router.tsx`: every screen's route registered with a stub component, so no screen PR edits the route tree
+- [x] The API client: typed calls over `definitionApi` from `@qp/shared`, problem+json parsed into the shared error union, and the draft `ETag` captured and sent back as `If-Match`
+- [x] Query keys, one module, so every screen invalidates the same keys
+- [x] The shared optimistic-draft-mutation hook: apply locally, `PUT /draft` with `If-Match`, roll back and refetch on `409 questionnaire/draft-stale`
 
 | PR | Screen | Depends on |
 | --- | --- | --- |
