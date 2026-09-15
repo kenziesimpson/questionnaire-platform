@@ -740,6 +740,18 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 | An archived question shows no badge, no re-pin and a disabled Edit. Removing it always asks first; the confirmation's info button carries the "cannot be added back" note as its accessible description and shows it as a tooltip on hover and on focus, and Escape hides it; axe finds nothing; confirming sends the list without it. Replaces PR4's archived-badge row | `_tests/screens/draft-editor.test.tsx` | A placed archived question is not an error, so the editor shows no archived state (#75); re-pinning it to a newer version is still refused as a new placement, so no re-pin or Edit is offered; removal cannot be undone, so it warns first | — accessibility commitment |
 | `publish()` resolves `published` with the version, or `refused` with the rejection; a publish `422` writes its items into the validation query, and a `409` on a save or a publish invalidates it | `_tests/api/use-draft-mutation.test.tsx` | The seeded result the panel shows is the server's own answer (#54) | — conventions |
 
+#### PR6
+
+**Frontend component — `apps/admin`, Vitest + RTL in jsdom, `fetch` stubbed**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| One run through the router against an in-memory definition API that checks every body against the shared route schemas: create a questionnaire and land in its draft; add a bank question, then write one with New question from the picker, with focus back on Add question after each; add a condition; publish and land on version history; preview version 1; back to history and Open the next draft; back to the list, which shows the version, the open draft and History; the bank's usage link opens the preview. Questionnaires stays the current navigation item on every nested route, no link inside a screen is marked current, each screen sets its document title, and axe finds nothing on the list, the built draft and the history | `_tests/authoring-flow.test.tsx` | Every screen is reachable from the others without typing a URL, and a draft only reaches history through publish ([[10-frontend#5.1 Screens]]) | Questionnaire versioning: publish, immutability, one draft |
+| A questionnaire id that is not a UUID, and a version of `0`, `01` or `latest`, render the not-found screen with a way back and send no request | `_tests/router.test.tsx` | A malformed address is not a load failure to retry | — conventions |
+| Each route titles the document `<page> · Questionnaire admin`, and the not-found screen `Page not found · Questionnaire admin` | `_tests/router.test.tsx` | Each screen is identifiable from its title ([[10-frontend#7. Accessibility]]) | — accessibility commitment |
+| On the draft editor, history, preview and an unknown questionnaire, only the main navigation's Questionnaires link carries `aria-current`; the back links do not | `_tests/shell/app-shell.test.tsx` | A back link is never announced as the current page | — accessibility commitment |
+| Version history of a published questionnaire with no open draft offers Open the next draft, which opens it and lands in the draft editor; a `409 questionnaire/draft-exists` lands in the existing draft with no error; any other failure says the draft could not be opened and stays; the button is absent while a draft is open or before anything is published; axe finds nothing | `_tests/screens/version-history.test.tsx` | History leads back into editing, and losing the next-draft race is not an error (#67) | Questionnaire versioning: publish, immutability, one draft |
+
 ### Wave 3 — Track 7: respondent app
 
 #### PR 1
