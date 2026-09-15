@@ -33,7 +33,7 @@ function ArrowLeftIcon() {
 
 function BackToVersionHistory({ questionnaireId }: { questionnaireId: string }) {
   return (
-    <Button asChild variant="ghost" size="icon-sm" className="text-muted-foreground">
+    <Button asChild variant="ghost" size="icon-sm">
       <Link
         to="/questionnaires/$questionnaireId/versions"
         params={{ questionnaireId }}
