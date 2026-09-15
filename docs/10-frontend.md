@@ -162,7 +162,9 @@ Reordering uses dnd-kit, and each drop is a draft mutation — optimistic throug
 
 **Validation runs while editing, not at publish.** `POST /questionnaires/:id/draft/validate` is a dry run of the publish checks using the identical code path, so an unsatisfiable predicate or a forward reference surfaces as the author creates it. Publish then refuses on the same result, which means the editor cannot show a green state that publish disagrees with.
 
-Failures render as a summary panel with jump-to-item links (Decisions Log #54). Each `DraftItemCode` becomes a sentence through an **author-facing catalogue in `apps/admin`**, typed `Record<DraftItemCode, …>` so a code without a message fails to compile. A message names the problem and the fix. It is separate from the renderer's catalogue in §3, because authors see these codes and respondents never do. Its wording and presentation get a design pass during Track 6 (Decisions Log #60).
+Failures render as a summary panel with jump-to-item links (Decisions Log #54). Each `DraftItemCode` becomes a sentence through an **author-facing catalogue in `apps/admin`**, typed `Record<DraftItemCode, …>` so a code without a message fails to compile. A message names the problem and the fix. It is separate from the renderer's catalogue in §3, because authors see these codes and respondents never do. Its wording and presentation get a design pass during Track 6 (Decisions Log #60), which settled three things (#76). **Authors never see a problem code** — the sentence is the finding, and the code stays in a `data-*` attribute for tests. **An empty draft gets its own "no questions yet" all-clear line**, not "Ready". And the Remove confirmation for an archived question carries a small (i) note that re-creating it makes a new question whose answers are not tracked with the old one's.
+
+**Placed questions show no archived state.** Archiving gates new placements only (Decisions Log #75): an item whose question was archived after it was placed saves and publishes like any other, so there is nothing to report and no badge. What the author loses is re-adding it once removed — the picker does not offer archived questions — which is what the Remove note is for.
 
 ### 5.3 The question editor, and re-pinning
 
@@ -213,7 +215,7 @@ Three races exist between two authors. The brief asks for concurrency control to
 
 The reason this is safe to accept is the blast radius rather than the frequency. Because pinning is always explicit and nothing auto-upgrades to latest, a lost authoring edit **cannot reach a published snapshot and cannot change what any collected response means**. It stays a collision between two authors over bank content, and both versions remain in the history to reconcile from. An `If-Match` on question saves would close it for the same cost as the draft ETag; it is declined because append-only already prevents the failure that matters, and the remaining exposure is one an author can see and fix. A question **version picker** in the draft editor ([[2-design-doc#19. Future Work]]) is the change that would make the divergence visible at the point it matters.
 
-**A archives a question while B's picker is stale.** Rejected at add time. Harmless to the data — snapshots hold question content forever — but adding a question that was just retired from the bank contradicts what archiving means.
+**A archives a question while B's picker is stale.** Rejected at add time. Harmless to the data — snapshots hold question content forever — but adding a question that was just retired from the bank contradicts what archiving means. Only the add is rejected: an item that already placed the question is untouched, and later saves and publish go through (Decisions Log #75).
 
 A fourth case is already covered elsewhere: re-pinning an item while that draft is being published is caught by the item guard's locking read ([[9-database-schema#4.1 The item guard, and the two ways it fails naively]]).
 

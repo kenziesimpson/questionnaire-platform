@@ -66,7 +66,7 @@ export async function archivedQuestionIds(executor: Executor, questionIds: reado
   return new Set(archived.map((row) => row.id));
 }
 
-export async function draftForValidation(executor: Executor, items: readonly Item[]): Promise<DraftForValidation> {
+export function draftForValidation(items: readonly Item[]): DraftForValidation {
   return {
     items: items.map((item) => ({
       itemId: item.itemId,
@@ -76,6 +76,5 @@ export async function draftForValidation(executor: Executor, items: readonly Ite
       questionVersion: item.question.questionVersion,
     })),
     questions: items.map((item) => item.question),
-    archivedQuestionIds: await archivedQuestionIds(executor, items.map((item) => item.question.questionId)),
   };
 }
