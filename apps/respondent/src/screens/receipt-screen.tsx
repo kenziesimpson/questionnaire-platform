@@ -13,13 +13,29 @@ function ReceiptRow({ term, children }: { term: string; children: ReactNode }) {
   );
 }
 
-export function ReceiptScreen({ receipt, definition }: { receipt: Receipt; definition: PublishedDefinition }) {
+function AlreadySubmittedNote() {
+  return (
+    <p className="rounded-lg border px-4 py-3 text-sm leading-relaxed">
+      This form had already been submitted, perhaps in another tab or window, so the answers you just sent were not recorded. The
+      submission on record is below.
+    </p>
+  );
+}
+
+export interface ReceiptScreenProps {
+  readonly receipt: Receipt;
+  readonly definition: PublishedDefinition;
+  readonly alreadySubmitted: boolean;
+}
+
+export function ReceiptScreen({ receipt, definition, alreadySubmitted }: ReceiptScreenProps) {
   return (
     <ScreenLayout>
       <StatusBadge>
         <path d="M20 6 9 17l-5-5" />
       </StatusBadge>
-      <ScreenHeading title="Your answers were submitted" />
+      <ScreenHeading title={alreadySubmitted ? "This form was already submitted" : "Your answers were submitted"} />
+      {alreadySubmitted && <AlreadySubmittedNote />}
       <dl className="flex flex-col gap-3 rounded-lg border bg-muted p-5 text-sm">
         <ReceiptRow term="Questionnaire">
           {definition.title} · version {receipt.version}

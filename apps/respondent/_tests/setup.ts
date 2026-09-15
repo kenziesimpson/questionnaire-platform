@@ -10,6 +10,10 @@ class ResizeObserverJsdomLacks {
 
 globalThis.ResizeObserver ??= ResizeObserverJsdomLacks;
 
+function scrollIntoViewJsdomLacks() {}
+
+Element.prototype.scrollIntoView ??= scrollIntoViewJsdomLacks;
+
 afterEach(() => {
   cleanup();
   globalThis.localStorage.clear();
