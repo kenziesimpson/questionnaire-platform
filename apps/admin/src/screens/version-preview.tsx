@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, getRouteApi } from "@tanstack/react-router";
 import { isProblem } from "../api/problem-error";
 import { questionnaireQueries } from "../api/queries";
+import { ArrowLeftIcon } from "../components/icons";
 import { VersionPreview } from "./version-preview/version-preview";
 
 const route = getRouteApi("/questionnaires/$questionnaireId/versions/$version");
@@ -20,15 +21,6 @@ function usePublishedAt({ questionnaireId, version }: VersionAddress): string | 
     select: (versions) => versions.find((summary) => summary.version === version)?.publishedAt,
   });
   return data;
-}
-
-function ArrowLeftIcon() {
-  return (
-    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m12 19-7-7 7-7" />
-      <path d="M19 12H5" />
-    </svg>
-  );
 }
 
 function BackToVersionHistory({ questionnaireId }: { questionnaireId: string }) {

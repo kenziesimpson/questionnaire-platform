@@ -8,7 +8,7 @@ import { isProblem } from "../../api/problem-error";
 import { ConstraintFields } from "./constraint-fields";
 import { describedByFor, errorIdFor, FieldMessages } from "./field";
 import { NO_ERRORS, hasErrors, missingEntries, placeErrors, type SaveErrors } from "./field-errors";
-import { LockIcon } from "./icons";
+import { LockIcon } from "../../components/icons";
 import {
   RESPONSE_TYPE_LABELS,
   blankForm,

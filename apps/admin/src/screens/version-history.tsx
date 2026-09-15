@@ -11,9 +11,11 @@ import {
 } from "@qp/ui/primitives/table";
 import { useQuery } from "@tanstack/react-query";
 import { Link, getRouteApi } from "@tanstack/react-router";
-import type { ReactNode } from "react";
 import { isProblem } from "../api/problem-error";
 import { questionnaireQueries } from "../api/queries";
+import { BackToQuestionnaires } from "../components/back-to-questionnaires";
+import { questionCount } from "../components/counts";
+import { Notice } from "../components/notice";
 
 const route = getRouteApi("/questionnaires/$questionnaireId/versions");
 
@@ -31,29 +33,6 @@ const timestampFormat = new Intl.DateTimeFormat("en-GB", {
 
 function Timestamp({ iso }: { iso: string }) {
   return <time dateTime={iso}>{timestampFormat.format(new Date(iso))}</time>;
-}
-
-function questionCount(count: number): string {
-  return count === 1 ? "1 question" : `${count} questions`;
-}
-
-function ArrowLeftIcon() {
-  return (
-    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m12 19-7-7 7-7" />
-      <path d="M19 12H5" />
-    </svg>
-  );
-}
-
-function BackToQuestionnaires() {
-  return (
-    <Button asChild variant="ghost" size="icon-sm">
-      <Link to="/questionnaires" aria-label="Back to questionnaires" title="Back to questionnaires">
-        <ArrowLeftIcon />
-      </Link>
-    </Button>
-  );
 }
 
 function HistoryHeader({ name }: { name: string | undefined }) {
@@ -157,10 +136,6 @@ function VersionsTable({
       </Table>
     </div>
   );
-}
-
-function Notice({ children }: { children: ReactNode }) {
-  return <div className="flex flex-col items-start gap-3 rounded-xl border border-border px-4 py-6 text-sm">{children}</div>;
 }
 
 function ImmutabilityNote() {
