@@ -218,8 +218,8 @@ describe("the publish checks panel", () => {
     expect(groupsShown().map((group) => group.getAttribute("data-problem-item"))).toEqual(["itm_notes"]);
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("The draft was not published");
-    expect(alert).toHaveTextContent("Publishing found the problem below. It is also listed under Publish checks.");
-    expect(within(alert).getAllByRole("listitem").map((row) => row.textContent)).toEqual(["Question 4 · Question version not found"]);
+    expect(alert).toHaveTextContent("Publishing found 1 problem. It is listed under Publish checks.");
+    expect(within(alert).queryByRole("listitem")).not.toBeInTheDocument();
     expect(alert).toHaveAttribute("data-problem", "questionnaire/draft-invalid");
     expect(alert).not.toHaveTextContent(/questionnaire\/|422/);
     expect(await axeViolations()).toEqual([]);
