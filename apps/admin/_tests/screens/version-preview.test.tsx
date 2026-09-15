@@ -78,7 +78,12 @@ describe("the version preview screen", () => {
   it("renders the intake snapshot through the shared renderer in readonly mode, with the title and publish date", async () => {
     await renderLoadedIntake();
 
-    expect(screen.getByRole("heading", { level: 1, name: "Preview of version 2" })).toBeInTheDocument();
+    const title = screen.getByRole("heading", { level: 1, name: "Preview of version 2" });
+    const back = screen.getByRole("link", { name: "Back to version history" });
+    expect(back).toHaveAttribute("href", `/admin/questionnaires/${QUESTIONNAIRE_ID}/versions`);
+    expect(back).toHaveTextContent("");
+    expect(back.nextElementSibling).toBe(title);
+    expect(screen.queryByRole("link", { name: "Version history" })).not.toBeInTheDocument();
     expect(await screen.findByText(/Patient Intake · published/)).toBeInTheDocument();
     expect(renderedItemIds()).toEqual(["itm_01", "itm_04"]);
     const hasCondition = within(respondentView()).getByRole("radiogroup", { name: /Do you have a medical condition\?/ });
@@ -186,15 +191,16 @@ describe("the version preview screen", () => {
     expect(screen.queryByText("Loading version 2…")).not.toBeInTheDocument();
   });
 
-  it("shows a not-published state for a 404, with a way back to the published versions and no retry", async () => {
+  it("shows a not-published state for a 404, with the arrow back to version history beside the title and no retry", async () => {
     renderPreview(serveIntake, 9);
 
     expect(await screen.findByRole("heading", { level: 2, name: "Version 9 is not published" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Preview of version 9" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "See the published versions" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Back to version history" })).toHaveAttribute(
       "href",
       `/admin/questionnaires/${QUESTIONNAIRE_ID}/versions`,
     );
+    expect(screen.queryByRole("link", { name: /published versions/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Sample answers" })).not.toBeInTheDocument();
   });

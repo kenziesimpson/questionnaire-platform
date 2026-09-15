@@ -22,38 +22,51 @@ function usePublishedAt({ questionnaireId, version }: VersionAddress): string | 
   return data;
 }
 
+function ArrowLeftIcon() {
+  return (
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m12 19-7-7 7-7" />
+      <path d="M19 12H5" />
+    </svg>
+  );
+}
+
+function BackToVersionHistory({ questionnaireId }: { questionnaireId: string }) {
+  return (
+    <Button asChild variant="ghost" size="icon-sm" className="text-muted-foreground">
+      <Link
+        to="/questionnaires/$questionnaireId/versions"
+        params={{ questionnaireId }}
+        aria-label="Back to version history"
+        title="Back to version history"
+      >
+        <ArrowLeftIcon />
+      </Link>
+    </Button>
+  );
+}
+
 function PreviewHeader({ questionnaireId, version, title }: VersionAddress & { title: string | undefined }) {
   const publishedAt = usePublishedAt({ questionnaireId, version });
   const facts = [title, publishedAt && `published ${publishedDateFormat.format(new Date(publishedAt))}`].filter(Boolean);
   return (
-    <header className="flex flex-wrap items-start justify-between gap-3">
-      <div className="flex flex-col gap-1">
+    <header className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <BackToVersionHistory questionnaireId={questionnaireId} />
         <h1 className="text-xl font-semibold tracking-tight">Preview of version {version}</h1>
-        {facts.length > 0 && <p className="text-sm text-muted-foreground">{facts.join(" · ")}</p>}
       </div>
-      <Button asChild variant="outline">
-        <Link to="/questionnaires/$questionnaireId/versions" params={{ questionnaireId }}>
-          Version history
-        </Link>
-      </Button>
+      {facts.length > 0 && <p className="pl-9 text-sm text-muted-foreground">{facts.join(" · ")}</p>}
     </header>
   );
 }
 
-function VersionNotFound({ questionnaireId, version }: VersionAddress) {
+function VersionNotFound({ version }: { version: number }) {
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-border p-6">
       <h2 className="text-base font-semibold">Version {version} is not published</h2>
       <p className="text-sm text-muted-foreground">
         This questionnaire has no published version {version}, or the questionnaire does not exist. A draft cannot be
-        previewed here.{" "}
-        <Link
-          to="/questionnaires/$questionnaireId/versions"
-          params={{ questionnaireId }}
-          className="font-medium text-foreground underline underline-offset-4"
-        >
-          See the published versions
-        </Link>
+        previewed here.
       </p>
     </div>
   );
@@ -87,7 +100,7 @@ export function VersionPreviewScreen() {
       );
     }
     if (isProblem(snapshot.error, "resource/not-found")) {
-      return <VersionNotFound questionnaireId={questionnaireId} version={version} />;
+      return <VersionNotFound version={version} />;
     }
     return <LoadFailed version={version} retrying={snapshot.isFetching} onRetry={() => void snapshot.refetch()} />;
   }
