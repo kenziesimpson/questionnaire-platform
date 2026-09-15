@@ -7,6 +7,8 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { questionnaireQueries } from "../api/queries";
 import { useOpenDraft, type OpenDraft } from "../api/use-open-draft";
+import { Panel } from "../components/panel";
+import { Pill } from "../components/pill";
 import { ClosesAtDialog } from "./questionnaire-list/closes-at-dialog";
 import { CreateQuestionnaireDialog } from "./questionnaire-list/create-questionnaire-dialog";
 import {
@@ -23,19 +25,6 @@ const LIST_REFRESH_MS = 60_000;
 
 function countLabel(count: number): string {
   return count === 1 ? "1 questionnaire" : `${count} questionnaires`;
-}
-
-function Pill({ className, children }: { className?: string; children: ReactNode }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex h-5.5 w-fit items-center rounded-full border border-border bg-background px-2 text-xs font-medium whitespace-nowrap",
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
 }
 
 function StatusPill({ status }: { status: QuestionnaireStatus }) {
@@ -154,14 +143,6 @@ function QuestionnaireTable({ summaries, loadedAt }: { summaries: QuestionnaireS
         </Table>
       </div>
     </>
-  );
-}
-
-function Panel({ children, role }: { children: ReactNode; role?: "status" | "alert" }) {
-  return (
-    <div role={role} className="flex flex-col items-center gap-3 rounded-lg border border-border px-6 py-12 text-center">
-      {children}
-    </div>
   );
 }
 

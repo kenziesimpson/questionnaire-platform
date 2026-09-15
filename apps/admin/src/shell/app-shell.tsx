@@ -1,5 +1,5 @@
 import { Button } from "@qp/ui/primitives/button";
-import { Link, Outlet, type LinkProps } from "@tanstack/react-router";
+import { HeadContent, Link, Outlet, type LinkProps } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { BookIcon, ListIcon, LogoIcon } from "../components/icons";
 
@@ -21,6 +21,7 @@ function NavLink({ to, icon, children }: { to: LinkProps["to"]; icon: ReactNode;
 export function AppShell() {
   return (
     <div className="flex min-h-svh flex-col bg-background text-foreground">
+      <HeadContent />
       <header className="flex h-13 shrink-0 items-center justify-between border-b border-border px-5">
         <div className="flex items-center gap-2.5">
           <LogoIcon />

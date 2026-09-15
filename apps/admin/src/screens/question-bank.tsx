@@ -3,9 +3,9 @@ import { cn } from "@qp/ui/lib/utils";
 import { Button } from "@qp/ui/primitives/button";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@qp/ui/primitives/table";
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 import { questionQueries } from "../api/queries";
 import { PlusIcon } from "../components/icons";
+import { Panel } from "../components/panel";
 import { Pill } from "../components/pill";
 import { ArchiveQuestionDialog } from "./question-bank/archive-question-dialog";
 import { bankCountLabel, isArchived, sortByLatestEdit } from "./question-bank/bank-display";
@@ -106,14 +106,6 @@ function QuestionTable({
         Nothing is deleted: an archived question stays in this list, marked, and every published version using it is
         unchanged.
       </p>
-    </div>
-  );
-}
-
-function Panel({ children, role }: { children: ReactNode; role?: "status" | "alert" }) {
-  return (
-    <div role={role} className="flex flex-col items-center gap-3 rounded-lg border border-border px-6 py-12 text-center">
-      {children}
     </div>
   );
 }
