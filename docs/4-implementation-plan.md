@@ -221,8 +221,8 @@ Every PR is staged on a **`staging/track-6`** branch cut from `main` after the W
 | PR6 | Integration, plus **H5** (admin half) and **H6** | Everything above |
 | gh#17 fix | Not a screen: archiving gates new placements only (#75), in `apps/backend`; `packages/shared`'s draft validator is unchanged | Nothing in Track 6; lands before `staging/track-6` merges to `main` |
 
-- [ ] gh#17 fix (#75) merged into `staging/track-6`: `PUT /draft`, validate and publish report `draft/question-archived` only for items whose `(questionId, questionVersion)` pair is not already in the stored draft, with tests
-- [ ] `staging/track-6 → main` merged with Checks green on its head
+- [x] gh#17 fix (#75) merged into `staging/track-6`: `PUT /draft`, validate and publish report `draft/question-archived` only for items whose `(questionId, questionVersion)` pair is not already in the stored draft, with tests
+- [x] `staging/track-6 → main` merged with Checks green on its head
 
 **PR4 must tell a `422` from a `409`.** A `422 questionnaire/draft-invalid` is not a stale conflict and must not be reported as someone else's edit. Before the gh#17 fix lands, a reorder can hit one from an archived question elsewhere in the draft, for reasons that have nothing to do with the reorder; after it, only a newly placed item can draw `draft/question-archived` (#75). PR4's "Archived in bank" badge and frozen-draft copy are removed by PR5, since under #75 there is no archived state to show.
 
@@ -242,9 +242,9 @@ Each PR adds its own [[8-testing#7. Test case enumeration]] rows with the featur
 
 1. [x] **Execution client and storage.** A typed `fetch` for the three `/api/run` routes; the partials storage module with its envelope and shape check (#71); Vitest and RTL set up for `apps/respondent`
 2. [x] **State machine and happy path.** Start, resume, fill with branching, a client-side validation pre-check, submit only the visible answers, the receipt, and the closed and not-found screens
-3. [ ] **Submission errors.** The `422` mapped through `errorsByItemId`, an error summary with jump-to-item links, focus on the first invalid item, and the `409 session/already-submitted` handling (#72)
-4. [ ] **Network failure and retry** (#73)
-5. [ ] `staging/track-7 → main` merged with Checks green on its head
+3. [x] **Submission errors.** The `422` mapped through `errorsByItemId`, an error summary with jump-to-item links, focus on the first invalid item, and the `409 session/already-submitted` handling (#72)
+4. [x] **Network failure and retry** (#73)
+5. [x] `staging/track-7 → main` merged with Checks green on its head
 
 ### Wave 3b — observability and pipeline
 
