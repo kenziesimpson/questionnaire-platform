@@ -152,18 +152,12 @@ function Notice({ children }: { children: ReactNode }) {
   return <div className="flex flex-col items-start gap-3 rounded-xl border border-border px-4 py-6 text-sm">{children}</div>;
 }
 
-function Explanations() {
+function ImmutabilityNote() {
   return (
-    <div className="flex max-w-225 flex-col gap-2 text-xs leading-relaxed text-muted-foreground md:flex-row md:gap-6">
-      <p>
-        A published version cannot be edited, only superseded. Sessions started against a version stay on it to the end, and
-        responses keep the version they were collected under.
-      </p>
-      <p>
-        No response counts here. The authoring service has no read access to response data, so reporting is a separate
-        surface.
-      </p>
-    </div>
+    <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">
+      A published version cannot be edited, only superseded. Sessions started against a version stay on it to the end, and
+      responses keep the version they were collected under.
+    </p>
   );
 }
 
@@ -202,7 +196,7 @@ export function VersionHistoryScreen() {
     return (
       <>
         <VersionsTable questionnaireId={questionnaireId} versions={versions.data} draft={summary} />
-        <Explanations />
+        <ImmutabilityNote />
       </>
     );
   })();

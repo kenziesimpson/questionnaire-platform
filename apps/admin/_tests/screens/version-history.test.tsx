@@ -112,6 +112,18 @@ describe("the version history screen", () => {
     expect(screen.queryByRole("columnheader", { name: /response/i })).not.toBeInTheDocument();
   });
 
+  it("explains immutability in one note under the table and says nothing about response counts or reporting", async () => {
+    renderHistory(serve({}));
+
+    const { table } = await findRows();
+    const note = screen.getByText(/A published version cannot be edited, only superseded\./);
+
+    expect(note.tagName).toBe("P");
+    expect(note).toHaveTextContent("Sessions started against a version stay on it to the end");
+    expect(table.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText(/response counts|reporting/i)).not.toBeInTheDocument();
+  });
+
   it("links each version to its own preview", async () => {
     const { router } = renderHistory(serve({}));
 
