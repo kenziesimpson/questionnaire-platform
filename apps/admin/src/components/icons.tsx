@@ -134,6 +134,38 @@ export function RulesIcon({ size = 13 }: IconProps) {
   );
 }
 
+export function LogoIcon({ size = 18 }: IconProps) {
+  return (
+    <Icon size={size} strokeWidth={1.8}>
+      <path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10" />
+      <path d="M9 8h5" />
+      <path d="M9 12h5" />
+      <path d="m17 14 2 2 4-4" />
+    </Icon>
+  );
+}
+
+export function ListIcon({ size = 16 }: IconProps) {
+  return (
+    <Icon size={size} strokeWidth={1.8}>
+      <path d="M8 6h13" />
+      <path d="M8 12h13" />
+      <path d="M8 18h13" />
+      <path d="M3 6h.01" />
+      <path d="M3 12h.01" />
+      <path d="M3 18h.01" />
+    </Icon>
+  );
+}
+
+export function BookIcon({ size = 16 }: IconProps) {
+  return (
+    <Icon size={size} strokeWidth={1.8}>
+      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+    </Icon>
+  );
+}
+
 export function GripIcon() {
   return (
     <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">

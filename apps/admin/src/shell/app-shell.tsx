@@ -1,38 +1,7 @@
 import { Button } from "@qp/ui/primitives/button";
 import { Link, Outlet, type LinkProps } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-
-function LogoIcon() {
-  return (
-    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10" />
-      <path d="M9 8h5" />
-      <path d="M9 12h5" />
-      <path d="m17 14 2 2 4-4" />
-    </svg>
-  );
-}
-
-function ListIcon() {
-  return (
-    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M8 6h13" />
-      <path d="M8 12h13" />
-      <path d="M8 18h13" />
-      <path d="M3 6h.01" />
-      <path d="M3 12h.01" />
-      <path d="M3 18h.01" />
-    </svg>
-  );
-}
-
-function BookIcon() {
-  return (
-    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
-    </svg>
-  );
-}
+import { BookIcon, ListIcon, LogoIcon } from "../components/icons";
 
 function NavLink({ to, icon, children }: { to: LinkProps["to"]; icon: ReactNode; children: ReactNode }) {
   return (
