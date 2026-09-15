@@ -1,4 +1,5 @@
 import type { QuestionnaireSummary } from "@qp/shared";
+import type { QueryClient } from "@tanstack/react-query";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -70,9 +71,10 @@ function routed(routes: Routes): FetchHandler {
   };
 }
 
-function renderList(routes: Routes) {
+function renderList(routes: Routes, prepare: (queryClient: QueryClient) => void = () => undefined) {
   const requests = stubFetch(routed(routes));
   const queryClient = testQueryClient();
+  prepare(queryClient);
   const router = createAppRouter({
     queryClient,
     history: createMemoryHistory({ initialEntries: ["/admin/questionnaires"] }),
@@ -131,6 +133,29 @@ describe("the questionnaire list", () => {
       "href",
       `/admin/questionnaires/${INTAKE_ID}/versions`,
     );
+  });
+
+  it("reads closed and last edited as of when the list was loaded, and again when a refetch lands", async () => {
+    const loadedAt = Date.parse("2026-01-14T12:00:00.000Z");
+    const closingSoon = aSummary({
+      questionnaireId: INTAKE_ID,
+      name: "Patient Intake",
+      closesAt: "2026-01-14T12:05:00.000Z",
+      updatedAt: "2026-01-14T11:58:00.000Z",
+    });
+    const refetch = deferred<Response>();
+    renderList({ [`GET ${LIST_URL}`]: () => refetch.promise }, (queryClient) =>
+      queryClient.setQueryData(questionnaireQueries.list().queryKey, [closingSoon], { updatedAt: loadedAt }),
+    );
+
+    await screen.findByRole("table");
+    expect(within(rowOf("Patient Intake")).getByText("Published v2")).toBeInTheDocument();
+    expect(within(rowOf("Patient Intake")).getByText("2 minutes ago")).toBeInTheDocument();
+
+    refetch.resolve(jsonResponse(200, [closingSoon]));
+
+    expect(await within(rowOf("Patient Intake")).findByText("Closed at v2")).toBeInTheDocument();
+    expect(within(rowOf("Patient Intake")).queryByText("2 minutes ago")).not.toBeInTheDocument();
   });
 
   it("shows a loading state until the list arrives", async () => {

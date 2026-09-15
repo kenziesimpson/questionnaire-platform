@@ -18,7 +18,6 @@ import {
   statusOf,
   type QuestionnaireStatus,
 } from "./questionnaire-list/summary-display";
-import { useClock } from "./questionnaire-list/use-clock";
 
 function countLabel(count: number): string {
   return count === 1 ? "1 questionnaire" : `${count} questionnaires`;
@@ -124,8 +123,7 @@ function OpenDraftFailureNotice({ drafts, summaries }: { drafts: OpenDraft; summ
   );
 }
 
-function QuestionnaireTable({ summaries }: { summaries: QuestionnaireSummary[] }) {
-  const now = useClock();
+function QuestionnaireTable({ summaries, loadedAt }: { summaries: QuestionnaireSummary[]; loadedAt: number }) {
   const drafts = useOpenDraft();
 
   return (
@@ -148,7 +146,7 @@ function QuestionnaireTable({ summaries }: { summaries: QuestionnaireSummary[] }
           </TableHeader>
           <TableBody>
             {sortByMostRecentlyEdited(summaries).map((summary) => (
-              <QuestionnaireRow key={summary.questionnaireId} summary={summary} now={now} drafts={drafts} />
+              <QuestionnaireRow key={summary.questionnaireId} summary={summary} now={loadedAt} drafts={drafts} />
             ))}
           </TableBody>
         </Table>
@@ -198,7 +196,7 @@ export function QuestionnaireListScreen() {
           <p className="text-muted-foreground">Create one with New questionnaire. It starts as a draft you add questions to.</p>
         </Panel>
       ) : (
-        <QuestionnaireTable summaries={summaries} />
+        <QuestionnaireTable summaries={summaries} loadedAt={list.dataUpdatedAt} />
       )}
     </section>
   );
