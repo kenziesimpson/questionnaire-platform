@@ -81,14 +81,20 @@ function pinnedVersionOf(item: DraftItem): QuestionVersionKey {
   return { questionId: item.questionId, version: item.questionVersion };
 }
 
-async function refusedItems(tx: Transaction, items: readonly DraftItem[]): Promise<DraftInvalidItem[]> {
+function newPlacements(items: readonly DraftItem[], placed: readonly DraftItem[]): DraftItem[] {
+  const placedKeys = new Set(placed.map((item) => questionVersionKey(pinnedVersionOf(item))));
+  return items.filter((item) => !placedKeys.has(questionVersionKey(pinnedVersionOf(item))));
+}
+
+async function refusedItems(tx: Transaction, draftVersionId: string, items: readonly DraftItem[]): Promise<DraftInvalidItem[]> {
   const duplicated = duplicatedItemIds(items);
   if (duplicated.length > 0) {
     return duplicated.map((itemId) => ({ itemId, code: "draft/duplicate-item-id" }));
   }
-  const archivedIds = await archivedQuestionIds(tx, items.map((item) => item.questionId));
+  const added = newPlacements(items, await readItems(tx, draftVersionId));
+  const archivedIds = await archivedQuestionIds(tx, added.map((item) => item.questionId));
   if (archivedIds.size > 0) {
-    return items
+    return added
       .filter((item) => archivedIds.has(item.questionId))
       .map((item) => ({ itemId: item.itemId, code: "draft/question-archived" }));
   }
@@ -107,7 +113,7 @@ export async function replaceDraft(executor: Executor, command: ReplaceDraftComm
     if (!isCurrentDraft(command.precondition, { versionId: draft.id, draftRevision: draft.draftRevision })) {
       return { outcome: "stale" };
     }
-    const refused = await refusedItems(tx, command.items);
+    const refused = await refusedItems(tx, draft.id, command.items);
     if (refused.length > 0) {
       return { outcome: "invalid", items: refused };
     }
@@ -199,6 +205,6 @@ export async function validateOpenDraft(database: Database, questionnaireId: str
     if (draft === undefined) {
       return undefined;
     }
-    return validateDraft(await draftForValidation(tx, itemsWithQuestionContent(await readDraftContents(tx, draft.id))));
+    return validateDraft(draftForValidation(itemsWithQuestionContent(await readDraftContents(tx, draft.id))));
   }, READ_ONLY_SNAPSHOT);
 }

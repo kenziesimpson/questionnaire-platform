@@ -56,7 +56,7 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
       items: itemsWithQuestionContent(await readDraftContents(tx, draft.id)),
     };
 
-    const validation = validateDraft(await draftForValidation(tx, definition.items));
+    const validation = validateDraft(draftForValidation(definition.items));
     if (!validation.valid) {
       return { outcome: "invalid", items: validation.items };
     }
