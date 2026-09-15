@@ -583,6 +583,23 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 | A `4xx` problem is not retried and a `5xx` or network failure is retried up to three times; `refetchOnWindowFocus` keeps TanStack Query's default | `_tests/api/query-client.test.ts` | Another tab's edit shows up when the author returns (#69) | — conventions |
 | axe finds no violations in the shell on the list, a preview, the bank and the not-found screen; the shell has a banner, a named main navigation and a main landmark; the nav marks Questionnaires current on questionnaire screens and Question bank on the bank, with `/admin`-based links | `_tests/shell/app-shell.test.tsx` | Accessibility is designed in, not audited afterwards ([[10-frontend#7. Accessibility]]) | — conventions |
 
+#### History
+
+**Frontend component — `apps/admin`, Vitest + RTL in jsdom, `fetch` stubbed**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| The versions table lists `GET /versions` in the order the server returns it, newest first, each row with its version, question count and published time | `_tests/screens/version-history.test.tsx` | The history shows the server's `version DESC` order and never re-sorts it ([[7-application-boundary#4.1 Endpoints]], #40) | Questionnaire versioning |
+| The Published by column is present and a `null` `publishedBy` renders as "—", never as "unknown" or a placeholder author | `_tests/screens/version-history.test.tsx` | `publishedBy` is rendered as absent until authentication exists, and nothing presents the placeholder as a user (#64, #57) | — conventions |
+| The columns are exactly Version, Contents, Published, Published by and the row actions; there is no response-count column | `_tests/screens/version-history.test.tsx` | The definition service has no read access to responses, so the history cannot show response counts ([[7-application-boundary#3.2 Database grants]], `AdminHistory`) | The definition/execution barrier |
+| Each version row's Preview link points at `/admin/questionnaires/:id/versions/:v` for its own version, and following it opens that version's preview | `_tests/screens/version-history.test.tsx` | Each published version is openable from the history ([[10-frontend#5.1 Screens]]) | — conventions |
+| With `hasDraft` true a Draft row sits above the versions with the questionnaire's `updatedAt` as its edited time and a link to the draft editor; with `hasDraft` false there is no Draft row | `_tests/screens/version-history.test.tsx` | The open draft is shown only when one exists, from the list read rather than a second draft request (#59, `AdminHistory`) | — conventions |
+| The breadcrumb links back to the questionnaire list and names the questionnaire | `_tests/screens/version-history.test.tsx` | `AdminHistory` | — conventions |
+| An empty `GET /versions` shows the draft and a "Never published" row and no Preview link | `_tests/screens/version-history.test.tsx` | A never-published questionnaire has no version to open ([[2-design-doc#6. Versioning & Immutability]]) | — conventions |
+| A pending `GET /versions` shows a loading status that is gone once the table renders | `_tests/screens/version-history.test.tsx` | — | — conventions |
+| `404 resource/not-found` shows "This questionnaire does not exist." with a link back to the list and no table; any other failure shows an alert, not the not-found message, and Try again refetches into the table | `_tests/screens/version-history.test.tsx` | Errors are switched on by problem slug, never by message (#20) | — conventions |
+| axe finds no violations with versions and a draft, never published, not found and a failed load | `_tests/screens/version-history.test.tsx` | Accessibility is designed in, not audited afterwards ([[10-frontend#7. Accessibility]]) | — conventions |
+
 ## 8. Alternatives considered
 
 ### 8.1 Jest for the frontend
