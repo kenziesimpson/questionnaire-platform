@@ -18,11 +18,11 @@ export function RadioChoiceView({
 }: SingleChoiceViewProps) {
   return (
     <RadioGroup asChild value={selectedOptionId} onValueChange={onSelect} disabled={readOnly}>
-      <ChoiceFieldset ids={ids} prompt={prompt} required={required} error={error}>
+      <ChoiceFieldset ids={ids} prompt={prompt} required={required} error={error} className="gap-1">
         {options.map((option) => {
           const id = `${ids.base}-${option.optionId}`;
           return (
-            <div key={option.optionId} className="flex items-center gap-3">
+            <div key={option.optionId} className="flex min-h-8 items-center gap-3">
               <RadioGroupItem id={id} value={option.optionId} />
               <Label htmlFor={id} className="font-normal">
                 {option.label}

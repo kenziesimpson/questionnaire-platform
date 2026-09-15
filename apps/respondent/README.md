@@ -4,9 +4,21 @@ The respondent SPA (React + Vite): open a published questionnaire, answer the qu
 resume an incomplete session, and submit. See [`docs/10-frontend.md`](../../docs/10-frontend.md) §4
 for the rendering and resume model.
 
-> **Status:** scaffold only. `src/app.tsx` renders a placeholder built from `@qp/ui`. The app itself
-> is Wave 3: one URL `/q/:questionnaireId` with a state machine behind it and no router, plain
-> `fetch`, TanStack Form, and partial answers in `localStorage`.
+> **Status:** Wave 3, Track 7. One URL `/q/:questionnaireId` with a state machine behind it and no
+> router, plain `fetch`, TanStack Form, and partial answers in `localStorage`. Start, resume, branching,
+> the client pre-check, submit, the receipt and the closed and not-found screens are in; the `422`
+> error summary, the `409 session/already-submitted` receipt and network retry are still to come.
+
+## Layout
+
+| Path | Owns |
+| --- | --- |
+| `src/entry/` | Reading the questionnaire id from the one entry URL |
+| `src/session/` | The state machine (`respondent-state.ts`), the side effects that drive it (`respondent-session.ts`) and its React hook |
+| `src/answers/` | The client pre-check: the shared validator over the visible answers, against the browser's local date |
+| `src/screens/` | One component per screen; the form screen holds TanStack Form around the shared renderer |
+| `src/api/` | The execution client; calls never throw |
+| `src/storage/` | The `qp:respondent:<questionnaireId>` envelope |
 
 ## Conventions
 
@@ -26,4 +38,5 @@ for the rendering and resume model.
 | `npm run dev -w apps/respondent` | Vite dev server on `:5173` |
 | `npm run build -w apps/respondent` | Typecheck and build to `dist/` (needs `packages/shared` built) |
 | `npm run preview -w apps/respondent` | Serve the built `dist/` locally |
-| `npm run typecheck -w apps/respondent` | Typecheck `src/` and `vite.config.ts` |
+| `npm run typecheck -w apps/respondent` | Typecheck `src/`, `_tests/` and both configs |
+| `npm run test -w apps/respondent` | Vitest and React Testing Library in jsdom |
