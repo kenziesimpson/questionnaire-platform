@@ -73,7 +73,11 @@ export function PredicateEditor({ draft, item, position, disabled, onChange }: P
         Rules for question {position}
       </legend>
       {conditions.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Always shown. Add a condition to show it only after certain answers.</p>
+        <p className="text-sm text-muted-foreground">
+          {unsaved === null
+            ? "Always shown. Add a condition to show it only after certain answers."
+            : "Always shown until this condition is saved."}
+        </p>
       ) : (
         <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
           <span>Shown when</span>
