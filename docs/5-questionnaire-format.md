@@ -321,6 +321,8 @@ There is no "upgrade this draft to the latest question versions" action yet (§8
 
 **Questions are archived, never deleted** — hidden from the picker, but retained, because published snapshots reference their content forever. This is an instance of a general rule; see [[2-design-doc#3. Constraints]].
 
+**Archiving means "not for new placements", and nothing more** ([[2-design-doc#17. Decisions Log]] #75). A placement is new when its `(questionId, questionVersion)` pair is not already in the stored draft; only a new one draws `draft/question-archived`, at save or at publish. An item already placed keeps its archived question through every save, into the next draft's copy, and through publish. The cost falls on remove-and-re-add: an archived question removed from a draft cannot be put back, since the picker does not offer it and there is no unarchive yet ([gh#17](https://github.com/kenziesimpson/questionnaire-platform/issues/17)). Re-creating it makes a new `questionId`, whose answers do not aggregate with the old one's (§6.3).
+
 ### 6.3 What a response stores
 
 | Stored | Role |

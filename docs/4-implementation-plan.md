@@ -130,8 +130,8 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
 `POST /questionnaires`, `GET /questionnaires/:id/draft`, `PUT /questionnaires/:id/draft`, `POST /questionnaires/:id/draft`, `POST /questionnaires/:id/draft/validate`
 
 - [x] Draft read: `items` in `position` order and `questions` holding each pinned question version once; `ETag` from `formatDraftEtag`; `Cache-Control: no-store`
-- [x] `PUT /draft` maps `replaceDraft`'s outcomes: `stale-or-missing-draft` → `409 questionnaire/draft-stale` when a draft exists, `404` when none does; `archived-question` and `unknown-question-version` → `422 questionnaire/draft-invalid` with the offending items in `items`. Responds with the new `ETag`
-- [x] `openNextDraft` (new, in `db/definition/questionnaires.ts`): `FOR UPDATE` on the questionnaire as the **first** statement ([[9-database-schema#5. Concurrency control]]), `409 questionnaire/draft-exists` when a draft is open, `404` when nothing has been published, then copy the latest published version's items with their pinned question versions, audited `create_draft`. A copied item whose question has since been archived is kept; publish validation reports it
+- [x] `PUT /draft` maps `replaceDraft`'s outcomes: `stale-or-missing-draft` → `409 questionnaire/draft-stale` when a draft exists, `404` when none does; `archived-question` and `unknown-question-version` → `422 questionnaire/draft-invalid` with the offending items in `items`. Responds with the new `ETag`. *(Narrowed by [[2-design-doc#17. Decisions Log]] #75: `archived-question` fires for newly placed items only — see [[#How Track 6 runs]].)*
+- [x] `openNextDraft` (new, in `db/definition/questionnaires.ts`): `FOR UPDATE` on the questionnaire as the **first** statement ([[9-database-schema#5. Concurrency control]]), `409 questionnaire/draft-exists` when a draft is open, `404` when nothing has been published, then copy the latest published version's items with their pinned question versions, audited `create_draft`. A copied item whose question has since been archived is kept; ~~publish validation reports it~~ it is an existing placement, so under #75 neither saves nor publish report it
 - [x] `validate` runs the same read-and-`validateDraft` path publish uses and never writes. If that needs `publishDraft`'s private helpers exported, G2 does that in `publish.ts` as a **pure extraction, no behaviour change**, and tells G3 before merging
 - [x] Tests → **M4** *stale-ETag `409`*, *archived question rejected at add time*: two tabs, one gets `409`; the missing-`If-Match` `400`; two concurrent next-draft opens, where exactly one gets `201`; the copy pins the same question versions as the source; validate reports what publish would refuse and writes no audit row
 
@@ -174,7 +174,7 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 
 #### Wave 3 contract commit *(serial, one agent, before Tracks 6 and 7 branch)*
 
-> **The only Wave 3 change to `packages/shared`, `packages/ui` and `apps/backend`.** After it, Tracks 6 and 7 each touch only their own app. It crosses files Tracks 1, 3 and 4 own, which is why one agent does it before anything branches: both apps consume `errorsByItemId` (#62), and Track 6 builds against the other changes.
+> **The only Wave 3 change to `packages/shared`, `packages/ui` and `apps/backend`, with one later exception:** the gh#17 fix (#75), which the user authorised to land on `staging/track-6` ([[#How Track 6 runs]]). Otherwise, after it, Tracks 6 and 7 each touch only their own app. It crosses files Tracks 1, 3 and 4 own, which is why one agent does it before anything branches: both apps consume `errorsByItemId` (#62), and Track 6 builds against the other changes.
 
 - [x] `errorsByItemId` in `packages/ui/src/questionnaire/`, with tests (#55, #62)
 - [x] `QuestionnaireSummary.updatedAt` in `packages/shared`, plus the backend list query: the latest `questionnaire_version.updated_at` per questionnaire, not moved by a `closesAt` change (#59)
@@ -185,12 +185,12 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 **Track 6 — admin app.** Five screens, code-based TanStack Router, TanStack Query, hand-rolled form state, dnd-kit reorders as optimistic draft mutations through the `If-Match` path with rollback on `409 questionnaire/draft-stale`.
 
 - The question editor's constraint fields and options widget follow `QuestionFields` and `AdminQuestionEditor` ([[10-frontend#5.3 The question editor, and re-pinning]], #58). **The Yes / No template button is a required deliverable** (#36, #58): it is how the brief's yes/no type is visible in the admin UI, and the only way a question gets the reserved `yes` / `no` ids. The type selector is disabled after a question's first save (#61)
-- The author-facing `DraftItemCode` message catalogue (#60) gets a design subagent pass on its wording and presentation during execution
+- The author-facing `DraftItemCode` message catalogue (#60) gets a design subagent pass on its wording and presentation during execution. Its presentation calls are #76: no problem codes shown to authors (kept in `data-*` attributes for tests), a "no questions yet" all-clear for an empty draft rather than "Ready", and an (i) note on removing an archived question
 - A `409 questionnaire/draft-exists` on opening the next draft refetches and navigates to the existing draft, with no error (#67)
 - Preview's sample answers are plain inputs in an admin side panel; the renderer stays `readonly` (#68)
 - The list and bank keep TanStack Query's default refetch-on-window-focus (#69)
 - `publishedBy` is always `null`; the history screen renders it as absent (#64)
-- **Two known bugs, punted (#65).** Track 6 will hit both and neither fixes nor works around them. [gh#17](https://github.com/kenziesimpson/questionnaire-platform/issues/17): an archived question already placed in a draft blocks every `PUT /draft` for that questionnaire. [gh#15](https://github.com/kenziesimpson/questionnaire-platform/issues/15): a taken `key` returns `500`, and `key` may be removed — so do not present a key input as required
+- **Two known bugs (#65, #75).** [gh#17](https://github.com/kenziesimpson/questionnaire-platform/issues/17) is **fixed in Wave 3** (#75, superseding #65's punt): archiving gates new placements only, so an archived question already placed in a draft no longer blocks `PUT /draft` or publish, and the draft editor shows no archived state. The backend change lands on `staging/track-6` ([[#How Track 6 runs]]); unarchive, the picker change and an archive warning stay deferred. [gh#15](https://github.com/kenziesimpson/questionnaire-platform/issues/15) is still punted: a taken `key` returns `500`, and `key` may be removed — so do not present a key input as required
 
 #### How Track 6 runs
 
@@ -215,14 +215,16 @@ Every PR is staged on a **`staging/track-6`** branch cut from `main` after the W
 | PR2 | Question editor dialog, including the Yes / No button | PR0 |
 | PR3 | Question bank | PR2 |
 | PR4 | Draft editor: items, reorder, predicate editor | PR2 |
-| PR5 | Publish-checks panel and the draft-item message catalogue | PR4, and the design subagent pass, which starts once PR4's panel host exists and blocks only PR5's copy and layout |
+| PR5 | Publish-checks panel and the draft-item message catalogue; removes PR4's archived badge and frozen-draft copy (#75), presentation per #76 | PR4, and the design subagent pass, which starts once PR4's panel host exists and blocks only PR5's copy and layout |
 | History | Version history | PR0; can run in parallel |
 | Preview | Preview | PR0; can run in parallel |
 | PR6 | Integration, plus **H5** (admin half) and **H6** | Everything above |
+| gh#17 fix | Not a screen: archiving gates new placements only (#75), in `apps/backend` and `packages/shared` | Nothing in Track 6; lands before `staging/track-6` merges to `main` |
 
+- [ ] gh#17 fix (#75) merged into `staging/track-6`: `PUT /draft`, validate and publish report `draft/question-archived` only for items whose `(questionId, questionVersion)` pair is not already in the stored draft, with tests
 - [ ] `staging/track-6 → main` merged with Checks green on its head
 
-**PR4 must tell a `422` from a `409`.** A reorder can hit `422 questionnaire/draft-invalid` from gh#17 — an archived question elsewhere in the draft — for reasons that have nothing to do with the reorder. It is not a stale conflict and must not be reported as someone else's edit. Per #65, PR4 neither fixes gh#17 nor works around it.
+**PR4 must tell a `422` from a `409`.** A `422 questionnaire/draft-invalid` is not a stale conflict and must not be reported as someone else's edit. Before the gh#17 fix lands, a reorder can hit one from an archived question elsewhere in the draft, for reasons that have nothing to do with the reorder; after it, only a newly placed item can draw `draft/question-archived` (#75). PR4's "Archived in bank" badge and frozen-draft copy are removed by PR5, since under #75 there is no archived state to show.
 
 **Track 7 — respondent app.** No router; a state machine after one entry URL. Plain `fetch`, TanStack Form, `localStorage` partials including hidden items, filtered to visible once at submit. Storage-first resume. Client-side date validation against the **browser's** local date. The primitives' sizes are used as they are; the prototypes' larger touch scale is deferred (#63).
 
@@ -265,6 +267,8 @@ Each PR adds its own [[8-testing#7. Test case enumeration]] rows with the featur
 | `packages/telemetry/**`, collector config | 8 |
 | `e2e/**`, CI workflows | 9 |
 | `docs/**`, `README.md`, `.claude/skills/**` | nobody — a doc-only pass, never a build agent. **One carve-out:** a track appends its own rows to [[8-testing#7. Test case enumeration]] and touches nothing else under `docs/` |
+
+**One Wave 3 crossing:** the gh#17 fix ([[2-design-doc#17. Decisions Log]] #75) changes `apps/backend` and `packages/shared` on `staging/track-6`, by explicit user authorisation. It is not a transfer of ownership; nothing else in Track 6 touches either.
 
 **Contended:** root `package.json`, `tsconfig.base.json`, `docker-compose*.yml`, `.env.example`, the Vitest root config. Changed in Wave 1a and Track 2 only; any later track files a request rather than editing.
 
