@@ -12,9 +12,16 @@ export interface EditableOption {
   label: string;
 }
 
+export interface OptionsBeforeYesNo {
+  options: EditableOption[];
+  otherEnabled: boolean;
+}
+
 export interface QuestionForm {
   type: ResponseType;
   prompt: string;
+  yesNo: boolean;
+  beforeYesNo: OptionsBeforeYesNo | null;
   minLength: string;
   maxLength: string;
   multiline: boolean;
@@ -60,6 +67,8 @@ const emptyConstraints = {
   dateMin: "",
   dateMax: "",
   relative: "any",
+  yesNo: false,
+  beforeYesNo: null,
 } satisfies Omit<QuestionForm, "type" | "prompt" | "options">;
 
 export function blankForm(): QuestionForm {
@@ -67,20 +76,40 @@ export function blankForm(): QuestionForm {
     ...emptyConstraints,
     type: "text",
     prompt: "",
-    options: [{ optionId: generateOptionId(new Set()), label: "" }],
+    options: [blankOption()],
   };
 }
 
-export function yesNoForm(current: QuestionForm): QuestionForm {
+const blankOption = (): EditableOption => ({ optionId: generateOptionId(new Set()), label: "" });
+
+function withYesNoChecked(form: QuestionForm): QuestionForm {
   return {
-    ...current,
-    type: "single_choice",
+    ...form,
+    yesNo: true,
+    beforeYesNo: { options: form.options, otherEnabled: form.otherEnabled },
     options: [
       { optionId: YES_OPTION_ID, label: "Yes" },
       { optionId: NO_OPTION_ID, label: "No" },
     ],
     otherEnabled: false,
   };
+}
+
+function withYesNoUnchecked(form: QuestionForm): QuestionForm {
+  const before = form.beforeYesNo;
+  return {
+    ...form,
+    yesNo: false,
+    beforeYesNo: null,
+    options: before !== null && before.options.length > 0 ? before.options : [blankOption()],
+    otherEnabled: before?.otherEnabled ?? false,
+  };
+}
+
+export function isYesNoQuestion(question: QuestionVersion): boolean {
+  if (question.type !== "single_choice") return false;
+  const ids = question.options.map(({ optionId }) => optionId).sort();
+  return ids.length === 2 && ids[0] === NO_OPTION_ID && ids[1] === YES_OPTION_ID;
 }
 
 const textOf = (value: number | undefined) => (value === undefined ? "" : String(value));
@@ -99,7 +128,7 @@ function constraintsOf(question: QuestionVersion): Partial<QuestionForm> {
     case "text":
       return { minLength: textOf(question.minLength), maxLength: textOf(question.maxLength), multiline: question.multiline ?? false };
     case "single_choice":
-      return choiceFieldsOf(question.options);
+      return { ...choiceFieldsOf(question.options), yesNo: isYesNoQuestion(question) };
     case "multiple_choice":
       return {
         ...choiceFieldsOf(question.options),
@@ -153,6 +182,10 @@ function withSelectionsCapped(form: QuestionForm): QuestionForm {
 const atLeastOne = (raw: string) => (parsed(raw) === 0 ? "1" : raw);
 
 export const edits = {
+  type: (form: QuestionForm, type: ResponseType): QuestionForm =>
+    ({ ...(form.yesNo && type !== "single_choice" ? withYesNoUnchecked(form) : form), type }),
+  yesNo: (form: QuestionForm, checked: boolean): QuestionForm =>
+    withSelectionsCapped(checked ? withYesNoChecked(form) : withYesNoUnchecked(form)),
   minLength: (form: QuestionForm, minLength: string): QuestionForm => ({
     ...form,
     minLength,
@@ -211,7 +244,7 @@ const present = (raw: string) => (raw.trim() === "" ? undefined : raw.trim());
 
 export function serializedOptions(form: QuestionForm): Option[] {
   const regular = form.options.map(({ optionId, label }) => ({ optionId, label }));
-  return form.otherEnabled ? [...regular, { optionId: OTHER_OPTION_ID, label: form.otherLabel, freeform: true }] : regular;
+  return form.otherEnabled && !form.yesNo ? [...regular, { optionId: OTHER_OPTION_ID, label: form.otherLabel, freeform: true }] : regular;
 }
 
 export function questionInputOf(draft: QuestionForm): QuestionInput {

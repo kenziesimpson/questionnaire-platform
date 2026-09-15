@@ -1,6 +1,6 @@
 import { validateQuestionRules } from "@qp/shared";
 import { describe, expect, it } from "vitest";
-import { blankForm, questionInputOf, type QuestionForm } from "../../../src/screens/question-editor/question-form";
+import { blankForm, edits, questionInputOf, type QuestionForm } from "../../../src/screens/question-editor/question-form";
 
 const withType = (patch: Partial<QuestionForm>): QuestionForm => ({ ...blankForm(), prompt: "PR2 Prompt", ...patch });
 
@@ -27,6 +27,19 @@ describe("questionInputOf", () => {
     expect(JSON.parse(JSON.stringify(questionInputOf(withType({ type: "date", relative: "any" }))))).toEqual({
       type: "date",
       prompt: "PR2 Prompt",
+    });
+  });
+
+  it("builds a yes / no question from exactly the two reserved options, whatever Other state the form carries", () => {
+    const yesNo = edits.yesNo(withType({ type: "single_choice", otherEnabled: true }), true);
+
+    expect(questionInputOf({ ...yesNo, otherEnabled: true })).toEqual({
+      type: "single_choice",
+      prompt: "PR2 Prompt",
+      options: [
+        { optionId: "yes", label: "Yes" },
+        { optionId: "no", label: "No" },
+      ],
     });
   });
 });

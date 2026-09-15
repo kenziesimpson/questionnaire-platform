@@ -54,7 +54,7 @@ interface RowProps {
   errors: FieldErrors;
   pointer: string;
   onLabel: (label: string) => void;
-  onRemove: () => void;
+  onRemove?: () => void;
   canRemove: boolean;
   autoFocus: boolean;
   handle: ReactNode;
@@ -80,16 +80,18 @@ function OptionRowContent({ option, errors, pointer, onLabel, onRemove, canRemov
           onChange={(event) => onLabel(event.target.value)}
         />
         {badge}
-        <Button
-          type="button"
-          variant="outline"
-          size="icon-sm"
-          aria-label={`Remove option ${nameOf(option)}`}
-          disabled={!canRemove}
-          onClick={onRemove}
-        >
-          <RemoveIcon />
-        </Button>
+        {onRemove !== undefined && (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            aria-label={`Remove option ${nameOf(option)}`}
+            disabled={!canRemove}
+            onClick={onRemove}
+          >
+            <RemoveIcon />
+          </Button>
+        )}
       </div>
       <FieldMessages id={errorId} messages={errors[pointer]} />
     </>
@@ -166,7 +168,43 @@ const SCREEN_READER_INSTRUCTIONS = {
     "To reorder, press Space or Enter to pick up the option, use the up and down arrow keys to move it, then press Space or Enter again to drop it, or Escape to cancel.",
 };
 
+function YesNoOptions({ form, errors, onChange }: Omit<OptionsEditorProps, "onDraggingChange">) {
+  return (
+    <fieldset className="flex min-w-0 flex-col gap-2">
+      <legend className="mb-2 text-sm font-medium">Options</legend>
+      <ul aria-label="Options, in order" className="flex flex-col gap-2">
+        {form.options.map((option, index) => (
+          <li key={option.optionId} data-option-id={option.optionId} className="flex flex-col gap-1">
+            <OptionRowContent
+              option={option}
+              errors={errors}
+              pointer={optionPointer(index)}
+              onLabel={(label) =>
+                onChange({
+                  ...form,
+                  options: form.options.map((each) => (each.optionId === option.optionId ? { ...each, label } : each)),
+                })
+              }
+              canRemove={false}
+              autoFocus={false}
+              handle={null}
+            />
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs leading-normal text-muted-foreground">
+        A yes / no question always has exactly these two options. Relabel them to read True / False or Agree / Disagree.
+      </p>
+    </fieldset>
+  );
+}
+
 export function OptionsEditor({ form, errors, onChange, onDraggingChange }: OptionsEditorProps) {
+  if (form.yesNo) return <YesNoOptions form={form} errors={errors} onChange={onChange} />;
+  return <EditableOptions form={form} errors={errors} onChange={onChange} onDraggingChange={onDraggingChange} />;
+}
+
+function EditableOptions({ form, errors, onChange, onDraggingChange }: OptionsEditorProps) {
   const [lastAdded, setLastAdded] = useState<string | null>(null);
   const [dragProgress] = useState(() => new DragProgress());
   const [liveRegionContainer, setLiveRegionContainer] = useState<HTMLDivElement | null>(null);

@@ -47,9 +47,14 @@ A save invalidates every `questions` query. Focus returns to whatever held it wh
 
 - **Option ids** are `opt_` plus eight random base-36 characters, drawn again on a clash, never typed and
   never changed. They are random rather than counted because the dialog sees only the latest version, so
-  a counter could reissue an id an earlier version used for a removed option. `yes` and `no` come only from
-  the Use Yes / No options button, shown above the prompt while Single choice is selected in create mode,
-  and `other` only from the freeform Other checkbox, which keeps it the last option.
+  a counter could reissue an id an earlier version used for a removed option. `other` comes only from the
+  freeform Other checkbox, which keeps it the last option.
+- **Yes / No** is a checkbox above the prompt, shown while Single choice is selected. Checked, the question
+  is limited to exactly the options `yes` and `no`, labelled Yes and No with the labels editable, and has no
+  add, remove, reorder or Other control; the body carries those two options and never `other`. Unchecked,
+  the options and Other choice from before come back, or one blank option. In edit mode the checkbox is
+  disabled, like the type: a saved single choice whose options are exactly `yes` and `no` shows it checked,
+  and any other single choice shows it unchecked.
 - **Cross-field rules** cannot be entered. Moving a lower bound above its upper bound moves the upper bound
   with it; an upper bound typed below its lower bound is clamped when the field loses focus, and again when
   the body is built. Selection bounds are capped by the option count.

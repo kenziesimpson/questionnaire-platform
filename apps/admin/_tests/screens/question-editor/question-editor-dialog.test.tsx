@@ -50,6 +50,16 @@ function layOutOptionRows() {
   });
 }
 
+const yesNoCheckbox = () => inDialog().queryByRole("checkbox", { name: "Yes / No question" });
+
+function expectNoOptionListControls() {
+  expect(inDialog().queryByRole("button", { name: "Add option" })).not.toBeInTheDocument();
+  expect(inDialog().queryByRole("button", { name: /^Remove option/ })).not.toBeInTheDocument();
+  expect(inDialog().queryByRole("button", { name: /^Reorder option/ })).not.toBeInTheDocument();
+  expect(inDialog().queryByRole("checkbox", { name: /Allow a freeform/ })).not.toBeInTheDocument();
+  expect(inDialog().queryByText("Freeform")).not.toBeInTheDocument();
+}
+
 async function clickSave() {
   await userEvent.click(inDialog().getByRole("button", { name: /^Save as version/ }));
 }
@@ -232,38 +242,41 @@ describe("QuestionEditorDialog — option ids and the Yes / No template", () => 
     expect(label).toHaveAccessibleDescription(/opt_hyperten/);
   });
 
-  it("offers Yes / No above the prompt only while Single choice is selected in create mode, labelled and reachable by keyboard", async () => {
+  it("offers the Yes / No checkbox above the prompt only while Single choice is selected, labelled and reachable by keyboard", async () => {
     renderEditor();
-    const yesNo = () => inDialog().queryByRole("button", { name: "Use Yes / No options" });
 
-    expect(yesNo()).not.toBeInTheDocument();
+    expect(yesNoCheckbox()).not.toBeInTheDocument();
     for (const type of ["Multiple choice", "Number", "Date", "Text"]) {
       await chooseType(type);
-      expect(yesNo()).not.toBeInTheDocument();
+      expect(yesNoCheckbox()).not.toBeInTheDocument();
     }
 
     await chooseType("Single choice");
-    const button = yesNo();
-    expect(button).toHaveAccessibleDescription("Replaces the options with the reserved ids yes and no. Their labels stay editable.");
-    expect(button!.compareDocumentPosition(field("Prompt")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const checkbox = yesNoCheckbox();
+    expect(checkbox).not.toBeChecked();
+    expect(checkbox).toBeEnabled();
+    expect(checkbox).toHaveAccessibleDescription("Two options with the reserved ids yes and no. Their labels stay editable.");
+    expect(checkbox!.compareDocumentPosition(field("Prompt")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     typeRadio("Single choice").focus();
     await userEvent.tab();
-    expect(button).toHaveFocus();
-    await userEvent.keyboard("{Enter}");
+    expect(checkbox).toHaveFocus();
+    await userEvent.keyboard(" ");
+    expect(checkbox).toBeChecked();
     expect(optionIdsShown()).toEqual(["yes", "no"]);
   });
 
-  it("Yes / No fills a single choice with the reserved ids yes and no, whose labels stay editable", async () => {
+  it("checked, limits the question to yes and no with editable labels and no add, remove, reorder or Other controls", async () => {
     const requests = stubFetch(() => jsonResponse(201, aBankQuestion(aQuestionVersion({ type: "single_choice", questionVersion: 1 }))));
     renderEditor();
     await chooseType("Single choice");
 
-    await userEvent.click(inDialog().getByRole("button", { name: "Use Yes / No options" }));
+    await userEvent.click(yesNoCheckbox()!);
 
     expect(typeRadio("Single choice")).toBeChecked();
     expect(optionIdsShown()).toEqual(["yes", "no"]);
     expect(labelInputs().map((input) => (input as HTMLInputElement).value)).toEqual(["Yes", "No"]);
+    expectNoOptionListControls();
 
     await typeInto("Label for yes", "True");
     await typeInto("Label for no", "False");
@@ -281,6 +294,89 @@ describe("QuestionEditorDialog — option ids and the Yes / No template", () => 
         ],
       },
     });
+  });
+
+  it("unchecked, restores the options and the Other choice the author had before", async () => {
+    renderEditor();
+    await chooseType("Single choice");
+    await userEvent.type(labelInputs()[0]!, "Diabetes");
+    await userEvent.click(inDialog().getByRole("button", { name: "Add option" }));
+    await userEvent.type(labelInputs()[1]!, "Asthma");
+    await userEvent.click(inDialog().getByRole("checkbox", { name: "Allow a freeform “Other” option" }));
+    const before = optionIdsShown();
+
+    await userEvent.click(yesNoCheckbox()!);
+    expect(optionIdsShown()).toEqual(["yes", "no"]);
+    await userEvent.click(yesNoCheckbox()!);
+
+    expect(optionIdsShown()).toEqual(before);
+    expect(labelInputs().map((input) => (input as HTMLInputElement).value)).toEqual(["Diabetes", "Asthma", "Other"]);
+    expect(inDialog().getByRole("checkbox", { name: "Allow a freeform “Other” option" })).toBeChecked();
+    expect(inDialog().getByRole("button", { name: "Add option" })).toBeInTheDocument();
+  });
+
+  it("unchecked with no options before, starts again from one blank option", async () => {
+    renderEditor();
+    await chooseType("Single choice");
+    await userEvent.click(inDialog().getByRole("button", { name: /^Remove option/ }));
+    await userEvent.click(yesNoCheckbox()!);
+
+    await userEvent.click(yesNoCheckbox()!);
+
+    expect(optionIdsShown()).toHaveLength(1);
+    expect(optionIdsShown()[0]).toMatch(GENERATED_ID);
+    expect(labelInputs()[0]).toHaveValue("");
+  });
+
+  it("never saves a yes / no question with `other`, even when Other was ticked before the checkbox, or after switching type and back", async () => {
+    const requests = stubFetch(() => jsonResponse(201, aBankQuestion(aQuestionVersion({ type: "single_choice", questionVersion: 1 }))));
+    renderEditor();
+    await chooseType("Single choice");
+    await typeInto("Prompt", "PR2 Any allergies?");
+    await userEvent.type(labelInputs()[0]!, "Peanuts");
+    await userEvent.click(inDialog().getByRole("checkbox", { name: "Allow a freeform “Other” option" }));
+
+    await userEvent.click(yesNoCheckbox()!);
+    expect(inDialog().queryByRole("checkbox", { name: "Allow a freeform “Other” option" })).not.toBeInTheDocument();
+    await chooseType("Multiple choice");
+    expect(optionIdsShown()).not.toContain("yes");
+    await chooseType("Single choice");
+    await userEvent.click(yesNoCheckbox()!);
+    await clickSave();
+
+    await waitFor(() => expect(requests).toHaveLength(1));
+    const body = requests[0]?.body as { question: { options: { optionId: string }[] } };
+    expect(body.question.options.map(({ optionId }) => optionId)).toEqual(["yes", "no"]);
+  });
+
+  it("in edit mode shows a saved yes / no question checked and disabled, in the limited format", () => {
+    renderEditor({
+      question: aQuestionVersion({
+        type: "single_choice",
+        options: [
+          { optionId: "yes", label: "True" },
+          { optionId: "no", label: "False" },
+        ],
+      }),
+    });
+
+    expect(yesNoCheckbox()).toBeChecked();
+    expect(yesNoCheckbox()).toBeDisabled();
+    expect(optionIdsShown()).toEqual(["yes", "no"]);
+    expect(labelInputs()[0]).toHaveValue("True");
+    expect(labelInputs()[0]).toBeEnabled();
+    expectNoOptionListControls();
+  });
+
+  it.each([
+    ["ordinary options", [{ optionId: "opt_diabetes", label: "Diabetes" }, { optionId: "opt_hyperten", label: "Hypertension" }]],
+    ["yes and no plus Other", [{ optionId: "yes", label: "Yes" }, { optionId: "no", label: "No" }, { optionId: "other", label: "Other", freeform: true }]],
+  ])("in edit mode shows a single choice question with %s unchecked and disabled, with its full options editor", (_, options) => {
+    renderEditor({ question: aQuestionVersion({ type: "single_choice", options }) });
+
+    expect(yesNoCheckbox()).not.toBeChecked();
+    expect(yesNoCheckbox()).toBeDisabled();
+    expect(inDialog().getByRole("button", { name: "Add option" })).toBeInTheDocument();
   });
 
   it("moves an option with the keyboard sensor and announces the move", async () => {
@@ -326,14 +422,14 @@ describe("QuestionEditorDialog — option ids and the Yes / No template", () => 
 });
 
 describe("QuestionEditorDialog — the type lock", () => {
-  it.each(["number", "single_choice"] as const)("disables every response type and offers no Yes / No template when editing a saved %s question", (type) => {
+  it.each(["number", "single_choice"] as const)("disables every response type, and any Yes / No checkbox, when editing a saved %s question", (type) => {
     renderEditor({ question: aQuestionVersion({ type }) });
 
     for (const name of ["Text", "Single choice", "Multiple choice", "Number", "Date"]) {
       expect(typeRadio(name)).toBeDisabled();
     }
     expect(typeRadio(type === "number" ? "Number" : "Single choice")).toBeChecked();
-    expect(inDialog().queryByRole("button", { name: "Use Yes / No options" })).not.toBeInTheDocument();
+    expect(yesNoCheckbox() === null || yesNoCheckbox()!.hasAttribute("disabled")).toBe(true);
     expect(inDialog().getByRole("group", { name: "Response type" })).toHaveAccessibleDescription("Response type cannot be changed.");
   });
 
@@ -475,6 +571,7 @@ describe("QuestionEditorDialog — accessibility", () => {
     ["creating a text question", {}],
     ["editing a choice question with Other", { question: aQuestionVersion({ type: "multiple_choice", options: [{ optionId: "opt_a", label: "A" }, { optionId: "other", label: "Other", freeform: true }] }) }],
     ["editing a number question", { question: aQuestionVersion({ type: "number" }) }],
+    ["editing a yes / no question", { question: aQuestionVersion({ type: "single_choice", options: [{ optionId: "yes", label: "Yes" }, { optionId: "no", label: "No" }] }) }],
     ["editing a date question", { question: aQuestionVersion({ type: "date", relative: "not_future" }) }],
   ])("has no axe violations while %s", async (_, props) => {
     renderEditor(props);

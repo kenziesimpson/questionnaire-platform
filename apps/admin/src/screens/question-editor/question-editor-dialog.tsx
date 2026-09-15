@@ -1,5 +1,6 @@
 import { RESPONSE_TYPES, type QuestionVersion } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
+import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@qp/ui/primitives/dialog";
 import { Input } from "@qp/ui/primitives/input";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
@@ -13,7 +14,7 @@ import {
   blankForm,
   formFromQuestion,
   questionInputOf,
-  yesNoForm,
+  edits,
   type QuestionForm,
 } from "./question-form";
 import { SegmentedControl } from "./segmented-control";
@@ -60,7 +61,7 @@ function TypeRow({
         segments={TYPE_SEGMENTS}
         disabled={editing}
         describedBy={describedByFor(errors.byField, "/type", errorId, noteId)}
-        onChange={(type) => onChange({ ...form, type })}
+        onChange={(type) => onChange(edits.type(form, type))}
         trailing={editing ? <LockIcon className="text-muted-foreground" /> : undefined}
       />
       <p id={noteId} className="text-xs leading-normal text-muted-foreground">
@@ -73,15 +74,27 @@ function TypeRow({
   );
 }
 
-function YesNoTemplate({ onApply }: { onApply: () => void }) {
-  const hintId = useId();
+function YesNoCheckbox({ form, editing, onChange }: { form: QuestionForm; editing: boolean; onChange: (form: QuestionForm) => void }) {
+  const id = useId();
+  const hintId = `${id}-hint`;
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-      <Button type="button" variant="outline" size="sm" aria-describedby={hintId} onClick={onApply}>
-        Use Yes / No options
-      </Button>
-      <p id={hintId} className="text-xs leading-normal text-muted-foreground">
-        Replaces the options with the reserved ids yes and no. Their labels stay editable.
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id={id}
+          checked={form.yesNo}
+          disabled={editing}
+          aria-describedby={hintId}
+          onCheckedChange={(checked) => onChange(edits.yesNo(form, checked === true))}
+        />
+        <label htmlFor={id} className="text-sm font-medium peer-disabled:opacity-60">
+          Yes / No question
+        </label>
+      </div>
+      <p id={hintId} className="pl-6 text-xs leading-normal text-muted-foreground">
+        {editing
+          ? "Set when the question was created."
+          : "Two options with the reserved ids yes and no. Their labels stay editable."}
       </p>
     </div>
   );
@@ -169,7 +182,7 @@ function OpenQuestionEditor({ onOpenChange, question, onSaved }: Omit<QuestionEd
               </div>
             )}
             <TypeRow form={form} editing={editing} errors={errors} onChange={change} />
-            {!editing && form.type === "single_choice" && <YesNoTemplate onApply={() => change(yesNoForm(form))} />}
+            {form.type === "single_choice" && <YesNoCheckbox form={form} editing={editing} onChange={change} />}
             <div className="flex flex-col gap-1.5">
               <label htmlFor={promptId} className="text-sm font-medium">
                 Prompt
