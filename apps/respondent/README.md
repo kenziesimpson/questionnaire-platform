@@ -26,4 +26,5 @@ for the rendering and resume model.
 | `npm run dev -w apps/respondent` | Vite dev server on `:5173` |
 | `npm run build -w apps/respondent` | Typecheck and build to `dist/` (needs `packages/shared` built) |
 | `npm run preview -w apps/respondent` | Serve the built `dist/` locally |
-| `npm run typecheck -w apps/respondent` | Typecheck `src/` and `vite.config.ts` |
+| `npm run typecheck -w apps/respondent` | Typecheck `src/`, `_tests/` and both configs |
+| `npm run test -w apps/respondent` | Vitest and React Testing Library in jsdom |

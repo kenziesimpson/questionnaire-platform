@@ -238,7 +238,7 @@ Four **stacked** PRs, staged on a **`staging/track-7`** branch cut from `main` a
 
 Each PR adds its own [[8-testing#7. Test case enumeration]] rows with the feature. There is no separate integration PR.
 
-1. [ ] **Execution client and storage.** A typed `fetch` for the three `/api/run` routes; the partials storage module with its envelope and shape check (#71); Vitest and RTL set up for `apps/respondent`
+1. [x] **Execution client and storage.** A typed `fetch` for the three `/api/run` routes; the partials storage module with its envelope and shape check (#71); Vitest and RTL set up for `apps/respondent`
 2. [ ] **State machine and happy path.** Start, resume, fill with branching, a client-side validation pre-check, submit only the visible answers, the receipt, and the closed and not-found screens
 3. [ ] **Submission errors.** The `422` mapped through `errorsByItemId`, an error summary with jump-to-item links, focus on the first invalid item, and the `409 session/already-submitted` handling (#72)
 4. [ ] **Network failure and retry** (#73)
