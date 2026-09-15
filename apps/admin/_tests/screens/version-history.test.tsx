@@ -166,14 +166,21 @@ describe("the version history screen", () => {
     expect(screen.queryByRole("link", { name: "Edit the draft" })).not.toBeInTheDocument();
   });
 
-  it("names the questionnaire in the breadcrumb", async () => {
-    renderHistory(serve({}));
+  it("puts a back link to the questionnaires beside the title and names the questionnaire under it", async () => {
+    const { router } = renderHistory(serve({}));
 
     await findRows();
-    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    const heading = screen.getByRole("heading", { level: 1, name: "Version history" });
+    const back = screen.getByRole("link", { name: "Back to questionnaires" });
 
-    expect(within(breadcrumb).getByRole("link", { name: "Questionnaires" })).toHaveAttribute("href", "/admin/questionnaires");
-    expect(breadcrumb).toHaveTextContent("Patient Intake");
+    expect(back).toHaveAttribute("href", "/admin/questionnaires");
+    expect(back.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("Patient Intake")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+
+    await userEvent.click(back);
+
+    expect(router.state.location.pathname).toBe("/questionnaires");
   });
 
   it("says a questionnaire with no published version was never published, beside its draft", async () => {
@@ -214,9 +221,10 @@ describe("the version history screen", () => {
 
     expect(await screen.findByText("This questionnaire does not exist.")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: /questionnaires/i }).map((link) => link.getAttribute("href"))).toContain(
-      "/admin/questionnaires",
-    );
+    const backLinks = screen.getAllByRole("link", { name: "Back to questionnaires" });
+    expect(backLinks).toHaveLength(2);
+    expect(backLinks.map((link) => link.getAttribute("href"))).toEqual(["/admin/questionnaires", "/admin/questionnaires"]);
+    expect(screen.getByRole("heading", { level: 1, name: "Version history" })).toBeInTheDocument();
   });
 
   it("reports a failed load and retries it on request", async () => {

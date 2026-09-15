@@ -37,23 +37,34 @@ function questionCount(count: number): string {
   return count === 1 ? "1 question" : `${count} questions`;
 }
 
-function Breadcrumb({ name }: { name: string | undefined }) {
+function ArrowLeftIcon() {
   return (
-    <nav aria-label="Breadcrumb" className="text-xs text-muted-foreground">
-      <ol className="flex items-center gap-2">
-        <li>
-          <Link to="/questionnaires" className="text-foreground underline-offset-4 hover:underline">
-            Questionnaires
-          </Link>
-        </li>
-        {name === undefined ? null : (
-          <li aria-current="page" className="flex items-center gap-2">
-            <span aria-hidden="true">›</span>
-            {name}
-          </li>
-        )}
-      </ol>
-    </nav>
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m12 19-7-7 7-7" />
+      <path d="M19 12H5" />
+    </svg>
+  );
+}
+
+function BackToQuestionnaires() {
+  return (
+    <Button asChild variant="ghost" size="icon-sm">
+      <Link to="/questionnaires" aria-label="Back to questionnaires" title="Back to questionnaires">
+        <ArrowLeftIcon />
+      </Link>
+    </Button>
+  );
+}
+
+function HistoryHeader({ name }: { name: string | undefined }) {
+  return (
+    <header className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <BackToQuestionnaires />
+        <h1 className="text-xl font-semibold tracking-tight">Version history</h1>
+      </div>
+      {name === undefined ? null : <p className="pl-9 text-sm text-muted-foreground">{name}</p>}
+    </header>
   );
 }
 
@@ -203,10 +214,7 @@ export function VersionHistoryScreen() {
 
   return (
     <section className="flex flex-col gap-5">
-      <div className="flex flex-col gap-2.5">
-        <Breadcrumb name={summary?.name} />
-        <h1 className="text-xl font-semibold tracking-tight">Version history</h1>
-      </div>
+      <HistoryHeader name={summary?.name} />
       {body}
     </section>
   );
