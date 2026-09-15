@@ -402,27 +402,29 @@ describe("the draft editor", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("on 422 draft-invalid says the change was not saved, names the refused items by catalogue title, rolls back and never blames another author", async () => {
+  it("on 422 draft-invalid for a question archived while the picker was open, says the change was not saved, names it by catalogue title, rolls back and never blames another author", async () => {
     const { requests } = renderEditor({
       overrides: {
-        [`PUT ${DRAFT_URL}`]: () =>
-          problemResponse("questionnaire/draft-invalid", {
-            items: [
-              { itemId: "itm_notes", code: "draft/question-archived" },
-              { itemId: "itm_added", code: "draft/question-archived" },
-            ],
-          }),
+        [`PUT ${DRAFT_URL}`]: ({ body }) => {
+          const items: { itemId: string }[] =
+            body !== null && typeof body === "object" && "items" in body && Array.isArray(body.items) ? body.items : [];
+          return problemResponse("questionnaire/draft-invalid", {
+            items: [{ itemId: items.at(-1)?.itemId ?? "", code: "draft/question-archived" }],
+          });
+        },
       },
     });
     await itemList();
 
-    await userEvent.click(within(rowOf("itm_smoke")).getByRole("checkbox", { name: "Required" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add question" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add a question" });
+    await within(dialog).findByRole("list", { name: "Active questions in the bank" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add “Units of alcohol a week?”, version 4" }));
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Your last change was not saved");
     expect(alert).toHaveAttribute("data-problem", "questionnaire/draft-invalid");
     expect(within(alert).getAllByRole("listitem").map((row) => row.textContent)).toEqual([
-      "Question 4 · Archived in the question bank",
       "The question being added · Archived in the question bank",
     ]);
     expect(alert).not.toHaveTextContent(/draft\/|questionnaire\/|422/);
@@ -430,7 +432,7 @@ describe("the draft editor", () => {
     expect(alert).toHaveTextContent("not another author's edit");
     expect(alert).not.toHaveTextContent(/someone else/i);
     expect(await promptsInOrder()).toEqual(["Do you smoke?", "How many a day?", "When did you start?", "Anything else?"]);
-    expect(within(rowOf("itm_smoke")).getByRole("checkbox", { name: "Required" })).toBeChecked();
+    expect(puts(requests)).toHaveLength(1);
     expect(requests.filter(({ method, url }) => method === "GET" && url === DRAFT_URL)).toHaveLength(1);
   });
 
