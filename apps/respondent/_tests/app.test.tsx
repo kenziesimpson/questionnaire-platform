@@ -51,6 +51,8 @@ const whichCondition = () => group(/Which condition\?/);
 const diagnosedOn = () => screen.getByLabelText("When were you diagnosed?", { exact: false });
 const pharmacy = () => screen.getByLabelText("Preferred pharmacy", { exact: false });
 const submitButton = () => screen.getByRole("button", { name: /Submit/ });
+const tryAgain = () => screen.getByRole("button", { name: /^(Try again|Trying again…)$/ });
+const loadFailedHeading = { level: 1, name: "The questionnaire could not be loaded" } as const;
 
 async function startFresh() {
   server.on("POST", sessionsUrl, jsonReply(201, { session: inProgressSession, definition: intakeV1 }));
@@ -101,15 +103,12 @@ describe("entering at /q/:questionnaireId with nothing stored", () => {
     },
   );
 
-  it.each([
-    ["a network failure", networkFailure()],
-    ["an unexpected response", jsonReply(502, "<html>Bad gateway</html>")],
-    ["an internal problem", problemReply(problem("internal", { detail: "correlation" }))],
-  ])("shows the generic error screen on %s", async (_case, reply) => {
-    server.on("POST", sessionsUrl, reply);
+  it("shows the generic error screen with no retry on a problem repeating the request cannot fix", async () => {
+    server.on("POST", sessionsUrl, problemReply(problem("request/invalid", { errors: [] })));
     renderApp();
 
     expect(await screen.findByRole("heading", { level: 1, name: "Something went wrong" })).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });
 
@@ -408,16 +407,44 @@ describe("a submission meeting 409 session/already-submitted", () => {
     ["a network failure", networkFailure()],
     ["an in-progress session", jsonReply(200, { session: inProgressSession, definition: intakeV1 })],
     ["an internal problem", problemReply(problem("internal", { detail: "correlation" }))],
-  ])("falls to the generic error screen, keeping the stored answers, when the session fetch meets %s", async (_case, reply) => {
+  ])("offers a focused retry when the session fetch meets %s, keeping the stored answers until the receipt arrives", async (_case, reply) => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    const heldSession = heldReply();
+    server.on("POST", submitUrl, problemReply(problem("session/already-submitted")));
+    server.on("GET", sessionUrl, reply, heldSession.reply);
+
+    await user.click(submitButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The submission on record could not be loaded.");
+    expect(screen.getByRole("heading", { level: 1, name: "This form was already submitted" })).toBeInTheDocument();
+    await waitFor(() => expect(tryAgain()).toHaveFocus());
+    expect(storedAnswers()).toMatchObject({ itm_04: { type: "text", text: "Corner pharmacy" } });
+
+    await user.click(tryAgain());
+    expect(tryAgain()).toHaveAttribute("aria-disabled", "true");
+    await user.click(tryAgain());
+    await heldSession.release(jsonReply(200, { session: submittedSession, definition: intakeV1 }));
+
+    expect(await screen.findByText(/the answers you just sent were not recorded/)).toBeInTheDocument();
+    expect(screen.getByText(SESSION_ID)).toBeInTheDocument();
+    expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers: {} });
+    expect(server.sent("GET", sessionUrl)).toHaveLength(2);
+    expect(server.sent("POST", submitUrl)).toHaveLength(1);
+  });
+
+  it("shows the generic error screen with no retry when the session fetch meets a problem repeating it cannot fix", async () => {
     const user = userEvent.setup();
     await startFresh();
     await answerNoBranch(user);
     server.on("POST", submitUrl, problemReply(problem("session/already-submitted")));
-    server.on("GET", sessionUrl, reply);
+    server.on("GET", sessionUrl, problemReply(problem("resource/not-found")));
 
     await user.click(submitButton());
 
     expect(await screen.findByRole("heading", { level: 1, name: "Something went wrong" })).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(storedAnswers()).toMatchObject({ itm_04: { type: "text", text: "Corner pharmacy" } });
   });
 });
@@ -485,14 +512,236 @@ describe("resuming from storage", () => {
     expect(server.sent("POST", sessionsUrl)).toHaveLength(0);
   });
 
-  it("shows the generic error screen and keeps the stored answers when resume fails on the network", async () => {
-    storeSession(SESSION_ID, { itm_04: { type: "text", text: "Corner pharmacy" } });
+});
+
+const transientFailures = [
+  ["a network failure", networkFailure],
+  ["a 503 proxy page", () => jsonReply(503, "<html>Service unavailable</html>")],
+  ["an internal problem", () => problemReply(problem("internal", { detail: "correlation" }))],
+] as const;
+
+describe("retrying a start that failed", () => {
+  it.each(transientFailures)("offers a retry after %s, sends one request per click and opens the form on success", async (_case, failure) => {
+    const user = userEvent.setup();
+    const held = heldReply();
+    server.on("POST", sessionsUrl, failure(), held.reply);
+    renderApp();
+
+    expect(await screen.findByRole("heading", loadFailedHeading)).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("The connection may have dropped, or the service may be briefly unavailable.");
+    expect(tryAgain()).toHaveAccessibleDescription(/The connection may have dropped/);
+    expect(tryAgain()).not.toHaveFocus();
+    expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toBeUndefined();
+
+    await user.click(tryAgain());
+    expect(tryAgain()).toHaveTextContent("Trying again…");
+    expect(tryAgain()).toHaveAttribute("aria-disabled", "true");
+    await user.click(tryAgain());
+    await user.keyboard("{Enter}");
+    await held.release(jsonReply(201, { session: inProgressSession, definition: intakeV1 }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Patient Intake" })).toBeInTheDocument();
+    expect(server.sent("POST", sessionsUrl)).toHaveLength(2);
+    expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers: {} });
+  });
+
+  it("stays on the failure screen when the retry fails too, announcing it again and focusing Try again", async () => {
+    const user = userEvent.setup();
+    server.on("POST", sessionsUrl, networkFailure(), networkFailure());
+    renderApp();
+    const firstAlert = await screen.findByRole("alert");
+
+    await user.click(tryAgain());
+
+    await waitFor(() => expect(tryAgain()).toHaveFocus());
+    expect(tryAgain()).toHaveTextContent("Try again");
+    expect(tryAgain()).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByRole("alert")).not.toBe(firstAlert);
+    expect(server.sent("POST", sessionsUrl)).toHaveLength(2);
+  });
+});
+
+describe("retrying a resume that failed", () => {
+  it.each(transientFailures)("offers a retry after %s without starting a session, and restores the answers on success", async (_case, failure) => {
+    const user = userEvent.setup();
+    const saved: ClientAnswers = { itm_01: { type: "single_choice", optionId: "no" }, itm_04: { type: "text", text: "Corner pharmacy" } };
+    storeSession(SESSION_ID, saved);
+    server.on("GET", sessionUrl, failure(), jsonReply(200, { session: inProgressSession, definition: intakeV1 }));
+    renderApp();
+
+    expect(await screen.findByRole("heading", loadFailedHeading)).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("The answers you started are still saved on this device.");
+    expect(storedAnswers()).toEqual(saved);
+    expect(server.sent("POST", sessionsUrl)).toHaveLength(0);
+
+    await user.click(tryAgain());
+
+    expect(await screen.findByText("We restored the answers you started on this device.")).toBeInTheDocument();
+    expect(pharmacy()).toHaveValue("Corner pharmacy");
+    expect(server.sent("GET", sessionUrl)).toHaveLength(2);
+    expect(server.sent("POST", sessionsUrl)).toHaveLength(0);
+    expect(storedAnswers()).toEqual(saved);
+  });
+
+  it("does not claim saved answers when the stored session holds none", async () => {
+    storeSession(SESSION_ID, {});
     server.on("GET", sessionUrl, networkFailure());
     renderApp();
 
-    expect(await screen.findByRole("heading", { level: 1, name: "Something went wrong" })).toBeInTheDocument();
-    expect(storedAnswers()).toEqual({ itm_04: { type: "text", text: "Corner pharmacy" } });
-    expect(server.sent("POST", sessionsUrl)).toHaveLength(0);
+    expect(await screen.findByRole("alert")).not.toHaveTextContent("still saved");
+  });
+
+  it("starts a new session when the retried resume finds the stored session stale", async () => {
+    const user = userEvent.setup();
+    storeSession(STALE_SESSION_ID, { itm_04: { type: "text", text: "Corner pharmacy" } });
+    const staleUrl = `/api/run/sessions/${STALE_SESSION_ID}`;
+    server.on("GET", staleUrl, networkFailure(), problemReply(problem("resource/not-found")));
+    server.on("POST", sessionsUrl, networkFailure(), jsonReply(201, { session: inProgressSession, definition: intakeV1 }));
+    renderApp();
+    await screen.findByRole("heading", loadFailedHeading);
+
+    await user.click(tryAgain());
+    await waitFor(() => expect(tryAgain()).toHaveFocus());
+    expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toBeUndefined();
+    await user.click(tryAgain());
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Patient Intake" })).toBeInTheDocument();
+    expect(server.sent("GET", staleUrl)).toHaveLength(2);
+    expect(server.sent("POST", sessionsUrl)).toHaveLength(2);
+    expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, answers: {} });
+  });
+});
+
+describe("retrying a submit that failed", () => {
+  it.each(transientFailures)(
+    "keeps the form with a focused Try again after %s, resends the same visible answers once, and clears them only on 200",
+    async (_case, failure) => {
+      const user = userEvent.setup();
+      await startFresh();
+      await answerYesBranch(user);
+      await user.click(within(hasCondition()).getByRole("radio", { name: "No" }));
+      const held = heldReply();
+      server.on("POST", submitUrl, failure(), held.reply);
+
+      await user.click(submitButton());
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Your answers were not submitted.");
+      expect(alert).toHaveTextContent("They are still saved on this device. The connection may have dropped");
+      await waitFor(() => expect(tryAgain()).toHaveFocus());
+      expect(tryAgain()).toHaveAccessibleDescription(/Your answers were not submitted/);
+      expect(pharmacy()).toHaveValue("Corner pharmacy");
+      expect(storedAnswers()).toEqual({ ...storedAnswersBeforeSubmit(), itm_01: { type: "single_choice", optionId: "no" } });
+      expect(submitButton()).toBeEnabled();
+
+      await user.click(tryAgain());
+      await waitFor(() => expect(submitButton()).toBeDisabled());
+      expect(submitButton()).toHaveTextContent("Submitting…");
+      expect(tryAgain()).toHaveTextContent("Trying again…");
+      expect(tryAgain()).toHaveAttribute("aria-disabled", "true");
+      expect(tryAgain()).toHaveFocus();
+      await user.click(tryAgain());
+      await user.click(submitButton());
+      fireEvent.submit(screen.getByRole("form", { name: "Patient Intake" }));
+      expect(storedAnswers()).toMatchObject({ itm_04: { type: "text", text: "Corner pharmacy" } });
+      await held.release(jsonReply(200, { receipt }));
+
+      expect(await screen.findByRole("heading", { level: 1, name: "Your answers were submitted" })).toBeInTheDocument();
+      const [first, retried, ...more] = server.sent("POST", submitUrl);
+      expect(more).toHaveLength(0);
+      expect(retried?.body).toEqual(first?.body);
+      expect(retried?.body).toEqual({ answers: { itm_01: { type: "single_choice", optionId: "no" }, itm_04: { type: "text", text: "Corner pharmacy" } } });
+      expect(localStorage.getItem(partialsKey(INTAKE_QUESTIONNAIRE_ID))).not.toContain("Corner pharmacy");
+      expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers: {} });
+    },
+  );
+
+  it("announces a failed retry again and returns focus to Try again, with the answers still stored", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user, ANSWER_SENTINEL);
+    server.on("POST", submitUrl, networkFailure(), jsonReply(502, "<html>Bad gateway</html>"));
+    await user.click(submitButton());
+    const firstAlert = await screen.findByRole("alert");
+
+    await user.click(tryAgain());
+
+    await waitFor(() => expect(screen.getByRole("alert")).not.toBe(firstAlert));
+    await waitFor(() => expect(tryAgain()).toHaveFocus());
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert")).not.toHaveTextContent(ANSWER_SENTINEL);
+    expect(tryAgain()).not.toHaveAttribute("aria-disabled");
+    expect(pharmacy()).toHaveValue(ANSWER_SENTINEL);
+    expect(storedAnswers()).toMatchObject({ itm_04: { type: "text", text: ANSWER_SENTINEL } });
+    expect(server.sent("POST", submitUrl)).toHaveLength(2);
+  });
+
+  it("retries with the answers as they are now when the respondent edits one after the failure", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    server.on("POST", submitUrl, networkFailure(), jsonReply(200, { receipt }));
+    await user.click(submitButton());
+    await screen.findByRole("alert");
+
+    await user.clear(pharmacy());
+    await user.type(pharmacy(), "Boots");
+    await user.click(tryAgain());
+
+    await screen.findByRole("heading", { level: 1, name: "Your answers were submitted" });
+    expect(server.sent("POST", submitUrl)[1]?.body).toEqual({
+      answers: { itm_01: { type: "single_choice", optionId: "no" }, itm_04: { type: "text", text: "Boots" } },
+    });
+  });
+
+  it("lands on the recorded receipt with its note when the retry meets 409 session/already-submitted", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    server.on("POST", submitUrl, networkFailure(), problemReply(problem("session/already-submitted")));
+    server.on("GET", sessionUrl, jsonReply(200, { session: submittedSession, definition: intakeV1 }));
+    await user.click(submitButton());
+    await screen.findByRole("alert");
+
+    await user.click(tryAgain());
+
+    expect(await screen.findByRole("heading", { level: 1, name: "This form was already submitted" })).toBeInTheDocument();
+    expect(screen.getByText(/the answers you just sent were not recorded/)).toBeInTheDocument();
+    expect(screen.getByText((_content, element) => element?.tagName === "TIME")).toHaveAttribute("datetime", submittedSession.submittedAt);
+    expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers: {} });
+    expect(server.sent("POST", submitUrl)).toHaveLength(2);
+  });
+
+  it("returns to the error summary without the failure alert when the retry meets a 422", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    server.on("POST", submitUrl, networkFailure(), submissionInvalid({ itemId: "itm_04", code: "text/too-long" }));
+    await user.click(submitButton());
+    await screen.findByRole("alert");
+
+    await user.click(tryAgain());
+
+    expect(await screen.findByRole("region", { name: "1 answer needs attention" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await waitFor(() => expect(pharmacy()).toHaveFocus());
+  });
+
+  it("offers no Try again for a submit problem that repeating cannot fix, leaving Submit enabled", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    server.on("POST", submitUrl, problemReply(problem("resource/not-found")));
+
+    await user.click(submitButton());
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Your answers were not submitted.");
+    expect(alert).toHaveTextContent("They are still saved on this device.");
+    expect(alert).not.toHaveTextContent("connection");
+    expect(screen.queryByRole("button", { name: /Try again/ })).not.toBeInTheDocument();
+    expect(submitButton()).toBeEnabled();
+    expect(storedAnswers()).toMatchObject({ itm_04: { type: "text", text: "Corner pharmacy" } });
   });
 });
 
@@ -552,6 +801,44 @@ describe("accessibility", () => {
     expect(await axeViolations()).toEqual([]);
   });
 
+  it("finds no axe violations on the resume failure screen and while its retry is in flight", async () => {
+    const user = userEvent.setup();
+    storeSession(SESSION_ID, { itm_04: { type: "text", text: "Corner pharmacy" } });
+    server.on("GET", sessionUrl, networkFailure(), heldReply().reply);
+    renderApp();
+    await screen.findByRole("heading", loadFailedHeading);
+    expect(await axeViolations()).toEqual([]);
+
+    await user.click(tryAgain());
+    expect(tryAgain()).toHaveAttribute("aria-disabled", "true");
+    expect(await axeViolations()).toEqual([]);
+  });
+
+  it("finds no axe violations on the submit failure alert while its retry is in flight", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    server.on("POST", submitUrl, networkFailure(), heldReply().reply);
+    await user.click(submitButton());
+    await screen.findByRole("alert");
+
+    await user.click(tryAgain());
+    await waitFor(() => expect(submitButton()).toBeDisabled());
+    expect(await axeViolations()).toEqual([]);
+  });
+
+  it("finds no axe violations on the recorded-receipt failure screen", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await answerNoBranch(user);
+    server.on("POST", submitUrl, problemReply(problem("session/already-submitted")));
+    server.on("GET", sessionUrl, networkFailure());
+    await user.click(submitButton());
+    await screen.findByText("The submission on record could not be loaded.", { exact: false });
+
+    expect(await axeViolations()).toEqual([]);
+  });
+
   it("finds no axe violations while loading", async () => {
     server.on("POST", sessionsUrl, heldReply().reply);
     renderApp();
@@ -572,7 +859,8 @@ describe("accessibility", () => {
   it.each([
     ["closed", problemReply(problem("questionnaire/closed")), "This questionnaire is closed"],
     ["not-found", problemReply(problem("resource/not-found")), "Questionnaire not found"],
-    ["generic error", networkFailure(), "Something went wrong"],
+    ["generic error", problemReply(problem("request/invalid", { errors: [] })), "Something went wrong"],
+    ["load failure", networkFailure(), "The questionnaire could not be loaded"],
   ])("finds no axe violations on the %s screen", async (_screen, reply, heading) => {
     server.on("POST", sessionsUrl, reply);
     renderApp();
