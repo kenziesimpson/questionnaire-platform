@@ -88,6 +88,41 @@ export function AlertCircleIcon({ size = 18, className }: IconProps) {
   );
 }
 
+export function InfoIcon({ size = 14, className }: IconProps) {
+  return (
+    <Icon size={size} className={className}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
+    </Icon>
+  );
+}
+
+export function CheckIcon({ size = 12, className }: IconProps) {
+  return (
+    <Icon size={size} className={className}>
+      <path d="M20 6 9 17l-5-5" />
+    </Icon>
+  );
+}
+
+export function ArrowRightIcon({ size = 14, className }: IconProps) {
+  return (
+    <Icon size={size} className={className}>
+      <path d="M5 12h14" />
+      <path d="m13 6 6 6-6 6" />
+    </Icon>
+  );
+}
+
+export function SpinnerIcon({ size = 14, className }: IconProps) {
+  return (
+    <Icon size={size} className={className}>
+      <path d="M21 12a9 9 0 1 1-6.2-8.56" />
+    </Icon>
+  );
+}
+
 export function RulesIcon({ size = 13 }: IconProps) {
   return (
     <Icon size={size}>

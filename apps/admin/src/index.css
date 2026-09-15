@@ -1,1 +1,28 @@
 @import "@qp/ui/globals.css";
+
+@keyframes jump-highlight-fade {
+  0%,
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.jump-highlight::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px color-mix(in oklch, var(--destructive) 40%, transparent);
+  background-color: color-mix(in oklch, var(--destructive) 5%, transparent);
+  animation: jump-highlight-fade 1.6s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jump-highlight::after {
+    animation: none;
+  }
+}

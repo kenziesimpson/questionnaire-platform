@@ -1,7 +1,9 @@
 import type { QuestionnaireDraft } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import type { DraftRejection } from "../../api/use-draft-mutation";
+import { problemCount } from "../../components/counts";
 import { AlertCircleIcon } from "../../components/icons";
+import { DRAFT_ITEM_MESSAGES } from "./draft-item-messages";
 
 export type DraftWrite = "change" | "publish";
 
@@ -11,8 +13,8 @@ interface Copy {
   tone: "neutral" | "destructive";
 }
 
-function copyFor(kind: DraftRejection["kind"], write: DraftWrite): Copy {
-  switch (kind) {
+function copyFor(rejection: DraftRejection, write: DraftWrite): Copy {
+  switch (rejection.kind) {
     case "stale":
       return {
         title: "Someone else changed this draft",
@@ -22,18 +24,23 @@ function copyFor(kind: DraftRejection["kind"], write: DraftWrite): Copy {
             : "Your last change was undone and the draft has been reloaded with their version, so carry on from there.",
         tone: "neutral",
       };
-    case "invalid":
+    case "invalid": {
+      const found = rejection.problem.items.length;
       return write === "publish"
         ? {
             title: "The draft was not published",
-            body: "Publish found problems in the items below. They are also listed under Publish checks.",
+            body:
+              found === 0
+                ? "Publishing found problems in the draft. They are listed under Publish checks."
+                : `Publishing found ${problemCount(found)}. ${found === 1 ? "It is" : "They are"} listed under Publish checks.`,
             tone: "destructive",
           }
         : {
-            title: "This draft cannot be saved right now",
-            body: "Your last change was undone. The server refused the draft itself because of the items below; this is not another author's edit. Changes will keep failing until those items are dealt with.",
+            title: "Your last change was not saved",
+            body: "The server refused it for the reason below, so it was undone. This is not another author's edit.",
             tone: "destructive",
           };
+    }
     case "failed":
       return {
         title: write === "publish" ? "The draft was not published" : "Your last change was not saved",
@@ -46,14 +53,14 @@ function copyFor(kind: DraftRejection["kind"], write: DraftWrite): Copy {
   }
 }
 
-function slugOf(rejection: DraftRejection): string | null {
+function slugOf(rejection: DraftRejection): string | undefined {
   switch (rejection.kind) {
     case "stale":
-      return "409 questionnaire/draft-stale";
+      return "questionnaire/draft-stale";
     case "invalid":
-      return "422 questionnaire/draft-invalid";
+      return "questionnaire/draft-invalid";
     case "failed":
-      return null;
+      return undefined;
   }
 }
 
@@ -61,20 +68,23 @@ export function DraftRejectionNotice({
   rejection,
   write,
   draft,
+  onShowProblems,
   onDismiss,
 }: {
   rejection: DraftRejection;
   write: DraftWrite;
   draft: QuestionnaireDraft;
+  onShowProblems: () => void;
   onDismiss: () => void;
 }) {
-  const { title, body, tone } = copyFor(rejection.kind, write);
-  const slug = slugOf(rejection);
-  const refusedItems = rejection.kind === "invalid" ? rejection.problem.items : [];
+  const { title, body, tone } = copyFor(rejection, write);
+  const refusedItems = rejection.kind === "invalid" && write === "change" ? rejection.problem.items : [];
+  const pointsToChecks = rejection.kind === "invalid" && write === "publish";
   return (
     <div
       role="alert"
       data-rejection={rejection.kind}
+      data-problem={slugOf(rejection)}
       className={`flex items-start gap-3.5 rounded-xl border px-4 py-3.5 ${tone === "destructive" ? "border-destructive/30 bg-destructive/5" : "border-border bg-muted"}`}
     >
       <AlertCircleIcon className={`mt-0.5 shrink-0 ${tone === "destructive" ? "text-destructive" : ""}`} />
@@ -86,19 +96,24 @@ export function DraftRejectionNotice({
             {refusedItems.map(({ itemId, code }) => {
               const position = draft.items.findIndex((item) => item.itemId === itemId) + 1;
               return (
-                <li key={`${itemId}:${code}`}>
-                  {position === 0 ? itemId : `Question ${position}`} ·{" "}
-                  <code className="font-mono text-[11px] text-muted-foreground">{code}</code>
+                <li key={`${itemId}:${code}`} data-code={code}>
+                  {position === 0 ? "The question being added" : `Question ${position}`} · {DRAFT_ITEM_MESSAGES[code].title}
                 </li>
               );
             })}
           </ul>
         )}
       </div>
-      {slug !== null && <code className="mt-0.5 font-mono text-[11px] whitespace-nowrap text-muted-foreground">{slug}</code>}
-      <Button type="button" variant="outline" size="sm" onClick={onDismiss}>
-        Dismiss
-      </Button>
+      <div className="flex shrink-0 flex-wrap justify-end gap-2">
+        {pointsToChecks && (
+          <Button type="button" variant="outline" size="sm" onClick={onShowProblems}>
+            Show problems
+          </Button>
+        )}
+        <Button type="button" variant="outline" size="sm" onClick={onDismiss}>
+          Dismiss
+        </Button>
+      </div>
     </div>
   );
 }

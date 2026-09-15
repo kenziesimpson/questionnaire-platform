@@ -152,6 +152,12 @@ export function earlierItemsThan(draft: QuestionnaireDraft, itemId: string): Ear
   });
 }
 
+export function listOfPositions(positions: readonly number[]) {
+  const unique = [...new Set(positions)];
+  if (unique.length === 1) return `question ${unique[0]}`;
+  return `questions ${unique.slice(0, -1).join(", ")} and ${unique.at(-1)}`;
+}
+
 export function laterReferencesIn(draft: QuestionnaireDraft, item: DraftItem): number[] {
   return conditionsOf(item.visibleWhen).flatMap((condition) => {
     const reference = referenceOf(draft, item.itemId, condition);

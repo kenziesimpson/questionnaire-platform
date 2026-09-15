@@ -64,10 +64,12 @@ export function PredicateEditor({ draft, item, position, disabled, onChange }: P
 
   return (
     <fieldset
+      data-rules-editor
+      tabIndex={-1}
       aria-labelledby={legendId}
       aria-describedby={hintId}
       disabled={disabled}
-      className="flex min-w-0 flex-col gap-2.5 rounded-lg border border-border bg-background p-3"
+      className="flex min-w-0 flex-col gap-2.5 rounded-lg border border-border bg-background p-3 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
     >
       <legend id={legendId} className="sr-only">
         Rules for question {position}
@@ -336,21 +338,25 @@ function ChoiceOperand({
       </NativeSelect>
     );
   }
+  const knownIds = options.map((option) => option.optionId);
+  const checkedKnown = knownIds.filter((id) => condition.optionIds.includes(id));
+  const unknownIds = condition.optionIds.filter((id) => !knownIds.includes(id));
   const toggle = (optionId: string, checked: boolean) => {
-    const next = checked
-      ? options.map((option) => option.optionId).filter((id) => id === optionId || condition.optionIds.includes(id))
-      : condition.optionIds.filter((id) => id !== optionId);
+    const next = checked ? knownIds.filter((id) => id === optionId || checkedKnown.includes(id)) : checkedKnown.filter((id) => id !== optionId);
     if (next.length > 0) onChange({ ...condition, optionIds: next });
   };
   return (
     <fieldset className="flex min-w-44 flex-wrap items-center gap-x-3 gap-y-1.5 py-1.5">
       <legend className="sr-only">{label}</legend>
+      {unknownIds.map((optionId) => (
+        <OptionCheckbox key={optionId} label="Unknown option" checked disabled onChecked={() => undefined} />
+      ))}
       {options.map(({ optionId, label: optionLabel }) => (
         <OptionCheckbox
           key={optionId}
           label={optionLabel}
-          checked={condition.optionIds.includes(optionId)}
-          lastChecked={condition.optionIds.length === 1 && condition.optionIds[0] === optionId}
+          checked={checkedKnown.includes(optionId)}
+          disabled={checkedKnown.length === 1 && checkedKnown[0] === optionId}
           onChecked={(checked) => toggle(optionId, checked)}
         />
       ))}
@@ -361,18 +367,18 @@ function ChoiceOperand({
 function OptionCheckbox({
   label,
   checked,
-  lastChecked,
+  disabled,
   onChecked,
 }: {
   label: string;
   checked: boolean;
-  lastChecked: boolean;
+  disabled: boolean;
   onChecked: (checked: boolean) => void;
 }) {
   const id = useId();
   return (
     <span className="inline-flex items-center gap-1.5">
-      <Checkbox id={id} checked={checked} disabled={lastChecked} onCheckedChange={(next) => onChecked(next === true)} />
+      <Checkbox id={id} checked={checked} disabled={disabled} onCheckedChange={(next) => onChecked(next === true)} />
       <label htmlFor={id} className="text-sm peer-disabled:opacity-80">
         {label}
       </label>
