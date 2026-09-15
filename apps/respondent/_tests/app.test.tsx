@@ -591,7 +591,18 @@ describe("retrying a resume that failed", () => {
     renderApp();
 
     expect(await screen.findByRole("alert")).not.toHaveTextContent("still saved");
-    expect(startNewSession()).toHaveAccessibleDescription("If this keeps happening, you can start a new session instead.");
+    expect(tryAgain()).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Start a new session/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/start a new session/i)).not.toBeInTheDocument();
+  });
+
+  it("offers Try again and Start a new session when the stored session holds answers", async () => {
+    storeSession(SESSION_ID, { itm_04: { type: "text", text: "Corner pharmacy" } });
+    server.on("GET", sessionUrl, networkFailure());
+    renderApp();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The answers you started are still saved on this device.");
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["Try again", "Start a new session"]);
   });
 
   it("starts a new session from a failed resume, replacing the stored id only on 201 and carrying the answers into it", async () => {
@@ -653,7 +664,7 @@ describe("retrying a resume that failed", () => {
 
   it("blocks Start a new session while Try again is in flight", async () => {
     const user = userEvent.setup();
-    storeSession(SESSION_ID, {});
+    storeSession(SESSION_ID, { itm_04: { type: "text", text: "Corner pharmacy" } });
     server.on("GET", sessionUrl, networkFailure(), heldReply().reply);
     renderApp();
     await screen.findByRole("heading", loadFailedHeading);

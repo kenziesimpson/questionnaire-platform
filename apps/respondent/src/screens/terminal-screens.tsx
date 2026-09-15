@@ -114,24 +114,22 @@ export function LoadFailedScreen({ retry }: { retry: RetryControl }) {
   );
 }
 
-export interface ResumeFailedScreenProps {
-  readonly savedAnswers: boolean;
+export interface SavedAnswersResumeFailedScreenProps {
   readonly retry: RetryControl;
   readonly newSession: NewSessionControl;
 }
 
-export function ResumeFailedScreen({ savedAnswers, retry, newSession }: ResumeFailedScreenProps) {
-  const kept = savedAnswers ? " The answers you started are still saved on this device." : "";
-  const advice = savedAnswers
-    ? "If this keeps happening, start a new session. Your answers so far are kept and carried into it."
-    : "If this keeps happening, you can start a new session instead.";
+export function SavedAnswersResumeFailedScreen({ retry, newSession }: SavedAnswersResumeFailedScreenProps) {
   return (
     <RetryableFailureScreen
       title="The questionnaire could not be loaded"
-      explanation={TRANSIENT_FAILURE_EXPLANATION + kept}
+      explanation={`${TRANSIENT_FAILURE_EXPLANATION} The answers you started are still saved on this device.`}
       retry={retry}
       focusOnMount={retry.attempt > 1}
-      newSession={{ control: newSession, advice }}
+      newSession={{
+        control: newSession,
+        advice: "If this keeps happening, start a new session. Your answers so far are kept and carried into it.",
+      }}
     />
   );
 }

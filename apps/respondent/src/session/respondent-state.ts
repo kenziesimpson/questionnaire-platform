@@ -190,7 +190,7 @@ function fromFailed(state: FailedState, event: RespondentEvent): RespondentState
     case "retryRequested":
       return state.step !== "submitting" && isRetryable(state.failure.reason) ? retried(state) : state;
     case "newSessionRequested":
-      return state.step === "resuming" && isRetryable(state.failure.reason)
+      return state.step === "resuming" && isRetryable(state.failure.reason) && hasAnyAnswer(state.stored.answers)
         ? { name: "startingNewSession", stored: state.stored, previousFailure: state.failure }
         : state;
     default:

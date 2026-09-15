@@ -9,7 +9,7 @@ import {
   LoadingScreen,
   NotFoundScreen,
   RecordedReceiptFailedScreen,
-  ResumeFailedScreen,
+  SavedAnswersResumeFailedScreen,
 } from "./screens/terminal-screens.tsx";
 import type { RespondentSession } from "./session/respondent-session.ts";
 import { hasAnyAnswer, isRetryable, type FailedState, type Failure, type FormContext, type RespondentState } from "./session/respondent-state.ts";
@@ -48,10 +48,10 @@ type ResumePending = "none" | "retry" | "newSession";
 
 function resumeFailedScreen(session: RespondentSession, failure: Failure, pending: ResumePending, stored: StoredPartials) {
   if (!isRetryable(failure.reason)) return <EntryFailedScreen />;
+  if (!hasAnyAnswer(stored.answers)) return startFailedScreen(session, failure, pending === "retry");
   return (
-    <ResumeFailedScreen
+    <SavedAnswersResumeFailedScreen
       key={failure.attempt}
-      savedAnswers={hasAnyAnswer(stored.answers)}
       retry={retryControl(session, failure, pending === "retry")}
       newSession={{ starting: pending === "newSession", onStart: () => void session.startNewSession() }}
     />

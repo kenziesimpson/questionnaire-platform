@@ -76,6 +76,7 @@ const states: Record<string, RespondentState> = {
   "failed fetching the recorded receipt twice": { name: "failed", step: "fetchingRecordedReceipt", ...form, failure: secondFailure },
   "failed starting, not retryable": { name: "failed", step: "starting", carriedAnswers: {}, failure: notRetryable },
   "failed resuming, not retryable": { name: "failed", step: "resuming", stored: resumable, failure: notRetryable },
+  "failed resuming with no answers stored": { name: "failed", step: "resuming", stored: stored({ itm_04: null }), failure: firstFailure },
   "failed submitting, not retryable": { name: "failed", step: "submitting", ...form, failure: notRetryable },
   "failed fetching the recorded receipt, not retryable": { name: "failed", step: "fetchingRecordedReceipt", ...form, failure: notRetryable },
 };
@@ -175,6 +176,9 @@ const expected: Record<string, Partial<Record<RespondentEvent["type"], Responden
   },
   "failed starting, not retryable": {},
   "failed resuming, not retryable": {},
+  "failed resuming with no answers stored": {
+    retryRequested: { name: "resuming", stored: stored({ itm_04: null }), previousFailure: firstFailure },
+  },
   "failed submitting, not retryable": { submitRequested: { name: "submitting", ...form, previousFailure: notRetryable } },
   "failed fetching the recorded receipt, not retryable": {},
 };
