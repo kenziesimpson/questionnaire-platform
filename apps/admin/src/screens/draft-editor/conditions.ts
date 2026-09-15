@@ -39,7 +39,10 @@ export function operatorsFor(type: ResponseType): readonly Operator[] {
   return OPERATORS[type];
 }
 
-export function defaultConditionFor(itemId: string, question: QuestionVersion, today: string): Condition {
+export const UNSET_NUMBER = Number.NaN;
+export const UNSET_DATE = "";
+
+export function defaultConditionFor(itemId: string, question: QuestionVersion): Condition {
   switch (question.type) {
     case "text":
       return { type: "text", itemId, op: "answered", value: true };
@@ -48,9 +51,26 @@ export function defaultConditionFor(itemId: string, question: QuestionVersion, t
     case "multiple_choice":
       return { type: "multiple_choice", itemId, op: "includes", optionId: question.options[0]?.optionId ?? "" };
     case "number":
-      return { type: "number", itemId, op: "eq", value: question.min ?? 0 };
+      return { type: "number", itemId, op: "eq", value: question.min ?? question.max ?? UNSET_NUMBER };
     case "date":
-      return { type: "date", itemId, op: "onOrAfter", date: question.min ?? question.max ?? today };
+      return { type: "date", itemId, op: "onOrAfter", date: question.min ?? question.max ?? UNSET_DATE };
+  }
+}
+
+const isSetDate = (date: string) => date !== UNSET_DATE;
+
+export function isComplete(condition: Condition): boolean {
+  switch (condition.type) {
+    case "text":
+    case "single_choice":
+    case "multiple_choice":
+      return true;
+    case "number":
+      return condition.op === "between"
+        ? Number.isFinite(condition.min) && Number.isFinite(condition.max)
+        : Number.isFinite(condition.value);
+    case "date":
+      return condition.op === "between" ? isSetDate(condition.min) && isSetDate(condition.max) : isSetDate(condition.date);
   }
 }
 

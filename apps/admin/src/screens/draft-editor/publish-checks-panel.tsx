@@ -211,7 +211,7 @@ export function PublishChecksPanel({ draft, checks, nextVersion, headingRef, act
       )}
       {checks.status === "unavailable" && (
         <div className="flex flex-col items-start gap-2.5 px-3.5 pt-1.5 pb-3 text-[13px]">
-          <p>The checks could not run. Publishing runs them too, so nothing with a problem can be published.</p>
+          <p>The checks could not run, so publishing waits until they can.</p>
           <Button type="button" variant="outline" size="sm" disabled={checks.retrying} onClick={checks.retry}>
             {checks.retrying ? "Checking…" : "Run checks again"}
           </Button>

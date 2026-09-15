@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   OPERATORS,
   defaultConditionFor,
+  isComplete,
   earlierItemsThan,
   laterReferencesIn,
   referenceOf,
@@ -19,7 +20,7 @@ const questions: Record<QuestionVersion["type"], QuestionVersion> = {
   single_choice: aQuestionVersion({ type: "single_choice", questionId: uuid(2), questionVersion: 1 }),
   multiple_choice: aQuestionVersion({ type: "multiple_choice", questionId: uuid(3), questionVersion: 1 }),
   number: aQuestionVersion({ type: "number", questionId: uuid(4), questionVersion: 1, min: 18 }),
-  date: aQuestionVersion({ type: "date", questionId: uuid(5), questionVersion: 1 }),
+  date: aQuestionVersion({ type: "date", questionId: uuid(5), questionVersion: 1, max: "2026-09-01" }),
 };
 
 function draftOf(types: QuestionVersion["type"][]): QuestionnaireDraft {
@@ -50,9 +51,10 @@ describe("predicate conditions", () => {
     });
   });
 
-  it("builds a default condition for every type, and every operator switch of it, that the shared Condition schema accepts", () => {
+  it("builds a default condition for every type with bounds, and every operator switch of it, that the shared Condition schema accepts", () => {
     for (const type of RESPONSE_TYPES) {
-      const initial = defaultConditionFor("itm_01", questions[type], "2026-09-14");
+      const initial = defaultConditionFor("itm_01", questions[type]);
+      expect(isComplete(initial)).toBe(true);
       expect(Value.Check(Condition, initial)).toBe(true);
       for (const op of OPERATORS[type]) {
         const switched = withOperator(initial, op);
@@ -61,7 +63,25 @@ describe("predicate conditions", () => {
         expect(Value.Check(Condition, withOperator(switched, OPERATORS[type][0] ?? op))).toBe(true);
       }
     }
-    expect(defaultConditionFor("itm_01", questions.number, "2026-09-14")).toMatchObject({ op: "eq", value: 18 });
+    expect(defaultConditionFor("itm_01", questions.number)).toMatchObject({ op: "eq", value: 18 });
+    expect(defaultConditionFor("itm_01", questions.date)).toMatchObject({ op: "onOrAfter", date: "2026-09-01" });
+  });
+
+  it("defaults a number or date operand to the question's min, else its max, and never invents one for an unbounded question", () => {
+    const onlyMax = aQuestionVersion({ type: "number", questionId: uuid(6), questionVersion: 1, max: 40 });
+    expect(defaultConditionFor("itm_01", onlyMax)).toMatchObject({ value: 40 });
+
+    const unboundedNumber = defaultConditionFor("itm_01", aQuestionVersion({ type: "number", questionId: uuid(7), questionVersion: 1 }));
+    expect(unboundedNumber).toMatchObject({ type: "number", op: "eq" });
+    expect("value" in unboundedNumber && Number.isNaN(unboundedNumber.value)).toBe(true);
+    expect(isComplete(unboundedNumber)).toBe(false);
+    expect(isComplete(withOperator(unboundedNumber, "between"))).toBe(false);
+
+    const unboundedDate = defaultConditionFor("itm_01", aQuestionVersion({ type: "date", questionId: uuid(8), questionVersion: 1 }));
+    expect(unboundedDate).toEqual({ type: "date", itemId: "itm_01", op: "onOrAfter", date: "" });
+    expect(isComplete(unboundedDate)).toBe(false);
+    expect(isComplete({ type: "date", itemId: "itm_01", op: "between", min: "2026-01-01", max: "" })).toBe(false);
+    expect(isComplete({ type: "number", itemId: "itm_01", op: "between", min: 1, max: 2 })).toBe(true);
   });
 
   it("keeps operands across a switch between one and many options, and between a point and a range", () => {

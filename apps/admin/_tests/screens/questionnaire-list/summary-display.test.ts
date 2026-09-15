@@ -5,7 +5,6 @@ import {
   lastEditedLabel,
   statusLabel,
   statusOf,
-  toLocalDateInput,
   toLocalDateTimeInput,
 } from "../../../src/screens/questionnaire-list/summary-display";
 
@@ -57,7 +56,6 @@ describe("the closing-date input", () => {
 
     expect(iso).toBe(new Date("2026-10-01T17:30").toISOString());
     expect(toLocalDateTimeInput(Date.parse(iso ?? ""))).toBe("2026-10-01T17:30");
-    expect(toLocalDateInput(new Date(2026, 0, 5, 23, 30).getTime())).toBe("2026-01-05");
   });
 
   it("treats an empty or unparseable value as missing", () => {

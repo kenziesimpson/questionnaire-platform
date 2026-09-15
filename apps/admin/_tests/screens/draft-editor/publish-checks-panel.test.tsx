@@ -125,7 +125,7 @@ describe("the publish checks panel", () => {
     expect(within(rowOf("itm_per_day")).getByRole("button", { name: "Rules for question 1" })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("shows a first check, then checks that could not run with Publish still enabled, and a retry that clears", async () => {
+  it("shows a first check, then checks that could not run with Publish waiting on them, and a retry that clears", async () => {
     const first = deferred<Response>();
     const retry = deferred<Response>();
     renderEditor({ overrides: { [`POST ${VALIDATE_URL}`]: inOrder(() => first.promise, () => retry.promise) } });
@@ -135,11 +135,10 @@ describe("the publish checks panel", () => {
     expect(within(panel()).queryByText(/problem|Ready/)).not.toBeInTheDocument();
 
     first.resolve(problemResponse("internal", { detail: "trace-1" }));
-    expect(
-      await within(panel()).findByText("The checks could not run. Publishing runs them too, so nothing with a problem can be published."),
-    ).toBeInTheDocument();
+    expect(await within(panel()).findByText("The checks could not run, so publishing waits until they can.")).toBeInTheDocument();
     expect(within(panel()).getByText("Not run")).toBeInTheDocument();
-    expect(publishButton()).toBeEnabled();
+    expect(publishButton()).toBeDisabled();
+    expect(publishButton()).toHaveAccessibleDescription("Publishing waits until Publish checks can run.");
     expect(liveRegion()).toHaveTextContent("");
 
     await userEvent.click(within(panel()).getByRole("button", { name: "Run checks again" }));
@@ -178,7 +177,7 @@ describe("the publish checks panel", () => {
     expect(within(panel()).getByRole("list", { name: "Problems" })).toHaveAttribute("aria-busy", "true");
     expect(groupsShown()).toHaveLength(2);
     expect(publishButton()).toBeDisabled();
-    expect(publishButton()).toHaveAccessibleDescription("Waiting for Publish checks to check your latest change.");
+    expect(publishButton()).toHaveAccessibleDescription("Publishing waits until Publish checks have run on the saved draft.");
     expect(liveRegion()).toHaveTextContent("");
     expect(await axeViolations()).toEqual([]);
 
@@ -219,7 +218,8 @@ describe("the publish checks panel", () => {
     expect(groupsShown().map((group) => group.getAttribute("data-problem-item"))).toEqual(["itm_notes"]);
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("The draft was not published");
-    expect(alert).toHaveTextContent("Publishing found 1 problem. It is listed under Publish checks.");
+    expect(alert).toHaveTextContent("Publishing found the problem below. It is also listed under Publish checks.");
+    expect(within(alert).getAllByRole("listitem").map((row) => row.textContent)).toEqual(["Question 4 · Question version not found"]);
     expect(alert).toHaveAttribute("data-problem", "questionnaire/draft-invalid");
     expect(alert).not.toHaveTextContent(/questionnaire\/|422/);
     expect(await axeViolations()).toEqual([]);

@@ -52,6 +52,7 @@ interface DraftItemsProps {
   onJumpEnd: (itemId: string) => void;
   onChange: (apply: DraftChange) => void;
   onEdit: (item: DraftItem, latest: QuestionVersion) => void;
+  locked: boolean;
 }
 
 const ARCHIVED_REMOVAL_NOTE =
@@ -101,7 +102,17 @@ const SCREEN_READER_INSTRUCTIONS = {
     "To reorder, press Space or Enter to pick up the question, use the up and down arrow keys to move it, then press Space or Enter again to drop it, or Escape to cancel.",
 };
 
-export function DraftItems({ draft, bank, openRules, jumpedItemId, onRulesOpenChange, onJumpEnd, onChange, onEdit }: DraftItemsProps) {
+export function DraftItems({
+  draft,
+  bank,
+  openRules,
+  jumpedItemId,
+  onRulesOpenChange,
+  onJumpEnd,
+  onChange,
+  onEdit,
+  locked,
+}: DraftItemsProps) {
   const [dragProgress] = useState(() => new DragProgress());
   const [liveRegionContainer, setLiveRegionContainer] = useState<HTMLDivElement | null>(null);
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
@@ -140,6 +151,7 @@ export function DraftItems({ draft, bank, openRules, jumpedItemId, onRulesOpenCh
                 onJumpEnd={() => onJumpEnd(item.itemId)}
                 onChange={onChange}
                 onEdit={onEdit}
+                locked={locked}
               />
             ))}
           </ol>
@@ -160,6 +172,7 @@ interface ItemRowProps {
   onJumpEnd: () => void;
   onChange: (apply: DraftChange) => void;
   onEdit: (item: DraftItem, latest: QuestionVersion) => void;
+  locked: boolean;
 }
 
 function NewerVersion({
@@ -167,7 +180,8 @@ function NewerVersion({
   position,
   bankQuestion,
   onChange,
-}: Pick<ItemRowProps, "item" | "position" | "bankQuestion" | "onChange">) {
+  locked,
+}: Pick<ItemRowProps, "item" | "position" | "bankQuestion" | "onChange" | "locked">) {
   if (bankQuestion === undefined || isArchived(bankQuestion)) return null;
   const { latest } = bankQuestion;
   if (latest.questionVersion <= item.questionVersion) return null;
@@ -178,6 +192,7 @@ function NewerVersion({
         type="button"
         variant="outline"
         size="xs"
+        disabled={locked}
         aria-label={`Re-pin question ${position} to version ${latest.questionVersion}`}
         onClick={() => onChange(repinItem(item.itemId, latest))}
       >
@@ -198,9 +213,11 @@ function SortableItemRow({
   onJumpEnd,
   onChange,
   onEdit,
+  locked,
 }: ItemRowProps) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: item.itemId,
+    disabled: locked,
   });
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const rulesId = useId();
@@ -240,6 +257,7 @@ function SortableItemRow({
           type="button"
           ref={setActivatorNodeRef}
           aria-label={`Drag to reorder question ${position}`}
+          disabled={locked}
           className="inline-flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground/70 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 active:cursor-grabbing"
           {...attributes}
           {...listeners}
@@ -270,6 +288,7 @@ function SortableItemRow({
               <Checkbox
                 id={requiredId}
                 checked={item.required}
+                disabled={locked}
                 onCheckedChange={(checked) => onChange(setRequired(item.itemId, checked === true))}
               />
               <label htmlFor={requiredId} className="text-xs">
@@ -297,18 +316,18 @@ function SortableItemRow({
               variant="outline"
               size="sm"
               aria-label={`Edit question ${position}`}
-              disabled={bankQuestion === undefined}
+              disabled={locked || bankQuestion === undefined || isArchived(bankQuestion)}
               onClick={() => {
                 if (bankQuestion !== undefined) onEdit(item, bankQuestion.latest);
               }}
             >
               Edit
             </Button>
-            <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove question ${position}`} onClick={remove}>
+            <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove question ${position}`} disabled={locked} onClick={remove}>
               <RemoveIcon />
             </Button>
           </span>
-          <NewerVersion item={item} position={position} bankQuestion={bankQuestion} onChange={onChange} />
+          <NewerVersion item={item} position={position} bankQuestion={bankQuestion} onChange={onChange} locked={locked} />
         </div>
       </div>
       {confirmingRemoval && (
@@ -319,7 +338,7 @@ function SortableItemRow({
               : "Remove this question from the draft?"}
             {archived && <InfoTip label="About removing an archived question">{ARCHIVED_REMOVAL_NOTE}</InfoTip>}
           </span>
-          <Button type="button" variant="destructive" size="sm" onClick={remove}>
+          <Button type="button" variant="destructive" size="sm" disabled={locked} onClick={remove}>
             {dependants.length > 0 ? "Remove question and conditions" : "Remove question"}
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => setConfirmingRemoval(false)}>
@@ -333,6 +352,7 @@ function SortableItemRow({
             draft={draft}
             item={item}
             position={position}
+            disabled={locked}
             onChange={(visibleWhen) => onChange(setVisibleWhen(item.itemId, visibleWhen))}
           />
         )}

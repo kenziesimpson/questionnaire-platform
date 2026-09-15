@@ -2,10 +2,11 @@ import type { VersionSummary } from "@qp/shared";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { QUESTIONNAIRE_ID, draftResponse, etagAt, jsonResponse, problemResponse } from "../fixtures";
+import { QUESTIONNAIRE_ID, deferred, draftResponse, etagAt, jsonResponse, problemResponse } from "../fixtures";
 import {
   DEFINITION,
   DRAFT_URL,
+  VALIDATE_URL,
   LIST_URL,
   PUBLISH_URL,
   aDraftOf,
@@ -277,28 +278,71 @@ describe("the draft editor", () => {
     expect(requests.some(({ method, url }) => method === "GET" && url === `${DEFINITION}/questions/${notes.questionId}`)).toBe(false);
   });
 
-  it("marks a pin the bank has moved past as Newer version available and re-pins on request, but says nothing about an archived question", async () => {
+  it("marks a pin the bank has moved past as Newer version available in a right-aligned group, and re-pins on request", async () => {
     const newer = { ...started, questionVersion: 3, prompt: "When did you first start?" };
-    const newerNotes = { ...notes, questionVersion: 2 };
-    const { requests } = renderEditor({
-      bank: [
-        aBankQuestion(smoke),
-        { ...aBankQuestion(perDay), archivedAt: "2026-09-14T11:00:00.000Z" },
-        aBankQuestion(newer),
-        { ...aBankQuestion(newerNotes), archivedAt: "2026-09-14T11:00:00.000Z" },
-      ],
-    });
+    const { requests } = renderEditor({ bank: [aBankQuestion(smoke), aBankQuestion(perDay), aBankQuestion(newer), aBankQuestion(notes)] });
     await itemList();
 
     const row = within(rowOf("itm_started"));
     const badge = await row.findByText("Newer version available");
     expect(badge.parentElement).toHaveClass("justify-end");
     expect(within(rowOf("itm_smoke")).queryByText("Newer version available")).not.toBeInTheDocument();
-    expect(within(rowOf("itm_notes")).queryByText("Newer version available")).not.toBeInTheDocument();
-    expect(screen.queryByText(/archived/i)).not.toBeInTheDocument();
     await userEvent.click(row.getByRole("button", { name: "Re-pin question 3 to version 3" }));
 
     expect((await lastPutItems(requests))[2]).toEqual({ ...placed("itm_started", started), questionVersion: 3 });
+  });
+
+  it("shows no archived badge, no re-pin and no edit for an archived question, even when the bank holds a newer version", async () => {
+    const newer = { ...started, questionVersion: 3 };
+    const { requests } = renderEditor({
+      bank: [aBankQuestion(smoke), aBankQuestion(perDay), { ...aBankQuestion(newer), archivedAt: "2026-09-14T11:00:00.000Z" }, aBankQuestion(notes)],
+    });
+    await itemList();
+
+    const row = within(rowOf("itm_started"));
+    await waitFor(() => expect(row.getByRole("button", { name: "Edit question 3" })).toBeDisabled());
+    expect(within(rowOf("itm_smoke")).getByRole("button", { name: "Edit question 1" })).toBeEnabled();
+    expect(row.queryByText("Newer version available")).not.toBeInTheDocument();
+    expect(row.queryByRole("button", { name: /^Re-pin/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/archived/i)).not.toBeInTheDocument();
+    expect(puts(requests)).toHaveLength(0);
+  });
+
+  it("never writes a number condition the author did not enter: an unbounded question leaves the value empty until one is typed", async () => {
+    const { requests } = renderEditor({
+      draft: aDraftOf([placed("itm_smoke", smoke), placed("itm_per_day", perDay), placed("itm_started", started, { all: [isYes] })]),
+    });
+    await itemList();
+
+    await userEvent.click(screen.getByRole("button", { name: "Rules for question 3" }));
+    const rules = within(rowOf("itm_started"));
+    await userEvent.click(rules.getByRole("button", { name: "Add condition" }));
+
+    const value = rules.getByRole("textbox", { name: "Condition 2: value" });
+    expect(value).toHaveValue("");
+    expect(value).toHaveAttribute("aria-invalid", "true");
+    expect(value).toHaveAccessibleDescription(/Not saved yet. Enter a value to save this condition./);
+    expect(rules.getByRole("button", { name: "Add condition" })).toBeDisabled();
+    await userEvent.click(value);
+    await userEvent.tab();
+    expect(puts(requests)).toHaveLength(0);
+
+    await userEvent.type(value, "12{Enter}");
+    expect((await lastPutItems(requests))[2]?.visibleWhen).toEqual({
+      all: [isYes, { type: "number", itemId: "itm_per_day", op: "eq", value: 12 }],
+    });
+
+    await userEvent.selectOptions(rules.getByRole("combobox", { name: "Condition 1: question" }), "2. How many a day?");
+    expect(rules.getByRole("textbox", { name: "Condition 1: value" })).toHaveValue("");
+    expect(puts(requests)).toHaveLength(1);
+    await userEvent.type(rules.getByRole("textbox", { name: "Condition 1: value" }), "3{Enter}");
+    await waitFor(() => expect(puts(requests)).toHaveLength(2));
+    expect((await lastPutItems(requests))[2]?.visibleWhen).toEqual({
+      all: [
+        { type: "number", itemId: "itm_per_day", op: "eq", value: 3 },
+        { type: "number", itemId: "itm_per_day", op: "eq", value: 12 },
+      ],
+    });
   });
 
   it("asks before removing an archived question, with an info note on hover and focus that it cannot be added back", async () => {
@@ -306,7 +350,7 @@ describe("the draft editor", () => {
       bank: [aBankQuestion(smoke), aBankQuestion(perDay), aBankQuestion(started), { ...aBankQuestion(notes), archivedAt: "2026-09-14T11:00:00.000Z" }],
     });
     await itemList();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Edit question 4" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit question 4" })).toBeDisabled());
 
     await userEvent.click(screen.getByRole("button", { name: "Remove question 4" }));
     const confirmation = within(rowOf("itm_notes")).getByRole("alert");
@@ -350,7 +394,8 @@ describe("the draft editor", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Someone else changed this draft");
-    expect(alert).toHaveTextContent("reloaded with their version");
+    expect(alert).toHaveTextContent("Your last change was undone and the draft has been reloaded with their version");
+    expect(alert).not.toHaveTextContent("nothing you did was written");
     await waitFor(async () => expect(await promptsInOrder()).toEqual(["Anything else?", "Do you smoke?"]));
     expect(requests.filter(({ method, url }) => method === "GET" && url === DRAFT_URL)).toHaveLength(2);
     await userEvent.click(within(alert).getByRole("button", { name: "Dismiss" }));
@@ -428,7 +473,69 @@ describe("the draft editor", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("The draft was not published");
+    expect(alert).toHaveTextContent("Question 1 · Can never be reached");
     expect(alert).not.toHaveTextContent(/someone else/i);
+  });
+
+  it("keeps Publish disabled while a change is saving and while the checks rerun on it, so an earlier green result cannot publish", async () => {
+    const put = deferred<Response>();
+    const recheck = deferred<Response>();
+    let validations = 0;
+    const { requests } = renderEditor({
+      overrides: {
+        [`PUT ${DRAFT_URL}`]: () => put.promise,
+        [`POST ${VALIDATE_URL}`]: () => {
+          validations += 1;
+          return validations === 1 ? jsonResponse(200, { valid: true, items: [] }) : recheck.promise;
+        },
+      },
+    });
+    await itemList();
+    const publish = screen.getByRole("button", { name: "Publish" });
+    await waitFor(() => expect(publish).toBeEnabled());
+
+    await userEvent.click(within(rowOf("itm_smoke")).getByRole("checkbox", { name: "Required" }));
+    await waitFor(() => expect(publish).toBeDisabled());
+    expect(publish).toHaveAccessibleDescription("Publishing waits until your changes are saved.");
+
+    put.resolve(draftResponse(standardDraft, 2));
+    await waitFor(() => expect(validations).toBe(2));
+    expect(publish).toBeDisabled();
+    expect(publish).toHaveAccessibleDescription("Publishing waits until Publish checks have run on the saved draft.");
+    await userEvent.click(publish);
+    expect(requests.some(({ method, url }) => method === "POST" && url === PUBLISH_URL)).toBe(false);
+
+    recheck.resolve(jsonResponse(200, { valid: true, items: [] }));
+    await waitFor(() => expect(publish).toBeEnabled());
+  });
+
+  it("locks every draft control while a publish is in flight, then says a refused publish was not published", async () => {
+    const published = deferred<Response>();
+    const { requests } = renderEditor({ overrides: { [`POST ${PUBLISH_URL}`]: () => published.promise } });
+    await itemList();
+    await userEvent.click(screen.getByRole("button", { name: "Rules for question 2" }));
+    const publish = screen.getByRole("button", { name: "Publish" });
+    await waitFor(() => expect(publish).toBeEnabled());
+
+    await userEvent.click(publish);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Publishing…" })).toBeDisabled());
+    const second = within(rowOf("itm_per_day"));
+    expect(second.getByRole("checkbox", { name: "Required" })).toBeDisabled();
+    expect(second.getByRole("button", { name: "Drag to reorder question 2" })).toBeDisabled();
+    expect(second.getByRole("button", { name: "Edit question 2" })).toBeDisabled();
+    expect(second.getByRole("button", { name: "Remove question 2" })).toBeDisabled();
+    expect(second.getByRole("combobox", { name: "Condition 1: operator" })).toBeDisabled();
+    expect(second.getByRole("button", { name: "Add condition" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add question" })).toBeDisabled();
+
+    published.resolve(problemResponse("questionnaire/draft-invalid", { items: [{ itemId: "itm_per_day", code: "predicate/unsatisfiable" }] }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The draft was not published");
+    expect(alert).toHaveTextContent("Question 2 · Rules can never be met");
+    await waitFor(() => expect(second.getByRole("checkbox", { name: "Required" })).toBeEnabled());
+    expect(puts(requests)).toHaveLength(0);
   });
 
   it("with no open draft offers to open the next one, which loads the editor", async () => {

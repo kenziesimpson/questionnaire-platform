@@ -32,6 +32,32 @@ function publishFacts(summary: QuestionnaireSummary | undefined) {
   return `published v${summary.currentVersion} · publishing creates v${summary.currentVersion + 1}`;
 }
 
+interface PublishHint {
+  lead: string;
+  linksToChecks: boolean;
+  trail: string;
+}
+
+function publishWaitsFor({
+  saving,
+  checking,
+  checksFailed,
+  problems,
+}: {
+  saving: boolean;
+  checking: boolean;
+  checksFailed: boolean;
+  problems: number;
+}): PublishHint | null {
+  if (saving) return { lead: "Publishing waits until your changes are saved.", linksToChecks: false, trail: "" };
+  if (checking) return { lead: "Publishing waits until ", linksToChecks: true, trail: " have run on the saved draft." };
+  if (checksFailed) return { lead: "Publishing waits until ", linksToChecks: true, trail: " can run." };
+  if (problems > 0) {
+    return { lead: `${problemCount(problems)} under `, linksToChecks: true, trail: ` ${problems === 1 ? "is" : "are"} blocking publishing.` };
+  }
+  return null;
+}
+
 function DraftEditor({
   questionnaireId,
   draft,
@@ -101,8 +127,12 @@ function DraftEditor({
     : validation.isError
       ? { status: "unavailable", retry: () => void validation.refetch(), retrying: validation.isFetching }
       : { status: "checked", problems: validation.data.items, refreshing: checksBusy };
-  const standingProblems = validation.isSuccess ? validation.data.items.length : 0;
-  const blockedByChecks = standingProblems > 0 || (checksBusy && !validation.isError);
+  const publishHint = publishWaitsFor({
+    saving: mutation.isSaving,
+    checking: validation.isPending || validation.isFetching,
+    checksFailed: validation.isError,
+    problems: validation.isSuccess ? validation.data.items.length : 0,
+  });
   const nextVersion = summary === undefined ? undefined : (summary.currentVersion ?? 0) + 1;
 
   return (
@@ -130,21 +160,23 @@ function DraftEditor({
             )}
             <Button
               type="button"
-              disabled={publishing || blockedByChecks}
-              aria-describedby={standingProblems > 0 ? publishHintId : undefined}
+              disabled={publishing || publishHint !== null}
+              aria-describedby={publishHint === null ? undefined : publishHintId}
               onClick={() => void publish()}
             >
               {publishing ? "Publishing…" : "Publish"}
             </Button>
           </div>
         </div>
-        {standingProblems > 0 && (
+        {publishHint !== null && (
           <p id={publishHintId} className="text-right text-xs text-muted-foreground">
-            {checksBusy ? "Waiting for " : `${problemCount(standingProblems)} under `}
-            <Button type="button" variant="link" className="h-auto p-0 text-xs text-foreground" onClick={focusChecks}>
-              Publish checks
-            </Button>
-            {checksBusy ? " to check your latest change." : ` ${standingProblems === 1 ? "is" : "are"} blocking publishing.`}
+            {publishHint.lead}
+            {publishHint.linksToChecks && (
+              <Button type="button" variant="link" className="h-auto p-0 text-xs text-foreground" onClick={focusChecks}>
+                Publish checks
+              </Button>
+            )}
+            {publishHint.trail}
           </p>
         )}
       </header>
@@ -193,10 +225,11 @@ function DraftEditor({
               onJumpEnd={(itemId) => setJumpedItemId((current) => (current === itemId ? null : current))}
               onChange={change}
               onEdit={(item, latest) => editor.edit(latest, (saved) => change(repinItem(item.itemId, saved)))}
+              locked={publishing}
             />
           )}
           <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" onClick={() => setAdding(true)}>
+            <Button type="button" variant="outline" disabled={publishing} onClick={() => setAdding(true)}>
               <PlusIcon />
               Add question
             </Button>
