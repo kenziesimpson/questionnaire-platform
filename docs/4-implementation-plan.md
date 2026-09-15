@@ -219,7 +219,7 @@ Every PR is staged on a **`staging/track-6`** branch cut from `main` after the W
 | History | Version history | PR0; can run in parallel |
 | Preview | Preview | PR0; can run in parallel |
 | PR6 | Integration, plus **H5** (admin half) and **H6** | Everything above |
-| gh#17 fix | Not a screen: archiving gates new placements only (#75), in `apps/backend` and `packages/shared` | Nothing in Track 6; lands before `staging/track-6` merges to `main` |
+| gh#17 fix | Not a screen: archiving gates new placements only (#75), in `apps/backend`; `packages/shared`'s draft validator is unchanged | Nothing in Track 6; lands before `staging/track-6` merges to `main` |
 
 - [ ] gh#17 fix (#75) merged into `staging/track-6`: `PUT /draft`, validate and publish report `draft/question-archived` only for items whose `(questionId, questionVersion)` pair is not already in the stored draft, with tests
 - [ ] `staging/track-6 → main` merged with Checks green on its head
@@ -268,7 +268,7 @@ Each PR adds its own [[8-testing#7. Test case enumeration]] rows with the featur
 | `e2e/**`, CI workflows | 9 |
 | `docs/**`, `README.md`, `.claude/skills/**` | nobody — a doc-only pass, never a build agent. **One carve-out:** a track appends its own rows to [[8-testing#7. Test case enumeration]] and touches nothing else under `docs/` |
 
-**One Wave 3 crossing:** the gh#17 fix ([[2-design-doc#17. Decisions Log]] #75) changes `apps/backend` and `packages/shared` on `staging/track-6`, by explicit user authorisation. It is not a transfer of ownership; nothing else in Track 6 touches either.
+**One Wave 3 crossing:** the gh#17 fix ([[2-design-doc#17. Decisions Log]] #75) changes `apps/backend` on `staging/track-6`, by explicit user authorisation, which also covered `packages/shared`; its draft validator needed no change, since validate and publish pass it no archived question ids for a stored draft's existing placements. It is not a transfer of ownership; nothing else in Track 6 touches either.
 
 **Contended:** root `package.json`, `tsconfig.base.json`, `docker-compose*.yml`, `.env.example`, the Vitest root config. Changed in Wave 1a and Track 2 only; any later track files a request rather than editing.
 
