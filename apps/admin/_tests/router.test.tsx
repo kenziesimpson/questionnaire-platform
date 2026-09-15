@@ -49,6 +49,37 @@ describe("the admin route tree", () => {
     expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
   });
 
+  it.each([
+    "/questionnaires/not-a-uuid/draft",
+    "/questionnaires/not-a-uuid/versions",
+    "/questionnaires/not-a-uuid/versions/1",
+    `/questionnaires/${QUESTIONNAIRE_ID}/versions/0`,
+    `/questionnaires/${QUESTIONNAIRE_ID}/versions/01`,
+    `/questionnaires/${QUESTIONNAIRE_ID}/versions/latest`,
+  ])("renders the not-found screen, without asking the API, for the malformed address %s", async (path) => {
+    const requests = stubFetch(() => problemResponse("internal", { detail: "unreachable" }));
+    renderAt(path);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Page not found" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to questionnaires" })).toHaveAttribute("href", "/admin/questionnaires");
+    expect(requests.filter(({ url }) => url.includes("/questionnaires/"))).toEqual([]);
+  });
+
+  it.each([
+    ["/questionnaires", "Questionnaires"],
+    [`/questionnaires/${QUESTIONNAIRE_ID}/draft`, "Draft editor"],
+    [`/questionnaires/${QUESTIONNAIRE_ID}/versions`, "Version history"],
+    [`/questionnaires/${QUESTIONNAIRE_ID}/versions/3`, "Preview of version 3"],
+    ["/questions", "Question bank"],
+    ["/drafts", "Page not found"],
+    ["/questionnaires/not-a-uuid/draft", "Page not found"],
+  ])("titles the document for %s", async (path, page) => {
+    stubFetch(() => problemResponse("internal", { detail: "not under test" }));
+    renderAt(path);
+
+    await waitFor(() => expect(document.title).toBe(`${page} · Questionnaire admin`));
+  });
+
   it("registers no route for the question editor, which is a dialog", () => {
     const router = createAppRouter({ queryClient: testQueryClient(), history: createMemoryHistory() });
 

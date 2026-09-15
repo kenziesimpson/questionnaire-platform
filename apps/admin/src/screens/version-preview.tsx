@@ -29,6 +29,7 @@ function BackToVersionHistory({ questionnaireId }: { questionnaireId: string }) 
       <Link
         to="/questionnaires/$questionnaireId/versions"
         params={{ questionnaireId }}
+        activeOptions={{ exact: true }}
         aria-label="Back to version history"
         title="Back to version history"
       >

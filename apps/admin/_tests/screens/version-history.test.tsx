@@ -1,6 +1,6 @@
 import type { QuestionnaireSummary, VersionSummary } from "@qp/shared";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { describe, expect, it } from "vitest";
@@ -8,6 +8,8 @@ import { App } from "../../src/app";
 import { createAppRouter } from "../../src/router";
 import {
   QUESTIONNAIRE_ID,
+  aDraft,
+  draftResponse,
   jsonResponse,
   problemResponse,
   stubFetch,
@@ -183,6 +185,66 @@ describe("the version history screen", () => {
     expect(router.state.location.pathname).toBe("/questionnaires");
   });
 
+  it("offers Open the next draft beside the title when a published questionnaire has no draft, and opens it", async () => {
+    const draftUrl = `${DEFINITION}/${QUESTIONNAIRE_ID}/draft`;
+    const opened = aDraft();
+    const { router, requests } = renderHistory((request) => {
+      if (request.method === "POST" && request.url === draftUrl) return draftResponse(opened, 1, 201);
+      if (request.url === `${DEFINITION}/${QUESTIONNAIRE_ID}/draft/validate`) return jsonResponse(200, { valid: true, items: [] });
+      if (request.url.startsWith("/api/definition/questions")) return jsonResponse(200, []);
+      return serve({})(request);
+    });
+
+    await findRows();
+    await userEvent.click(screen.getByRole("button", { name: "Open the next draft" }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: opened.title })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`/questionnaires/${QUESTIONNAIRE_ID}/draft`);
+    expect(requests.filter(({ method, url }) => method === "POST" && url === draftUrl)).toHaveLength(1);
+  });
+
+  it("on 409 questionnaire/draft-exists from Open the next draft goes to the draft that exists, with no error", async () => {
+    const draftUrl = `${DEFINITION}/${QUESTIONNAIRE_ID}/draft`;
+    const theirs = aDraft(["itm_09"]);
+    const { router } = renderHistory((request) => {
+      if (request.url === draftUrl) {
+        return request.method === "POST" ? problemResponse("questionnaire/draft-exists") : draftResponse(theirs, 4);
+      }
+      if (request.url === `${DEFINITION}/${QUESTIONNAIRE_ID}/draft/validate`) return jsonResponse(200, { valid: true, items: [] });
+      if (request.url.startsWith("/api/definition/questions")) return jsonResponse(200, []);
+      return serve({})(request);
+    });
+
+    await findRows();
+    await userEvent.click(screen.getByRole("button", { name: "Open the next draft" }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/questionnaires/${QUESTIONNAIRE_ID}/draft`));
+    expect(screen.queryByText("The draft could not be opened. Try again.")).not.toBeInTheDocument();
+  });
+
+  it("says so when Open the next draft fails, and stays on the history", async () => {
+    const { router } = renderHistory((request) =>
+      request.method === "POST" ? problemResponse("internal", { detail: "trace-4" }) : serve({})(request),
+    );
+
+    await findRows();
+    await userEvent.click(screen.getByRole("button", { name: "Open the next draft" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The draft could not be opened. Try again.");
+    expect(router.state.location.pathname).toBe(`/questionnaires/${QUESTIONNAIRE_ID}/versions`);
+  });
+
+  it.each([
+    ["a draft is already open", aSummary({ hasDraft: true })],
+    ["nothing has been published", aSummary({ currentVersion: null, hasDraft: true })],
+  ])("offers no Open the next draft when %s", async (_, summary) => {
+    renderHistory(serve({ summaries: [summary], versions: () => jsonResponse(200, summary.currentVersion === null ? [] : TWO_VERSIONS) }));
+
+    await findRows();
+
+    expect(screen.queryByRole("button", { name: "Open the next draft" })).not.toBeInTheDocument();
+  });
+
   it("says a questionnaire with no published version was never published, beside its draft", async () => {
     renderHistory(
       serve({
@@ -247,6 +309,7 @@ describe("the version history screen", () => {
 
   it.each([
     ["the versions and a draft", serve({ summaries: [aSummary({ hasDraft: true })] }), () => findRows()],
+    ["the versions and Open the next draft", serve({}), () => screen.findByRole("button", { name: "Open the next draft" })],
     [
       "never published",
       serve({ versions: () => jsonResponse(200, []), summaries: [aSummary({ currentVersion: null, hasDraft: true })] }),

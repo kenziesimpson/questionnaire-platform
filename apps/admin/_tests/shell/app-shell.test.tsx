@@ -5,7 +5,7 @@ import axe from "axe-core";
 import { describe, expect, it } from "vitest";
 import { App } from "../../src/app";
 import { createAppRouter } from "../../src/router";
-import { QUESTIONNAIRE_ID, testQueryClient } from "../fixtures";
+import { QUESTIONNAIRE_ID, problemResponse, stubFetch, testQueryClient } from "../fixtures";
 
 const JSDOM_CANNOT_EVALUATE = { "color-contrast": { enabled: false } };
 
@@ -36,6 +36,24 @@ describe("the app shell", () => {
     expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
     expect(screen.getByRole("main")).toContainElement(screen.getByRole("heading", { level: 1, name: "Questionnaires" }));
   });
+
+  it.each([
+    `/questionnaires/${QUESTIONNAIRE_ID}/draft`,
+    `/questionnaires/${QUESTIONNAIRE_ID}/versions`,
+    `/questionnaires/${QUESTIONNAIRE_ID}/versions/1`,
+    "/questionnaires/nope/draft",
+  ])(
+    "marks only the main navigation link current at %s, never a back link inside the screen",
+    async (path) => {
+      stubFetch(() => problemResponse("resource/not-found"));
+      await renderShellAt(path);
+      await screen.findAllByRole("link", { name: /^Back to/ });
+
+      const current = screen.getAllByRole("link").filter((link) => link.hasAttribute("aria-current"));
+
+      expect(current.map((link) => link.textContent)).toEqual(["Questionnaires"]);
+    },
+  );
 
   it("marks Questionnaires current on every questionnaire screen and Question bank on the bank", async () => {
     const { router } = await renderShellAt(`/questionnaires/${QUESTIONNAIRE_ID}/draft`);

@@ -13,9 +13,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, getRouteApi } from "@tanstack/react-router";
 import { isProblem } from "../api/problem-error";
 import { questionnaireQueries } from "../api/queries";
+import { useOpenDraft } from "../api/use-open-draft";
 import { BackToQuestionnaires } from "../components/back-to-questionnaires";
 import { questionCount } from "../components/counts";
 import { Notice } from "../components/notice";
+import { QuestionnaireNotFound } from "../components/questionnaire-not-found";
 
 const route = getRouteApi("/questionnaires/$questionnaireId/versions");
 
@@ -35,14 +37,35 @@ function Timestamp({ iso }: { iso: string }) {
   return <time dateTime={iso}>{timestampFormat.format(new Date(iso))}</time>;
 }
 
-function HistoryHeader({ name }: { name: string | undefined }) {
+function OpenNextDraft({ summary }: { summary: QuestionnaireSummary }) {
+  const { openDraft, openingId, failure } = useOpenDraft();
+  const opening = openingId === summary.questionnaireId;
   return (
-    <header className="flex flex-col gap-1">
-      <div className="flex items-center gap-2">
-        <BackToQuestionnaires />
-        <h1 className="text-xl font-semibold tracking-tight">Version history</h1>
+    <div className="flex flex-col items-end gap-1.5">
+      <Button type="button" disabled={opening} onClick={() => openDraft(summary)}>
+        {opening ? "Opening…" : "Open the next draft"}
+      </Button>
+      {failure === null ? null : (
+        <p role="alert" className="text-xs text-destructive">
+          The draft could not be opened. Try again.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function HistoryHeader({ summary }: { summary: QuestionnaireSummary | undefined }) {
+  const canOpenNextDraft = summary !== undefined && !summary.hasDraft && summary.currentVersion !== null;
+  return (
+    <header className="flex items-start justify-between gap-6">
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <BackToQuestionnaires />
+          <h1 className="text-xl font-semibold tracking-tight">Version history</h1>
+        </div>
+        {summary === undefined ? null : <p className="pl-9 text-sm text-muted-foreground">{summary.name}</p>}
       </div>
-      {name === undefined ? null : <p className="pl-9 text-sm text-muted-foreground">{name}</p>}
+      {canOpenNextDraft ? <OpenNextDraft summary={summary} /> : null}
     </header>
   );
 }
@@ -159,12 +182,7 @@ export function VersionHistoryScreen() {
     }
     if (versions.isError && isProblem(versions.error, "resource/not-found")) {
       return (
-        <Notice>
-          <p className="font-medium">This questionnaire does not exist.</p>
-          <Link to="/questionnaires" className="font-medium underline underline-offset-4">
-            Back to questionnaires
-          </Link>
-        </Notice>
+        <QuestionnaireNotFound />
       );
     }
     if (versions.isError) {
@@ -189,7 +207,7 @@ export function VersionHistoryScreen() {
 
   return (
     <section className="flex flex-col gap-5">
-      <HistoryHeader name={summary?.name} />
+      <HistoryHeader summary={summary} />
       {body}
     </section>
   );

@@ -12,6 +12,7 @@ import { BackToQuestionnaires } from "../components/back-to-questionnaires";
 import { problemCount, questionCount } from "../components/counts";
 import { PlusIcon } from "../components/icons";
 import { Notice } from "../components/notice";
+import { QuestionnaireNotFound } from "../components/questionnaire-not-found";
 import { AddFromBankDialog } from "./draft-editor/add-from-bank-dialog";
 import { addItem, repinItem } from "./draft-editor/draft-changes";
 import { DraftItems, itemDomId, rulesEditorOf } from "./draft-editor/draft-items";
@@ -274,7 +275,9 @@ function NoOpenDraft({ questionnaireId, summary }: { questionnaireId: string; su
           </Button>
         )}
         <Button asChild variant="outline">
-          <Link to="/questionnaires">Back to questionnaires</Link>
+          <Link to="/questionnaires" activeOptions={{ exact: true }}>
+            Back to questionnaires
+          </Link>
         </Button>
       </div>
     </Notice>
@@ -293,12 +296,7 @@ function MissingDraft({ questionnaireId }: { questionnaireId: string }) {
   }
   if (summary === undefined) {
     return (
-      <Notice>
-        <p className="font-medium">This questionnaire does not exist.</p>
-        <Link to="/questionnaires" className="font-medium underline underline-offset-4">
-          Back to questionnaires
-        </Link>
-      </Notice>
+      <QuestionnaireNotFound />
     );
   }
   return <NoOpenDraft questionnaireId={questionnaireId} summary={summary} />;
