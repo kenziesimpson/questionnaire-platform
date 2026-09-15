@@ -154,7 +154,7 @@ describe("useDraftMutation", () => {
   it("keeps a 422 questionnaire/draft-invalid apart from a conflict: the change is rolled back, the items are exposed and nothing is refetched", async () => {
     const { requests, queryClient, result } = renderDraftMutation(
       respondInOrder(
-        problemResponse("questionnaire/draft-invalid", { items: [{ itemId: "itm_03", code: "draft/question-archived" }] }),
+        problemResponse("questionnaire/draft-invalid", { items: [{ itemId: "itm_03", code: "draft/question-version-unknown" }] }),
       ),
     );
 
@@ -165,7 +165,7 @@ describe("useDraftMutation", () => {
       kind: "invalid",
       problem: expect.objectContaining({
         status: 422,
-        items: [{ itemId: "itm_03", code: "draft/question-archived" }],
+        items: [{ itemId: "itm_03", code: "draft/question-version-unknown" }],
       }),
     });
     expect(itemIdsIn(queryClient)).toEqual(["itm_01", "itm_02", "itm_03"]);
