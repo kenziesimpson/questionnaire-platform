@@ -13,9 +13,14 @@ export type DraftRejection =
   | { kind: "invalid"; problem: Problem<"questionnaire/draft-invalid"> }
   | { kind: "failed"; error: Error };
 
+export type PublishOutcome =
+  | { kind: "published"; version: VersionSummary }
+  | { kind: "refused"; rejection: DraftRejection }
+  | { kind: "superseded" };
+
 export interface DraftMutation {
   change: (apply: DraftChange) => void;
-  publish: () => Promise<VersionSummary | null>;
+  publish: () => Promise<PublishOutcome>;
   rejection: DraftRejection | null;
   dismissRejection: () => void;
   isSaving: boolean;
@@ -73,14 +78,19 @@ export function useDraftMutation(questionnaireId: string): DraftMutation {
   const [rejection, setRejection] = useState<DraftRejection | null>(null);
   const scopeId = draftWriteScope(questionnaireId);
   const draftKey = questionnaireQueries.draft(questionnaireId).queryKey;
+  const validationKey = questionnaireQueries.draftValidation(questionnaireId).queryKey;
   const writesPending = useIsMutating({ predicate: (mutation) => mutation.options.scope?.id === scopeId });
 
-  const recordRejection = (error: Error, write: QueuedWrite) => {
+  const recordRejection = (error: Error, write: QueuedWrite): DraftRejection => {
     const ledger = ledgerFor(queryClient, questionnaireId);
     ledger.generation = Math.max(ledger.generation, write.generation + 1);
     const next = rejectionOf(error);
     setRejection(next);
-    if (next.kind === "stale") void queryClient.invalidateQueries({ queryKey: draftKey, exact: true });
+    if (next.kind === "stale") {
+      void queryClient.invalidateQueries({ queryKey: draftKey, exact: true });
+      void queryClient.invalidateQueries({ queryKey: validationKey, exact: true });
+    }
+    return next;
   };
 
   const changeMutation = useMutation({
@@ -118,7 +128,11 @@ export function useDraftMutation(questionnaireId: string): DraftMutation {
     },
     onError: (error, write) => {
       if (error instanceof SupersededDraftWrite) return;
-      recordRejection(error, write);
+      const refused = recordRejection(error, write);
+      if (refused.kind === "invalid") {
+        queryClient.setQueryData(validationKey, { valid: false, items: refused.problem.items });
+      }
+      void queryClient.invalidateQueries({ queryKey: validationKey, exact: true });
     },
   });
 
@@ -137,13 +151,14 @@ export function useDraftMutation(questionnaireId: string): DraftMutation {
     changeMutation.mutate({ previous, next, baseEtag: previous.etag, generation });
   };
 
-  const publish = async () => {
+  const publish = async (): Promise<PublishOutcome> => {
     const { etag } = loadedDraft();
     const { generation } = ledgerFor(queryClient, questionnaireId);
     try {
-      return await publishMutation.mutateAsync({ baseEtag: etag, generation });
-    } catch {
-      return null;
+      return { kind: "published", version: await publishMutation.mutateAsync({ baseEtag: etag, generation }) };
+    } catch (error) {
+      if (error instanceof SupersededDraftWrite || !(error instanceof Error)) return { kind: "superseded" };
+      return { kind: "refused", rejection: rejectionOf(error) };
     }
   };
 

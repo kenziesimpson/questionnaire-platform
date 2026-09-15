@@ -1,25 +1,30 @@
 import type { QuestionnaireDraft, QuestionnaireSummary } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link, getRouteApi, useNavigate } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { isProblem } from "../api/problem-error";
 import { questionQueries, questionnaireQueries } from "../api/queries";
 import { useDraftMutation, type DraftChange } from "../api/use-draft-mutation";
 import { useOpenDraft } from "../api/use-open-draft";
 import { BackToQuestionnaires } from "../components/back-to-questionnaires";
-import { questionCount } from "../components/counts";
+import { problemCount, questionCount } from "../components/counts";
 import { PlusIcon } from "../components/icons";
 import { Notice } from "../components/notice";
 import { AddFromBankDialog } from "./draft-editor/add-from-bank-dialog";
 import { addItem, repinItem } from "./draft-editor/draft-changes";
-import { DraftItems, itemDomId } from "./draft-editor/draft-items";
+import { DraftItems, itemDomId, rulesEditorOf } from "./draft-editor/draft-items";
 import { DraftRejectionNotice, type DraftWrite } from "./draft-editor/draft-rejection-notice";
-import { PublishChecksPanel, type PublishChecks } from "./draft-editor/publish-checks-panel";
+import { PublishChecksPanel, type JumpOptions, type PublishChecks } from "./draft-editor/publish-checks-panel";
 import { QuestionEditorDialog } from "./question-editor/question-editor-dialog";
 import { useQuestionEditor } from "./question-editor/use-question-editor";
 
 const route = getRouteApi("/questionnaires/$questionnaireId/draft");
+
+function prefersReducedMotion() {
+  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 function publishFacts(summary: QuestionnaireSummary | undefined) {
   if (summary === undefined) return null;
@@ -37,7 +42,6 @@ function DraftEditor({
   summary: QuestionnaireSummary | undefined;
 }) {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const mutation = useDraftMutation(questionnaireId);
   const validation = useQuery(questionnaireQueries.draftValidation(questionnaireId));
   const bank = useQuery(questionQueries.list(true));
@@ -45,6 +49,9 @@ function DraftEditor({
   const [lastWrite, setLastWrite] = useState<DraftWrite>("change");
   const [adding, setAdding] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [openRules, setOpenRules] = useState<ReadonlySet<string>>(() => new Set());
+  const [jumpedItemId, setJumpedItemId] = useState<string | null>(null);
+  const checksHeading = useRef<HTMLHeadingElement>(null);
   const publishHintId = useId();
   const bankById = new Map((bank.data ?? []).map((question) => [question.questionId, question]));
 
@@ -54,31 +61,49 @@ function DraftEditor({
     mutation.change(apply);
   };
 
+  const focusChecks = () => checksHeading.current?.focus();
+
   const publish = async () => {
     mutation.dismissRejection();
     setLastWrite("publish");
     setPublishing(true);
-    const published = await mutation.publish();
-    if (published === null) {
-      setPublishing(false);
-      void queryClient.invalidateQueries({ queryKey: questionnaireQueries.draftValidation(questionnaireId).queryKey });
+    const outcome = await mutation.publish();
+    if (outcome.kind === "published") {
+      void navigate({ to: "/questionnaires/$questionnaireId/versions", params: { questionnaireId } });
       return;
     }
-    void navigate({ to: "/questionnaires/$questionnaireId/versions", params: { questionnaireId } });
+    setPublishing(false);
+    if (outcome.kind === "refused" && outcome.rejection.kind === "invalid") focusChecks();
   };
 
-  const jumpToItem = (itemId: string) => {
+  const setRulesOpen = (itemId: string, open: boolean) =>
+    setOpenRules((current) => {
+      const next = new Set(current);
+      if (open) next.add(itemId);
+      else next.delete(itemId);
+      return next;
+    });
+
+  const jumpToItem = (itemId: string, { openRules: withRules }: JumpOptions) => {
+    flushSync(() => {
+      if (withRules) setRulesOpen(itemId, true);
+      setJumpedItemId(itemId);
+    });
     const row = document.getElementById(itemDomId(itemId));
-    row?.scrollIntoView({ block: "center" });
-    row?.focus();
+    if (row === null) return;
+    row.scrollIntoView({ block: "center", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    ((withRules ? rulesEditorOf(itemId) : null) ?? row).focus({ preventScroll: true });
   };
 
+  const checksBusy = validation.isFetching || mutation.isSaving;
   const checks: PublishChecks = validation.isPending
     ? { status: "checking" }
     : validation.isError
-      ? { status: "unavailable", retry: () => void validation.refetch() }
-      : { status: "checked", problems: validation.data.items };
-  const blockedByChecks = validation.isSuccess && !validation.data.valid;
+      ? { status: "unavailable", retry: () => void validation.refetch(), retrying: validation.isFetching }
+      : { status: "checked", problems: validation.data.items, refreshing: checksBusy };
+  const standingProblems = validation.isSuccess ? validation.data.items.length : 0;
+  const blockedByChecks = standingProblems > 0 || (checksBusy && !validation.isError);
+  const nextVersion = summary === undefined ? undefined : (summary.currentVersion ?? 0) + 1;
 
   return (
     <>
@@ -106,16 +131,20 @@ function DraftEditor({
             <Button
               type="button"
               disabled={publishing || blockedByChecks}
-              aria-describedby={blockedByChecks ? publishHintId : undefined}
+              aria-describedby={standingProblems > 0 ? publishHintId : undefined}
               onClick={() => void publish()}
             >
               {publishing ? "Publishing…" : "Publish"}
             </Button>
           </div>
         </div>
-        {blockedByChecks && (
+        {standingProblems > 0 && (
           <p id={publishHintId} className="text-right text-xs text-muted-foreground">
-            Publishing is blocked until the publish checks pass.
+            {checksBusy ? "Waiting for " : `${problemCount(standingProblems)} under `}
+            <Button type="button" variant="link" className="h-auto p-0 text-xs text-foreground" onClick={focusChecks}>
+              Publish checks
+            </Button>
+            {checksBusy ? " to check your latest change." : ` ${standingProblems === 1 ? "is" : "are"} blocking publishing.`}
           </p>
         )}
       </header>
@@ -125,11 +154,25 @@ function DraftEditor({
           rejection={mutation.rejection}
           write={lastWrite}
           draft={draft}
+          onShowProblems={focusChecks}
           onDismiss={mutation.dismissRejection}
         />
       )}
 
       <div className="flex flex-col items-start gap-6 xl:flex-row">
+        <aside
+          aria-label="Publishing"
+          className="flex w-full shrink-0 flex-col gap-3 xl:sticky xl:top-6 xl:order-last xl:max-h-[calc(100svh-3rem)] xl:w-80"
+        >
+          <PublishChecksPanel
+            draft={draft}
+            checks={checks}
+            nextVersion={nextVersion}
+            headingRef={checksHeading}
+            activeItemId={jumpedItemId}
+            onJumpToItem={jumpToItem}
+          />
+        </aside>
         <section aria-labelledby="draft-items-heading" className="flex w-full min-w-0 flex-1 flex-col gap-2.5">
           <div className="flex items-center justify-between gap-3">
             <h2 id="draft-items-heading" className="text-[13px] font-semibold">
@@ -144,6 +187,10 @@ function DraftEditor({
             <DraftItems
               draft={draft}
               bank={bankById}
+              openRules={openRules}
+              jumpedItemId={jumpedItemId}
+              onRulesOpenChange={setRulesOpen}
+              onJumpEnd={(itemId) => setJumpedItemId((current) => (current === itemId ? null : current))}
               onChange={change}
               onEdit={(item, latest) => editor.edit(latest, (saved) => change(repinItem(item.itemId, saved)))}
             />
@@ -155,9 +202,6 @@ function DraftEditor({
             </Button>
           </div>
         </section>
-        <aside aria-label="Publishing" className="flex w-full shrink-0 flex-col gap-3 xl:w-80">
-          <PublishChecksPanel draft={draft} checks={checks} onJumpToItem={jumpToItem} />
-        </aside>
       </div>
 
       <AddFromBankDialog

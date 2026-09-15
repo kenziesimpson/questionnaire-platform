@@ -4,7 +4,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { questionnaireQueries } from "../../src/api/queries";
-import { useDraftMutation } from "../../src/api/use-draft-mutation";
+import { useDraftMutation, type PublishOutcome } from "../../src/api/use-draft-mutation";
 import {
   QUESTIONNAIRE_ID,
   aDraft,
@@ -20,6 +20,7 @@ import {
 } from "../fixtures";
 
 const draftQuery = questionnaireQueries.draft(QUESTIONNAIRE_ID);
+const validationQuery = questionnaireQueries.draftValidation(QUESTIONNAIRE_ID);
 const DRAFT_URL = `/api/definition/questionnaires/${QUESTIONNAIRE_ID}/draft`;
 
 const swapFirstTwo = (draft: QuestionnaireDraft): QuestionnaireDraft => {
@@ -107,9 +108,12 @@ describe("useDraftMutation", () => {
       if (event.type === "updated" && event.action.type === "success") refetched.resolve();
     });
 
+    queryClient.setQueryData(validationQuery.queryKey, { valid: true, items: [] });
+
     act(() => result.current.change(swapFirstTwo));
 
     await waitFor(() => expect(result.current.rejection?.kind).toBe("stale"));
+    expect(queryClient.getQueryState(validationQuery.queryKey)?.isInvalidated).toBe(true);
     await refetched.promise;
     expect(requests.map(({ method, url }) => `${method} ${url}`)).toEqual([`PUT ${DRAFT_URL}`, `GET ${DRAFT_URL}`]);
     expect(queryClient.getQueryData(draftQuery.queryKey)).toEqual({ draft: theirs, etag: etagAt(7) });
@@ -194,13 +198,13 @@ describe("useDraftMutation", () => {
       respondInOrder(draftResponse(aDraft(["itm_02", "itm_01", "itm_03"]), 2), jsonResponse(201, summary)),
     );
 
-    let published: Promise<VersionSummary | null> = Promise.resolve(null);
+    let published: Promise<PublishOutcome> = Promise.resolve({ kind: "superseded" });
     act(() => {
       result.current.change(swapFirstTwo);
       published = result.current.publish();
     });
 
-    await expect(published).resolves.toEqual(summary);
+    await expect(published).resolves.toEqual({ kind: "published", version: summary });
     expect(requests.map(({ method, headers }) => `${method} ${headers.get("if-match")}`)).toEqual([
       `PUT ${etagAt(1)}`,
       `POST ${etagAt(2)}`,
@@ -216,17 +220,23 @@ describe("useDraftMutation", () => {
         problemResponse("questionnaire/draft-invalid", { items: [{ itemId: "itm_02", code: "predicate/unsatisfiable" }] }),
       ),
     );
+    queryClient.setQueryData(validationQuery.queryKey, { valid: true, items: [] });
 
     await act(async () => {
-      await expect(result.current.publish()).resolves.toBeNull();
+      await expect(result.current.publish()).resolves.toMatchObject({ kind: "refused", rejection: { kind: "stale" } });
     });
     expect(result.current.rejection?.kind).toBe("stale");
+    expect(queryClient.getQueryState(validationQuery.queryKey)?.isInvalidated).toBe(true);
     await waitFor(() => expect(queryClient.getQueryData(draftQuery.queryKey)?.etag).toBe(etagAt(4)));
 
     await act(async () => {
-      await expect(result.current.publish()).resolves.toBeNull();
+      await expect(result.current.publish()).resolves.toMatchObject({ kind: "refused", rejection: { kind: "invalid" } });
     });
     expect(result.current.rejection?.kind).toBe("invalid");
+    expect(queryClient.getQueryData(validationQuery.queryKey)).toEqual({
+      valid: false,
+      items: [{ itemId: "itm_02", code: "predicate/unsatisfiable" }],
+    });
     expect(requests.map(({ method, headers }) => `${method} ${headers.get("if-match")}`)).toEqual([
       `POST ${etagAt(1)}`,
       `GET null`,

@@ -28,6 +28,10 @@ export function pinnedQuestionOf(draft: QuestionnaireDraft, item: DraftItem): Qu
   );
 }
 
+export function promptOf(draft: QuestionnaireDraft, item: DraftItem): string {
+  return pinnedQuestionOf(draft, item)?.prompt ?? "Unknown question";
+}
+
 function withQuestion(questions: readonly QuestionVersion[], added: QuestionVersion): QuestionVersion[] {
   const known = questions.some(
     ({ questionId, questionVersion }) => questionId === added.questionId && questionVersion === added.questionVersion,
