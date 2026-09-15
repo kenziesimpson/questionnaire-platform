@@ -51,6 +51,11 @@ changed, not the decision:
 
 Both were the open items in [[2-design-doc#20. Pending UI experimentation]], which is now empty.
 
+**Not yet redrawn:** `AdminDraftEditor`'s publish-checks rail shows each finding's problem code, and its
+Question 5 finding reports `draft/question-archived` on a question already placed. #76 hides codes from
+authors, and #75 makes an existing placement of an archived question not an error. The decisions stand
+over the artboard.
+
 ## What drawing them turned up
 
 - **`QuestionnaireSummary` has no `updatedAt`.** #53 sorts both lists on "most recently edited" and the
