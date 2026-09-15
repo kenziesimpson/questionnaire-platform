@@ -39,11 +39,11 @@ export function MultipleChoiceControl({ item, answer, error, mode, onChange }: C
   }
 
   return (
-    <ChoiceFieldset ids={ids} prompt={question.prompt} required={item.required} error={error}>
+    <ChoiceFieldset ids={ids} prompt={question.prompt} required={item.required} error={error} className="gap-1">
       {question.options.map((option) => {
         const id = `${ids.base}-${option.optionId}`;
         return (
-          <div key={option.optionId} className="flex items-center gap-3">
+          <div key={option.optionId} className="flex min-h-8 items-center gap-3">
             <Checkbox
               id={id}
               checked={selected.has(option.optionId)}
