@@ -7,7 +7,7 @@ import { Pill } from "../../components/pill";
 import { DRAFT_ITEM_MESSAGES } from "./draft-item-messages";
 import { promptOf } from "./draft-changes";
 
-export interface DraftItemProblem {
+interface DraftItemProblem {
   itemId: string;
   code: DraftItemCode;
 }
@@ -30,12 +30,12 @@ export interface PublishChecksPanelProps {
   onJumpToItem: (itemId: string, options: JumpOptions) => void;
 }
 
-export interface ProblemGroup {
+interface ProblemGroup {
   itemId: string;
   codes: DraftItemCode[];
 }
 
-export function groupByItem(problems: readonly DraftItemProblem[]): ProblemGroup[] {
+function groupByItem(problems: readonly DraftItemProblem[]): ProblemGroup[] {
   const groups = new Map<string, ProblemGroup>();
   for (const { itemId, code } of problems) {
     const group = groups.get(itemId) ?? { itemId, codes: [] };

@@ -3,13 +3,13 @@ import { RESPONSE_TYPE_LABELS } from "../question-editor/question-form";
 import { laterReferencesIn, listOfPositions, referenceOf, type Reference } from "./conditions";
 import { conditionsOf, pinnedQuestionOf } from "./draft-changes";
 
-export interface DraftItemContext {
+interface DraftItemContext {
   draft: QuestionnaireDraft;
   item: DraftItem;
   position: number;
 }
 
-export interface DraftItemExplanation {
+interface DraftItemExplanation {
   detail: string;
   fix: string;
 }
