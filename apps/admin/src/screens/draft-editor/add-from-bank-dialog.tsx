@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@qp/ui/pr
 import { useQuery } from "@tanstack/react-query";
 import { questionQueries } from "../../api/queries";
 import { RESPONSE_TYPE_LABELS } from "../question-editor/question-form";
+import { sortByLatestEdit } from "../question-bank/bank-display";
 import { isPlaced } from "./draft-changes";
 
 export interface AddFromBankDialogProps {
@@ -11,10 +12,6 @@ export interface AddFromBankDialogProps {
   onOpenChange: (open: boolean) => void;
   draft: QuestionnaireDraft;
   onAdd: (question: QuestionVersion) => void;
-}
-
-function newestFirst(questions: readonly Question[]): Question[] {
-  return [...questions].sort((a, b) => b.latest.createdAt.localeCompare(a.latest.createdAt));
 }
 
 function BankRow({ question, placed, onAdd }: { question: Question; placed: boolean; onAdd: () => void }) {
@@ -64,7 +61,7 @@ function BankList({ draft, onAdd }: Pick<AddFromBankDialogProps, "draft" | "onAd
   }
   return (
     <ul aria-label="Active questions in the bank" className="flex min-h-0 flex-col overflow-y-auto">
-      {newestFirst(bank.data).map((question) => (
+      {sortByLatestEdit(bank.data).map((question) => (
         <BankRow
           key={question.questionId}
           question={question}

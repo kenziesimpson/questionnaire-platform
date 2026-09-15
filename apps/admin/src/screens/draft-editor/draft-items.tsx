@@ -16,6 +16,7 @@ import { Button } from "@qp/ui/primitives/button";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { useId, useState, type ReactNode } from "react";
 import type { DraftChange } from "../../api/use-draft-mutation";
+import { isArchived } from "../question-bank/bank-display";
 import { GripIcon, RemoveIcon } from "../question-editor/icons";
 import { RESPONSE_TYPE_LABELS } from "../question-editor/question-form";
 import { laterReferencesIn } from "./conditions";
@@ -190,7 +191,7 @@ function SortableItemRow({ draft, item, index, latest, editing, onChange, onEdit
   const question = pinnedQuestionOf(draft, item);
   const prompt = promptOf(draft, item);
   const newer = latest !== undefined && latest.latest.questionVersion > item.questionVersion ? latest.latest : undefined;
-  const archived = latest !== undefined && latest.archivedAt !== null;
+  const archived = latest !== undefined && isArchived(latest);
   const later = laterReferencesIn(draft, item);
   const dependants = dependantsOf(draft, item.itemId).map((dependant) => draft.items.indexOf(dependant) + 1);
 
