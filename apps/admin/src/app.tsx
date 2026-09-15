@@ -1,10 +1,11 @@
-import { Button } from "@qp/ui/primitives/button";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
+import { RouterProvider } from "@tanstack/react-router";
+import type { createAppRouter } from "./router";
 
-export function App() {
+export function App({ queryClient, router }: { queryClient: QueryClient; router: ReturnType<typeof createAppRouter> }) {
   return (
-    <main className="mx-auto flex min-h-svh max-w-2xl flex-col gap-4 p-6">
-      <h1 className="text-2xl font-semibold">Questionnaire admin</h1>
-      <Button type="button">New questionnaire</Button>
-    </main>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
   );
 }
