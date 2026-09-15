@@ -42,6 +42,7 @@ interface DraftItemsProps {
   bank: ReadonlyMap<string, Question>;
   onChange: (apply: DraftChange) => void;
   onEdit: (item: DraftItem, latest: QuestionVersion) => void;
+  locked: boolean;
 }
 
 function promptOf(draft: QuestionnaireDraft, item: DraftItem) {
@@ -98,7 +99,7 @@ const SCREEN_READER_INSTRUCTIONS = {
     "To reorder, press Space or Enter to pick up the question, use the up and down arrow keys to move it, then press Space or Enter again to drop it, or Escape to cancel.",
 };
 
-export function DraftItems({ draft, bank, onChange, onEdit }: DraftItemsProps) {
+export function DraftItems({ draft, bank, onChange, onEdit, locked }: DraftItemsProps) {
   const [dragProgress] = useState(() => new DragProgress());
   const [liveRegionContainer, setLiveRegionContainer] = useState<HTMLDivElement | null>(null);
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
@@ -133,6 +134,7 @@ export function DraftItems({ draft, bank, onChange, onEdit }: DraftItemsProps) {
                 bankQuestion={bank.get(item.questionId)}
                 onChange={onChange}
                 onEdit={onEdit}
+                locked={locked}
               />
             ))}
           </ol>
@@ -149,6 +151,7 @@ interface ItemRowProps {
   bankQuestion: Question | undefined;
   onChange: (apply: DraftChange) => void;
   onEdit: (item: DraftItem, latest: QuestionVersion) => void;
+  locked: boolean;
 }
 
 function StatusGroup({
@@ -156,11 +159,12 @@ function StatusGroup({
   position,
   bankQuestion,
   onChange,
-}: Pick<ItemRowProps, "item" | "position" | "bankQuestion" | "onChange">) {
+  locked,
+}: Pick<ItemRowProps, "item" | "position" | "bankQuestion" | "onChange" | "locked">) {
   if (bankQuestion === undefined) return null;
   const { latest } = bankQuestion;
   const archived = isArchived(bankQuestion);
-  const newer = latest.questionVersion > item.questionVersion;
+  const newer = !archived && latest.questionVersion > item.questionVersion;
   if (!archived && !newer) return null;
   return (
     <span className="flex flex-wrap items-center justify-end gap-1.5">
@@ -172,6 +176,7 @@ function StatusGroup({
             type="button"
             variant="outline"
             size="xs"
+            disabled={locked}
             aria-label={`Re-pin question ${position} to version ${latest.questionVersion}`}
             onClick={() => onChange(repinItem(item.itemId, latest))}
           >
@@ -183,9 +188,10 @@ function StatusGroup({
   );
 }
 
-function SortableItemRow({ draft, item, position, bankQuestion, onChange, onEdit }: ItemRowProps) {
+function SortableItemRow({ draft, item, position, bankQuestion, onChange, onEdit, locked }: ItemRowProps) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: item.itemId,
+    disabled: locked,
   });
   const [rulesOpen, setRulesOpen] = useState(false);
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
@@ -218,6 +224,7 @@ function SortableItemRow({ draft, item, position, bankQuestion, onChange, onEdit
           type="button"
           ref={setActivatorNodeRef}
           aria-label={`Drag to reorder question ${position}`}
+          disabled={locked}
           className="inline-flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground/70 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 active:cursor-grabbing"
           {...attributes}
           {...listeners}
@@ -243,6 +250,7 @@ function SortableItemRow({ draft, item, position, bankQuestion, onChange, onEdit
               <Checkbox
                 id={requiredId}
                 checked={item.required}
+                disabled={locked}
                 onCheckedChange={(checked) => onChange(setRequired(item.itemId, checked === true))}
               />
               <label htmlFor={requiredId} className="text-xs">
@@ -270,18 +278,18 @@ function SortableItemRow({ draft, item, position, bankQuestion, onChange, onEdit
               variant="outline"
               size="sm"
               aria-label={`Edit question ${position}`}
-              disabled={bankQuestion === undefined}
+              disabled={locked || bankQuestion === undefined || isArchived(bankQuestion)}
               onClick={() => {
                 if (bankQuestion !== undefined) onEdit(item, bankQuestion.latest);
               }}
             >
               Edit
             </Button>
-            <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove question ${position}`} onClick={remove}>
+            <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove question ${position}`} disabled={locked} onClick={remove}>
               <RemoveIcon />
             </Button>
           </span>
-          <StatusGroup item={item} position={position} bankQuestion={bankQuestion} onChange={onChange} />
+          <StatusGroup item={item} position={position} bankQuestion={bankQuestion} onChange={onChange} locked={locked} />
         </div>
       </div>
       {confirmingRemoval && (
@@ -289,7 +297,7 @@ function SortableItemRow({ draft, item, position, bankQuestion, onChange, onEdit
           <span className="flex-1">
             Conditions on {listOfPositions(dependants)} use this question. Removing it removes those conditions too.
           </span>
-          <Button type="button" variant="destructive" size="sm" onClick={remove}>
+          <Button type="button" variant="destructive" size="sm" disabled={locked} onClick={remove}>
             Remove question and conditions
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => setConfirmingRemoval(false)}>
@@ -303,6 +311,7 @@ function SortableItemRow({ draft, item, position, bankQuestion, onChange, onEdit
             draft={draft}
             item={item}
             position={position}
+            disabled={locked}
             onChange={(visibleWhen) => onChange(setVisibleWhen(item.itemId, visibleWhen))}
           />
         )}

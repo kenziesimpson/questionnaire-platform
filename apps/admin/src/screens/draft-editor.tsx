@@ -27,6 +27,24 @@ function publishFacts(summary: QuestionnaireSummary | undefined) {
   return `published v${summary.currentVersion} · publishing creates v${summary.currentVersion + 1}`;
 }
 
+function publishWaitsFor({
+  saving,
+  checking,
+  checksFailed,
+  blockedByChecks,
+}: {
+  saving: boolean;
+  checking: boolean;
+  checksFailed: boolean;
+  blockedByChecks: boolean;
+}): string | null {
+  if (saving) return "Publishing waits until your changes are saved.";
+  if (checking) return "Publishing waits until the publish checks have run on the saved draft.";
+  if (checksFailed) return "Publishing waits until the publish checks can run.";
+  if (blockedByChecks) return "Publishing is blocked until the publish checks pass.";
+  return null;
+}
+
 function DraftEditor({
   questionnaireId,
   draft,
@@ -79,6 +97,12 @@ function DraftEditor({
       ? { status: "unavailable", retry: () => void validation.refetch() }
       : { status: "checked", problems: validation.data.items };
   const blockedByChecks = validation.isSuccess && !validation.data.valid;
+  const publishHint = publishWaitsFor({
+    saving: mutation.isSaving,
+    checking: validation.isPending || validation.isFetching,
+    checksFailed: validation.isError,
+    blockedByChecks,
+  });
 
   return (
     <>
@@ -105,17 +129,17 @@ function DraftEditor({
             )}
             <Button
               type="button"
-              disabled={publishing || blockedByChecks}
-              aria-describedby={blockedByChecks ? publishHintId : undefined}
+              disabled={publishing || publishHint !== null}
+              aria-describedby={publishHint === null ? undefined : publishHintId}
               onClick={() => void publish()}
             >
               {publishing ? "Publishing…" : "Publish"}
             </Button>
           </div>
         </div>
-        {blockedByChecks && (
+        {publishHint !== null && (
           <p id={publishHintId} className="text-right text-xs text-muted-foreground">
-            Publishing is blocked until the publish checks pass.
+            {publishHint}
           </p>
         )}
       </header>
@@ -146,10 +170,11 @@ function DraftEditor({
               bank={bankById}
               onChange={change}
               onEdit={(item, latest) => editor.edit(latest, (saved) => change(repinItem(item.itemId, saved)))}
+              locked={publishing}
             />
           )}
           <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" onClick={() => setAdding(true)}>
+            <Button type="button" variant="outline" disabled={publishing} onClick={() => setAdding(true)}>
               <PlusIcon />
               Add question
             </Button>

@@ -7,21 +7,23 @@ import { PlusIcon, RemoveIcon } from "../../components/icons";
 import { DECIMAL_INPUT_PATTERN } from "../question-editor/question-form";
 import {
   OPERATOR_LABELS,
+  UNSET_DATE,
   defaultConditionFor,
   earlierItemsThan,
+  isComplete,
   operatorsFor,
   referenceOf,
   withOperator,
   type Operator,
 } from "./conditions";
 import { conditionsOf } from "./draft-changes";
-import { toLocalDateInput } from "../questionnaire-list/summary-display";
 import { NativeSelect } from "./native-select";
 
 interface PredicateEditorProps {
   draft: QuestionnaireDraft;
   item: DraftItem;
   position: number;
+  disabled: boolean;
   onChange: (visibleWhen: Predicate | null) => void;
 }
 
@@ -36,8 +38,8 @@ function promptLabel(position: number, prompt: string) {
   return `${position}. ${prompt}`;
 }
 
-export function PredicateEditor({ draft, item, position, onChange }: PredicateEditorProps) {
-  const [today] = useState(() => toLocalDateInput(Date.now()));
+export function PredicateEditor({ draft, item, position, disabled, onChange }: PredicateEditorProps) {
+  const [unsaved, setUnsaved] = useState<Condition | null>(null);
   const legendId = useId();
   const hintId = useId();
   const conditions = conditionsOf(item.visibleWhen);
@@ -48,10 +50,23 @@ export function PredicateEditor({ draft, item, position, onChange }: PredicateEd
   const replaceAt = (index: number, next: Condition) =>
     onChange(predicateOf(combinator, conditions.map((condition, at) => (at === index ? next : condition))));
 
+  const append = (added: Condition) => {
+    setUnsaved(null);
+    onChange(predicateOf(combinator, [...conditions, added]));
+  };
+
+  const addCondition = () => {
+    if (nearest === undefined) return;
+    const added = defaultConditionFor(nearest.item.itemId, nearest.question);
+    if (isComplete(added)) append(added);
+    else setUnsaved(added);
+  };
+
   return (
     <fieldset
       aria-labelledby={legendId}
       aria-describedby={hintId}
+      disabled={disabled}
       className="flex min-w-0 flex-col gap-2.5 rounded-lg border border-border bg-background p-3"
     >
       <legend id={legendId} className="sr-only">
@@ -74,7 +89,7 @@ export function PredicateEditor({ draft, item, position, onChange }: PredicateEd
           <span>of these are true</span>
         </div>
       )}
-      {conditions.length > 0 && (
+      {(conditions.length > 0 || unsaved !== null) && (
         <ul aria-label={`Conditions for question ${position}`} className="flex flex-col gap-2">
           {conditions.map((condition, index) => (
             <ConditionRow
@@ -82,25 +97,26 @@ export function PredicateEditor({ draft, item, position, onChange }: PredicateEd
               number={index + 1}
               draft={draft}
               dependant={item}
-              condition={condition}
-              today={today}
-              onChange={(next) => replaceAt(index, next)}
+              saved={condition}
+              onCommit={(next) => replaceAt(index, next)}
               onRemove={() => onChange(predicateOf(combinator, conditions.filter((_, at) => at !== index)))}
             />
           ))}
+          {unsaved !== null && (
+            <ConditionRow
+              key="unsaved"
+              number={conditions.length + 1}
+              draft={draft}
+              dependant={item}
+              saved={unsaved}
+              onCommit={append}
+              onRemove={() => setUnsaved(null)}
+            />
+          )}
         </ul>
       )}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={nearest === undefined}
-          onClick={() => {
-            if (nearest === undefined) return;
-            onChange(predicateOf(combinator, [...conditions, defaultConditionFor(nearest.item.itemId, nearest.question, today)]));
-          }}
-        >
+        <Button type="button" variant="outline" size="sm" disabled={nearest === undefined || unsaved !== null} onClick={addCondition}>
           <PlusIcon />
           Add condition
         </Button>
@@ -118,9 +134,8 @@ interface ConditionRowProps {
   number: number;
   draft: QuestionnaireDraft;
   dependant: DraftItem;
-  condition: Condition;
-  today: string;
-  onChange: (condition: Condition) => void;
+  saved: Condition;
+  onCommit: (condition: Condition) => void;
   onRemove: () => void;
 }
 
@@ -132,10 +147,27 @@ function RemoveConditionButton({ number, onRemove }: { number: number; onRemove:
   );
 }
 
-function ConditionRow({ number, draft, dependant, condition, today, onChange, onRemove }: ConditionRowProps) {
+function sameCondition(a: Condition, b: Condition) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function ConditionRow({ number, draft, dependant, saved, onCommit, onRemove }: ConditionRowProps) {
   const warningId = useId();
+  const incompleteId = useId();
+  const [editing, setEditing] = useState<Condition | null>(null);
+  const condition = editing ?? saved;
   const reference = referenceOf(draft, dependant.itemId, condition);
   const earlier = earlierItemsThan(draft, dependant.itemId);
+  const incomplete = !isComplete(condition);
+
+  const update = (next: Condition) => {
+    if (!isComplete(next)) {
+      setEditing(next);
+      return;
+    }
+    setEditing(null);
+    if (!sameCondition(next, saved)) onCommit(next);
+  };
 
   if (reference.kind === "unusable") {
     return (
@@ -164,7 +196,7 @@ function ConditionRow({ number, draft, dependant, condition, today, onChange, on
           value={condition.itemId}
           onChange={(event) => {
             const picked = earlier.find(({ item }) => item.itemId === event.target.value);
-            if (picked !== undefined) onChange(defaultConditionFor(picked.item.itemId, picked.question, today));
+            if (picked !== undefined) update(defaultConditionFor(picked.item.itemId, picked.question));
           }}
         >
           {earlier.map(({ item, position, question: earlierQuestion }) => (
@@ -184,7 +216,7 @@ function ConditionRow({ number, draft, dependant, condition, today, onChange, on
           value={condition.op}
           onChange={(event) => {
             const op = operatorsFor(condition.type).find((candidate) => candidate === event.target.value);
-            if (op !== undefined) onChange(withOperator(condition, op));
+            if (op !== undefined) update(withOperator(condition, op));
           }}
         >
           {operatorsFor(condition.type).map((op: Operator) => (
@@ -193,13 +225,24 @@ function ConditionRow({ number, draft, dependant, condition, today, onChange, on
             </option>
           ))}
         </NativeSelect>
-        <Operand number={number} condition={condition} question={question} onChange={onChange} />
+        <Operand
+          number={number}
+          condition={condition}
+          question={question}
+          describedBy={incomplete ? incompleteId : undefined}
+          onChange={update}
+        />
         <RemoveConditionButton number={number} onRemove={onRemove} />
       </div>
       {isLater && (
         <p id={warningId} className="text-xs text-destructive">
           Question {reference.position} is now below this one, so this condition cannot be used. Move that question back
           above, or choose an earlier one.
+        </p>
+      )}
+      {incomplete && (
+        <p id={incompleteId} className="text-xs text-muted-foreground">
+          Not saved yet. Enter a value to save this condition.
         </p>
       )}
     </li>
@@ -210,10 +253,11 @@ interface OperandProps {
   number: number;
   condition: Condition;
   question: QuestionVersion;
+  describedBy: string | undefined;
   onChange: (condition: Condition) => void;
 }
 
-function Operand({ number, condition, question, onChange }: OperandProps) {
+function Operand({ number, condition, question, describedBy, onChange }: OperandProps) {
   const label = `Condition ${number}: value`;
   switch (condition.type) {
     case "text":
@@ -239,9 +283,17 @@ function Operand({ number, condition, question, onChange }: OperandProps) {
         />
       );
     case "number":
-      return <NumberOperands label={label} condition={condition} unit={"unit" in question ? question.unit : undefined} onChange={onChange} />;
+      return (
+        <NumberOperands
+          label={label}
+          condition={condition}
+          unit={"unit" in question ? question.unit : undefined}
+          describedBy={describedBy}
+          onChange={onChange}
+        />
+      );
     case "date":
-      return <DateOperands label={label} condition={condition} onChange={onChange} />;
+      return <DateOperands label={label} condition={condition} describedBy={describedBy} onChange={onChange} />;
   }
 }
 
@@ -332,6 +384,13 @@ function commitOnEnter(commit: () => void) {
   };
 }
 
+const numberText = (value: number) => (Number.isFinite(value) ? String(value) : "");
+
+function describedByAll(...ids: (string | undefined)[]) {
+  const present = ids.filter((id) => id !== undefined);
+  return present.length === 0 ? undefined : present.join(" ");
+}
+
 function NumberInput({
   label,
   value,
@@ -343,11 +402,11 @@ function NumberInput({
   describedBy: string | undefined;
   onCommit: (value: number) => void;
 }) {
-  const [text, setText] = useState(String(value));
+  const [text, setText] = useState(numberText(value));
   const commit = () => {
     const parsed = Number(text);
     if (text.trim() === "" || !Number.isFinite(parsed)) {
-      setText(String(value));
+      setText(numberText(value));
       return;
     }
     if (parsed !== value) onCommit(parsed);
@@ -356,6 +415,7 @@ function NumberInput({
     <Input
       aria-label={label}
       aria-describedby={describedBy}
+      aria-invalid={!Number.isFinite(value) || undefined}
       inputMode="decimal"
       className="w-20"
       value={text}
@@ -376,19 +436,24 @@ function Unit({ id, unit }: { id: string; unit: string | undefined }) {
   );
 }
 
+const upperOf = (low: number, high: number) => (Number.isFinite(high) ? Math.max(low, high) : high);
+const lowerOf = (high: number, low: number) => (Number.isFinite(low) ? Math.min(high, low) : low);
+
 function NumberOperands({
   label,
   condition,
   unit,
+  describedBy,
   onChange,
 }: {
   label: string;
   condition: ConditionOf<"number">;
   unit: string | undefined;
+  describedBy: string | undefined;
   onChange: (condition: Condition) => void;
 }) {
   const unitId = useId();
-  const describedBy = unit === undefined ? undefined : unitId;
+  const description = describedByAll(unit === undefined ? undefined : unitId, describedBy);
   if (condition.op !== "between") {
     return (
       <span className="flex gap-2">
@@ -396,7 +461,7 @@ function NumberOperands({
           key={condition.value}
           label={label}
           value={condition.value}
-          describedBy={describedBy}
+          describedBy={description}
           onCommit={(value) => onChange({ ...condition, value })}
         />
         <Unit id={unitId} unit={unit} />
@@ -409,60 +474,81 @@ function NumberOperands({
         key={`min-${condition.min}`}
         label={`${label}, lowest`}
         value={condition.min}
-        describedBy={describedBy}
-        onCommit={(min) => onChange({ ...condition, min, max: Math.max(min, condition.max) })}
+        describedBy={description}
+        onCommit={(min) => onChange({ ...condition, min, max: upperOf(min, condition.max) })}
       />
       <span className="self-center text-sm text-muted-foreground">and</span>
       <NumberInput
         key={`max-${condition.max}`}
         label={`${label}, highest`}
         value={condition.max}
-        describedBy={describedBy}
-        onCommit={(max) => onChange({ ...condition, max, min: Math.min(max, condition.min) })}
+        describedBy={description}
+        onCommit={(max) => onChange({ ...condition, max, min: lowerOf(max, condition.min) })}
       />
       <Unit id={unitId} unit={unit} />
     </span>
   );
 }
 
-function DateInput({ label, value, onCommit }: { label: string; value: string; onCommit: (value: string) => void }) {
+function DateInput({
+  label,
+  value,
+  describedBy,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  describedBy: string | undefined;
+  onCommit: (value: string) => void;
+}) {
   return (
     <Input
       type="date"
       aria-label={label}
+      aria-describedby={describedBy}
+      aria-invalid={value === UNSET_DATE || undefined}
       className="w-40"
       value={value}
       onChange={(event) => {
-        if (event.target.value !== "") onCommit(event.target.value);
+        if (event.target.value !== UNSET_DATE) onCommit(event.target.value);
       }}
     />
   );
 }
 
+const laterDate = (low: string, high: string) => (high !== UNSET_DATE && low > high ? low : high);
+const earlierDate = (high: string, low: string) => (low !== UNSET_DATE && high < low ? high : low);
+
 function DateOperands({
   label,
   condition,
+  describedBy,
   onChange,
 }: {
   label: string;
   condition: ConditionOf<"date">;
+  describedBy: string | undefined;
   onChange: (condition: Condition) => void;
 }) {
   if (condition.op !== "between") {
-    return <DateInput label={label} value={condition.date} onCommit={(date) => onChange({ ...condition, date })} />;
+    return (
+      <DateInput label={label} value={condition.date} describedBy={describedBy} onCommit={(date) => onChange({ ...condition, date })} />
+    );
   }
   return (
     <span className="flex gap-2">
       <DateInput
         label={`${label}, earliest`}
         value={condition.min}
-        onCommit={(min) => onChange({ ...condition, min, max: min > condition.max ? min : condition.max })}
+        describedBy={describedBy}
+        onCommit={(min) => onChange({ ...condition, min, max: laterDate(min, condition.max) })}
       />
       <span className="self-center text-sm text-muted-foreground">and</span>
       <DateInput
         label={`${label}, latest`}
         value={condition.max}
-        onCommit={(max) => onChange({ ...condition, max, min: max < condition.min ? max : condition.min })}
+        describedBy={describedBy}
+        onCommit={(max) => onChange({ ...condition, max, min: earlierDate(max, condition.min) })}
       />
     </span>
   );

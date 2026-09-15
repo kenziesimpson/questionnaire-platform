@@ -19,14 +19,14 @@ function copyFor(kind: DraftRejection["kind"], write: DraftWrite): Copy {
         body:
           write === "publish"
             ? "It was not published. The draft has been reloaded with their changes; check it and publish again."
-            : "Your last change was undone and nothing you did was written. The draft has been reloaded with their version, so carry on from there.",
+            : "Your last change was undone and the draft has been reloaded with their version, so carry on from there.",
         tone: "neutral",
       };
     case "invalid":
       return write === "publish"
         ? {
             title: "The draft was not published",
-            body: "Publish found problems in the draft. They are listed under Publish checks.",
+            body: "Publish found problems in the items below. They are also listed under Publish checks.",
             tone: "destructive",
           }
         : {
@@ -70,7 +70,7 @@ export function DraftRejectionNotice({
 }) {
   const { title, body, tone } = copyFor(rejection.kind, write);
   const slug = slugOf(rejection);
-  const refusedItems = rejection.kind === "invalid" && write === "change" ? rejection.problem.items : [];
+  const refusedItems = rejection.kind === "invalid" ? rejection.problem.items : [];
   return (
     <div
       role="alert"
