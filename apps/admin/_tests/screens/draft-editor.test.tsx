@@ -1,164 +1,36 @@
-import type { DraftItem, Question, QuestionVersion, QuestionnaireDraft, QuestionnaireSummary, VersionSummary } from "@qp/shared";
-import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import type { VersionSummary } from "@qp/shared";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { App } from "../../src/app";
-import { createAppRouter } from "../../src/router";
+import { QUESTIONNAIRE_ID, draftResponse, etagAt, jsonResponse, problemResponse } from "../fixtures";
 import {
-  QUESTIONNAIRE_ID,
-  VERSION_ID,
-  draftResponse,
-  etagAt,
-  jsonResponse,
-  problemResponse,
-  stubFetch,
-  testQueryClient,
-  type RecordedRequest,
-} from "../fixtures";
+  DEFINITION,
+  DRAFT_URL,
+  LIST_URL,
+  PUBLISH_URL,
+  aDraftOf,
+  alcohol,
+  isYes,
+  itemList,
+  lastPutItems,
+  notes,
+  optionLabels,
+  perDay,
+  placed,
+  promptsInOrder,
+  puts,
+  renderEditor,
+  rowOf,
+  smoke,
+  standardDraft,
+  started,
+  summary,
+  uuid,
+} from "./draft-editor/harness";
 import { aBankQuestion, aQuestionVersion, axeViolations, fillJsdomLayoutGaps } from "./question-editor/harness";
 
 beforeAll(fillJsdomLayoutGaps);
 afterEach(() => vi.restoreAllMocks());
-
-const DEFINITION = "/api/definition";
-const DRAFT_URL = `${DEFINITION}/questionnaires/${QUESTIONNAIRE_ID}/draft`;
-const VALIDATE_URL = `${DRAFT_URL}/validate`;
-const PUBLISH_URL = `${DEFINITION}/questionnaires/${QUESTIONNAIRE_ID}/publish`;
-const LIST_URL = `${DEFINITION}/questionnaires`;
-const BANK_URL = `${DEFINITION}/questions?includeArchived=true`;
-const ACTIVE_BANK_URL = `${DEFINITION}/questions?includeArchived=false`;
-
-const uuid = (n: number) => `01a0950e-56a0-73d6-b936-4a1e10eff${String(n).padStart(3, "0")}`;
-
-const smoke = aQuestionVersion({
-  type: "single_choice",
-  questionId: uuid(101),
-  questionVersion: 1,
-  prompt: "Do you smoke?",
-  options: [
-    { optionId: "yes", label: "Yes" },
-    { optionId: "no", label: "No" },
-  ],
-});
-const perDay = aQuestionVersion({
-  type: "number",
-  questionId: uuid(102),
-  questionVersion: 2,
-  prompt: "How many a day?",
-  unit: "cigarettes",
-});
-const started = aQuestionVersion({ type: "date", questionId: uuid(103), questionVersion: 1, prompt: "When did you start?" });
-const notes = aQuestionVersion({ type: "text", questionId: uuid(104), questionVersion: 1, prompt: "Anything else?" });
-const alcohol = aQuestionVersion({ type: "number", questionId: uuid(105), questionVersion: 4, prompt: "Units of alcohol a week?" });
-
-const isYes = { type: "single_choice", itemId: "itm_smoke", op: "is", optionId: "yes" } as const;
-
-function placed(itemId: string, question: QuestionVersion, visibleWhen: DraftItem["visibleWhen"] = null): DraftItem {
-  return { itemId, required: true, visibleWhen, questionId: question.questionId, questionVersion: question.questionVersion };
-}
-
-const pool = [smoke, perDay, started, notes, alcohol];
-
-function aDraftOf(items: DraftItem[]): QuestionnaireDraft {
-  return {
-    questionnaireId: QUESTIONNAIRE_ID,
-    versionId: VERSION_ID,
-    title: "Smoking history",
-    updatedAt: "2026-09-14T09:00:00.000Z",
-    items,
-    questions: pool.filter((question) =>
-      items.some((item) => item.questionId === question.questionId && item.questionVersion === question.questionVersion),
-    ),
-  };
-}
-
-const standardDraft = aDraftOf([
-  placed("itm_smoke", smoke),
-  placed("itm_per_day", perDay, { all: [isYes] }),
-  placed("itm_started", started),
-  placed("itm_notes", notes),
-]);
-
-const summary: QuestionnaireSummary = {
-  questionnaireId: QUESTIONNAIRE_ID,
-  key: null,
-  name: "Smoking history",
-  currentVersion: 2,
-  closesAt: null,
-  hasDraft: true,
-  createdAt: "2026-09-01T09:00:00.000Z",
-  updatedAt: "2026-09-14T09:00:00.000Z",
-};
-
-type Handler = (request: RecordedRequest) => Response | Promise<Response>;
-
-interface Setup {
-  draft?: QuestionnaireDraft;
-  bank?: Question[];
-  validation?: { valid: boolean; items: { itemId: string; code: string }[] };
-  overrides?: Record<string, Handler>;
-}
-
-function echoSaved(revision: { current: number }): Handler {
-  return ({ body }) => {
-    revision.current += 1;
-    const items: DraftItem[] = body !== null && typeof body === "object" && "items" in body && Array.isArray(body.items) ? body.items : [];
-    return draftResponse(aDraftOf(items), revision.current);
-  };
-}
-
-function renderEditor({ draft = standardDraft, bank = pool.map(aBankQuestion), validation = { valid: true, items: [] }, overrides = {} }: Setup = {}) {
-  const revision = { current: 1 };
-  const routes: Record<string, Handler> = {
-    [`GET ${DRAFT_URL}`]: () => draftResponse(draft, revision.current),
-    [`PUT ${DRAFT_URL}`]: echoSaved(revision),
-    [`POST ${VALIDATE_URL}`]: () => jsonResponse(200, validation),
-    [`GET ${LIST_URL}`]: () => jsonResponse(200, [summary]),
-    [`GET ${BANK_URL}`]: () => jsonResponse(200, bank),
-    [`GET ${ACTIVE_BANK_URL}`]: () => jsonResponse(200, bank.filter((question) => question.archivedAt === null)),
-    ...overrides,
-  };
-  const requests = stubFetch((request) => {
-    const respond = routes[`${request.method} ${request.url}`];
-    return respond ? respond(request) : problemResponse("resource/not-found");
-  });
-  const queryClient = testQueryClient();
-  const router = createAppRouter({
-    queryClient,
-    history: createMemoryHistory({ initialEntries: [`/admin/questionnaires/${QUESTIONNAIRE_ID}/draft`] }),
-  });
-  render(<App queryClient={queryClient} router={router} />);
-  return { requests, router };
-}
-
-const itemList = () => screen.findByRole("list", { name: "Questions, in the order respondents see them" });
-
-async function promptsInOrder() {
-  const rows = within(await itemList()).getAllByRole("listitem").filter((row) => row.hasAttribute("data-item-id"));
-  return rows.map((row) => row.querySelector(".font-medium")?.textContent);
-}
-
-function puts(requests: RecordedRequest[]) {
-  return requests.filter(({ method, url }) => method === "PUT" && url === DRAFT_URL);
-}
-
-async function lastPutItems(requests: RecordedRequest[]): Promise<DraftItem[]> {
-  await waitFor(() => expect(puts(requests).length).toBeGreaterThan(0));
-  const body = puts(requests).at(-1)?.body;
-  return body !== null && typeof body === "object" && "items" in body && Array.isArray(body.items) ? body.items : [];
-}
-
-function rowOf(itemId: string): HTMLElement {
-  const row = document.querySelector<HTMLElement>(`li[data-item-id="${itemId}"]`);
-  if (row === null) throw new Error(`no row for ${itemId}`);
-  return row;
-}
-
-function optionLabels(select: HTMLElement) {
-  if (!(select instanceof HTMLSelectElement)) throw new Error("not a select");
-  return Array.from(select.options).map((option) => option.textContent);
-}
 
 describe("the draft editor", () => {
   it("shows a loading status, then the items in order with prompt, type, pinned version and visibility", async () => {
@@ -405,23 +277,59 @@ describe("the draft editor", () => {
     expect(requests.some(({ method, url }) => method === "GET" && url === `${DEFINITION}/questions/${notes.questionId}`)).toBe(false);
   });
 
-  it("marks a pin the bank has moved past as Newer version available, beside the archived marker, and re-pins on request", async () => {
+  it("marks a pin the bank has moved past as Newer version available and re-pins on request, but says nothing about an archived question", async () => {
     const newer = { ...started, questionVersion: 3, prompt: "When did you first start?" };
+    const newerNotes = { ...notes, questionVersion: 2 };
     const { requests } = renderEditor({
-      bank: [aBankQuestion(smoke), aBankQuestion(perDay), { ...aBankQuestion(newer), archivedAt: "2026-09-14T11:00:00.000Z" }, aBankQuestion(notes)],
+      bank: [
+        aBankQuestion(smoke),
+        { ...aBankQuestion(perDay), archivedAt: "2026-09-14T11:00:00.000Z" },
+        aBankQuestion(newer),
+        { ...aBankQuestion(newerNotes), archivedAt: "2026-09-14T11:00:00.000Z" },
+      ],
     });
     await itemList();
 
     const row = within(rowOf("itm_started"));
     const badge = await row.findByText("Newer version available");
-    const statusGroup = badge.parentElement;
-    expect(statusGroup).toHaveClass("justify-end");
-    expect(within(statusGroup ?? rowOf("itm_started")).getByText("Archived in bank")).toBeInTheDocument();
+    expect(badge.parentElement).toHaveClass("justify-end");
     expect(within(rowOf("itm_smoke")).queryByText("Newer version available")).not.toBeInTheDocument();
-    expect(within(rowOf("itm_smoke")).queryByText("Archived in bank")).not.toBeInTheDocument();
+    expect(within(rowOf("itm_notes")).queryByText("Newer version available")).not.toBeInTheDocument();
+    expect(screen.queryByText(/archived/i)).not.toBeInTheDocument();
     await userEvent.click(row.getByRole("button", { name: "Re-pin question 3 to version 3" }));
 
     expect((await lastPutItems(requests))[2]).toEqual({ ...placed("itm_started", started), questionVersion: 3 });
+  });
+
+  it("asks before removing an archived question, with an info note on hover and focus that it cannot be added back", async () => {
+    const { requests } = renderEditor({
+      bank: [aBankQuestion(smoke), aBankQuestion(perDay), aBankQuestion(started), { ...aBankQuestion(notes), archivedAt: "2026-09-14T11:00:00.000Z" }],
+    });
+    await itemList();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit question 4" })).toBeEnabled());
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove question 4" }));
+    const confirmation = within(rowOf("itm_notes")).getByRole("alert");
+    expect(confirmation).toHaveTextContent("Remove this question from the draft?");
+    expect(puts(requests)).toHaveLength(0);
+
+    const info = within(confirmation).getByRole("button", { name: "About removing an archived question" });
+    expect(info).toHaveAccessibleDescription(
+      "This question is archived in the question bank, so it cannot be added back once removed. Writing it again makes a new question, and its answers are not tracked together with this one's.",
+    );
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await userEvent.hover(info);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("cannot be added back once removed");
+    await userEvent.unhover(info);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    act(() => info.focus());
+    expect(screen.getByRole("tooltip")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(await axeViolations()).toEqual([]);
+
+    await userEvent.click(within(confirmation).getByRole("button", { name: "Remove question" }));
+    expect((await lastPutItems(requests)).map(({ itemId }) => itemId)).toEqual(["itm_smoke", "itm_per_day", "itm_started"]);
   });
 
   it("on 409 draft-stale says someone else changed the draft and shows the reloaded draft", async () => {
@@ -449,11 +357,16 @@ describe("the draft editor", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("on 422 draft-invalid says the draft cannot be saved, lists the refused items, rolls back and never blames another author", async () => {
+  it("on 422 draft-invalid says the change was not saved, names the refused items by catalogue title, rolls back and never blames another author", async () => {
     const { requests } = renderEditor({
       overrides: {
         [`PUT ${DRAFT_URL}`]: () =>
-          problemResponse("questionnaire/draft-invalid", { items: [{ itemId: "itm_notes", code: "draft/question-archived" }] }),
+          problemResponse("questionnaire/draft-invalid", {
+            items: [
+              { itemId: "itm_notes", code: "draft/question-archived" },
+              { itemId: "itm_added", code: "draft/question-archived" },
+            ],
+          }),
       },
     });
     await itemList();
@@ -461,28 +374,19 @@ describe("the draft editor", () => {
     await userEvent.click(within(rowOf("itm_smoke")).getByRole("checkbox", { name: "Required" }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("This draft cannot be saved right now");
-    expect(alert).toHaveTextContent("Question 4 · draft/question-archived");
+    expect(alert).toHaveTextContent("Your last change was not saved");
+    expect(alert).toHaveAttribute("data-problem", "questionnaire/draft-invalid");
+    expect(within(alert).getAllByRole("listitem").map((row) => row.textContent)).toEqual([
+      "Question 4 · Archived in the question bank",
+      "The question being added · Archived in the question bank",
+    ]);
+    expect(alert).not.toHaveTextContent(/draft\/|questionnaire\/|422/);
+    expect(within(alert).queryByRole("button", { name: "Show problems" })).not.toBeInTheDocument();
     expect(alert).toHaveTextContent("not another author's edit");
     expect(alert).not.toHaveTextContent(/someone else/i);
     expect(await promptsInOrder()).toEqual(["Do you smoke?", "How many a day?", "When did you start?", "Anything else?"]);
     expect(within(rowOf("itm_smoke")).getByRole("checkbox", { name: "Required" })).toBeChecked();
     expect(requests.filter(({ method, url }) => method === "GET" && url === DRAFT_URL)).toHaveLength(1);
-  });
-
-  it("lists publish-check problems as jump links, blocks Publish while they stand, and focuses the item a link names", async () => {
-    renderEditor({ validation: { valid: false, items: [{ itemId: "itm_per_day", code: "predicate/unsatisfiable" }] } });
-    await itemList();
-
-    const panel = screen.getByRole("region", { name: "Publish checks" });
-    await within(panel).findByText("1 problem");
-    expect(within(panel).getByText("predicate/unsatisfiable")).toBeInTheDocument();
-    const publish = screen.getByRole("button", { name: "Publish" });
-    expect(publish).toBeDisabled();
-    expect(publish).toHaveAccessibleDescription("Publishing is blocked until the publish checks pass.");
-
-    await userEvent.click(within(panel).getByRole("button", { name: "Question 2" }));
-    expect(rowOf("itm_per_day")).toHaveFocus();
   });
 
   it("publishes with the draft's ETag and opens version history", async () => {

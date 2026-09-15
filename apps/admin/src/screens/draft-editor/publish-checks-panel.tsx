@@ -135,7 +135,7 @@ function Group({
   const position = index + 1;
   return (
     <li
-      data-item-id={group.itemId}
+      data-problem-item={group.itemId}
       data-active={active || undefined}
       className="flex flex-col gap-2 border-b border-border px-3.5 py-3 last:border-b-0 data-active:bg-muted @min-[40rem]:odd:border-r @min-[40rem]:nth-last-2:odd:border-b-0"
     >

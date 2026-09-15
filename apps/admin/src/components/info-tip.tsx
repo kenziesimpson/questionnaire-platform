@@ -11,11 +11,11 @@ export function InfoTip({ label, children }: { label: string; children: string }
   return (
     <span
       className="relative inline-flex align-middle"
-      onPointerEnter={() => {
+      onMouseEnter={() => {
         setHovered(true);
         setDismissed(false);
       }}
-      onPointerLeave={() => setHovered(false)}
+      onMouseLeave={() => setHovered(false)}
     >
       <button
         type="button"
