@@ -65,10 +65,14 @@ export function fullTimestamp(iso: string): string {
 
 const twoDigits = (value: number) => String(value).padStart(2, "0");
 
+export function toLocalDateInput(instant: number): string {
+  const at = new Date(instant);
+  return `${at.getFullYear()}-${twoDigits(at.getMonth() + 1)}-${twoDigits(at.getDate())}`;
+}
+
 export function toLocalDateTimeInput(instant: number): string {
   const at = new Date(instant);
-  const date = `${at.getFullYear()}-${twoDigits(at.getMonth() + 1)}-${twoDigits(at.getDate())}`;
-  return `${date}T${twoDigits(at.getHours())}:${twoDigits(at.getMinutes())}`;
+  return `${toLocalDateInput(instant)}T${twoDigits(at.getHours())}:${twoDigits(at.getMinutes())}`;
 }
 
 export function fromLocalDateTimeInput(value: string): string | null {

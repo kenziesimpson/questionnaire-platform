@@ -1,79 +1,30 @@
-import type { DraftItem, QuestionVersion, QuestionnaireDraft, QuestionnaireSummary } from "@qp/shared";
+import type { QuestionnaireDraft, QuestionnaireSummary } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, getRouteApi, useNavigate } from "@tanstack/react-router";
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState } from "react";
 import { isProblem } from "../api/problem-error";
 import { questionQueries, questionnaireQueries } from "../api/queries";
 import { useDraftMutation, type DraftChange } from "../api/use-draft-mutation";
 import { useOpenDraft } from "../api/use-open-draft";
+import { BackToQuestionnaires } from "../components/back-to-questionnaires";
+import { questionCount } from "../components/counts";
+import { PlusIcon } from "../components/icons";
+import { Notice } from "../components/notice";
 import { AddFromBankDialog } from "./draft-editor/add-from-bank-dialog";
 import { addItem, repinItem } from "./draft-editor/draft-changes";
 import { DraftItems, itemDomId } from "./draft-editor/draft-items";
 import { DraftRejectionNotice, type DraftWrite } from "./draft-editor/draft-rejection-notice";
-import { ArrowLeftIcon } from "./draft-editor/icons";
 import { PublishChecksPanel, type PublishChecks } from "./draft-editor/publish-checks-panel";
-import { PlusIcon } from "./question-editor/icons";
 import { QuestionEditorDialog } from "./question-editor/question-editor-dialog";
+import { useQuestionEditor } from "./question-editor/use-question-editor";
 
 const route = getRouteApi("/questionnaires/$questionnaireId/draft");
-
-function BackToQuestionnaires() {
-  return (
-    <Button asChild variant="ghost" size="icon-sm">
-      <Link to="/questionnaires" aria-label="Back to questionnaires" title="Back to questionnaires">
-        <ArrowLeftIcon />
-      </Link>
-    </Button>
-  );
-}
 
 function publishFacts(summary: QuestionnaireSummary | undefined) {
   if (summary === undefined) return null;
   if (summary.currentVersion === null) return "never published · publishing creates version 1";
   return `published v${summary.currentVersion} · publishing creates v${summary.currentVersion + 1}`;
-}
-
-function Notice({ children, alert = false }: { children: ReactNode; alert?: boolean }) {
-  return (
-    <div
-      role={alert ? "alert" : undefined}
-      className="flex flex-col items-start gap-3 rounded-xl border border-border px-4 py-6 text-sm"
-    >
-      {children}
-    </div>
-  );
-}
-
-function questionCount(count: number) {
-  return count === 1 ? "1 question" : `${count} questions`;
-}
-
-interface EditTarget {
-  itemId: string;
-  question: QuestionVersion;
-}
-
-function useEditInContext() {
-  const queryClient = useQueryClient();
-  const [target, setTarget] = useState<EditTarget | null>(null);
-  const [loadingItemId, setLoadingItemId] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  const start = async (item: DraftItem) => {
-    setFailed(false);
-    setLoadingItemId(item.itemId);
-    try {
-      const question = await queryClient.fetchQuery({ ...questionQueries.one(item.questionId), staleTime: 0 });
-      setTarget({ itemId: item.itemId, question: question.latest });
-    } catch {
-      setFailed(true);
-    } finally {
-      setLoadingItemId(null);
-    }
-  };
-
-  return { target, loadingItemId, failed, start, close: () => setTarget(null), dismissFailure: () => setFailed(false) };
 }
 
 function DraftEditor({
@@ -90,10 +41,9 @@ function DraftEditor({
   const mutation = useDraftMutation(questionnaireId);
   const validation = useQuery(questionnaireQueries.draftValidation(questionnaireId));
   const bank = useQuery(questionQueries.list(true));
-  const edit = useEditInContext();
+  const editor = useQuestionEditor();
   const [lastWrite, setLastWrite] = useState<DraftWrite>("change");
   const [adding, setAdding] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const publishHintId = useId();
   const bankById = new Map((bank.data ?? []).map((question) => [question.questionId, question]));
@@ -185,36 +135,23 @@ function DraftEditor({
             <h2 id="draft-items-heading" className="text-[13px] font-semibold">
               {questionCount(draft.items.length)}
             </h2>
-            <span className="text-xs text-muted-foreground">Drag or use the arrows to reorder · this is the order respondents see</span>
           </div>
-          {edit.failed && (
-            <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
-              <span>The question could not be loaded for editing. Try again.</span>
-              <Button type="button" variant="outline" size="sm" onClick={edit.dismissFailure}>
-                Dismiss
-              </Button>
-            </div>
-          )}
           {draft.items.length === 0 ? (
             <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-              No questions yet. Add one from the bank, or write a new one.
+              No questions yet. Add one from the bank, or write a new one from the same dialog.
             </p>
           ) : (
             <DraftItems
               draft={draft}
               bank={bankById}
               onChange={change}
-              onEdit={(item) => void edit.start(item)}
-              editingItemId={edit.loadingItemId}
+              onEdit={(item, latest) => editor.edit(latest, (saved) => change(repinItem(item.itemId, saved)))}
             />
           )}
           <div className="flex items-center gap-2">
             <Button type="button" variant="outline" onClick={() => setAdding(true)}>
               <PlusIcon />
-              Add from bank
-            </Button>
-            <Button type="button" variant="outline" onClick={() => setCreating(true)}>
-              New question
+              Add question
             </Button>
           </div>
         </section>
@@ -232,18 +169,7 @@ function DraftEditor({
           setAdding(false);
         }}
       />
-      <QuestionEditorDialog open={creating} onOpenChange={setCreating} onSaved={(saved) => change(addItem(saved))} />
-      <QuestionEditorDialog
-        key={edit.target?.itemId}
-        open={edit.target !== null}
-        onOpenChange={(open) => {
-          if (!open) edit.close();
-        }}
-        question={edit.target?.question}
-        onSaved={(saved) => {
-          if (edit.target !== null) change(repinItem(edit.target.itemId, saved));
-        }}
-      />
+      <QuestionEditorDialog {...editor.dialogProps} />
     </>
   );
 }

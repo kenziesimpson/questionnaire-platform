@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { ChevronDownIcon } from "./icons";
+import { ChevronDownIcon } from "../../components/icons";
 
 export function NativeSelect({ className = "", children, ...select }: ComponentProps<"select">) {
   return (

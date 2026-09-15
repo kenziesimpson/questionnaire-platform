@@ -1,4 +1,5 @@
 import type { Condition, DraftItem, Predicate, QuestionVersion, QuestionnaireDraft } from "@qp/shared";
+import type { DraftChange } from "../../api/use-draft-mutation";
 
 const GENERATED_PREFIX = "itm_";
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -42,7 +43,7 @@ export function isPlaced(draft: QuestionnaireDraft, questionId: string): boolean
   return draft.items.some((item) => item.questionId === questionId);
 }
 
-export function addItem(question: QuestionVersion, suffix?: () => string) {
+export function addItem(question: QuestionVersion, suffix?: () => string): DraftChange {
   return (draft: QuestionnaireDraft): QuestionnaireDraft => {
     const itemId = generateItemId(new Set(draft.items.map((item) => item.itemId)), suffix);
     const item: DraftItem = {
@@ -56,7 +57,7 @@ export function addItem(question: QuestionVersion, suffix?: () => string) {
   };
 }
 
-export function moveItem(itemId: string, toIndex: number) {
+export function moveItem(itemId: string, toIndex: number): DraftChange {
   return (draft: QuestionnaireDraft): QuestionnaireDraft => {
     const from = draft.items.findIndex((item) => item.itemId === itemId);
     const moving = draft.items[from];
@@ -77,7 +78,7 @@ export function dependantsOf(draft: QuestionnaireDraft, itemId: string): DraftIt
   return draft.items.filter((item) => conditionsOf(item.visibleWhen).some((condition) => condition.itemId === itemId));
 }
 
-export function removeItem(itemId: string) {
+export function removeItem(itemId: string): DraftChange {
   return (draft: QuestionnaireDraft): QuestionnaireDraft => ({
     ...draft,
     items: draft.items
@@ -86,7 +87,7 @@ export function removeItem(itemId: string) {
   });
 }
 
-export function repinItem(itemId: string, question: QuestionVersion) {
+export function repinItem(itemId: string, question: QuestionVersion): DraftChange {
   return (draft: QuestionnaireDraft): QuestionnaireDraft => ({
     ...updateItem(draft, itemId, (item) =>
       item.questionId === question.questionId ? { ...item, questionVersion: question.questionVersion } : item,
@@ -95,11 +96,11 @@ export function repinItem(itemId: string, question: QuestionVersion) {
   });
 }
 
-export function setRequired(itemId: string, required: boolean) {
+export function setRequired(itemId: string, required: boolean): DraftChange {
   return (draft: QuestionnaireDraft): QuestionnaireDraft => updateItem(draft, itemId, (item) => ({ ...item, required }));
 }
 
-export function setVisibleWhen(itemId: string, visibleWhen: Predicate | null) {
+export function setVisibleWhen(itemId: string, visibleWhen: Predicate | null): DraftChange {
   return (draft: QuestionnaireDraft): QuestionnaireDraft =>
     updateItem(draft, itemId, (item) => ({ ...item, visibleWhen }));
 }

@@ -11,13 +11,14 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { DraftItem, Question, QuestionnaireDraft } from "@qp/shared";
+import type { DraftItem, Question, QuestionVersion, QuestionnaireDraft } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState } from "react";
 import type { DraftChange } from "../../api/use-draft-mutation";
+import { GripIcon, RemoveIcon, RulesIcon } from "../../components/icons";
+import { Pill } from "../../components/pill";
 import { isArchived } from "../question-bank/bank-display";
-import { GripIcon, RemoveIcon } from "../question-editor/icons";
 import { RESPONSE_TYPE_LABELS } from "../question-editor/question-form";
 import { laterReferencesIn } from "./conditions";
 import {
@@ -30,7 +31,6 @@ import {
   setRequired,
   setVisibleWhen,
 } from "./draft-changes";
-import { ArrowDownIcon, ArrowUpIcon, RulesIcon } from "./icons";
 import { PredicateEditor } from "./predicate-editor";
 
 export function itemDomId(itemId: string) {
@@ -41,8 +41,7 @@ interface DraftItemsProps {
   draft: QuestionnaireDraft;
   bank: ReadonlyMap<string, Question>;
   onChange: (apply: DraftChange) => void;
-  onEdit: (item: DraftItem) => void;
-  editingItemId: string | null;
+  onEdit: (item: DraftItem, latest: QuestionVersion) => void;
 }
 
 function promptOf(draft: QuestionnaireDraft, item: DraftItem) {
@@ -60,16 +59,6 @@ function listOfPositions(positions: readonly number[]) {
   const unique = [...new Set(positions)];
   if (unique.length === 1) return `question ${unique[0]}`;
   return `questions ${unique.slice(0, -1).join(", ")} and ${unique.at(-1)}`;
-}
-
-function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "destructive" }) {
-  return (
-    <span
-      className={`inline-flex h-5 shrink-0 items-center rounded-full border px-2 text-[11px] font-medium whitespace-nowrap ${tone === "destructive" ? "border-destructive/40 text-destructive" : "border-border text-muted-foreground"}`}
-    >
-      {children}
-    </span>
-  );
 }
 
 class DragProgress {
@@ -106,15 +95,13 @@ function announcementsFor(draft: QuestionnaireDraft, progress: DragProgress): An
 
 const SCREEN_READER_INSTRUCTIONS = {
   draggable:
-    "To reorder, press Space or Enter to pick up the question, use the up and down arrow keys to move it, then press Space or Enter again to drop it, or Escape to cancel. The Move up and Move down buttons do the same one step at a time.",
+    "To reorder, press Space or Enter to pick up the question, use the up and down arrow keys to move it, then press Space or Enter again to drop it, or Escape to cancel.",
 };
 
-export function DraftItems({ draft, bank, onChange, onEdit, editingItemId }: DraftItemsProps) {
+export function DraftItems({ draft, bank, onChange, onEdit }: DraftItemsProps) {
   const [dragProgress] = useState(() => new DragProgress());
   const [liveRegionContainer, setLiveRegionContainer] = useState<HTMLDivElement | null>(null);
-  const [moveAnnouncement, setMoveAnnouncement] = useState("");
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
-  const total = draft.items.length;
 
   const drop = ({ active, over }: DragEndEvent) => {
     if (over === null || active.id === over.id) return;
@@ -122,19 +109,9 @@ export function DraftItems({ draft, bank, onChange, onEdit, editingItemId }: Dra
     onChange(moveItem(String(active.id), to));
   };
 
-  const moveBy = (item: DraftItem, from: number, step: number) => {
-    const to = from + step;
-    if (to < 0 || to >= total) return;
-    onChange(moveItem(item.itemId, to));
-    setMoveAnnouncement(`Moved “${promptOf(draft, item)}” to position ${to + 1} of ${total}.`);
-  };
-
   return (
     <div>
       <div ref={setLiveRegionContainer} />
-      <p aria-live="polite" className="sr-only">
-        {moveAnnouncement}
-      </p>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -152,12 +129,10 @@ export function DraftItems({ draft, bank, onChange, onEdit, editingItemId }: Dra
                 key={item.itemId}
                 draft={draft}
                 item={item}
-                index={index}
-                latest={bank.get(item.questionId)}
-                editing={editingItemId === item.itemId}
+                position={index + 1}
+                bankQuestion={bank.get(item.questionId)}
                 onChange={onChange}
-                onEdit={() => onEdit(item)}
-                onMove={(step) => moveBy(item, index, step)}
+                onEdit={onEdit}
               />
             ))}
           </ol>
@@ -170,15 +145,45 @@ export function DraftItems({ draft, bank, onChange, onEdit, editingItemId }: Dra
 interface ItemRowProps {
   draft: QuestionnaireDraft;
   item: DraftItem;
-  index: number;
-  latest: Question | undefined;
-  editing: boolean;
+  position: number;
+  bankQuestion: Question | undefined;
   onChange: (apply: DraftChange) => void;
-  onEdit: () => void;
-  onMove: (step: number) => void;
+  onEdit: (item: DraftItem, latest: QuestionVersion) => void;
 }
 
-function SortableItemRow({ draft, item, index, latest, editing, onChange, onEdit, onMove }: ItemRowProps) {
+function StatusGroup({
+  item,
+  position,
+  bankQuestion,
+  onChange,
+}: Pick<ItemRowProps, "item" | "position" | "bankQuestion" | "onChange">) {
+  if (bankQuestion === undefined) return null;
+  const { latest } = bankQuestion;
+  const archived = isArchived(bankQuestion);
+  const newer = latest.questionVersion > item.questionVersion;
+  if (!archived && !newer) return null;
+  return (
+    <span className="flex flex-wrap items-center justify-end gap-1.5">
+      {archived && <Pill className="border-destructive/40 text-destructive">Archived in bank</Pill>}
+      {newer && (
+        <>
+          <Pill className="text-muted-foreground">Newer version available</Pill>
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            aria-label={`Re-pin question ${position} to version ${latest.questionVersion}`}
+            onClick={() => onChange(repinItem(item.itemId, latest))}
+          >
+            Use v{latest.questionVersion}
+          </Button>
+        </>
+      )}
+    </span>
+  );
+}
+
+function SortableItemRow({ draft, item, position, bankQuestion, onChange, onEdit }: ItemRowProps) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: item.itemId,
   });
@@ -186,12 +191,8 @@ function SortableItemRow({ draft, item, index, latest, editing, onChange, onEdit
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const rulesId = useId();
   const requiredId = useId();
-  const position = index + 1;
-  const total = draft.items.length;
   const question = pinnedQuestionOf(draft, item);
   const prompt = promptOf(draft, item);
-  const newer = latest !== undefined && latest.latest.questionVersion > item.questionVersion ? latest.latest : undefined;
-  const archived = latest !== undefined && isArchived(latest);
   const later = laterReferencesIn(draft, item);
   const dependants = dependantsOf(draft, item.itemId).map((dependant) => draft.items.indexOf(dependant) + 1);
 
@@ -260,59 +261,28 @@ function SortableItemRow({ draft, item, index, latest, editing, onChange, onEdit
               <RulesIcon />
               Rules
             </Button>
-            {archived && <Badge tone="destructive">Archived in bank</Badge>}
-            {newer !== undefined && (
-              <span className="flex items-center gap-1.5">
-                <Badge>v{newer.questionVersion} in bank</Badge>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  aria-label={`Re-pin question ${position} to version ${newer.questionVersion}`}
-                  onClick={() => onChange(repinItem(item.itemId, newer))}
-                >
-                  Use v{newer.questionVersion}
-                </Button>
-              </span>
-            )}
           </div>
         </div>
-        <span className="flex shrink-0 items-center gap-0.5">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mr-1.5"
-            aria-label={`Edit question ${position}`}
-            disabled={editing}
-            onClick={onEdit}
-          >
-            {editing ? "Opening…" : "Edit"}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Move question ${position} up`}
-            disabled={index === 0}
-            onClick={() => onMove(-1)}
-          >
-            <ArrowUpIcon />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Move question ${position} down`}
-            disabled={index === total - 1}
-            onClick={() => onMove(1)}
-          >
-            <ArrowDownIcon />
-          </Button>
-          <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove question ${position}`} onClick={remove}>
-            <RemoveIcon />
-          </Button>
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <span className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-label={`Edit question ${position}`}
+              disabled={bankQuestion === undefined}
+              onClick={() => {
+                if (bankQuestion !== undefined) onEdit(item, bankQuestion.latest);
+              }}
+            >
+              Edit
+            </Button>
+            <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove question ${position}`} onClick={remove}>
+              <RemoveIcon />
+            </Button>
+          </span>
+          <StatusGroup item={item} position={position} bankQuestion={bankQuestion} onChange={onChange} />
+        </div>
       </div>
       {confirmingRemoval && (
         <div role="alert" className="mx-3.5 mb-3 ml-[4.25rem] flex flex-wrap items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-[13px]">

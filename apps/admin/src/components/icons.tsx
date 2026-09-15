@@ -1,0 +1,113 @@
+import type { ReactNode } from "react";
+
+interface IconProps {
+  size?: number;
+  className?: string;
+}
+
+function Icon({
+  size,
+  strokeWidth = 2,
+  children,
+  className,
+}: {
+  size: number;
+  strokeWidth?: number;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      {children}
+    </svg>
+  );
+}
+
+export function LockIcon({ size = 14, className }: IconProps) {
+  return (
+    <Icon size={size} className={className}>
+      <rect width="16" height="10" x="4" y="11" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </Icon>
+  );
+}
+
+export function RemoveIcon({ size = 13 }: IconProps) {
+  return (
+    <Icon size={size}>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </Icon>
+  );
+}
+
+export function PlusIcon({ size = 13 }: IconProps) {
+  return (
+    <Icon size={size}>
+      <path d="M5 12h14" />
+      <path d="M12 5v14" />
+    </Icon>
+  );
+}
+
+export function ArrowLeftIcon({ size = 18 }: IconProps) {
+  return (
+    <Icon size={size} strokeWidth={1.8}>
+      <path d="m12 19-7-7 7-7" />
+      <path d="M19 12H5" />
+    </Icon>
+  );
+}
+
+export function ChevronDownIcon({ size = 12, className }: IconProps) {
+  return (
+    <Icon size={size} className={className}>
+      <path d="m6 9 6 6 6-6" />
+    </Icon>
+  );
+}
+
+export function AlertCircleIcon({ size = 18, className }: IconProps) {
+  return (
+    <Icon size={size} className={className}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v5" />
+      <path d="M12 16h.01" />
+    </Icon>
+  );
+}
+
+export function RulesIcon({ size = 13 }: IconProps) {
+  return (
+    <Icon size={size}>
+      <path d="M6 3v12" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </Icon>
+  );
+}
+
+export function GripIcon() {
+  return (
+    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="9" cy="6" r="1.6" />
+      <circle cx="15" cy="6" r="1.6" />
+      <circle cx="9" cy="12" r="1.6" />
+      <circle cx="15" cy="12" r="1.6" />
+      <circle cx="9" cy="18" r="1.6" />
+      <circle cx="15" cy="18" r="1.6" />
+    </svg>
+  );
+}

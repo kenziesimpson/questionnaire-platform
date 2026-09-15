@@ -39,12 +39,6 @@ export function operatorsFor(type: ResponseType): readonly Operator[] {
   return OPERATORS[type];
 }
 
-export function localIsoDate(now: Date): string {
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
-}
-
 export function defaultConditionFor(itemId: string, question: QuestionVersion, today: string): Condition {
   switch (question.type) {
     case "text":

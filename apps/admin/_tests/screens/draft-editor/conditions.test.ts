@@ -6,7 +6,6 @@ import {
   defaultConditionFor,
   earlierItemsThan,
   laterReferencesIn,
-  localIsoDate,
   referenceOf,
   withOperator,
 } from "../../../src/screens/draft-editor/conditions";
@@ -105,9 +104,5 @@ describe("predicate conditions", () => {
     if (!first || !second || !third) throw new Error("fixture");
     const reordered = { ...draft, items: [{ ...second, visibleWhen: { all: [isYes] } }, first, third] };
     expect(laterReferencesIn(reordered, reordered.items[0] ?? second)).toEqual([2]);
-  });
-
-  it("formats today's local calendar date", () => {
-    expect(localIsoDate(new Date(2026, 0, 5, 23, 30))).toBe("2026-01-05");
   });
 });

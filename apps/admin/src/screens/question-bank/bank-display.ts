@@ -1,4 +1,5 @@
 import type { Question, QuestionUsage, QuestionnaireSummary } from "@qp/shared";
+import { questionCount } from "../../components/counts";
 
 export interface UsagePlacement {
   version: number;
@@ -20,7 +21,7 @@ export function isArchived(question: Pick<Question, "archivedAt">): boolean {
 }
 
 export function bankCountLabel(questions: readonly Question[]): string {
-  const total = questions.length === 1 ? "1 question" : `${questions.length} questions`;
+  const total = questionCount(questions.length);
   const archived = questions.filter(isArchived).length;
   return archived === 0 ? total : `${total}, ${archived} archived`;
 }

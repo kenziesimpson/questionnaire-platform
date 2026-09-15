@@ -3,19 +3,19 @@ import { Button } from "@qp/ui/primitives/button";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { Input } from "@qp/ui/primitives/input";
 import { useId, useState, type KeyboardEvent } from "react";
-import { PlusIcon, RemoveIcon } from "../question-editor/icons";
+import { PlusIcon, RemoveIcon } from "../../components/icons";
 import { DECIMAL_INPUT_PATTERN } from "../question-editor/question-form";
 import {
   OPERATOR_LABELS,
   defaultConditionFor,
   earlierItemsThan,
-  localIsoDate,
   operatorsFor,
   referenceOf,
   withOperator,
   type Operator,
 } from "./conditions";
 import { conditionsOf } from "./draft-changes";
+import { toLocalDateInput } from "../questionnaire-list/summary-display";
 import { NativeSelect } from "./native-select";
 
 interface PredicateEditorProps {
@@ -37,7 +37,7 @@ function promptLabel(position: number, prompt: string) {
 }
 
 export function PredicateEditor({ draft, item, position, onChange }: PredicateEditorProps) {
-  const [today] = useState(() => localIsoDate(new Date()));
+  const [today] = useState(() => toLocalDateInput(Date.now()));
   const legendId = useId();
   const hintId = useId();
   const conditions = conditionsOf(item.visibleWhen);
@@ -332,7 +332,17 @@ function commitOnEnter(commit: () => void) {
   };
 }
 
-function NumberInput({ label, value, onCommit }: { label: string; value: number; onCommit: (value: number) => void }) {
+function NumberInput({
+  label,
+  value,
+  describedBy,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  describedBy: string | undefined;
+  onCommit: (value: number) => void;
+}) {
   const [text, setText] = useState(String(value));
   const commit = () => {
     const parsed = Number(text);
@@ -345,6 +355,7 @@ function NumberInput({ label, value, onCommit }: { label: string; value: number;
   return (
     <Input
       aria-label={label}
+      aria-describedby={describedBy}
       inputMode="decimal"
       className="w-20"
       value={text}
@@ -357,8 +368,12 @@ function NumberInput({ label, value, onCommit }: { label: string; value: number;
   );
 }
 
-function Unit({ unit }: { unit: string | undefined }) {
-  return unit === undefined ? null : <span className="self-center text-sm text-muted-foreground">{unit}</span>;
+function Unit({ id, unit }: { id: string; unit: string | undefined }) {
+  return unit === undefined ? null : (
+    <span id={id} className="self-center text-sm text-muted-foreground">
+      {unit}
+    </span>
+  );
 }
 
 function NumberOperands({
@@ -372,11 +387,19 @@ function NumberOperands({
   unit: string | undefined;
   onChange: (condition: Condition) => void;
 }) {
+  const unitId = useId();
+  const describedBy = unit === undefined ? undefined : unitId;
   if (condition.op !== "between") {
     return (
       <span className="flex gap-2">
-        <NumberInput key={condition.value} label={label} value={condition.value} onCommit={(value) => onChange({ ...condition, value })} />
-        <Unit unit={unit} />
+        <NumberInput
+          key={condition.value}
+          label={label}
+          value={condition.value}
+          describedBy={describedBy}
+          onCommit={(value) => onChange({ ...condition, value })}
+        />
+        <Unit id={unitId} unit={unit} />
       </span>
     );
   }
@@ -386,6 +409,7 @@ function NumberOperands({
         key={`min-${condition.min}`}
         label={`${label}, lowest`}
         value={condition.min}
+        describedBy={describedBy}
         onCommit={(min) => onChange({ ...condition, min, max: Math.max(min, condition.max) })}
       />
       <span className="self-center text-sm text-muted-foreground">and</span>
@@ -393,9 +417,10 @@ function NumberOperands({
         key={`max-${condition.max}`}
         label={`${label}, highest`}
         value={condition.max}
+        describedBy={describedBy}
         onCommit={(max) => onChange({ ...condition, max, min: Math.min(max, condition.min) })}
       />
-      <Unit unit={unit} />
+      <Unit id={unitId} unit={unit} />
     </span>
   );
 }

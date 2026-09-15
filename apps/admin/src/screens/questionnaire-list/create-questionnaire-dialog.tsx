@@ -17,19 +17,11 @@ import { useNavigate } from "@tanstack/react-router";
 import { useId, useRef, useState, type FormEvent, type Ref } from "react";
 import { callDefinition } from "../../api/client";
 import { queryKeys } from "../../api/query-keys";
+import { PlusIcon } from "../../components/icons";
 
 interface NewQuestionnaire {
   name: string;
   title: string;
-}
-
-function PlusIcon() {
-  return (
-    <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M5 12h14" />
-      <path d="M12 5v14" />
-    </svg>
-  );
 }
 
 function RequiredField({
@@ -114,7 +106,7 @@ export function CreateQuestionnaireDialog() {
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogTrigger asChild>
         <Button>
-          <PlusIcon />
+          <PlusIcon size={15} />
           New questionnaire
         </Button>
       </DialogTrigger>

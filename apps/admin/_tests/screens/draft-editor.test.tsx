@@ -176,8 +176,8 @@ describe("the draft editor", () => {
     const { requests } = renderEditor();
     await itemList();
 
-    await userEvent.click(screen.getByRole("button", { name: "Add from bank" }));
-    const dialog = await screen.findByRole("dialog", { name: "Add from the question bank" });
+    await userEvent.click(screen.getByRole("button", { name: "Add question" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add a question" });
     const bankList = await within(dialog).findByRole("list", { name: "Active questions in the bank" });
     expect(within(bankList).getAllByText("In this draft")).toHaveLength(4);
     await userEvent.click(within(dialog).getByRole("button", { name: "Add “Units of alcohol a week?”, version 4" }));
@@ -196,7 +196,45 @@ describe("the draft editor", () => {
     expect(await promptsInOrder()).toContain("Units of alcohol a week?");
   });
 
-  it("reorders with the Move buttons, announcing the move, and with dnd-kit's keyboard sensor", async () => {
+  it("creates a question from inside the picker, adds it pinned to the version just written, and closes the picker", async () => {
+    const created = aQuestionVersion({ type: "text", questionId: uuid(106), questionVersion: 1, prompt: "Any allergies?" });
+    const { requests } = renderEditor({
+      overrides: { [`POST ${DEFINITION}/questions`]: () => jsonResponse(201, aBankQuestion(created)) },
+    });
+    await itemList();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add question" }));
+    const picker = await screen.findByRole("dialog", { name: "Add a question" });
+    await within(picker).findByRole("list", { name: "Active questions in the bank" });
+    await userEvent.click(within(picker).getByRole("button", { name: "New question" }));
+    const editor = await screen.findByRole("dialog", { name: "New question" });
+    await userEvent.type(within(editor).getByRole("textbox", { name: "Prompt" }), "Any allergies?");
+    await userEvent.click(within(editor).getByRole("button", { name: "Save as version 1" }));
+
+    expect((await lastPutItems(requests)).at(-1)).toEqual({
+      itemId: expect.stringMatching(/^itm_[a-z0-9]{8}$/),
+      required: true,
+      visibleWhen: null,
+      questionId: created.questionId,
+      questionVersion: 1,
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await promptsInOrder()).toHaveLength(5);
+    expect(requests.filter(({ method, url }) => method === "POST" && url === `${DEFINITION}/questions`)).toHaveLength(1);
+  });
+
+  it("offers New question in the picker's empty state", async () => {
+    renderEditor({ bank: [] });
+    await itemList();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add question" }));
+    const picker = await screen.findByRole("dialog", { name: "Add a question" });
+    expect(await within(picker).findByText("The bank has no active questions yet")).toBeInTheDocument();
+    await userEvent.click(within(picker).getByRole("button", { name: "New question" }));
+    expect(await screen.findByRole("dialog", { name: "New question" })).toBeInTheDocument();
+  });
+
+  it("reorders from the keyboard through the drag handle: labelled, described, announced, and cancellable", async () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const row = this.closest("li[data-item-id]");
       const index = row === null || row.parentElement === null ? 0 : Array.from(row.parentElement.children).indexOf(row);
@@ -205,21 +243,29 @@ describe("the draft editor", () => {
     const { requests } = renderEditor();
     await itemList();
 
-    await userEvent.click(screen.getByRole("button", { name: "Move question 3 down" }));
-    expect(await promptsInOrder()).toEqual(["Do you smoke?", "How many a day?", "Anything else?", "When did you start?"]);
-    expect(screen.getByText("Moved “When did you start?” to position 4 of 4.")).toBeInTheDocument();
-    expect((await lastPutItems(requests)).map(({ itemId }) => itemId)).toEqual(["itm_smoke", "itm_per_day", "itm_notes", "itm_started"]);
-    expect(screen.getByRole("button", { name: "Move question 4 down" })).toBeDisabled();
-    await waitFor(() => expect(screen.getByText("All changes saved")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /^Move question/ })).not.toBeInTheDocument();
+    const handle = screen.getByRole("button", { name: "Drag to reorder question 1" });
+    expect(handle).toHaveAttribute("aria-roledescription", "sortable");
+    expect(handle).toHaveAccessibleDescription(/press Space or Enter to pick up the question/);
+
+    handle.focus();
+    await userEvent.keyboard(" ");
+    await waitFor(() => expect(screen.getByText(/Picked up question “Do you smoke\?”. It is in position 1 of 4./)).toBeInTheDocument());
+    await userEvent.keyboard("{ArrowDown}");
+    await waitFor(() => expect(screen.getByText(/moved to position 2 of 4/)).toBeInTheDocument());
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.getByText(/Reordering cancelled/)).toBeInTheDocument());
+    expect(puts(requests)).toHaveLength(0);
 
     screen.getByRole("button", { name: "Drag to reorder question 1" }).focus();
     await userEvent.keyboard(" ");
-    await waitFor(() => expect(screen.getByText(/Picked up question “Do you smoke\?”/)).toBeInTheDocument());
+    await userEvent.keyboard("{ArrowDown}");
     await userEvent.keyboard("{ArrowDown}");
     await userEvent.keyboard(" ");
 
-    await waitFor(() => expect(puts(requests)).toHaveLength(2));
-    expect((await lastPutItems(requests)).map(({ itemId }) => itemId)).toEqual(["itm_per_day", "itm_smoke", "itm_notes", "itm_started"]);
+    await waitFor(() => expect(screen.getByText(/was dropped in position 3 of 4/)).toBeInTheDocument());
+    expect((await lastPutItems(requests)).map(({ itemId }) => itemId)).toEqual(["itm_per_day", "itm_started", "itm_smoke", "itm_notes"]);
+    expect(await promptsInOrder()).toEqual(["How many a day?", "When did you start?", "Do you smoke?", "Anything else?"]);
   });
 
   it("asks before removing a question other conditions use, then removes it with those conditions", async () => {
@@ -335,17 +381,18 @@ describe("the draft editor", () => {
     expect(within(picker).getAllByRole("option")).toHaveLength(1);
   });
 
-  it("edits a placed question from its latest version and re-pins the item to the version the save wrote", async () => {
+  it("edits a placed question from the bank's latest version and re-pins the item to the version the save wrote", async () => {
     const latest = { ...notes, questionVersion: 3, prompt: "Anything else to add?" };
     const saved = { ...latest, questionVersion: 4, prompt: "Anything else to add today?" };
     const { requests } = renderEditor({
+      bank: [aBankQuestion(smoke), aBankQuestion(perDay), aBankQuestion(started), aBankQuestion(latest)],
       overrides: {
-        [`GET ${DEFINITION}/questions/${notes.questionId}`]: () => jsonResponse(200, aBankQuestion(latest)),
         [`POST ${DEFINITION}/questions/${notes.questionId}/versions`]: () => jsonResponse(201, saved),
       },
     });
     await itemList();
 
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit question 4" })).toBeEnabled());
     await userEvent.click(screen.getByRole("button", { name: "Edit question 4" }));
     const dialog = await screen.findByRole("dialog", { name: "Edit question" });
     expect(within(dialog).getByText("version 3")).toBeInTheDocument();
@@ -355,16 +402,23 @@ describe("the draft editor", () => {
     const items = await lastPutItems(requests);
     expect(items[3]).toEqual({ ...placed("itm_notes", notes), questionVersion: 4 });
     expect(items.slice(0, 3).map(({ questionVersion }) => questionVersion)).toEqual([1, 2, 1]);
+    expect(requests.some(({ method, url }) => method === "GET" && url === `${DEFINITION}/questions/${notes.questionId}`)).toBe(false);
   });
 
-  it("marks a pin the bank has moved past, and re-pins to that version on request", async () => {
+  it("marks a pin the bank has moved past as Newer version available, beside the archived marker, and re-pins on request", async () => {
     const newer = { ...started, questionVersion: 3, prompt: "When did you first start?" };
-    const { requests } = renderEditor({ bank: [aBankQuestion(smoke), aBankQuestion(perDay), aBankQuestion(newer), aBankQuestion(notes)] });
+    const { requests } = renderEditor({
+      bank: [aBankQuestion(smoke), aBankQuestion(perDay), { ...aBankQuestion(newer), archivedAt: "2026-09-14T11:00:00.000Z" }, aBankQuestion(notes)],
+    });
     await itemList();
 
     const row = within(rowOf("itm_started"));
-    expect(await row.findByText("v3 in bank")).toBeInTheDocument();
-    expect(within(rowOf("itm_smoke")).queryByText(/in bank/)).not.toBeInTheDocument();
+    const badge = await row.findByText("Newer version available");
+    const statusGroup = badge.parentElement;
+    expect(statusGroup).toHaveClass("justify-end");
+    expect(within(statusGroup ?? rowOf("itm_started")).getByText("Archived in bank")).toBeInTheDocument();
+    expect(within(rowOf("itm_smoke")).queryByText("Newer version available")).not.toBeInTheDocument();
+    expect(within(rowOf("itm_smoke")).queryByText("Archived in bank")).not.toBeInTheDocument();
     await userEvent.click(row.getByRole("button", { name: "Re-pin question 3 to version 3" }));
 
     expect((await lastPutItems(requests))[2]).toEqual({ ...placed("itm_started", started), questionVersion: 3 });
@@ -384,7 +438,7 @@ describe("the draft editor", () => {
     });
     await itemList();
 
-    await userEvent.click(screen.getByRole("button", { name: "Move question 1 down" }));
+    await userEvent.click(within(rowOf("itm_smoke")).getByRole("checkbox", { name: "Required" }));
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Someone else changed this draft");
@@ -404,7 +458,7 @@ describe("the draft editor", () => {
     });
     await itemList();
 
-    await userEvent.click(screen.getByRole("button", { name: "Move question 1 down" }));
+    await userEvent.click(within(rowOf("itm_smoke")).getByRole("checkbox", { name: "Required" }));
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("This draft cannot be saved right now");
@@ -412,6 +466,7 @@ describe("the draft editor", () => {
     expect(alert).toHaveTextContent("not another author's edit");
     expect(alert).not.toHaveTextContent(/someone else/i);
     expect(await promptsInOrder()).toEqual(["Do you smoke?", "How many a day?", "When did you start?", "Anything else?"]);
+    expect(within(rowOf("itm_smoke")).getByRole("checkbox", { name: "Required" })).toBeChecked();
     expect(requests.filter(({ method, url }) => method === "GET" && url === DRAFT_URL)).toHaveLength(1);
   });
 
@@ -523,11 +578,11 @@ describe("the draft editor", () => {
     });
     await itemList();
     await userEvent.click(screen.getByRole("button", { name: "Rules for question 2" }));
-    await userEvent.click(screen.getByRole("button", { name: "Move question 1 down" }));
+    await userEvent.click(within(rowOf("itm_smoke")).getByRole("checkbox", { name: "Required" }));
     await screen.findByRole("alert");
     expect(await axeViolations()).toEqual([]);
 
-    await userEvent.click(screen.getByRole("button", { name: "Add from bank" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add question" }));
     await within(await screen.findByRole("dialog")).findByRole("list", { name: "Active questions in the bank" });
     expect(await axeViolations()).toEqual([]);
   });
