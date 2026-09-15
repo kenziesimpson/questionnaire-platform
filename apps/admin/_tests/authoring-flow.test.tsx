@@ -52,7 +52,7 @@ async function waitForPublishable() {
 }
 
 describe("the authoring flow, across every screen", () => {
-  it("creates a questionnaire, builds and publishes its draft, then reaches the version from history and from the bank", async () => {
+  it("creates a questionnaire, builds and publishes its draft, then reaches the version from history and from the bank, with focus back on Add question after each pick", async () => {
     const { router, container, requests } = renderApp();
     const path = () => router.state.location.pathname;
 
@@ -79,6 +79,7 @@ describe("the authoring flow, across every screen", () => {
     const picker = await screen.findByRole("dialog", { name: "Add a question" });
     await userEvent.click(await within(picker).findByRole("button", { name: "Add “Do you smoke?”, version 1" }));
     expect(await screen.findByRole("heading", { level: 2, name: "1 question" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add question" })).toHaveFocus());
 
     await userEvent.click(screen.getByRole("button", { name: "Add question" }));
     const secondPicker = await screen.findByRole("dialog", { name: "Add a question" });
@@ -89,6 +90,7 @@ describe("the authoring flow, across every screen", () => {
     await userEvent.click(within(editor).getByRole("button", { name: "Save as version 1" }));
     expect(await screen.findByRole("heading", { level: 2, name: "2 questions" })).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add question" })).toHaveFocus());
 
     await userEvent.click(screen.getByRole("button", { name: "Rules for question 2" }));
     await userEvent.click(screen.getByRole("button", { name: "Add condition" }));

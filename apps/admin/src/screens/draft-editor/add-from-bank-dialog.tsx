@@ -2,6 +2,7 @@ import type { Question, QuestionVersion, QuestionnaireDraft } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@qp/ui/primitives/dialog";
 import { useQuery } from "@tanstack/react-query";
+import { useRef } from "react";
 import { questionQueries } from "../../api/queries";
 import { PlusIcon } from "../../components/icons";
 import { Pill } from "../../components/pill";
@@ -126,9 +127,19 @@ function BankList({ draft, onAdd, onCreate }: Pick<AddFromBankDialogProps, "draf
 export function AddFromBankDialog({ open, onOpenChange, draft, onAdd }: AddFromBankDialogProps) {
   const editor = useQuestionEditor();
   const create = () => editor.create(onAdd);
+  const returnFocusTo = useRef<HTMLElement | null>(null);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-16 flex max-h-[calc(100svh-5rem)] translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-[600px]">
+      <DialogContent
+        className="top-16 flex max-h-[calc(100svh-5rem)] translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-[600px]"
+        onOpenAutoFocus={() => {
+          returnFocusTo.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          returnFocusTo.current?.focus();
+        }}
+      >
         <div className="flex flex-col gap-1 border-b border-border py-4 pr-12 pl-5">
           <DialogTitle className="text-base font-semibold tracking-tight">Add a question</DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
