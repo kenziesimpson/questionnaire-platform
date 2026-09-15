@@ -2,4 +2,15 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 
-afterEach(cleanup);
+class ResizeObserverJsdomLacks {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+globalThis.ResizeObserver ??= ResizeObserverJsdomLacks;
+
+afterEach(() => {
+  cleanup();
+  globalThis.localStorage.clear();
+});
