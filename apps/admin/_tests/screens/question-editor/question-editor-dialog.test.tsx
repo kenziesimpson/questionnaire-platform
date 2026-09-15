@@ -1,0 +1,452 @@
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  QUESTION_ID,
+  deferred,
+  jsonResponse,
+  problemResponse,
+  respondInOrder,
+  stubFetch,
+} from "../../fixtures";
+import {
+  aBankQuestion,
+  aQuestionVersion,
+  axeViolations,
+  fillJsdomLayoutGaps,
+  inDialog,
+  optionIdsShown,
+  renderEditor,
+} from "./harness";
+
+beforeAll(fillJsdomLayoutGaps);
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+const GENERATED_ID = /^opt_[a-z0-9]{8}$/;
+
+const typeRadio = (name: string) => inDialog().getByRole("radio", { name });
+const field = (name: string) => inDialog().getByRole("textbox", { name });
+const labelInputs = () => inDialog().queryAllByRole("textbox", { name: /^Label for / });
+
+async function chooseType(name: string) {
+  await userEvent.click(typeRadio(name));
+}
+
+async function typeInto(name: string, text: string) {
+  const input = field(name);
+  await userEvent.clear(input);
+  if (text !== "") await userEvent.type(input, text);
+  return input;
+}
+
+function layOutOptionRows() {
+  const rowHeight = 40;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const row = this.closest("li[data-option-id]");
+    const index = row?.parentElement === null || row === null ? 0 : Array.from(row.parentElement.children).indexOf(row);
+    return new DOMRect(0, index * rowHeight, 400, rowHeight);
+  });
+}
+
+async function clickSave() {
+  await userEvent.click(inDialog().getByRole("button", { name: /^Save as version/ }));
+}
+
+describe("QuestionEditorDialog — fields per response type", () => {
+  it("shows the fields for each of the five types and swaps them when the type changes", async () => {
+    renderEditor();
+
+    expect(typeRadio("Text")).toBeChecked();
+    expect(field("Min length")).toBeInTheDocument();
+    expect(field("Max length")).toBeInTheDocument();
+    expect(inDialog().getByRole("checkbox", { name: "Multiline" })).toBeInTheDocument();
+    expect(inDialog().queryByRole("group", { name: "Options" })).not.toBeInTheDocument();
+
+    await chooseType("Single choice");
+    expect(inDialog().getByRole("group", { name: "Options" })).toBeInTheDocument();
+    expect(inDialog().getByRole("checkbox", { name: "Allow a freeform “Other” option" })).toBeInTheDocument();
+    expect(inDialog().queryByRole("textbox", { name: "Min length" })).not.toBeInTheDocument();
+    expect(inDialog().queryByRole("textbox", { name: "Min selections" })).not.toBeInTheDocument();
+
+    await chooseType("Multiple choice");
+    expect(inDialog().getByRole("group", { name: "Options" })).toBeInTheDocument();
+    expect(field("Min selections")).toBeInTheDocument();
+    expect(field("Max selections")).toBeInTheDocument();
+
+    await chooseType("Number");
+    expect(inDialog().getByRole("radio", { name: "Whole number" })).toBeChecked();
+    expect(inDialog().getByRole("radio", { name: "Decimal" })).toBeInTheDocument();
+    expect(field("Min")).toBeInTheDocument();
+    expect(field("Max")).toBeInTheDocument();
+    expect(field("Unit")).toBeInTheDocument();
+    expect(inDialog().queryByRole("group", { name: "Options" })).not.toBeInTheDocument();
+
+    await chooseType("Date");
+    expect(inDialog().getByLabelText("Earliest")).toHaveAttribute("type", "date");
+    expect(inDialog().getByLabelText("Latest")).toHaveAttribute("type", "date");
+    expect(inDialog().getByRole("radio", { name: "Any" })).toBeChecked();
+    expect(inDialog().getByRole("radio", { name: "Not in the future" })).toBeInTheDocument();
+    expect(inDialog().getByRole("radio", { name: "Not in the past" })).toBeInTheDocument();
+    expect(inDialog().queryByRole("textbox", { name: "Unit" })).not.toBeInTheDocument();
+  });
+
+  it("shows the save-is-publish notice naming the version the save writes", () => {
+    renderEditor({ question: aQuestionVersion({ type: "text", questionVersion: 4 }), repinsInDraft: "Patient Intake" });
+
+    expect(screen.getByRole("dialog", { name: "Edit question" })).toHaveAccessibleDescription(
+      "Saving writes version 5 and re-pins this question in the Patient Intake draft. Versions 1–4 and everything published with them are untouched.",
+    );
+    expect(inDialog().getByRole("button", { name: "Save as version 5" })).toBeInTheDocument();
+  });
+});
+
+describe("QuestionEditorDialog — the six cross-field rules cannot be entered", () => {
+  it("text: raising the min length above the max drags the max up, and a max typed below the min is clamped to it", async () => {
+    renderEditor();
+    await typeInto("Max length", "5");
+
+    await typeInto("Min length", "12");
+    expect(field("Max length")).toHaveValue("12");
+
+    const max = await typeInto("Max length", "3");
+    fireEvent.blur(max);
+    expect(field("Max length")).toHaveValue("12");
+  });
+
+  it("number: the max never stays below the min, and letters cannot be typed into a bound", async () => {
+    renderEditor();
+    await chooseType("Number");
+    await typeInto("Max", "10");
+
+    await typeInto("Min", "25.5");
+    expect(field("Max")).toHaveValue("25.5");
+
+    const max = await typeInto("Max", "-4");
+    fireEvent.blur(max);
+    expect(field("Max")).toHaveValue("25.5");
+
+    await typeInto("Unit", "kg");
+    await userEvent.type(field("Min"), "x");
+    expect(field("Min")).toHaveValue("25.5");
+  });
+
+  it("date: an earliest after the latest moves the latest, and a latest before the earliest is clamped to it", async () => {
+    renderEditor();
+    await chooseType("Date");
+    const earliest = inDialog().getByLabelText("Earliest");
+    const latest = inDialog().getByLabelText("Latest");
+    fireEvent.change(latest, { target: { value: "2026-03-01" } });
+
+    fireEvent.change(earliest, { target: { value: "2026-06-01" } });
+    expect(latest).toHaveValue("2026-06-01");
+    expect(latest).toHaveAttribute("min", "2026-06-01");
+
+    fireEvent.change(latest, { target: { value: "2026-01-01" } });
+    fireEvent.blur(latest);
+    expect(latest).toHaveValue("2026-06-01");
+  });
+
+  it("multiple choice: min selections above max drags max up, both are capped by the option count, and removing an option lowers them", async () => {
+    renderEditor();
+    await chooseType("Multiple choice");
+    await userEvent.click(inDialog().getByRole("button", { name: "Add option" }));
+    await userEvent.click(inDialog().getByRole("button", { name: "Add option" }));
+    await typeInto("Max selections", "1");
+
+    await typeInto("Min selections", "2");
+    expect(field("Max selections")).toHaveValue("2");
+
+    await typeInto("Min selections", "9");
+    expect(field("Min selections")).toHaveValue("3");
+    await typeInto("Max selections", "7");
+    expect(field("Max selections")).toHaveValue("3");
+
+    const [firstRemove] = inDialog().getAllByRole("button", { name: /^Remove option/ });
+    await userEvent.click(firstRemove!);
+    expect(field("Min selections")).toHaveValue("2");
+    expect(field("Max selections")).toHaveValue("2");
+  });
+
+  it("option ids are generated, never typed, and every added option gets a distinct id outside the reserved ones", async () => {
+    renderEditor();
+    await chooseType("Single choice");
+    for (let added = 0; added < 6; added += 1) {
+      await userEvent.click(inDialog().getByRole("button", { name: "Add option" }));
+    }
+
+    const ids = optionIdsShown();
+    expect(ids).toHaveLength(7);
+    expect(new Set(ids).size).toBe(7);
+    ids.forEach((id) => expect(id).toMatch(GENERATED_ID));
+    expect(inDialog().queryByRole("textbox", { name: /option id/i })).not.toBeInTheDocument();
+  });
+
+  it("only the Other row is freeform: no other row offers the mark, and the saved body carries it on `other` alone", async () => {
+    const requests = stubFetch(() => jsonResponse(201, aBankQuestion(aQuestionVersion({ type: "single_choice", questionVersion: 1 }))));
+    renderEditor();
+    await chooseType("Single choice");
+    await typeInto("Prompt", "PR2 Which condition?");
+    await userEvent.type(labelInputs()[0]!, "Diabetes");
+    await userEvent.click(inDialog().getByRole("checkbox", { name: "Allow a freeform “Other” option" }));
+
+    const otherRow = inDialog().getByText("Freeform").closest("[data-option-id]");
+    expect(otherRow).toHaveAttribute("data-option-id", "other");
+    expect(inDialog().getAllByText("Freeform")).toHaveLength(1);
+
+    await clickSave();
+
+    await waitFor(() => expect(requests).toHaveLength(1));
+    const body = requests[0]?.body as { question: { options: { optionId: string; freeform?: boolean }[] } };
+    expect(body.question.options.filter((option) => option.freeform === true).map(({ optionId }) => optionId)).toEqual([
+      "other",
+    ]);
+    expect(body.question.options.at(-1)).toEqual({ optionId: "other", label: "Other", freeform: true });
+  });
+});
+
+describe("QuestionEditorDialog — option ids and the Yes / No template", () => {
+  it("shows each option's id beside its row, and relabelling leaves the id untouched", async () => {
+    renderEditor({ question: aQuestionVersion({ type: "single_choice" }) });
+
+    expect(optionIdsShown()).toEqual(["opt_diabetes", "opt_hyperten"]);
+    const [first] = inDialog().getAllByRole("listitem");
+    expect(within(first!).getByText("opt_diabetes")).toBeInTheDocument();
+    expect(within(first!).queryByDisplayValue("opt_diabetes")).not.toBeInTheDocument();
+
+    const label = inDialog().getByRole("textbox", { name: "Label for opt_hyperten" });
+    await userEvent.clear(label);
+    await userEvent.type(label, "High blood pressure (hypertension)");
+
+    expect(optionIdsShown()).toEqual(["opt_diabetes", "opt_hyperten"]);
+    expect(label).toHaveAccessibleDescription(/opt_hyperten/);
+  });
+
+  it("Yes / No creates a single choice seeded with the reserved ids yes and no, whose labels stay editable", async () => {
+    const requests = stubFetch(() => jsonResponse(201, aBankQuestion(aQuestionVersion({ type: "single_choice", questionVersion: 1 }))));
+    renderEditor();
+
+    await userEvent.click(inDialog().getByRole("button", { name: "Yes / No" }));
+
+    expect(typeRadio("Single choice")).toBeChecked();
+    expect(optionIdsShown()).toEqual(["yes", "no"]);
+    expect(labelInputs().map((input) => (input as HTMLInputElement).value)).toEqual(["Yes", "No"]);
+
+    await typeInto("Label for yes", "True");
+    await typeInto("Label for no", "False");
+    await typeInto("Prompt", "PR2 The sky is blue");
+    await clickSave();
+
+    await waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]?.body).toEqual({
+      question: {
+        type: "single_choice",
+        prompt: "PR2 The sky is blue",
+        options: [
+          { optionId: "yes", label: "True" },
+          { optionId: "no", label: "False" },
+        ],
+      },
+    });
+  });
+
+  it("moves an option with the keyboard sensor and announces the move", async () => {
+    layOutOptionRows();
+    const question = aQuestionVersion({
+      type: "single_choice",
+      options: [
+        { optionId: "opt_diabetes", label: "Diabetes" },
+        { optionId: "opt_hyperten", label: "Hypertension" },
+        { optionId: "opt_asthma", label: "Asthma" },
+      ],
+    });
+    renderEditor({ question });
+
+    const handle = inDialog().getByRole("button", { name: "Reorder option Diabetes" });
+    handle.focus();
+    await userEvent.keyboard(" ");
+    await waitFor(() => expect(inDialog().getByRole("status")).toHaveTextContent("Picked up option Diabetes"));
+    await userEvent.keyboard("{ArrowDown}");
+    await waitFor(() => expect(inDialog().getByRole("status")).toHaveTextContent("moved to position 2 of 3"));
+    await userEvent.keyboard("{ArrowDown}");
+    await userEvent.keyboard(" ");
+
+    await waitFor(() => expect(optionIdsShown()).toEqual(["opt_hyperten", "opt_asthma", "opt_diabetes"]));
+    expect(inDialog().getByRole("status")).toHaveTextContent("dropped in position 3 of 3");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("cancels a keyboard drag on Escape without closing the dialog", async () => {
+    layOutOptionRows();
+    const { onOpenChange } = renderEditor({ question: aQuestionVersion({ type: "single_choice" }) });
+
+    inDialog().getByRole("button", { name: "Reorder option Diabetes" }).focus();
+    await userEvent.keyboard(" ");
+    await waitFor(() => expect(inDialog().getByRole("status")).toHaveTextContent("Picked up option Diabetes"));
+    await userEvent.keyboard("{ArrowDown}");
+    await userEvent.keyboard("{Escape}");
+
+    await waitFor(() => expect(inDialog().getByRole("status")).toHaveTextContent("Reordering cancelled"));
+    expect(optionIdsShown()).toEqual(["opt_diabetes", "opt_hyperten"]);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("QuestionEditorDialog — the type lock", () => {
+  it("disables every response type and offers no Yes / No template when editing a saved question", () => {
+    renderEditor({ question: aQuestionVersion({ type: "number" }) });
+
+    for (const name of ["Text", "Single choice", "Multiple choice", "Number", "Date"]) {
+      expect(typeRadio(name)).toBeDisabled();
+    }
+    expect(typeRadio("Number")).toBeChecked();
+    expect(inDialog().queryByRole("button", { name: "Yes / No" })).not.toBeInTheDocument();
+    expect(inDialog().getByRole("group", { name: "Response type" })).toHaveAccessibleDescription(/Fixed after the first save/);
+  });
+
+  it("surfaces a 400 question/type-changed on the type row", async () => {
+    stubFetch(
+      respondInOrder(
+        problemResponse("request/invalid", { errors: [{ pointer: "/body/question/type", code: "question/type-changed" }] }),
+      ),
+    );
+    const { onSaved } = renderEditor({ question: aQuestionVersion({ type: "text" }) });
+
+    await clickSave();
+
+    const typeGroup = inDialog().getByRole("group", { name: "Response type" });
+    await waitFor(() => expect(typeGroup).toHaveAccessibleDescription(/fixed when this question was first saved/));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+});
+
+describe("QuestionEditorDialog — saving", () => {
+  it("creates with POST /questions, hands the new version to onSaved and closes", async () => {
+    const created = aQuestionVersion({ type: "text", questionVersion: 1, prompt: "PR2 Preferred pharmacy", maxLength: 120 });
+    const requests = stubFetch(respondInOrder(jsonResponse(201, aBankQuestion(created))));
+    const { onSaved, onOpenChange } = renderEditor();
+
+    await typeInto("Prompt", "PR2 Preferred pharmacy");
+    await typeInto("Max length", "120");
+    await userEvent.click(inDialog().getByRole("checkbox", { name: "Multiline" }));
+    await clickSave();
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(created));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(requests).toEqual([
+      expect.objectContaining({
+        method: "POST",
+        url: "/api/definition/questions",
+        body: { question: { type: "text", prompt: "PR2 Preferred pharmacy", maxLength: 120, multiline: true } },
+      }),
+    ]);
+  });
+
+  it("edits with POST /questions/:id/versions carrying the whole question, ids and order kept", async () => {
+    const question = aQuestionVersion({ type: "multiple_choice", minSelections: 1 });
+    const saved = { ...question, questionVersion: 4 };
+    const requests = stubFetch(respondInOrder(jsonResponse(201, saved)));
+    const { onSaved } = renderEditor({ question });
+
+    await typeInto("Label for opt_hyperten", "High blood pressure (hypertension)");
+    await typeInto("Max selections", "2");
+    await clickSave();
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
+    expect(requests).toEqual([
+      expect.objectContaining({
+        method: "POST",
+        url: `/api/definition/questions/${QUESTION_ID}/versions`,
+        body: {
+          question: {
+            type: "multiple_choice",
+            prompt: "Which condition?",
+            options: [
+              { optionId: "opt_diabetes", label: "Diabetes" },
+              { optionId: "opt_hyperten", label: "High blood pressure (hypertension)" },
+            ],
+            minSelections: 1,
+            maxSelections: 2,
+          },
+        },
+      }),
+    ]);
+  });
+
+  it("disables saving while the request is in flight", async () => {
+    const response = deferred<Response>();
+    stubFetch(() => response.promise);
+    const { onOpenChange } = renderEditor({ question: aQuestionVersion({ type: "text" }) });
+
+    await clickSave();
+
+    expect(await inDialog().findByRole("button", { name: "Saving…" })).toBeDisabled();
+    expect(inDialog().getByRole("button", { name: "Cancel" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    expect(onOpenChange).not.toHaveBeenCalled();
+    response.resolve(jsonResponse(201, aQuestionVersion({ type: "text", questionVersion: 4 })));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it("keeps the dialog open with the author's changes and an alert when the save fails for a reason no field owns", async () => {
+    stubFetch(respondInOrder(problemResponse("internal", { detail: "trace-1" })));
+    const { onSaved } = renderEditor({ question: aQuestionVersion({ type: "text" }) });
+    await typeInto("Prompt", "PR2 Reworded");
+
+    await clickSave();
+
+    expect(await inDialog().findByRole("alert")).toHaveTextContent("The question was not saved.");
+    expect(field("Prompt")).toHaveValue("PR2 Reworded");
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("maps a 400 request/invalid pointer onto the option row it names and moves focus there", async () => {
+    stubFetch(
+      respondInOrder(
+        problemResponse("request/invalid", {
+          errors: [
+            { pointer: "/body/question/options/1/label", code: "schema/minLength" },
+            { pointer: "/body/key", code: "schema/pattern" },
+          ],
+        }),
+      ),
+    );
+    renderEditor({ question: aQuestionVersion({ type: "single_choice" }) });
+
+    await clickSave();
+
+    const label = inDialog().getByRole("textbox", { name: "Label for opt_hyperten" });
+    await waitFor(() => expect(label).toHaveAttribute("aria-invalid", "true"));
+    expect(label).toHaveAccessibleDescription(/schema\/minLength/);
+    expect(label).toHaveFocus();
+    expect(inDialog().getByRole("alert")).toHaveTextContent("schema/pattern");
+  });
+
+  it("does not send a question with an empty prompt or option label, and says which", async () => {
+    const requests = stubFetch(() => jsonResponse(500, {}));
+    renderEditor();
+    await chooseType("Single choice");
+
+    await clickSave();
+
+    expect(field("Prompt")).toHaveAccessibleDescription("Enter the question's prompt.");
+    expect(field("Prompt")).toHaveFocus();
+    expect(labelInputs()[0]).toHaveAttribute("aria-invalid", "true");
+    expect(requests).toHaveLength(0);
+  });
+});
+
+describe("QuestionEditorDialog — accessibility", () => {
+  it.each([
+    ["creating a text question", {}],
+    ["editing a choice question with Other", { question: aQuestionVersion({ type: "multiple_choice", options: [{ optionId: "opt_a", label: "A" }, { optionId: "other", label: "Other", freeform: true }] }) }],
+    ["editing a number question", { question: aQuestionVersion({ type: "number" }) }],
+    ["editing a date question", { question: aQuestionVersion({ type: "date", relative: "not_future" }) }],
+  ])("has no axe violations while %s", async (_, props) => {
+    renderEditor(props);
+
+    expect(await axeViolations()).toEqual([]);
+  });
+});
