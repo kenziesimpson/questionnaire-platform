@@ -1,6 +1,7 @@
 import { INTAKE_QUESTIONNAIRE_ID, type ClientAnswers } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import { INITIAL_STATE, transition, type FormContext, type RespondentEvent, type RespondentState } from "../../src/session/respondent-state.ts";
+import type { SubmissionRejection } from "../../src/answers/submission-rejection.ts";
 import type { StoredPartials } from "../../src/storage/partials.ts";
 import { inProgressSession, intakeV1, receipt, SESSION_ID } from "../fixtures.ts";
 
@@ -11,6 +12,7 @@ function stored(answers: ClientAnswers): StoredPartials {
 const restoredAnswers: ClientAnswers = { itm_04: { type: "text", text: "Corner pharmacy" } };
 const form: FormContext = { session: inProgressSession, definition: intakeV1, restoredAnswers, restored: true };
 const networkError = { kind: "network-error" } as const;
+const rejection: SubmissionRejection = { itemErrors: { itm_04: ["text/too-long"] }, unplacedErrors: true };
 
 const events: Record<RespondentEvent["type"], RespondentEvent> = {
   storedSessionFound: { type: "storedSessionFound", stored: stored(restoredAnswers) },
@@ -24,15 +26,22 @@ const events: Record<RespondentEvent["type"], RespondentEvent> = {
   requestFailed: { type: "requestFailed", reason: networkError },
   submitRequested: { type: "submitRequested" },
   submitAccepted: { type: "submitAccepted", receipt },
+  submissionRejected: { type: "submissionRejected", rejection },
+  answerChanged: { type: "answerChanged", itemId: "itm_04" },
+  alreadySubmitted: { type: "alreadySubmitted" },
+  recordedReceiptFetched: { type: "recordedReceiptFetched", receipt, definition: intakeV1 },
 };
 
 const states: Record<string, RespondentState> = {
   entering: INITIAL_STATE,
   resuming: { name: "resuming", stored: stored(restoredAnswers) },
   starting: { name: "starting" },
-  ready: { name: "ready", ...form },
+  ready: { name: "ready", ...form, rejection: null },
+  "ready after a rejection": { name: "ready", ...form, rejection },
   submitting: { name: "submitting", ...form },
-  done: { name: "done", receipt, definition: intakeV1 },
+  fetchingRecordedReceipt: { name: "fetchingRecordedReceipt", ...form },
+  done: { name: "done", receipt, definition: intakeV1, alreadySubmitted: false },
+  "done, already submitted": { name: "done", receipt, definition: intakeV1, alreadySubmitted: true },
   closed: { name: "closed" },
   notFound: { name: "notFound" },
   "failed during entry": { name: "failed", reason: networkError, form: null },
@@ -52,18 +61,29 @@ const expected: Record<string, Partial<Record<RespondentEvent["type"], Responden
     requestFailed: states["failed during entry"],
   },
   starting: {
-    sessionStarted: { name: "ready", session: inProgressSession, definition: intakeV1, restoredAnswers: {}, restored: false },
+    sessionStarted: { name: "ready", session: inProgressSession, definition: intakeV1, restoredAnswers: {}, restored: false, rejection: null },
     questionnaireClosed: states.closed,
     questionnaireNotFound: states.notFound,
     requestFailed: states["failed during entry"],
   },
   ready: { submitRequested: states.submitting },
+  "ready after a rejection": {
+    submitRequested: states.submitting,
+    answerChanged: { name: "ready", ...form, rejection: { itemErrors: {}, unplacedErrors: true } },
+  },
   submitting: {
     submitAccepted: states.done,
+    submissionRejected: states["ready after a rejection"],
+    alreadySubmitted: states.fetchingRecordedReceipt,
     questionnaireClosed: states.closed,
     requestFailed: states["failed during submit"],
   },
+  fetchingRecordedReceipt: {
+    recordedReceiptFetched: states["done, already submitted"],
+    requestFailed: states["failed during entry"],
+  },
   done: {},
+  "done, already submitted": {},
   closed: {},
   notFound: {},
   "failed during entry": {},
@@ -87,5 +107,11 @@ describe("transition", () => {
     const resuming: RespondentState = { name: "resuming", stored: stored({ itm_04: null }) };
 
     expect(transition(resuming, events.sessionResumed)).toMatchObject({ name: "ready", restored: false });
+  });
+
+  it("keeps a rejection untouched when an answer without a server error changes", () => {
+    const rejected: RespondentState = { name: "ready", ...form, rejection };
+
+    expect(transition(rejected, { type: "answerChanged", itemId: "itm_01" })).toBe(rejected);
   });
 });

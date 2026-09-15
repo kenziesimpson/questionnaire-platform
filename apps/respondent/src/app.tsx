@@ -12,16 +12,17 @@ function Respondent({ questionnaireId }: { questionnaireId: string }) {
     return (
       <QuestionnaireScreen
         form={form}
-        submitting={state.name === "submitting"}
+        submitting={state.name === "submitting" || state.name === "fetchingRecordedReceipt"}
         submitFailed={state.name === "failed"}
-        onAnswersChange={session.saveAnswers}
+        rejection={state.name === "ready" ? state.rejection : null}
+        onAnswerChange={session.changeAnswers}
         onSubmit={session.submit}
       />
     );
   }
   switch (state.name) {
     case "done":
-      return <ReceiptScreen receipt={state.receipt} definition={state.definition} />;
+      return <ReceiptScreen receipt={state.receipt} definition={state.definition} alreadySubmitted={state.alreadySubmitted} />;
     case "closed":
       return <ClosedScreen />;
     case "notFound":
