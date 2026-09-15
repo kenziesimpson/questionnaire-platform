@@ -1,9 +1,9 @@
 import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "../src/app";
 import { createAppRouter } from "../src/router";
-import { QUESTIONNAIRE_ID, testQueryClient } from "./fixtures";
+import { QUESTIONNAIRE_ID, problemResponse, stubFetch, testQueryClient } from "./fixtures";
 
 function renderAt(path: string) {
   const queryClient = testQueryClient();
@@ -27,9 +27,12 @@ describe("the admin route tree", () => {
   });
 
   it("hands the questionnaire id from the path to the screen", async () => {
+    const requests = stubFetch(() => problemResponse("internal", { detail: "trace-1" }));
     renderAt(`/questionnaires/${QUESTIONNAIRE_ID}/draft`);
 
-    expect(await screen.findByText(QUESTIONNAIRE_ID)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(requests.map(({ url }) => url)).toContain(`/api/definition/questionnaires/${QUESTIONNAIRE_ID}/draft`),
+    );
   });
 
   it("redirects the admin root to the questionnaire list", async () => {

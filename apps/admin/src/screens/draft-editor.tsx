@@ -334,7 +334,7 @@ export function DraftEditorScreen() {
     <>
       <header className="flex items-center gap-2.5">
         <BackToQuestionnaires />
-        <h1 className="text-xl font-semibold tracking-tight">{summary?.name ?? "Draft"}</h1>
+        <h1 className="text-xl font-semibold tracking-tight">{summary?.name ?? "Draft editor"}</h1>
       </header>
       {body}
     </>
