@@ -1,10 +1,10 @@
 import type { QuestionnaireSummary } from "@qp/shared";
 import type { QueryClient } from "@tanstack/react-query";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { questionnaireQueries } from "../../src/api/queries";
 import { App } from "../../src/app";
 import { createAppRouter } from "../../src/router";
@@ -156,6 +156,36 @@ describe("the questionnaire list", () => {
 
     expect(await within(rowOf("Patient Intake")).findByText("Closed at v2")).toBeInTheDocument();
     expect(within(rowOf("Patient Intake")).queryByText("2 minutes ago")).not.toBeInTheDocument();
+  });
+
+  describe("while the screen stays open", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("re-requests the list every minute and turns a row closed once the refreshed load passes its closesAt", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(Date.parse("2026-01-14T12:04:30.000Z"));
+      const closingSoon = aSummary({
+        questionnaireId: INTAKE_ID,
+        name: "Patient Intake",
+        closesAt: "2026-01-14T12:05:00.000Z",
+      });
+      const { requests } = renderList({ [`GET ${LIST_URL}`]: () => jsonResponse(200, [closingSoon]) });
+      const listRequests = () => callsTo(requests).filter((call) => call === `GET ${LIST_URL}`);
+
+      await screen.findByRole("table");
+      expect(within(rowOf("Patient Intake")).getByText("Published v2")).toBeInTheDocument();
+      expect(listRequests()).toHaveLength(1);
+
+      await act(() => vi.advanceTimersByTimeAsync(59_000));
+      expect(listRequests()).toHaveLength(1);
+
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+
+      await waitFor(() => expect(listRequests()).toHaveLength(2));
+      expect(await within(rowOf("Patient Intake")).findByText("Closed at v2")).toBeInTheDocument();
+    });
   });
 
   it("shows a loading state until the list arrives", async () => {

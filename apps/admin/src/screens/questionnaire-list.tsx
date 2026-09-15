@@ -19,6 +19,8 @@ import {
   type QuestionnaireStatus,
 } from "./questionnaire-list/summary-display";
 
+const LIST_REFRESH_MS = 60_000;
+
 function countLabel(count: number): string {
   return count === 1 ? "1 questionnaire" : `${count} questionnaires`;
 }
@@ -164,7 +166,7 @@ function Panel({ children, role }: { children: ReactNode; role?: "status" | "ale
 }
 
 export function QuestionnaireListScreen() {
-  const list = useQuery(questionnaireQueries.list());
+  const list = useQuery({ ...questionnaireQueries.list(), refetchInterval: LIST_REFRESH_MS });
   const summaries = list.data;
 
   return (
