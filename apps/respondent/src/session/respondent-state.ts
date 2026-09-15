@@ -25,7 +25,7 @@ interface Attempt {
 }
 
 export type FailedState =
-  | { readonly name: "failed"; readonly step: "starting"; readonly failure: Failure }
+  | { readonly name: "failed"; readonly step: "starting"; readonly carriedAnswers: ClientAnswers; readonly failure: Failure }
   | { readonly name: "failed"; readonly step: "resuming"; readonly stored: StoredPartials; readonly failure: Failure }
   | ({ readonly name: "failed"; readonly step: "submitting"; readonly failure: Failure } & FormContext)
   | ({ readonly name: "failed"; readonly step: "fetchingRecordedReceipt"; readonly failure: Failure } & FormContext);
@@ -33,7 +33,8 @@ export type FailedState =
 export type RespondentState =
   | { readonly name: "entering" }
   | ({ readonly name: "resuming"; readonly stored: StoredPartials } & Attempt)
-  | ({ readonly name: "starting" } & Attempt)
+  | ({ readonly name: "starting"; readonly carriedAnswers: ClientAnswers } & Attempt)
+  | { readonly name: "startingNewSession"; readonly stored: StoredPartials; readonly previousFailure: Failure }
   | ({ readonly name: "ready"; readonly rejection: SubmissionRejection | null } & FormContext)
   | ({ readonly name: "submitting" } & FormContext & Attempt)
   | ({ readonly name: "fetchingRecordedReceipt" } & FormContext & Attempt)
@@ -53,6 +54,7 @@ export type RespondentEvent =
   | { readonly type: "questionnaireNotFound" }
   | { readonly type: "requestFailed"; readonly reason: FailureReason }
   | { readonly type: "retryRequested" }
+  | { readonly type: "newSessionRequested" }
   | { readonly type: "submitRequested" }
   | { readonly type: "submitAccepted"; readonly receipt: Receipt }
   | { readonly type: "submissionRejected"; readonly rejection: SubmissionRejection }
@@ -96,7 +98,7 @@ function fromEntering(state: RespondentState, event: RespondentEvent): Responden
     case "storedSessionFound":
       return { name: "resuming", stored: event.stored, previousFailure: null };
     case "noStoredSession":
-      return { name: "starting", previousFailure: null };
+      return { name: "starting", carriedAnswers: {}, previousFailure: null };
     default:
       return state;
   }
@@ -118,7 +120,7 @@ function fromResuming(state: Extract<RespondentState, { name: "resuming" }>, eve
     case "submittedSessionResumed":
       return { name: "done", receipt: event.receipt, definition: event.definition, alreadySubmitted: false };
     case "storedSessionStale":
-      return { name: "starting", previousFailure: state.previousFailure };
+      return { name: "starting", carriedAnswers: {}, previousFailure: state.previousFailure };
     case "questionnaireClosed":
       return { name: "closed" };
     case "requestFailed":
@@ -128,16 +130,27 @@ function fromResuming(state: Extract<RespondentState, { name: "resuming" }>, eve
   }
 }
 
-function fromStarting(state: Extract<RespondentState, { name: "starting" }>, event: RespondentEvent): RespondentState {
+function fromStarting(
+  state: Extract<RespondentState, { name: "starting" | "startingNewSession" }>,
+  carriedAnswers: ClientAnswers,
+  event: RespondentEvent,
+): RespondentState {
   switch (event.type) {
     case "sessionStarted":
-      return { name: "ready", session: event.session, definition: event.definition, restoredAnswers: {}, restored: false, rejection: null };
+      return {
+        name: "ready",
+        session: event.session,
+        definition: event.definition,
+        restoredAnswers: carriedAnswers,
+        restored: hasAnyAnswer(carriedAnswers),
+        rejection: null,
+      };
     case "questionnaireClosed":
       return { name: "closed" };
     case "questionnaireNotFound":
       return { name: "notFound" };
     case "requestFailed":
-      return { name: "failed", step: "starting", failure: failureAfter(state, event.reason) };
+      return { name: "failed", step: "starting", carriedAnswers, failure: failureAfter(state, event.reason) };
     default:
       return state;
   }
@@ -160,7 +173,7 @@ function retried(state: FailedState): RespondentState {
   const previousFailure = state.failure;
   switch (state.step) {
     case "starting":
-      return { name: "starting", previousFailure };
+      return { name: "starting", carriedAnswers: state.carriedAnswers, previousFailure };
     case "resuming":
       return { name: "resuming", stored: state.stored, previousFailure };
     case "submitting":
@@ -176,6 +189,10 @@ function fromFailed(state: FailedState, event: RespondentEvent): RespondentState
       return state.step === "submitting" ? retried(state) : state;
     case "retryRequested":
       return state.step !== "submitting" && isRetryable(state.failure.reason) ? retried(state) : state;
+    case "newSessionRequested":
+      return state.step === "resuming" && isRetryable(state.failure.reason)
+        ? { name: "startingNewSession", stored: state.stored, previousFailure: state.failure }
+        : state;
     default:
       return state;
   }
@@ -216,7 +233,9 @@ export function transition(state: RespondentState, event: RespondentEvent): Resp
     case "resuming":
       return fromResuming(state, event);
     case "starting":
-      return fromStarting(state, event);
+      return fromStarting(state, state.carriedAnswers, event);
+    case "startingNewSession":
+      return fromStarting(state, state.stored.answers, event);
     case "ready":
       return fromReady(state, event);
     case "submitting":

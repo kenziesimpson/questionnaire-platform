@@ -1,5 +1,5 @@
 import { Button } from "@qp/ui/primitives/button";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export interface RetryControl {
   readonly attempt: number;
@@ -7,15 +7,29 @@ export interface RetryControl {
   readonly onRetry: () => void;
 }
 
-export interface RetryButtonProps {
-  readonly retry: RetryControl;
+export interface NewSessionControl {
+  readonly starting: boolean;
+  readonly onStart: () => void;
+}
+
+type ActionVariant = "default" | "outline";
+
+interface ActionButtonProps {
+  readonly label: string;
+  readonly pendingLabel: string;
+  readonly icon: ReactNode;
+  readonly pending: boolean;
+  readonly blocked: boolean;
+  readonly onAction: () => void;
+  readonly variant: ActionVariant;
   readonly describedBy: string;
   readonly focusOnMount: boolean;
 }
 
-export function RetryButton({ retry: { retrying, onRetry }, describedBy, focusOnMount }: RetryButtonProps) {
+function ActionButton({ label, pendingLabel, icon, pending, blocked, onAction, variant, describedBy, focusOnMount }: ActionButtonProps) {
   const ref = useRef<HTMLButtonElement>(null);
   const [focusWhenMounted] = useState(focusOnMount);
+  const unavailable = pending || blocked;
 
   useEffect(() => {
     if (focusWhenMounted) ref.current?.focus();
@@ -25,18 +39,18 @@ export function RetryButton({ retry: { retrying, onRetry }, describedBy, focusOn
     <Button
       ref={ref}
       type="button"
-      variant="outline"
+      variant={variant}
       size="lg"
-      aria-disabled={retrying || undefined}
+      aria-disabled={unavailable || undefined}
       aria-describedby={describedBy}
       className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       onClick={() => {
-        if (!retrying) onRetry();
+        if (!unavailable) onAction();
       }}
     >
       <svg
         aria-hidden="true"
-        className={retrying ? "motion-safe:animate-spin" : undefined}
+        className={pending ? "motion-safe:animate-spin" : undefined}
         width="16"
         height="16"
         viewBox="0 0 24 24"
@@ -46,10 +60,65 @@ export function RetryButton({ retry: { retrying, onRetry }, describedBy, focusOn
         strokeLinecap="round"
         strokeLinejoin="round"
       >
-        <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-        <path d="M21 3v5h-5" />
+        {pending ? <path d="M21 12a9 9 0 1 1-6.22-8.56" /> : icon}
       </svg>
-      {retrying ? "Trying again…" : "Try again"}
+      {pending ? pendingLabel : label}
     </Button>
+  );
+}
+
+export interface RetryButtonProps {
+  readonly retry: RetryControl;
+  readonly describedBy: string;
+  readonly focusOnMount: boolean;
+  readonly variant?: ActionVariant;
+  readonly blocked?: boolean;
+}
+
+export function RetryButton({ retry, describedBy, focusOnMount, variant = "outline", blocked = false }: RetryButtonProps) {
+  return (
+    <ActionButton
+      label="Try again"
+      pendingLabel="Trying again…"
+      icon={
+        <>
+          <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+          <path d="M21 3v5h-5" />
+        </>
+      }
+      pending={retry.retrying}
+      blocked={blocked}
+      onAction={retry.onRetry}
+      variant={variant}
+      describedBy={describedBy}
+      focusOnMount={focusOnMount}
+    />
+  );
+}
+
+export interface NewSessionButtonProps {
+  readonly newSession: NewSessionControl;
+  readonly describedBy: string;
+  readonly blocked: boolean;
+}
+
+export function NewSessionButton({ newSession, describedBy, blocked }: NewSessionButtonProps) {
+  return (
+    <ActionButton
+      label="Start a new session"
+      pendingLabel="Starting a new session…"
+      icon={
+        <>
+          <path d="M5 12h14" />
+          <path d="M12 5v14" />
+        </>
+      }
+      pending={newSession.starting}
+      blocked={blocked}
+      onAction={newSession.onStart}
+      variant="outline"
+      describedBy={describedBy}
+      focusOnMount={false}
+    />
   );
 }

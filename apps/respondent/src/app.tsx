@@ -9,6 +9,7 @@ import {
   LoadingScreen,
   NotFoundScreen,
   RecordedReceiptFailedScreen,
+  ResumeFailedScreen,
 } from "./screens/terminal-screens.tsx";
 import type { RespondentSession } from "./session/respondent-session.ts";
 import { hasAnyAnswer, isRetryable, type FailedState, type Failure, type FormContext, type RespondentState } from "./session/respondent-state.ts";
@@ -38,10 +39,23 @@ function Questionnaire({ state, session, view }: { state: RespondentState; sessi
   );
 }
 
-function loadFailedScreen(session: RespondentSession, failure: Failure, retrying: boolean, stored: StoredPartials | null) {
+function startFailedScreen(session: RespondentSession, failure: Failure, retrying: boolean) {
   if (!isRetryable(failure.reason)) return <EntryFailedScreen />;
-  const savedAnswers = stored !== null && hasAnyAnswer(stored.answers);
-  return <LoadFailedScreen key={failure.attempt} savedAnswers={savedAnswers} retry={retryControl(session, failure, retrying)} />;
+  return <LoadFailedScreen key={failure.attempt} retry={retryControl(session, failure, retrying)} />;
+}
+
+type ResumePending = "none" | "retry" | "newSession";
+
+function resumeFailedScreen(session: RespondentSession, failure: Failure, pending: ResumePending, stored: StoredPartials) {
+  if (!isRetryable(failure.reason)) return <EntryFailedScreen />;
+  return (
+    <ResumeFailedScreen
+      key={failure.attempt}
+      savedAnswers={hasAnyAnswer(stored.answers)}
+      retry={retryControl(session, failure, pending === "retry")}
+      newSession={{ starting: pending === "newSession", onStart: () => void session.startNewSession() }}
+    />
+  );
 }
 
 function recordedReceiptFailedScreen(session: RespondentSession, failure: Failure, retrying: boolean) {
@@ -52,9 +66,9 @@ function recordedReceiptFailedScreen(session: RespondentSession, failure: Failur
 function failedScreen(state: FailedState, session: RespondentSession) {
   switch (state.step) {
     case "starting":
-      return loadFailedScreen(session, state.failure, false, null);
+      return startFailedScreen(session, state.failure, false);
     case "resuming":
-      return loadFailedScreen(session, state.failure, false, state.stored);
+      return resumeFailedScreen(session, state.failure, "none", state.stored);
     case "submitting":
       return <Questionnaire state={state} session={session} view={{ form: state, submitting: false, submitFailure: state.failure }} />;
     case "fetchingRecordedReceipt":
@@ -67,9 +81,11 @@ function screenFor(state: RespondentState, session: RespondentSession) {
     case "entering":
       return <LoadingScreen />;
     case "starting":
-      return state.previousFailure === null ? <LoadingScreen /> : loadFailedScreen(session, state.previousFailure, true, null);
+      return state.previousFailure === null ? <LoadingScreen /> : startFailedScreen(session, state.previousFailure, true);
     case "resuming":
-      return state.previousFailure === null ? <LoadingScreen /> : loadFailedScreen(session, state.previousFailure, true, state.stored);
+      return state.previousFailure === null ? <LoadingScreen /> : resumeFailedScreen(session, state.previousFailure, "retry", state.stored);
+    case "startingNewSession":
+      return resumeFailedScreen(session, state.previousFailure, "newSession", state.stored);
     case "ready":
       return <Questionnaire state={state} session={session} view={{ form: state, submitting: false, submitFailure: null }} />;
     case "submitting":

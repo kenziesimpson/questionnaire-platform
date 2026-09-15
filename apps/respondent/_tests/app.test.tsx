@@ -52,7 +52,8 @@ const diagnosedOn = () => screen.getByLabelText("When were you diagnosed?", { ex
 const pharmacy = () => screen.getByLabelText("Preferred pharmacy", { exact: false });
 const submitButton = () => screen.getByRole("button", { name: /Submit/ });
 const tryAgain = () => screen.getByRole("button", { name: /^(Try again|Trying again…)$/ });
-const loadFailedHeading = { level: 1, name: "The questionnaire could not be loaded" } as const;
+const startNewSession = () => screen.getByRole("button", { name: /^(Start a new session|Starting a new session…)$/ });
+const loadFailedHeading ={ level: 1, name: "The questionnaire could not be loaded" } as const;
 
 async function startFresh() {
   server.on("POST", sessionsUrl, jsonReply(201, { session: inProgressSession, definition: intakeV1 }));
@@ -531,6 +532,7 @@ describe("retrying a start that failed", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("The connection may have dropped, or the service may be briefly unavailable.");
     expect(tryAgain()).toHaveAccessibleDescription(/The connection may have dropped/);
     expect(tryAgain()).not.toHaveFocus();
+    expect(screen.queryByRole("button", { name: /Start a new session/ })).not.toBeInTheDocument();
     expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toBeUndefined();
 
     await user.click(tryAgain());
@@ -589,6 +591,78 @@ describe("retrying a resume that failed", () => {
     renderApp();
 
     expect(await screen.findByRole("alert")).not.toHaveTextContent("still saved");
+    expect(startNewSession()).toHaveAccessibleDescription("If this keeps happening, you can start a new session instead.");
+  });
+
+  it("starts a new session from a failed resume, replacing the stored id only on 201 and carrying the answers into it", async () => {
+    const user = userEvent.setup();
+    const saved: ClientAnswers = { itm_01: { type: "single_choice", optionId: "no" }, itm_04: { type: "text", text: "Corner pharmacy" } };
+    const abandonedUrl = `/api/run/sessions/${STALE_SESSION_ID}`;
+    storeSession(STALE_SESSION_ID, saved);
+    const held = heldReply();
+    server.on("GET", abandonedUrl, networkFailure());
+    server.on("POST", sessionsUrl, held.reply);
+    renderApp();
+    await screen.findByRole("heading", loadFailedHeading);
+    expect(startNewSession()).toHaveAccessibleDescription(
+      "If this keeps happening, start a new session. Your answers so far are kept and carried into it.",
+    );
+
+    await user.click(startNewSession());
+    expect(startNewSession()).toHaveTextContent("Starting a new session…");
+    expect(startNewSession()).toHaveAttribute("aria-disabled", "true");
+    expect(tryAgain()).toHaveAttribute("aria-disabled", "true");
+    expect(startNewSession()).toHaveFocus();
+    await user.click(startNewSession());
+    await user.click(tryAgain());
+    expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: STALE_SESSION_ID, answers: saved });
+    await held.release(jsonReply(201, { session: inProgressSession, definition: intakeV1 }));
+
+    expect(await screen.findByText("We restored the answers you started on this device.")).toBeInTheDocument();
+    expect(within(hasCondition()).getByRole("radio", { name: "No" })).toBeChecked();
+    expect(pharmacy()).toHaveValue("Corner pharmacy");
+    expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers: saved });
+    expect(server.sent("GET", abandonedUrl)).toHaveLength(1);
+    expect(server.sent("POST", sessionsUrl)).toHaveLength(1);
+  });
+
+  it("lands on the start failure screen with its own retry when the new session cannot start, still carrying the answers", async () => {
+    const user = userEvent.setup();
+    const saved: ClientAnswers = { itm_04: { type: "text", text: "Corner pharmacy" } };
+    storeSession(STALE_SESSION_ID, saved);
+    server.on("GET", `/api/run/sessions/${STALE_SESSION_ID}`, networkFailure());
+    server.on("POST", sessionsUrl, jsonReply(503, "<html>Service unavailable</html>"), jsonReply(201, { session: inProgressSession, definition: intakeV1 }));
+    renderApp();
+    await screen.findByRole("heading", loadFailedHeading);
+
+    await user.click(startNewSession());
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Start a new session/ })).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", loadFailedHeading)).toBeInTheDocument();
+    await waitFor(() => expect(tryAgain()).toHaveFocus());
+    expect(screen.getByRole("alert")).not.toHaveTextContent("still saved");
+    expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: STALE_SESSION_ID, answers: saved });
+
+    await user.click(tryAgain());
+
+    expect(await screen.findByText("We restored the answers you started on this device.")).toBeInTheDocument();
+    expect(pharmacy()).toHaveValue("Corner pharmacy");
+    expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, answers: saved });
+    expect(server.sent("POST", sessionsUrl)).toHaveLength(2);
+  });
+
+  it("blocks Start a new session while Try again is in flight", async () => {
+    const user = userEvent.setup();
+    storeSession(SESSION_ID, {});
+    server.on("GET", sessionUrl, networkFailure(), heldReply().reply);
+    renderApp();
+    await screen.findByRole("heading", loadFailedHeading);
+
+    await user.click(tryAgain());
+    expect(startNewSession()).toHaveAttribute("aria-disabled", "true");
+    await user.click(startNewSession());
+
+    expect(server.sent("POST", sessionsUrl)).toHaveLength(0);
   });
 
   it("starts a new session when the retried resume finds the stored session stale", async () => {
