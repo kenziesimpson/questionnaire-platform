@@ -247,7 +247,7 @@ describe("publishDraft", () => {
     },
   );
 
-  it("rejects a draft placing an archived question", async () => {
+  it("publishes a draft whose placed question was archived after it was placed", async () => {
     const definitionDb = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(definitionDb);
     const client = await testDatabase.connect("definition");
@@ -260,7 +260,7 @@ describe("publishDraft", () => {
       traceId: null,
     });
 
-    expect(outcome).toEqual({ outcome: "invalid", items: [{ itemId: "itm_01", code: "draft/question-archived" }] });
+    expect(outcome).toMatchObject({ outcome: "published", questionnaireVersionId: draft.draftVersionId, version: 1 });
   });
 
   it("reports no draft once the only draft has been published", async () => {

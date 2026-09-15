@@ -350,6 +350,45 @@ describe("PUT /questionnaires/:id/draft", () => {
     expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
   });
 
+  it("is 200 for a save keeping an item whose question was archived after placement, and 422 naming only a newly added one", async () => {
+    const db = testDatabase.database("definition");
+    const draft = await aDraftWithOneItem(db);
+    const second = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
+    const added = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
+    const withTwo = await putDraft(draft.questionnaireId, (await getDraft(draft.questionnaireId)).headers.etag as string, [
+      placement("itm_01", draft.questionId),
+      placement("itm_02", second.questionId),
+    ]);
+    await archive(draft.questionId);
+    await archive(added.questionId);
+
+    const reordered = await putDraft(
+      draft.questionnaireId,
+      withTwo.headers.etag as string,
+      [placement("itm_02", second.questionId), placement("itm_01", draft.questionId)],
+      "Reordered",
+    );
+    const eventsBefore = await testDatabase.readAuditEvents();
+    const withAdded = await putDraft(draft.questionnaireId, reordered.headers.etag as string, [
+      placement("itm_02", second.questionId),
+      placement("itm_01", draft.questionId),
+      placement("itm_03", added.questionId),
+    ]);
+
+    expect(reordered.statusCode).toBe(200);
+    expect(reordered.json()).toMatchObject({
+      title: "Reordered",
+      items: [placement("itm_02", second.questionId), placement("itm_01", draft.questionId)],
+    });
+    expect(withAdded.statusCode).toBe(422);
+    expect(withAdded.json()).toMatchObject({
+      type: problemType("questionnaire/draft-invalid"),
+      items: [{ itemId: "itm_03", code: "draft/question-archived" }],
+    });
+    expect((await getDraft(draft.questionnaireId)).headers.etag).toBe(reordered.headers.etag);
+    expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
+  });
+
   it("is 422 draft-invalid naming each duplicated item id once, before the database sees the insert, and leaves the draft untouched", async () => {
     const db = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(db);
@@ -510,17 +549,30 @@ describe("POST /questionnaires/:id/draft", () => {
     expect(unknown.json()).toMatchObject({ type: problemType("resource/not-found") });
   });
 
-  it("keeps a copied item whose question has since been archived, and validate reports it", async () => {
+  it("keeps a copied item whose question has since been archived; the draft validates, saves and publishes", async () => {
     const db = testDatabase.database("definition");
     const publishedOnly = await aPublishedQuestionnaire(db);
     await archive(publishedOnly.questionId);
 
     const response = await openDraft(publishedOnly.questionnaireId);
     const validation = await validate(publishedOnly.questionnaireId);
+    const save = await putDraft(publishedOnly.questionnaireId, response.headers.etag as string, response.json().items, "Second edition");
+    const saveEtag = parseDraftEtag(save.headers.etag as string);
+    if (saveEtag === undefined) {
+      throw new Error("the saved draft carried no ETag");
+    }
+    const publish = await publishDraft(db, {
+      questionnaireId: publishedOnly.questionnaireId,
+      precondition: saveEtag,
+      actorId: "test",
+      traceId: null,
+    });
 
     expect(response.statusCode).toBe(201);
     expect(response.json().items).toEqual([placement("itm_01", publishedOnly.questionId)]);
-    expect(validation.json()).toEqual({ valid: false, items: [{ itemId: "itm_01", code: "draft/question-archived" }] });
+    expect(validation.json()).toEqual({ valid: true, items: [] });
+    expect(save.statusCode).toBe(200);
+    expect(publish).toMatchObject({ outcome: "published", version: 2 });
   });
 });
 
@@ -544,6 +596,16 @@ describe("POST /questionnaires/:id/draft/validate", () => {
       traceId: null,
     });
     expect(publish).toEqual({ outcome: "invalid", items: response.json().items });
+  });
+
+  it("does not report an item whose question was archived after it was placed", async () => {
+    const draft = await aDraftWithOneItem(testDatabase.database("definition"));
+    await archive(draft.questionId);
+
+    const response = await validate(draft.questionnaireId);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ valid: true, items: [] });
   });
 
   it("reports a publishable draft as valid", async () => {

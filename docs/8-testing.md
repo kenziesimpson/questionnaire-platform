@@ -674,6 +674,23 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 | axe finds no violations in the populated list with usage loaded, the archive confirmation, the empty state and a failed load | `_tests/screens/question-bank.test.tsx` | Accessibility is designed in, not audited afterwards ([[10-frontend#7. Accessibility]]) | — accessibility commitment |
 | `sortByLatestEdit` orders by `latest.createdAt` descending and keeps the server order for ties without mutating its input; `bankCountLabel` names archived questions only when there are some; `groupUsage` groups usage rows by questionnaire in server order, versions oldest first, with a `null` name for a questionnaire the list does not hold | `_tests/screens/question-bank/bank-display.test.ts` | Seeded questions share one `createdAt`, so ties must fall back to the server's `id DESC` order (#40, #59) | — conventions |
 
+#### gh#17 core — archiving gates new placements only
+
+**Backend integration — `apps/backend`, Fastify `inject()`, Testcontainers Postgres**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| `replaceDraft` saves a retitle, a reorder and an edit to another item's predicate while two placed questions have since been archived, and the saved draft validates clean | `_tests/db/definition/drafts.test.ts` | gh#17: archiving means "not for new placements"; an existing placement never blocks a save | Question versioning: append-only, items pin a version at add time |
+| `replaceDraft` saves the removal of one of two existing archived placements | `_tests/db/definition/drafts.test.ts` | gh#17: removing an archived placement is an edit to existing placements, not a new one | Question versioning: append-only, items pin a version at add time |
+| `replaceDraft` refuses a newly added archived question beside existing archived placements, naming only the new item, and writes nothing | `_tests/db/definition/drafts.test.ts` | gh#17: a placement is new when its `(questionId, questionVersion)` pair is not in the stored draft, read under the draft row lock | Question versioning: append-only, items pin a version at add time |
+| `replaceDraft` refuses an archived question placed again in a later save after its item was removed | `_tests/db/definition/drafts.test.ts` | gh#17: the prior item set is the stored draft being replaced, not the draft's history | Question versioning: append-only, items pin a version at add time |
+| `replaceDraft` refuses re-pinning an existing archived placement to a newer version of its question as `draft/question-archived` | `_tests/db/definition/drafts.test.ts` | gh#17's pair-based rule: a different pinned version is a new placement | Question versioning: append-only, items pin a version at add time |
+| `createNextDraft` copies an item whose question was archived after publishing; the next draft saves with another item added, validates clean and publishes as version 2 | `_tests/db/definition/drafts.test.ts` | gh#17: items copied from the published version are existing placements once stored | Questionnaire versioning: publish, immutability, one draft |
+| `publishDraft` publishes a draft whose placed question was archived after it was placed | `_tests/db/definition/publish.test.ts` | gh#17: `draft/question-archived` never reports an existing placement at publish | Questionnaire versioning: publish, immutability, one draft |
+| `PUT /draft` is `200` for a reorder and retitle keeping an item whose question was archived after placement, then `422 questionnaire/draft-invalid` naming only a newly added archived item, leaving the `ETag` and audit log unchanged | `_tests/modules/definition/routes/drafts.test.ts` | gh#17: archived questions are rejected at add time only | Question versioning: append-only, items pin a version at add time |
+| `POST /draft/validate` reports a draft whose placed question was archived after it was placed as valid | `_tests/modules/definition/routes/drafts.test.ts` | gh#17: validate and publish agree, and neither reports an existing placement | Question versioning: append-only, items pin a version at add time |
+| `POST /draft` keeps a copied item whose question has since been archived; `validate` reports it valid, `PUT /draft` saves it and it publishes as version 2 | `_tests/modules/definition/routes/drafts.test.ts` | gh#17: the next draft of a questionnaire placing a since-archived question is saveable and publishable | Questionnaire versioning: publish, immutability, one draft |
+
 ### Wave 3 — Track 7: respondent app
 
 #### PR 1
