@@ -34,6 +34,8 @@ function conditionsOf(predicate: Predicate | null): readonly Condition[] {
   return "all" in predicate ? predicate.all : predicate.any;
 }
 
+const REACHABILITY_TERM_BUDGET = 4096;
+
 function referencedOptionIds(condition: Condition): readonly string[] {
   if ("optionId" in condition) return [condition.optionId];
   if ("optionIds" in condition) return condition.optionIds;
@@ -157,12 +159,18 @@ class DraftValidator {
       if (!referencedTerms) return undefined;
       perCondition.push(this.#satisfiable(referencedTerms.map((term) => mergeTerms(term, termOf([condition])))));
     }
-    if ("any" in predicate) return this.#satisfiable(perCondition.flat());
-    return perCondition.reduce<ConstraintTerm[]>(
-      (conjunction, alternatives) =>
-        this.#satisfiable(conjunction.flatMap((term) => alternatives.map((alternative) => mergeTerms(term, alternative)))),
-      [new Map()],
-    );
+    if ("any" in predicate) {
+      const alternatives = perCondition.flat();
+      return alternatives.length > REACHABILITY_TERM_BUDGET ? undefined : this.#satisfiable(alternatives);
+    }
+    let conjunction: ConstraintTerm[] = [new Map()];
+    for (const alternatives of perCondition) {
+      if (conjunction.length * alternatives.length > REACHABILITY_TERM_BUDGET) return undefined;
+      conjunction = this.#satisfiable(
+        conjunction.flatMap((term) => alternatives.map((alternative) => mergeTerms(term, alternative))),
+      );
+    }
+    return conjunction;
   }
 
   #satisfiable(terms: readonly ConstraintTerm[]): ConstraintTerm[] {

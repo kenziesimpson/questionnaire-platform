@@ -266,7 +266,11 @@ An `any` group is satisfiable if any single disjunct is, and each disjunct is on
 
 `any` groups make the closure non-conjunctive, so an exact answer enumerates disjunct combinations. We **enumerate exhaustively** and reject any item proven unreachable — an unreachable item is always an authoring error, and there is no second outcome to reason about. At realistic questionnaire sizes (closures two or three deep over a handful of conditions) the enumeration terminates immediately, and it runs once per publish rather than on the request path, so the cost is paid where it does not matter.
 
-The worst case is exponential in the number of `any` disjuncts along a closure. Capping the enumeration and downgrading unproven items from *reject* to *warn* is the escape hatch if a questionnaire ever grows big enough to need it — see §8.
+The worst case is exponential in the number of `any` disjuncts along a closure, and **that escape hatch has been taken** ([[2-design-doc#17. Decisions Log]] #78). The enumeration carries a term budget: when conjoining one condition's alternatives would materialise more than `REACHABILITY_TERM_BUDGET` terms, the item's reachability is left **undecided** rather than computed. An undecided item is not reported — `draft/unreachable` is a rejection, and refusing to publish a draft the checker merely could not finish reasoning about would be worse than publishing an item no respondent reaches. Undecidedness propagates: an item referencing an undecided one is undecided too.
+
+Two consequences worth stating plainly. **Per-predicate satisfiability is unaffected** — it is linear and stays exact, so `predicate/unsatisfiable` still fires on a contradiction inside one predicate however large the draft. And **"warn" is realised as silence**, because `DraftValidation` carries no warning channel; giving authors a visible "not checked" signal would be a contract change and is follow-up work, not part of taking the hatch.
+
+The budget is not a tuning knob for questionnaire size. It exists because the cost is exponential in *shape*, so no size limit expressed in items could bound it.
 
 **Relative date constraints** (`not_future`, `not_past`) depend on evaluation time, so at publish time they are treated as non-empty and excluded from the intersection. They can never be the sole cause of an unsatisfiable result.
 
@@ -396,7 +400,7 @@ Deliberate simplifications, recorded so they are recognisable as choices rather 
 | No `text` format subtypes | Length validation covers the prototype's needs | [[2-design-doc#18. Open Questions]] §2 |
 | No draft state on the question bank (§6.2) | Saving is explicit, so one save is one version | Authors needing to park half-finished question edits — that is the independently versioned bank in §7.5 |
 | No "upgrade draft to latest question versions" action (§6.2) | Remove and re-add the item; rare at prototype scale | More than a handful of questions in flight, where re-adding items by hand stops being reasonable |
-| Reachability checked by exhaustive enumeration (§5.3) | Real closures are shallow; validation runs once per publish, off the request path | A questionnaire large enough to make the enumeration slow — then cap it and downgrade unproven items from reject to warn |
+| Reachability enumeration is capped rather than exhaustive (§5.3) | Real closures are shallow, so the cap is never reached by an authored questionnaire; the exact check still runs for every draft that fits inside it | **Already changed** (Decisions Log #78). The original note said validation "runs once per publish, off the request path" — that was wrong: `POST /draft/validate` is a request path, the admin editor fires it after every draft write, and publish runs it under the questionnaire row lock. A visible "not checked" signal for undecided items is the remaining follow-up |
 
 ## 9. Appendix — original ideation
 

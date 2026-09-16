@@ -269,6 +269,57 @@ describe("validateDraft — reachability through the dependency closure (§5.3)"
   });
 });
 
+describe("validateDraft — the reachability enumeration is bounded (§5.3, §8)", () => {
+  const is = (itemId: string, optionId: string): Condition => ({ type: "single_choice", itemId, op: "is", optionId });
+
+  function aBranchingDraft(depth: number, targetVisibleWhen: (linkIds: string[]) => Predicate) {
+    const items: Item[] = [];
+    const linkIds: string[] = [];
+    for (let branch = 0; branch < depth; branch += 1) {
+      const rootId = `root_${branch}`;
+      const linkId = `link_${branch}`;
+      items.push(anItem(rootId, questions.yesNo()));
+      items.push(anItem(linkId, questions.yesNo(), { visibleWhen: any(is(rootId, "yes"), is(rootId, "no")) }));
+      linkIds.push(linkId);
+    }
+    items.push(anItem("target", questions.text(), { visibleWhen: targetVisibleWhen(linkIds) }));
+    return items;
+  }
+
+  const EXHAUSTIVE_DEPTH = 18;
+  const BUDGETED_MILLISECONDS = 2_000;
+
+  it("returns in milliseconds for a draft whose closure would enumerate 2^18 terms exhaustively", { timeout: 60_000 }, () => {
+    const items = aBranchingDraft(EXHAUSTIVE_DEPTH, (linkIds) => all(...linkIds.map((linkId) => is(linkId, "yes"))));
+
+    const started = Date.now();
+    const validation = validateDraft(draftOf(aDefinition(items)));
+    const elapsed = Date.now() - started;
+
+    expect(validation).toEqual({ valid: true, items: [] });
+    expect(elapsed).toBeLessThan(BUDGETED_MILLISECONDS);
+  });
+
+  it("leaves an item unreported rather than rejecting it when the enumeration runs out of budget", { timeout: 60_000 }, () => {
+    const items = aBranchingDraft(EXHAUSTIVE_DEPTH, (linkIds) =>
+      all(...linkIds.map((linkId) => is(linkId, "yes")), is("root_0", "no")),
+    );
+
+    expect(problemsOf(items)).toEqual([]);
+  });
+
+  it("still proves unreachability for a branching closure inside the budget", () => {
+    const items = [
+      anItem("root_0", questions.yesNo()),
+      anItem("root_1", questions.yesNo()),
+      anItem("link_0", questions.yesNo(), { visibleWhen: any(is("root_0", "yes"), is("root_1", "yes")) }),
+      anItem("target", questions.text(), { visibleWhen: all(is("link_0", "yes"), is("root_0", "no"), is("root_1", "no")) }),
+    ];
+
+    expect(problemsOf(items)).toEqual([{ itemId: "target", code: "draft/unreachable" }]);
+  });
+});
+
 describe("validateDraft — output", () => {
   it("lists problems in item order, then in the order of the closed code set, each once", () => {
     const repeated = anItem("itm_02", questions.yesNo());
