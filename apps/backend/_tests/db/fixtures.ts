@@ -182,9 +182,13 @@ export function insertResponse(
 
 export const QUESTIONNAIRE_LOCK_STATEMENT = /from "definition"\."questionnaire" where "definition"\."questionnaire"\."id" = \$1 for update$/;
 
+const LOCK_WAIT_POLL_MILLISECONDS = 20;
+const LOCK_WAIT_BUDGET_MILLISECONDS = 10_000;
+
 export async function theStatementWaitingOnALock(testDatabase: TestDatabase): Promise<string> {
   const client = await testDatabase.connect("definition");
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  const deadline = Date.now() + LOCK_WAIT_BUDGET_MILLISECONDS;
+  do {
     const result = await client.query<{ query: string }>(
       "SELECT query FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
     );
@@ -192,9 +196,9 @@ export async function theStatementWaitingOnALock(testDatabase: TestDatabase): Pr
     if (waiting !== undefined && others.length === 0) {
       return waiting.query;
     }
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error("no single statement was seen waiting on a lock");
+    await new Promise((resolve) => setTimeout(resolve, LOCK_WAIT_POLL_MILLISECONDS));
+  } while (Date.now() < deadline);
+  throw new Error(`no single statement was seen waiting on a lock within ${LOCK_WAIT_BUDGET_MILLISECONDS}ms`);
 }
 
 export async function whileHoldingALock(
