@@ -181,6 +181,12 @@ Connect: `psql "$DATABASE_URL_DEFINITION"`, or `docker compose exec db psql -U q
 Tests run against a Testcontainers Postgres with a template database per Vitest worker; `TEST_DATABASE_URL`
 is the escape hatch for pointing at an existing instance, and takes an admin URL (Decisions Log #47). See [[8-testing]].
 
+**A test may open as many connections as it needs; a test file may not accumulate them** (Decisions Log #77).
+`testDatabase.connect(role)` is test-scoped — the harness closes its clients in `afterEach` — and harness pools are
+capped below `pg`'s default of ten. Postgres allows 100 connections and Vitest runs `availableParallelism() - 1` files
+at once, so anything holding a connection for a file's lifetime is multiplied by the worker count. Do not add a
+long-lived client to the harness, and do not cache one across tests in a test file.
+
 ## Roles and connection strings
 
 Five identities, three connection strings (Decisions Log #39,
