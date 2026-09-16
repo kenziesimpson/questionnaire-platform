@@ -22,14 +22,17 @@ psql -v ON_ERROR_STOP=1 \
   --set qp_owner_password="$QP_OWNER_PASSWORD" \
   --set qp_definition_password="$QP_DEFINITION_PASSWORD" \
   --set qp_execution_password="$QP_EXECUTION_PASSWORD" <<'SQL'
-SELECT format('CREATE ROLE qp_owner LOGIN PASSWORD %L', :'qp_owner_password')
+SELECT 'CREATE ROLE qp_owner LOGIN'
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'qp_owner') \gexec
+SELECT format('ALTER ROLE qp_owner PASSWORD %L', :'qp_owner_password') \gexec
 
-SELECT format('CREATE ROLE qp_definition LOGIN PASSWORD %L', :'qp_definition_password')
+SELECT 'CREATE ROLE qp_definition LOGIN'
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'qp_definition') \gexec
+SELECT format('ALTER ROLE qp_definition PASSWORD %L', :'qp_definition_password') \gexec
 
-SELECT format('CREATE ROLE qp_execution LOGIN PASSWORD %L', :'qp_execution_password')
+SELECT 'CREATE ROLE qp_execution LOGIN'
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'qp_execution') \gexec
+SELECT format('ALTER ROLE qp_execution PASSWORD %L', :'qp_execution_password') \gexec
 
 SELECT 'CREATE ROLE audit_owner NOLOGIN'
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'audit_owner') \gexec

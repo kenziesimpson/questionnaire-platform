@@ -827,12 +827,15 @@ interpolation, so a `.sql` file cannot read `$QP_DEFINITION_PASSWORD` — the pa
 literal, which is the thing this section exists to prevent. The committed artifact holds role names,
 grants and ownership statements, and no secrets.
 
-**It runs exactly once, when the data directory is empty.** Adding a role or rotating a password later
-does nothing until `docker compose down -v`, which is already the only clean reset (§ Local ops in the
-`database` skill). So the init script is not a migration path for roles. Wrap each creation in
-`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '...') THEN ... END IF; END $$;` —
-it costs nothing and makes the script safe to re-run by hand against an existing volume, which is
-exactly the operation the once-only behaviour forces on you the first time you add a role.
+**The entrypoint runs it only once, so compose runs it again on every `up`.** `docker-entrypoint-initdb.d`
+executes only when the data directory is empty, so on its own a new role or a rotated password would
+never reach an existing volume, and `migrate` would fail with `28P01` or `role does not exist`. A
+one-shot `roles` service therefore runs the same script against `db` before `migrate` on every
+`docker compose up` ([[2-design-doc#17. Decisions Log]] #60). The script is written to be re-run: each
+`CREATE ROLE` is guarded by `NOT EXISTS`, and each login role's password is set by an unconditional
+`ALTER ROLE ... PASSWORD`, so the environment is always the source of truth. Adding a role means adding
+it to the script (plus its password variable in compose and `.env.example`) and granting it privileges
+in a normal migration; the `roles` service guarantees it exists before that migration runs.
 
 **`ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner` has a hidden dependency.** It applies only to objects
 created *by* `qp_owner`. If migrations ever run as some other identity — easy to do by pointing the

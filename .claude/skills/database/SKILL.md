@@ -186,7 +186,7 @@ is the escape hatch for pointing at an existing instance, and takes an admin URL
 Five identities, three connection strings (Decisions Log #39,
 [[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]), wired in
 `docker-compose.yml` and `.env.example`: the bootstrap superuser (`POSTGRES_USER`) runs `db/init/01-roles.sh`
-once; `qp_owner` runs migrations (`DATABASE_URL_OWNER`); the backend's two pools use
+(at init, and from the `roles` service on every `up`); `qp_owner` runs migrations (`DATABASE_URL_OWNER`); the backend's two pools use
 `DATABASE_URL_DEFINITION` and `DATABASE_URL_EXECUTION`, and the seed the first of them; `audit_owner` has no
 login. There is no unsuffixed `DATABASE_URL`.
 
@@ -199,8 +199,10 @@ The four things that fail quietly if this is ever rewired:
 3. **The init script must be `.sh`, not `.sql`** — `psql -f` does not interpolate, so a `.sql` file
    would need literal passwords. Role passwords must be URL-safe; the script refuses anything else
    (Decisions Log #50).
-4. **It runs once, on an empty data directory.** Each `CREATE ROLE` is guarded so it can be re-run by
-   hand; `docker compose down -v` is the only reset.
+4. **The entrypoint runs it once, on an empty data directory — so compose re-runs it.** The one-shot
+   `roles` service applies the same script before `migrate` on every `up` (Decisions Log #60). Keep it
+   re-runnable: guard every `CREATE ROLE` with `NOT EXISTS`, set passwords with an unconditional
+   `ALTER ROLE ... PASSWORD`. A new role goes in the script; its grants go in a migration.
 
 Tests run the same `db/init/01-roles.sh` via `execInContainer`. Do not write a second one.
 

@@ -20,6 +20,23 @@ services:
       timeout: 5s
       retries: 10
 
+  roles:
+    image: postgres:16-alpine
+    command: ["sh", "/qp-init/01-roles.sh"]
+    environment:
+      PGHOST: db
+      PGPASSWORD: ${POSTGRES_PASSWORD:-questionnaire}
+      POSTGRES_USER: ${POSTGRES_USER:-questionnaire}
+      POSTGRES_DB: ${POSTGRES_DB:-questionnaire_platform}
+      QP_OWNER_PASSWORD: ${QP_OWNER_PASSWORD:-qp_owner}
+      QP_DEFINITION_PASSWORD: ${QP_DEFINITION_PASSWORD:-qp_definition}
+      QP_EXECUTION_PASSWORD: ${QP_EXECUTION_PASSWORD:-qp_execution}
+    volumes:
+      - ./db/init:/qp-init:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
   migrate:
     build:
       context: .
@@ -29,8 +46,8 @@ services:
       DATABASE_URL_OWNER: postgres://qp_owner:${QP_OWNER_PASSWORD:-qp_owner}@db:5432/${POSTGRES_DB:-questionnaire_platform}
       DATABASE_URL_DEFINITION: postgres://qp_definition:${QP_DEFINITION_PASSWORD:-qp_definition}@db:5432/${POSTGRES_DB:-questionnaire_platform}
     depends_on:
-      db:
-        condition: service_healthy
+      roles:
+        condition: service_completed_successfully
 
   backend:
     build:
