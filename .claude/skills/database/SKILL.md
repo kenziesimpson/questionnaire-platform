@@ -167,7 +167,7 @@ schema, and each one fails *silently* in the naive version.
 
 ```bash
 docker compose up --build          # db → migrate (+seed) → backend → frontend
-docker compose up db               # just Postgres, for running the backend on the host
+docker compose up -d roles         # Postgres with the roles provisioned, for running the backend on the host
 
 npm run db:generate -w apps/backend   # drizzle-kit generate
 npm run db:migrate  -w apps/backend
