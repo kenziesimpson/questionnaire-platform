@@ -254,6 +254,8 @@ Each PR adds its own [[8-testing#7. Test case enumeration]] rows with the featur
 
 ### File ownership
 
+> **Deprecated.** Every track has merged, so this table and the "Contended" list below no longer describe reality. See [[11-structural-refactor#2. File ownership during the pass]] for current ownership.
+
 | Path | Track |
 | --- | --- |
 | `packages/shared/**` | 1 |
