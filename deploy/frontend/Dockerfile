@@ -2,7 +2,7 @@
 
 FROM node:24-slim AS deps
 WORKDIR /app
-COPY package.json package-lock.json tsconfig.base.json ./
+COPY package.json package-lock.json tsconfig.base.json tsconfig.node.json tsconfig.react.json ./
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY apps/respondent/package.json apps/respondent/package.json
