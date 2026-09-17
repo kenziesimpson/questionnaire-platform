@@ -6,7 +6,7 @@ Instructions for coding agents working in this repository.
 
 - `.claude/skills/questionnaire-assignment/SKILL.md` — scope, quality bar and the decisions already made.
 - `.claude/skills/database/SKILL.md` — before touching schema, migrations, repositories or seeds.
-- `docs/4-implementation-plan.md` — the build plan. Its **Standing rules**, **File ownership** and **Stop and ask** sections are binding.
+- `docs/4-implementation-plan.md` — the build plan. Its **Standing rules** and **Stop and ask** sections are binding. Its **File ownership** section is deprecated; see [[11-structural-refactor#2. File ownership during the pass]] for current ownership.
 - `docs/2-design-doc.md` — the design index and the Decisions Log. Never invent a decision; if a load-bearing one is missing, stop and ask.
 
 ## Writing
