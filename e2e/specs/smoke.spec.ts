@@ -43,6 +43,27 @@ test.describe("harness smoke", () => {
     expect(browserErrors.summary()).toEqual({ consoleErrors: [], pageErrors: [] });
   });
 
+  test("a questionnaire row's name links to its respondent form, and the copy button copies that same link", async ({
+    page,
+    admin,
+    context,
+    stack,
+  }) => {
+    const respondentLink = `${stack.baseUrl}/q/${DEMO_QUESTIONNAIRE_ID}`;
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: stack.baseUrl });
+
+    await admin.openQuestionnaires();
+
+    await expect(admin.nameLink(DEMO_V1.title)).toHaveAttribute("href", respondentLink);
+    await expect(admin.nameLink(DEMO_V1.title)).toHaveAttribute("target", "_blank");
+
+    await admin.copyLinkButton(DEMO_V1.title).click();
+
+    await expect(async () => {
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(respondentLink);
+    }).toPass();
+  });
+
   test("a questionnaire published through the definition API renders for respondents and persists a submission", async ({
     api,
     respondent,
