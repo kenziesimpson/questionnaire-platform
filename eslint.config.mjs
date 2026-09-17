@@ -150,6 +150,8 @@ const filesThatMustDefaultExport = [
   "e2e/stack/global-teardown.ts",
 ];
 
+const backendFilesThatMustDefaultExport = ["apps/backend/**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}"];
+
 export default tseslint.config(
   {
     ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**", "**/playwright-report/**", "**/test-results/**", "**/.stacks/**"],
@@ -248,6 +250,16 @@ export default tseslint.config(
   {
     name: "default exports in tool config files and framework entry points",
     files: filesThatMustDefaultExport,
+    rules: { "no-restricted-syntax": syntaxAllowingDefaultExport() },
+  },
+  {
+    name: "default exports in the backend's tool config files",
+    files: backendFilesThatMustDefaultExport,
+    rules: { "no-restricted-syntax": syntaxAllowingDefaultExport(...rawSql, ...connectionConstruction) },
+  },
+  {
+    name: "default exports in the backend harness's globalSetup, which constructs connections",
+    files: ["apps/backend/_tests/db/global-setup.ts"],
     rules: { "no-restricted-syntax": syntaxAllowingDefaultExport(...rawSql) },
   },
 );

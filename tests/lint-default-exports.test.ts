@@ -64,3 +64,47 @@ describe("exports are named", () => {
     expect(await restrictedSyntax("apps/backend/_tests/db/global-setup.ts", code)).toHaveLength(1);
   });
 });
+
+describe("exempting a file from the default-export rule removes only that selector", () => {
+  const POOL = `import pg from "pg";\nexport default new pg.Pool({});`;
+  const NAMED_POOL = `import { Pool } from "pg";\nexport default new Pool({});`;
+  const RAW_SQL = `import { sql } from "drizzle-orm";\nexport default sql\`SELECT 1\`;`;
+
+  it.each([
+    ["the drizzle config", "apps/backend/drizzle.config.ts"],
+    ["the backend vitest config", "apps/backend/vitest.config.ts"],
+  ])("%s keeps the connection-construction and raw-SQL warnings", async (_, filePath) => {
+    expect(await restrictedSyntax(filePath, POOL)).toHaveLength(1);
+    expect(await restrictedSyntax(filePath, NAMED_POOL)).toHaveLength(1);
+    expect(await restrictedSyntax(filePath, RAW_SQL)).toHaveLength(1);
+  });
+
+  it("a backend config file still default-exports its config without a warning", async () => {
+    const code = `import { defineConfig } from "vitest/config";\nexport default defineConfig({});`;
+
+    expect(await restrictedSyntax("apps/backend/vitest.config.ts", code)).toEqual([]);
+  });
+
+  it("the backend harness's globalSetup keeps its connection-construction exemption and its raw-SQL warning", async () => {
+    expect(await restrictedSyntax("apps/backend/_tests/db/global-setup.ts", POOL)).toEqual([]);
+    expect(await restrictedSyntax("apps/backend/_tests/db/global-setup.ts", NAMED_POOL)).toEqual([]);
+    expect(await restrictedSyntax("apps/backend/_tests/db/global-setup.ts", RAW_SQL)).toHaveLength(1);
+  });
+
+  it.each([
+    ["the Playwright config", "e2e/playwright.config.ts"],
+    ["the packages/ui vitest config", "packages/ui/vitest.config.ts"],
+    ["the root vitest config", "vitest.config.mts"],
+  ])("%s carries no backend selector, as before the rule landed", async (_, filePath) => {
+    expect(await restrictedSyntax(filePath, POOL)).toEqual([]);
+    expect(await restrictedSyntax(filePath, RAW_SQL)).toEqual([]);
+  });
+
+  it("still warns on a double assertion in every exempted file", async () => {
+    const code = `declare const a: string;\nexport const b = a as unknown as number;`;
+
+    expect(await restrictedSyntax("apps/backend/drizzle.config.ts", code)).toHaveLength(1);
+    expect(await restrictedSyntax("apps/backend/_tests/db/global-setup.ts", code)).toHaveLength(1);
+    expect(await restrictedSyntax("e2e/playwright.config.ts", code)).toHaveLength(1);
+  });
+});
