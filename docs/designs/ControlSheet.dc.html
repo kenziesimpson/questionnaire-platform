@@ -1,0 +1,175 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      --bg:oklch(1 0 0);--fg:oklch(0.145 0 0);--muted:oklch(0.97 0 0);--mfg:oklch(0.556 0 0);
+      --border:oklch(0.922 0 0);--primary:oklch(0.205 0 0);--pfg:oklch(0.985 0 0);
+      --destructive:oklch(0.577 0.245 27.325);--ring:oklch(0.708 0 0);
+    }
+    body{margin:0;background:var(--bg);color:var(--fg);font-size:14px;
+      font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+      -webkit-font-smoothing:antialiased;}
+    a{color:oklch(0.205 0 0);text-underline-offset:4px;}
+    a:hover{color:oklch(0.145 0 0);}
+    .card{display:flex;flex-direction:column;gap:14px;padding:20px;border:1px solid var(--border);border-radius:12px;}
+    .cardhead{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+    .cardname{font-size:15px;font-weight:600;letter-spacing:-0.005em;}
+    .code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--mfg);}
+    .q{font-size:16px;font-weight:500;line-height:1.4;}
+    .hint{font-size:13px;line-height:1.4;color:var(--mfg);}
+    .opt{display:flex;align-items:center;gap:12px;min-height:52px;padding:0 16px;border:1px solid var(--border);border-radius:10px;font-size:16px;}
+    .dot{display:block;width:18px;height:18px;border:1px solid var(--border);border-radius:999px;flex-shrink:0;}
+    .on{border-color:var(--primary);background:var(--muted);font-weight:500;}
+    .ondot{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--primary);border-radius:999px;background:var(--primary);flex-shrink:0;}
+    .pip{display:block;width:7px;height:7px;border-radius:999px;background:var(--pfg);}
+    .box{display:block;width:18px;height:18px;border:1px solid var(--border);border-radius:5px;flex-shrink:0;}
+    .onbox{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--primary);border-radius:5px;background:var(--primary);flex-shrink:0;}
+    .in{height:44px;padding:0 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;font-size:16px;outline:none;width:100%;box-sizing:border-box;}
+    .lbl{font-size:11px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--mfg);}
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 24px; width: 1240px; box-sizing: border-box; padding: 28px 20px 32px">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <h1 style="margin: 0; font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -0.015em">One control per response type</h1>
+      <p style="margin: 0; font-size: 14px; line-height: 1.5; color: var(--mfg); max-width: 760px">Respondent scale: 52px option rows, 44px inputs, 16px type. The admin app keeps the compact 32px primitives; only the respondent surface is scaled up, because it is touched on phones by people who are not using it every day.</p>
+    </div>
+    <span class="code">packages/ui/src/questionnaire/controls</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px">
+
+    <div class="card">
+      <div class="cardhead"><span class="cardname">Text</span><span class="code">text</span></div>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span class="q">Preferred pharmacy</span>
+        <input class="in" type="text" placeholder="Name and location">
+        <span class="hint">Up to 120 characters.</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span class="q">Anything else we should know?</span>
+        <textarea class="in" rows="3" style="height: auto; padding: 12px 14px; resize: none; line-height: 1.5"></textarea>
+        <span class="hint">Multiline questions get a textarea; everything else is one line.</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="cardhead"><span class="cardname">Number</span><span class="code">number</span></div>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span class="q">How many units of alcohol a week?</span>
+        <div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border: 1px solid var(--border); border-radius: 10px">
+          <span style="font-size: 16px">14</span>
+          <div style="flex-grow: 1"></div>
+          <span style="font-size: 15px; color: var(--mfg)">units</span>
+        </div>
+        <span class="hint">Enter a number between 0 units and 200 units.</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span class="q">Weight</span>
+        <div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border: 1px solid var(--border); border-radius: 10px">
+          <span style="font-size: 16px">72.5</span>
+          <div style="flex-grow: 1"></div>
+          <span style="font-size: 15px; color: var(--mfg)">kg</span>
+        </div>
+        <span class="hint">A text input with <span class="code">inputMode="decimal"</span>, never <span class="code">type="number"</span> &mdash; answers are exact decimal strings and the unit is the question's, shown but not typed.</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="cardhead"><span class="cardname">Single choice</span><span class="code">single_choice</span></div>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span class="q">Which condition?</span>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <label class="opt"><span class="dot"></span>Diabetes</label>
+          <label class="opt on"><span class="ondot"><span class="pip"></span></span>High blood pressure (hypertension)</label>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px; padding-top: 4px; border-top: 1px solid var(--border)">
+        <span class="lbl" style="padding-top: 10px">Yes / No is this control, from a template</span>
+        <span class="q">Do you have a medical condition?</span>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <label class="opt on"><span class="ondot"><span class="pip"></span></span>Yes</label>
+          <label class="opt"><span class="dot"></span>No</label>
+        </div>
+        <span class="hint">Two options with reserved ids <span class="code">yes</span> / <span class="code">no</span> and editable labels &mdash; so the same question can read True / False without becoming a different kind of thing.</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="cardhead"><span class="cardname">Multiple choice</span><span class="code">multiple_choice</span></div>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span class="q">Which of these apply to you?</span>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <label class="opt on"><span class="onbox"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="oklch(0.985 0 0)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></span>High blood pressure</label>
+          <label class="opt"><span class="box"></span>High cholesterol</label>
+          <label class="opt on"><span class="onbox"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="oklch(0.985 0 0)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></span>Asthma</label>
+          <label class="opt"><span class="box"></span>None of these</label>
+        </div>
+        <span class="hint">Choose at least 1 option.</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="cardhead"><span class="cardname">Date</span><span class="code">date</span></div>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span class="q">When were you diagnosed?</span>
+        <input class="in" type="date" value="2019-04-08">
+        <span class="hint">Cannot be in the future.</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid var(--border)">
+        <span class="hint">The native date input, deliberately: accessible, localised by the platform, and free. The browser's own locale decides the display order, so the field is never labelled dd/mm.</span>
+        <span class="hint">The browser checks against the device's local date; the server re-checks in UTC with a day of tolerance, so nobody far enough east or west is refused a correct answer.</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="cardhead"><span class="cardname">Freeform &ldquo;Other&rdquo;</span><span class="code">option.freeform</span></div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span class="lbl">Not selected &mdash; label sits in the box as a hint</span>
+        <label class="opt" style="padding-right: 12px"><span class="dot"></span><input type="text" placeholder="Other" style="flex-grow: 1; min-width: 0; height: 38px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); font: inherit; font-size: 15px; outline: none"></label>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span class="lbl">Typing in the box selects the option</span>
+        <label class="opt on" style="padding-right: 12px"><span class="ondot"><span class="pip"></span></span><input type="text" value="Coeliac disease" style="flex-grow: 1; min-width: 0; height: 38px; padding: 0 12px; border: 1px solid var(--primary); border-radius: 8px; background: var(--bg); font: inherit; font-size: 15px; outline: none; box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 35%, transparent)"></label>
+      </div>
+      <span class="hint">Moving to another option keeps the typed text in the box but drops it from the answer &mdash; the server rejects freeform text without its option. Selecting it again puts the text back.</span>
+    </div>
+
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 14px; padding: 20px; border: 1px solid var(--border); border-radius: 12px">
+    <span class="cardname">States</span>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span class="lbl">Default</span>
+        <input class="in" type="text" value="Boots, Byres Road">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span class="lbl">Focus</span>
+        <input class="in" type="text" value="Boots, Byres Road" style="border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 35%, transparent)">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span class="lbl">Invalid</span>
+        <input class="in" type="text" value="" style="border-color: var(--destructive); box-shadow: 0 0 0 3px color-mix(in oklch, var(--destructive) 20%, transparent)">
+        <span style="font-size: 13px; color: var(--destructive)">Answer this question.</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span class="lbl">Read-only (admin preview)</span>
+        <div class="in" style="display: flex; align-items: center; background: var(--muted); color: var(--mfg)">Boots, Byres Road</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

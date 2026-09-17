@@ -1,9 +1,71 @@
-import type { DraftItem } from "@qp/shared";
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import type { QuestionnaireSummary } from "@qp/shared";
+import { desc, eq, max, type SQL } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
 import type { Executor } from "../client.js";
-import { question, questionnaire, questionnaireItem, questionnaireVersion, questionVersion } from "../schema.js";
+import { questionnaire, questionnaireVersion } from "../schema.js";
+import { openDraftExists, readOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
+import { readBack } from "./read-back.js";
+
+function latestVersionEdits(executor: Executor) {
+  return executor
+    .select({
+      questionnaireId: questionnaireVersion.questionnaireId,
+      updatedAt: max(questionnaireVersion.updatedAt).as("latest_updated_at"),
+    })
+    .from(questionnaireVersion)
+    .groupBy(questionnaireVersion.questionnaireId)
+    .as("latest_version_edit");
+}
+
+function lastEditedAt(questionnaireId: string, updatedAt: Date | null): string {
+  if (updatedAt === null) {
+    throw new Error(`questionnaire ${questionnaireId} has no version to take updatedAt from`);
+  }
+  return updatedAt.toISOString();
+}
+
+async function selectQuestionnaireSummaries(executor: Executor, filter?: SQL): Promise<QuestionnaireSummary[]> {
+  const latestEdit = latestVersionEdits(executor);
+  const rows = await executor
+    .select({
+      questionnaireId: questionnaire.id,
+      key: questionnaire.key,
+      name: questionnaire.name,
+      currentVersion: questionnaire.currentVersion,
+      closesAt: questionnaire.closesAt,
+      hasDraft: openDraftExists(executor, questionnaire.id),
+      createdAt: questionnaire.createdAt,
+      updatedAt: latestEdit.updatedAt,
+    })
+    .from(questionnaire)
+    .innerJoin(latestEdit, eq(latestEdit.questionnaireId, questionnaire.id))
+    .where(filter)
+    .orderBy(desc(questionnaire.id));
+
+  return rows.map((row) => ({
+    questionnaireId: row.questionnaireId,
+    key: row.key,
+    name: row.name,
+    currentVersion: row.currentVersion,
+    closesAt: row.closesAt?.toISOString() ?? null,
+    hasDraft: row.hasDraft,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: lastEditedAt(row.questionnaireId, row.updatedAt),
+  }));
+}
+
+export async function listQuestionnaireSummaries(executor: Executor): Promise<QuestionnaireSummary[]> {
+  return selectQuestionnaireSummaries(executor);
+}
+
+export async function readQuestionnaireSummary(
+  executor: Executor,
+  questionnaireId: string,
+): Promise<QuestionnaireSummary | undefined> {
+  const [summary] = await selectQuestionnaireSummaries(executor, eq(questionnaire.id, questionnaireId));
+  return summary;
+}
 
 export interface CreateQuestionnaireCommand {
   readonly questionnaireId?: string;
@@ -18,6 +80,7 @@ export interface CreatedQuestionnaire {
   readonly questionnaireId: string;
   readonly draftVersionId: string;
   readonly draftRevision: number;
+  readonly summary: QuestionnaireSummary;
 }
 
 export async function createQuestionnaire(
@@ -28,16 +91,13 @@ export async function createQuestionnaire(
     const questionnaireId = command.questionnaireId ?? uuidv7();
     const draftVersionId = uuidv7();
     await tx.insert(questionnaire).values({ id: questionnaireId, key: command.key, name: command.name });
-    const [draft] = await tx
-      .insert(questionnaireVersion)
-      .values({
-        id: draftVersionId,
-        questionnaireId,
-        status: "draft",
-        title: command.title,
-        createdBy: command.createdBy,
-      })
-      .returning({ draftRevision: questionnaireVersion.draftRevision });
+    await tx.insert(questionnaireVersion).values({
+      id: draftVersionId,
+      questionnaireId,
+      status: "draft",
+      title: command.title,
+      createdBy: command.createdBy,
+    });
     await recordAudit(tx, {
       action: "create_draft",
       questionnaireId,
@@ -47,91 +107,40 @@ export async function createQuestionnaire(
       summary: null,
       traceId: command.traceId,
     });
-    return { questionnaireId, draftVersionId, draftRevision: draft?.draftRevision ?? 0 };
+    const draft = readBack(await readOpenDraft(tx, questionnaireId), "the draft just created");
+    const summary = readBack(await readQuestionnaireSummary(tx, questionnaireId), "the questionnaire just created");
+    return { questionnaireId, draftVersionId: draft.id, draftRevision: draft.draftRevision, summary };
   });
 }
 
-export interface ReplaceDraftCommand {
+export interface SetClosesAtCommand {
   readonly questionnaireId: string;
-  readonly expectedDraftRevision: number;
-  readonly title: string;
-  readonly items: readonly DraftItem[];
+  readonly closesAt: Date | null;
   readonly actorId: string | null;
   readonly traceId: string | null;
 }
 
-export type ReplaceDraftOutcome =
-  | { readonly outcome: "saved"; readonly draftVersionId: string; readonly draftRevision: number }
-  | { readonly outcome: "stale-or-missing-draft" }
-  | { readonly outcome: "archived-question"; readonly questionIds: readonly string[] }
-  | { readonly outcome: "unknown-question-version"; readonly itemIds: readonly string[] };
+export type SetClosesAtOutcome =
+  | { readonly outcome: "updated"; readonly questionnaire: QuestionnaireSummary }
+  | QuestionnaireNotFound;
 
-export async function replaceDraft(executor: Executor, command: ReplaceDraftCommand): Promise<ReplaceDraftOutcome> {
-  return executor.transaction(async (tx) => {
-    const questionIds = [...new Set(command.items.map((item) => item.questionId))];
-    if (questionIds.length > 0) {
-      const archived = await tx
-        .select({ id: question.id })
-        .from(question)
-        .where(and(inArray(question.id, questionIds), isNotNull(question.archivedAt)));
-      if (archived.length > 0) {
-        return { outcome: "archived-question", questionIds: archived.map((row) => row.id) };
-      }
-      const known = await tx
-        .select({ questionId: questionVersion.questionId, version: questionVersion.version })
-        .from(questionVersion)
-        .where(inArray(questionVersion.questionId, questionIds));
-      const knownKeys = new Set(known.map((row) => `${row.questionId}:${row.version}`));
-      const unknownItemIds = command.items
-        .filter((item) => !knownKeys.has(`${item.questionId}:${item.questionVersion}`))
-        .map((item) => item.itemId);
-      if (unknownItemIds.length > 0) {
-        return { outcome: "unknown-question-version", itemIds: unknownItemIds };
-      }
-    }
+export async function setClosesAt(executor: Executor, command: SetClosesAtCommand): Promise<SetClosesAtOutcome> {
+  return withLockedQuestionnaire(executor, command.questionnaireId, async (tx, locked): Promise<SetClosesAtOutcome> => {
+    await tx.update(questionnaire).set({ closesAt: command.closesAt }).where(eq(questionnaire.id, command.questionnaireId));
 
-    const [draft] = await tx
-      .update(questionnaireVersion)
-      .set({
-        title: command.title,
-        draftRevision: sql`${questionnaireVersion.draftRevision} + 1`,
-        updatedAt: sql`now()`,
-      })
-      .where(
-        and(
-          eq(questionnaireVersion.questionnaireId, command.questionnaireId),
-          eq(questionnaireVersion.status, "draft"),
-          eq(questionnaireVersion.draftRevision, command.expectedDraftRevision),
-        ),
-      )
-      .returning({ id: questionnaireVersion.id, draftRevision: questionnaireVersion.draftRevision });
-    if (draft === undefined) {
-      return { outcome: "stale-or-missing-draft" };
-    }
-
-    await tx.delete(questionnaireItem).where(eq(questionnaireItem.questionnaireVersionId, draft.id));
-    if (command.items.length > 0) {
-      await tx.insert(questionnaireItem).values(
-        command.items.map((item, position) => ({
-          questionnaireVersionId: draft.id,
-          itemId: item.itemId,
-          position,
-          required: item.required,
-          visibleWhen: item.visibleWhen,
-          questionId: item.questionId,
-          questionVersion: item.questionVersion,
-        })),
-      );
-    }
+    const from = locked.closesAt?.toISOString() ?? null;
+    const to = command.closesAt?.toISOString() ?? null;
     await recordAudit(tx, {
-      action: "edit_draft",
+      action: to === null ? "reopen" : "retire",
       questionnaireId: command.questionnaireId,
-      questionnaireVersionId: draft.id,
+      questionnaireVersionId: null,
       version: null,
       actorId: command.actorId,
-      summary: { title: command.title, itemIds: command.items.map((item) => item.itemId) },
+      summary: { from, to },
       traceId: command.traceId,
     });
-    return { outcome: "saved", draftVersionId: draft.id, draftRevision: draft.draftRevision };
+
+    const summary = readBack(await readQuestionnaireSummary(tx, command.questionnaireId), "the questionnaire just updated");
+    return { outcome: "updated", questionnaire: summary };
   });
 }

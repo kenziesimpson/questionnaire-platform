@@ -26,8 +26,8 @@ respondent form and the admin preview.
 
 | Path | Contents |
 | --- | --- |
-| `src/primitives/` | shadcn components written by the CLI (`button`, `input`, `label`, `radio-group`, `checkbox`, `textarea`) |
-| `src/questionnaire/` | `QuestionnaireForm`, `QuestionnaireItems`, one control per response type, the `aria-live` visibility announcer and the error catalogue |
+| `src/primitives/` | shadcn components written by the CLI (`button`, `input`, `label`, `radio-group`, `checkbox`, `textarea`, `dialog`, `select`, `popover`, `table`, `command`, and `input-group`, which `command` needs). A searchable combobox is shadcn's `Popover` + `Command` pattern, composed where it is used; shadcn's own `combobox` is built on Base UI rather than Radix, so it is not added |
+| `src/questionnaire/` | `QuestionnaireForm`, `QuestionnaireItems`, one control per response type, the `aria-live` visibility announcer, the error catalogue, and `errorsByItemId`, which groups a `submission/invalid` body into the `errors` prop |
 | `src/styles/globals.css` | Tailwind v4 entry, shadcn theme tokens, and the `@source` that scans this package |
 | `src/lib/utils.ts` | The `cn` helper the shadcn `utils` alias points at |
 | `components.json` | shadcn configuration for components written into this package |

@@ -1,0 +1,111 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      --bg:oklch(1 0 0);--fg:oklch(0.145 0 0);--muted:oklch(0.97 0 0);--mfg:oklch(0.556 0 0);
+      --border:oklch(0.922 0 0);--primary:oklch(0.205 0 0);--pfg:oklch(0.985 0 0);
+      --ring:oklch(0.708 0 0);
+    }
+    body{margin:0;background:var(--bg);color:var(--fg);font-size:14px;
+      font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+      -webkit-font-smoothing:antialiased;}
+    a{color:oklch(0.205 0 0);text-underline-offset:4px;}
+    a:hover{color:oklch(0.145 0 0);}
+    .nav{display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:10px;font-size:14px;color:var(--mfg);}
+    .nav.on{background:var(--muted);color:var(--fg);font-weight:500;}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;font-size:14px;font-weight:500;cursor:pointer;}
+    .btn.sm{height:28px;padding:0 8px;font-size:13px;border-radius:8px;}
+    .th{font-size:12px;font-weight:500;color:var(--mfg);}
+    .pill{justify-self:start;box-sizing:border-box;width:fit-content;display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border:1px solid var(--border);border-radius:999px;font-size:11px;font-weight:500;}
+    .row{display:grid;grid-template-columns:130px 1fr 170px 140px 200px;gap:16px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border);}
+    .meta{font-size:12px;color:var(--mfg);}
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; width: 1280px; box-sizing: border-box">
+
+  <div style="display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 20px; border-bottom: 1px solid var(--border)">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="oklch(0.145 0 0)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10"></path><path d="M9 8h5"></path><path d="M9 12h5"></path><path d="m17 14 2 2 4-4"></path></svg>
+      <span style="font-size: 14px; font-weight: 600; letter-spacing: -0.01em">Questionnaire admin</span>
+    </div>
+    <span style="font-size: 12px; color: var(--mfg)">No sign-in in this prototype &middot; authoring surface</span>
+  </div>
+
+  <div style="display: flex; align-items: stretch">
+
+    <div style="display: flex; flex-direction: column; gap: 4px; width: 200px; flex-shrink: 0; padding: 16px 12px; border-right: 1px solid var(--border); min-height: 500px">
+      <div class="nav on">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg>
+        Questionnaires
+      </div>
+      <div class="nav">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"></path></svg>
+        Question bank
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 20px; flex-grow: 1; min-width: 0; padding: 20px 24px 32px">
+
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 8px" class="meta">
+          <a href="#">Questionnaires</a>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="oklch(0.556 0 0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+          <span>Patient Intake</span>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 24px">
+          <h1 style="margin: 0; font-size: 20px; line-height: 1.3; font-weight: 600; letter-spacing: -0.01em">Versions</h1>
+          <button class="btn">Open draft editor</button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; overflow: hidden">
+
+        <div class="row" style="background: var(--muted)">
+          <span class="th">Version</span><span class="th">Contents</span><span class="th">Published</span><span class="th">By</span><span class="th"></span>
+        </div>
+
+        <div class="row">
+          <span class="pill" style="background: var(--muted)">Draft</span>
+          <span style="font-size: 13px">5 questions &middot; 2 unresolved problems</span>
+          <span style="font-size: 13px; color: var(--mfg)">edited 2 minutes ago</span>
+          <span style="font-size: 13px; color: var(--mfg)">&mdash;</span>
+          <div style="display: flex; gap: 8px"><button class="btn sm">Edit</button></div>
+        </div>
+
+        <div class="row">
+          <span style="font-size: 14px; font-weight: 500">Version 2</span>
+          <span style="font-size: 13px">4 questions &middot; &ldquo;Hypertension&rdquo; relabelled to &ldquo;High blood pressure (hypertension)&rdquo;</span>
+          <span style="font-size: 13px; color: var(--mfg)">13 Sep 2026, 09:14</span>
+          <span style="font-size: 13px; color: var(--mfg)">seed</span>
+          <div style="display: flex; gap: 8px"><button class="btn sm">Preview</button><button class="btn sm">Compare with v1</button></div>
+        </div>
+
+        <div class="row" style="border-bottom: 0">
+          <span style="font-size: 14px; font-weight: 500">Version 1</span>
+          <span style="font-size: 13px">4 questions</span>
+          <span style="font-size: 13px; color: var(--mfg)">12 Sep 2026, 16:02</span>
+          <span style="font-size: 13px; color: var(--mfg)">seed</span>
+          <div style="display: flex; gap: 8px"><button class="btn sm">Preview</button></div>
+        </div>
+
+      </div>
+
+      <div style="display: flex; gap: 24px; max-width: 900px">
+        <p style="margin: 0; font-size: 12px; line-height: 1.6; color: var(--mfg)">A published version cannot be edited, only superseded &mdash; the database rejects the write even if something gets past this screen. Sessions started against version 1 stay on version 1 to the end, and responses keep the version they were collected under.</p>
+        <p style="margin: 0; font-size: 12px; line-height: 1.6; color: var(--mfg)">No response counts here. The authoring service has no read access to response data at all, so reporting is a separate surface rather than a column this screen could quietly grow.</p>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

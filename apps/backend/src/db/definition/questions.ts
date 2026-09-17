@@ -1,10 +1,20 @@
-import type { QuestionInput } from "@qp/shared";
-import { eq, sql } from "drizzle-orm";
+import type { Question, QuestionInput, QuestionUsage, QuestionVersion, QuestionVersionSummary } from "@qp/shared";
+import { and, asc, desc, eq, gt, isNull, notExists, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
-import { question, questionVersion, questionVersionOption } from "../schema.js";
-import { questionInputToColumns } from "./question-content.js";
+import { question, questionnaireVersion, questionVersion, questionVersionOption, versionQuestionIndex } from "../schema.js";
+import { questionInputToColumns, storedQuestionToVersion } from "./question-content.js";
+import { readBack } from "./read-back.js";
+import { isPublishedVersion, publishedValue } from "./versions.js";
+import { questionVersionIn, questionVersionKey, readOptionsInPosition, readQuestionVersions } from "./question-versions.js";
+
+export interface QuestionNotFound {
+  readonly outcome: "question-not-found";
+}
+
+const QUESTION_NOT_FOUND: QuestionNotFound = { outcome: "question-not-found" };
 
 export interface CreateQuestionCommand {
   readonly questionId?: string;
@@ -17,6 +27,7 @@ export interface CreateQuestionCommand {
 export interface SavedQuestionVersion {
   readonly questionId: string;
   readonly questionVersion: number;
+  readonly question: Question;
 }
 
 async function insertQuestionVersion(
@@ -57,7 +68,8 @@ async function insertQuestionVersion(
     summary: { questionId, questionVersion: version },
     traceId,
   });
-  return { questionId, questionVersion: version };
+  const saved = readBack(await readQuestion(tx, questionId), "the question version just saved");
+  return { questionId, questionVersion: version, question: saved };
 }
 
 export async function createQuestion(executor: Executor, command: CreateQuestionCommand): Promise<SavedQuestionVersion> {
@@ -75,35 +87,197 @@ export interface AppendQuestionVersionCommand {
   readonly traceId: string | null;
 }
 
+export interface QuestionTypeChanged {
+  readonly outcome: "type-changed";
+}
+
+const QUESTION_TYPE_CHANGED: QuestionTypeChanged = { outcome: "type-changed" };
+
 export type AppendQuestionVersionOutcome =
   | ({ readonly outcome: "saved" } & SavedQuestionVersion)
-  | { readonly outcome: "not-found" };
+  | QuestionNotFound
+  | QuestionTypeChanged;
+
+interface LockedQuestion {
+  readonly id: string;
+}
+
+function selectQuestion(executor: Executor, questionId: string) {
+  return executor.select({ id: question.id }).from(question).where(eq(question.id, questionId));
+}
+
+async function lockQuestion(tx: Transaction, questionId: string): Promise<LockedQuestion | undefined> {
+  const [locked] = await selectQuestion(tx, questionId).for("update");
+  return locked;
+}
 
 export async function appendQuestionVersion(
   executor: Executor,
   command: AppendQuestionVersionCommand,
 ): Promise<AppendQuestionVersionOutcome> {
   return executor.transaction(async (tx) => {
-    const locked = await tx
-      .select({ id: question.id })
-      .from(question)
-      .where(eq(question.id, command.questionId))
-      .for("update");
-    if (locked.length === 0) {
-      return { outcome: "not-found" };
+    if ((await lockQuestion(tx, command.questionId)) === undefined) {
+      return QUESTION_NOT_FOUND;
     }
     const [latest] = await tx
-      .select({ next: sql<number>`coalesce(max(${questionVersion.version}), 0) + 1` })
+      .select({ version: questionVersion.version, type: questionVersion.type })
       .from(questionVersion)
-      .where(eq(questionVersion.questionId, command.questionId));
+      .where(eq(questionVersion.questionId, command.questionId))
+      .orderBy(desc(questionVersion.version))
+      .limit(1);
+    if (latest !== undefined && latest.type !== command.content.type) {
+      return QUESTION_TYPE_CHANGED;
+    }
     const saved = await insertQuestionVersion(
       tx,
       command.questionId,
-      Number(latest?.next ?? 1),
+      (latest?.version ?? 0) + 1,
       command.content,
       command.createdBy,
       command.traceId,
     );
     return { outcome: "saved", ...saved };
+  });
+}
+
+const newerVersion = alias(questionVersion, "newer_version");
+
+async function readLatestQuestions(executor: Executor, filter: SQL | undefined): Promise<Question[]> {
+  const isLatestVersion = notExists(
+    executor
+      .select({ version: newerVersion.version })
+      .from(newerVersion)
+      .where(and(eq(newerVersion.questionId, questionVersion.questionId), gt(newerVersion.version, questionVersion.version))),
+  );
+
+  const rows = await executor
+    .select({
+      key: question.key,
+      archivedAt: question.archivedAt,
+      questionCreatedAt: question.createdAt,
+      latest: {
+        questionId: questionVersion.questionId,
+        version: questionVersion.version,
+        type: questionVersion.type,
+        prompt: questionVersion.prompt,
+        constraints: questionVersion.constraints,
+        createdAt: questionVersion.createdAt,
+        createdBy: questionVersion.createdBy,
+      },
+    })
+    .from(question)
+    .innerJoin(questionVersion, eq(questionVersion.questionId, question.id))
+    .where(and(isLatestVersion, filter))
+    .orderBy(desc(question.id));
+
+  const optionsByKey = await readOptionsInPosition(executor, questionVersionIn(rows.map((row) => row.latest)));
+  return rows.map((row) => ({
+    questionId: row.latest.questionId,
+    key: row.key,
+    archivedAt: row.archivedAt?.toISOString() ?? null,
+    createdAt: row.questionCreatedAt.toISOString(),
+    latest: storedQuestionToVersion(row.latest, optionsByKey.get(questionVersionKey(row.latest)) ?? []),
+  }));
+}
+
+export interface ListQuestionsQuery {
+  readonly includeArchived: boolean;
+}
+
+export async function listQuestions(executor: Executor, query: ListQuestionsQuery): Promise<Question[]> {
+  return readLatestQuestions(executor, query.includeArchived ? undefined : isNull(question.archivedAt));
+}
+
+export async function readQuestion(executor: Executor, questionId: string): Promise<Question | undefined> {
+  const [found] = await readLatestQuestions(executor, eq(question.id, questionId));
+  return found;
+}
+
+async function questionExists(executor: Executor, questionId: string): Promise<boolean> {
+  const rows = await selectQuestion(executor, questionId);
+  return rows.length === 1;
+}
+
+export async function listQuestionVersionSummaries(
+  executor: Executor,
+  questionId: string,
+): Promise<QuestionVersionSummary[] | undefined> {
+  const rows = await executor
+    .select({
+      questionVersion: questionVersion.version,
+      type: questionVersion.type,
+      createdAt: questionVersion.createdAt,
+      createdBy: questionVersion.createdBy,
+    })
+    .from(questionVersion)
+    .where(eq(questionVersion.questionId, questionId))
+    .orderBy(desc(questionVersion.version));
+  if (rows.length === 0 && !(await questionExists(executor, questionId))) {
+    return undefined;
+  }
+  return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
+}
+
+export async function readQuestionVersion(
+  executor: Executor,
+  questionId: string,
+  version: number,
+): Promise<QuestionVersion | undefined> {
+  const key = { questionId, version };
+  const loaded = (await readQuestionVersions(executor, questionVersionIn([key]))).get(questionVersionKey(key));
+  return loaded === undefined ? undefined : storedQuestionToVersion(loaded.stored, loaded.options);
+}
+
+export async function listQuestionUsage(executor: Executor, questionId: string): Promise<QuestionUsage[] | undefined> {
+  if (!(await questionExists(executor, questionId))) {
+    return undefined;
+  }
+  const rows = await executor
+    .select({
+      questionnaireId: questionnaireVersion.questionnaireId,
+      version: questionnaireVersion.version,
+      questionVersion: versionQuestionIndex.questionVersion,
+    })
+    .from(versionQuestionIndex)
+    .innerJoin(questionnaireVersion, eq(questionnaireVersion.id, versionQuestionIndex.questionnaireVersionId))
+    .where(and(eq(versionQuestionIndex.questionId, questionId), isPublishedVersion()))
+    .orderBy(asc(questionnaireVersion.questionnaireId), desc(questionnaireVersion.version));
+  return rows.map((row) => ({ ...row, version: publishedValue(row.version, "version") }));
+}
+
+export interface ArchiveQuestionCommand {
+  readonly questionId: string;
+  readonly actorId: string | null;
+  readonly traceId: string | null;
+}
+
+export type ArchiveQuestionOutcome =
+  | { readonly outcome: "archived" | "already-archived"; readonly question: Question }
+  | QuestionNotFound;
+
+export async function archiveQuestion(executor: Executor, command: ArchiveQuestionCommand): Promise<ArchiveQuestionOutcome> {
+  return executor.transaction(async (tx) => {
+    const archived = await tx
+      .update(question)
+      // eslint-disable-next-line no-restricted-syntax -- archived_at takes the database's transaction timestamp, the same clock as every column default
+      .set({ archivedAt: sql`now()` })
+      .where(and(eq(question.id, command.questionId), isNull(question.archivedAt)))
+      .returning({ id: question.id });
+    if (archived.length === 1) {
+      await recordAudit(tx, {
+        action: "archive_question",
+        questionnaireId: null,
+        questionnaireVersionId: null,
+        version: null,
+        actorId: command.actorId,
+        summary: { questionId: command.questionId },
+        traceId: command.traceId,
+      });
+    }
+    const current = await readQuestion(tx, command.questionId);
+    if (current === undefined) {
+      return QUESTION_NOT_FOUND;
+    }
+    return { outcome: archived.length === 1 ? "archived" : "already-archived", question: current };
   });
 }

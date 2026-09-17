@@ -61,14 +61,19 @@ This is the same technique as the audit role ([[6-observability#5.1 Isolation �
 
 ### 3.3 What stays shared
 
-`@qp/shared` is the only shared code, and it holds exactly two things:
+`@qp/shared` is the only shared code, and it holds exactly three things:
 
 1. **Wire types** — `PublishedDefinition` and its sub-types, request/response types for both APIs, the problem-details type.
 2. **The rule engine** — one evaluator over `visibleWhen`, used by the client to render and by the server to validate on submit.
+3. **The snapshot loader** — `readStoredDefinition(stored, formatVersion)`, which runs the format upgrade chain from the stored `format_version` and then checks the result against `PublishedDefinition`, refusing a snapshot that fails either step ([[5-questionnaire-format#6.5 Snapshot format version]]).
 
 The rule engine is shared for a correctness reason, not a convenience one. The client decides what to show and the server decides what to accept; if those are two implementations, they drift, and the failure mode is a respondent being rejected for answering exactly what they were asked. One function, tested once ([[2-design-doc#15. Testing]]).
 
-Note the engine takes a `PublishedDefinition` and answers, and returns visibility. It has no database access and no knowledge of drafts, so sharing it does not leak the boundary.
+The loader is shared for the same reason. Snapshots are upgraded in memory at read time, never rewritten, so the upgrade chain is logic every reader of a stored snapshot must apply identically. Two copies drift exactly as two evaluators would, and the failure mode is one reader interpreting a stored document differently from what the respondent was shown — or accepting a format the other refuses. The chain is empty while only format 1 exists; the first format change adds its upgrade in one place (Decisions Log #56).
+
+Note the engine takes a `PublishedDefinition` and answers, and returns visibility; the loader takes a stored value and its format version, and returns a `PublishedDefinition`. Neither has database access or knowledge of drafts, so sharing them does not leak the boundary. Each side still runs its own query, against its own grants (§4.2).
+
+Execution loads every pinned snapshot through the loader. The definition side does not call it: `GET /questionnaires/:id/versions/:v` serves the stored bytes verbatim, even after a future format change, because the stored document is the record of what was published and its `ETag` already carries `formatVersion` (§6.4), so a client can tell formats apart without the server rewriting what it serves. It still checks each stored snapshot against the known formats before serving it; Decisions Log #56 lists what a format change must update, including that check and the endpoint's response schema.
 
 ## 4. Definition API
 
@@ -83,10 +88,10 @@ Mounted at `/api/definition`. Every route requires an authenticated author (§7)
 | `GET /questions/:questionId` | Latest version plus metadata | `200` |
 | `GET /questions/:questionId/versions` | Version history (metadata only) | `200` |
 | `GET /questions/:questionId/versions/:v` | One immutable question version | `200` |
-| `POST /questions/:questionId/versions` | Save a revision — append-only, so saving is publishing (Decisions Log #13) | `201` |
+| `POST /questions/:questionId/versions` | Save a revision — append-only, so saving is publishing (Decisions Log #13). The response type cannot change (#61) | `201` |
 | `POST /questions/:questionId/archive` | Hide from the bank; existing placements unaffected | `200` |
 | `GET /questions/:questionId/usage` | Which published versions embed this question — reads `version_question_index` | `200` |
-| `GET /questionnaires` | List with current version and `closesAt` | `200` |
+| `GET /questionnaires` | List with current version, `closesAt` and `updatedAt` — the latest version's `updated_at`, which draft writes bump and a `closesAt` change does not (Decisions Log #59) | `200` |
 | `POST /questionnaires` | Create; opens draft version 1 | `201` |
 | `GET /questionnaires/:id/draft` | The working draft, normalized | `200` |
 | `PUT /questionnaires/:id/draft` | Replace draft items, order and predicates | `200` |
@@ -113,7 +118,7 @@ No endpoint paginates. Definition tables run to dozens or hundreds of rows ([[9-
 
 `PUT /draft` replaces the whole draft rather than patching items individually. The draft is small, it is edited by one author in one screen, and whole-document replacement makes ordering and predicate edits atomic — a reorder is not a sequence of index writes that can half-apply. Concurrency is handled with an `If-Match` ETag over the draft's **revision counter** — `W/"<versionId>:<draftRevision>"` — returning `409 questionnaire/draft-stale` rather than silently clobbering a second tab. A counter rather than a timestamp for the reason `updated_at` is display-only in [[9-database-schema#3. `definition`]]: an ETag should not depend on a clock, and two writes in the same millisecond must not compare equal. `If-Match` is a **required** header in the route schema, so a missing one is a schema failure — `400 request/invalid`, never a silent unconditional write.
 
-**Draft items carry their pinned `questionVersion`,** and the server never resolves "the current version of this question" when writing a draft. An author therefore pins the version their screen was showing, which is what makes "items pin at add time" ([[5-questionnaire-format#6.2 Question identity and versioning]]) true under concurrent editing rather than approximately true — the authoring counterpart of §5.2's rule for the execution side. Two related refusals on this endpoint: an item naming an **archived** question is rejected, since archiving means "not for new placements", and an item naming a question version that does not exist is a `422` rather than a silent fallback to the latest. See [[10-frontend#6. Authoring concurrency]].
+**Draft items carry their pinned `questionVersion`,** and the server never resolves "the current version of this question" when writing a draft. An author therefore pins the version their screen was showing, which is what makes "items pin at add time" ([[5-questionnaire-format#6.2 Question identity and versioning]]) true under concurrent editing rather than approximately true — the authoring counterpart of §5.2's rule for the execution side. Two related refusals on this endpoint: a **newly placed** item naming an archived question is rejected, since archiving means "not for new placements", and an item naming a question version that does not exist is a `422` rather than a silent fallback to the latest. A placement is new when its `(questionId, questionVersion)` pair is not already in the stored draft; an archived question already placed is not refused, so archiving never freezes a draft, and validate and publish follow the same rule (Decisions Log #75). See [[10-frontend#6. Authoring concurrency]].
 
 `POST /draft/validate` exists so the authoring UI can show satisfiability and reachability problems ([[5-questionnaire-format#5. Publish-time validation]]) while editing, using exactly the code path publish uses. Not a second implementation of the rules — the publish handler calls the same function and refuses on the same result.
 
@@ -134,7 +139,7 @@ Version history, snapshot inspection and "which questionnaires use this question
 
 Collapsing these into one endpoint to avoid writing the handler twice is what would break the boundary: it would give the respondent surface a way to name an arbitrary version, and it would give the two audiences one access model when they need two. The handler body is a few lines either side of a different lookup; the contract is the part that matters.
 
-Version history is metadata only — `version`, `publishedAt`, `publishedBy`, `itemCount`, `formatVersion` — because the history screen is a list and snapshots are the largest documents in the system. Fetching a snapshot is the explicit second click.
+Version history is metadata only — `version`, `publishedAt`, `publishedBy`, `itemCount`, `formatVersion` — because the history screen is a list and snapshots are the largest documents in the system. Fetching a snapshot is the explicit second click. `publishedBy` is always `null` until authentication exists: nothing records a publisher, and the history screen renders it as absent (Decisions Log #64).
 
 ### 4.3 Publish and retire
 
@@ -273,12 +278,13 @@ A standard beats a bespoke envelope here for one reason worth more than familiar
 | `question/version-conflict` | 409 | Two saves of one question raced past the row lock |
 | `internal` | 500 | Unhandled; `detail` is a correlation id, never a stack |
 
-Four cases the union is easy to read as not covering, resolved rather than left to a handler:
+Five cases the union is easy to read as not covering, resolved rather than left to a handler:
 
-- **An archived or nonexistent question version in `PUT /draft`** is `422 questionnaire/draft-invalid`, with the offending item named in the `items` extension. It is draft content that fails validation, which is what that slug means.
+- **A newly placed archived question, or a nonexistent question version, in `PUT /draft`** is `422 questionnaire/draft-invalid`, with the offending item named in the `items` extension. An archived question already in the stored draft is not refused (Decisions Log #75). It is draft content that fails validation, which is what that slug means.
 - **Two concurrent saves of one question** are serialized by `SELECT ... FOR UPDATE` on the question row before the next version number is computed ([[9-database-schema#5. Concurrency control]]), so both succeed as *N+1* and *N+2*. `question/version-conflict` maps the `23505` that the lock is supposed to make unreachable — a safety net that should never fire, not the normal path. This does not reopen Decisions Log #31: concurrent edits stay unguarded against *lost updates*, which is a different question from the primary-key race.
 - **Publish or validate with no open draft** is `404 resource/not-found` — the questionnaire exists, the draft does not.
 - **A missing `If-Match`** is `400 request/invalid`, because the header is required by the schema (§4.1). `400` keeps its meaning from Decisions Log #20: always a client bug, never a user mistake.
+- **A question version whose response type differs from the latest** is `400 request/invalid` with `question/type-changed` in `errors`, like the other question rules the editor makes unrepresentable. It is checked under the question row lock, so it compares against the version the new one will follow (Decisions Log #61).
 
 ### 6.2 Status codes
 
@@ -315,9 +321,9 @@ Auth is out of scope (design doc §4), but the model is stated now so that addin
 | Surface | `/api/definition/*` | `/api/run/*` |
 | Identity | Authenticated user from an upstream IdP (OIDC assumed) | Anonymous |
 | Enforcement | One `preHandler` hook on the definition plugin — all routes, reads included | None; the session id is the credential |
-| Prototype stub | Hook present, always passes, records the author as the placeholder `prototype-author` (Decisions Log #53) | n/a |
+| Prototype stub | Hook present, always passes, records the author as the placeholder `prototype-author` (Decisions Log #57) | n/a |
 
-**The placeholder author is permanent in what it touches.** Every authoring write until real authentication exists records `prototype-author` in append-only columns (`created_by` and the audit `actor_id`), and those rows cannot be rewritten later. Read the value as "unknown author". [[2-design-doc#17. Decisions Log]] #53 has the reasoning.
+**The placeholder author is permanent in what it touches.** Every authoring write until real authentication exists records `prototype-author` in append-only columns (`created_by` and the audit `actor_id`), and those rows cannot be rewritten later. Read the value as "unknown author". [[2-design-doc#17. Decisions Log]] #57 has the reasoning.
 
 Applying the hook to the whole plugin rather than per route is deliberate: a new definition endpoint is protected by default, and forgetting is not one of the available mistakes.
 
@@ -407,3 +413,4 @@ Against that: a write on the hot side of the system, and a partial-answer store 
 2. **Admin reporting surface.** §3.2 denies the definition role any read on `response`, which is correct, and leaves "how do admins see aggregate results" unanswered. Expected shape is a third read-only surface with its own role over the session record and domain events, with raw answers behind an explicit, audited export. Not designed yet.
 3. **Version diffing.** `GET /versions/:a/diff/:b` would make "what changed in v2" a first-class answer and is directly useful for the mandatory v2 demo. Deferred as additive — both snapshots are already retrievable and the admin app can diff client-side.
 4. **Rate limiting on the execution surface.** Unauthenticated `POST /sessions` is trivially abusable. `@fastify/rate-limit` is a small addition; whether it belongs in the prototype or is stated as an edge concern is open, and it interacts with where the split in §8.2 puts the public ingress.
+5. **A taken `key` on create — open, deferred 2026-09-13.** `POST /questions` and `POST /questionnaires` with a key already in use return `500 internal`, because no slug in §6.1 fits. Tracked in [issue #15](https://github.com/kenziesimpson/questionnaire-platform/issues/15); resolve before Track 6 ships key entry.

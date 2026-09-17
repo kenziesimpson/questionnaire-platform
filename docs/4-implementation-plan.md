@@ -75,7 +75,7 @@
 
 - [x] `.github/workflows/ci.yml` — one **Checks** job on every push to `main` and every pull request: `npm ci`, `lint`, `typecheck`, `npm test`, `build`, Node from `.nvmrc`. No Postgres service; Testcontainers supplies its own ([[8-testing#5.3 CI details that actually bite]])
 - [ ] Checks green on `main` on GitHub, and required as a status check on `main`'s branch protection
-- [ ] ~~Wave 2 does not start until both boxes above are ticked~~ **Waived 2026-09-13.** Wave 2 starts with CI running but no branch protection. Until the box above is ticked, checking for a green run before merging is the reviewer's job, not GitHub's
+- [ ] ~~Wave 2 does not start until both boxes above are ticked~~ **Waived 2026-09-13.** Wave 2 starts with CI running but no branch protection. Until the box above is ticked, checking for a green run before merging is the reviewer's job, not GitHub's. **Branch protection is unavailable on the current plan:** GitHub refuses it for a private repository on the free plan (`403`, "Upgrade to GitHub Pro or make this repository public"), so the box above stays unticked while Checks itself is green on `main`
 
 ### Wave 2 — API plugins *(two parallel tracks)*
 
@@ -92,7 +92,7 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
 1. **Only the files your group owns** ([[#Track 4 file split]]). `apps/backend/src/db/schema.ts`, `audit.ts`, `client.ts`, `drizzle/**` and `packages/shared/**` are frozen for Track 4. A needed change there is a [[#Stop and ask]], not an edit.
 2. **Set up test data through the database functions, never through another group's routes.** A G3 test that needs a published version calls `createQuestion`, `createQuestionnaire`, `replaceDraft` and `publishDraft` directly. That is what keeps the groups mergeable in any order.
 3. **One route-group test file**, per [[8-testing#2.2 Backend integration — Fastify `inject()` against a real Postgres]], at `apps/backend/_tests/modules/definition/routes/<your routes file>.test.ts`, mirroring `src/` as `AGENTS.md` requires. Build the app with `useDefinitionApp`. Your test rows go under your group's heading in [[8-testing#7. Test case enumeration]].
-4. **The author is `authorOf(request)`**, passed as `actorId` / `createdBy` on every write. Never `null`, and never the placeholder string typed at a call site. See [[2-design-doc#17. Decisions Log]] #53 before writing anything that stores it. `traceId` is `null` until Track 8 lands.
+4. **The author is `authorOf(request)`**, passed as `actorId` / `createdBy` on every write. Never `null`, and never the placeholder string typed at a call site. See [[2-design-doc#17. Decisions Log]] #57 before writing anything that stores it. `traceId` is `null` until Track 8 lands.
 5. **Every route is registered with `registerRoute` and the `definitionApi` object from `@qp/shared`.** No `scope.get` / `scope.route`, and no URL or schema written in the backend. G4's completeness test checks the result
 6. **Every list keeps its `ORDER BY`** from [[7-application-boundary#4.1 Endpoints]]. A list test must create at least two rows and assert their order.
 
@@ -108,7 +108,7 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
   - `replyNotFound`
 
   `src/http/database-errors.ts` reads the SQLSTATE and constraint name through drizzle's wrapped `cause` chain
-- [x] `modules/definition/plugin.ts`: an encapsulated plugin with the validator compiler, the not-found handler, the definition error handler, and one `onRequest` author hook. The hook attaches `AUTHOR_PLACEHOLDER` ([[2-design-doc#17. Decisions Log]] #53). `authorOf(request)` throws on a request that did not pass through the hook, so a route registered outside the plugin fails loudly instead of writing no author
+- [x] `modules/definition/plugin.ts`: an encapsulated plugin with the validator compiler, the not-found handler, the definition error handler, and one `onRequest` author hook. The hook attaches `AUTHOR_PLACEHOLDER` ([[2-design-doc#17. Decisions Log]] #57). `authorOf(request)` throws on a request that did not pass through the hook, so a route registered outside the plugin fails loudly instead of writing no author
 - [x] `modules/definition/errors.ts`, definition-only mapping kept out of `src/http`: `QP001` → `409 version/immutable`; `23505` on `question_version_pkey` only → `409 question/version-conflict`; a malformed `If-Match` → `400` pointing at `/headers/if-match`; everything else falls through to `replyWithProblem`
 - [x] `modules/definition/if-match.ts`: `draftPreconditionOf(ifMatch)` throws `MalformedDraftPrecondition` for anything but a draft ETag the server issued (`*` included); `isCurrentDraft` compares the draft version id **and** the revision. Revision alone is not enough, because a newly opened draft restarts at `0` and an ETag from the previous draft would otherwise match. `replaceDraft` and `publishDraft` check only the revision today, so G2 and G3 must add the version id check
 - [x] `src/http/routes.ts`: `registerRoute(scope, sharedRoute, handler)`. The handler's params, query, headers and body are typed from the shared `defineRoute` object, and it returns `{ status, body, headers? }` for a status the route declares, or a `Problem`. A wrong status, a body that does not match the schema, or an undeclared request part is a compile error
@@ -120,35 +120,37 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
 
 `GET /questions`, `POST /questions`, `GET /questions/:questionId`, `GET /questions/:questionId/versions`, `GET /questions/:questionId/versions/:v`, `POST /questions/:questionId/versions`, `POST /questions/:questionId/archive`, `GET /questions/:questionId/usage`
 
-- [ ] Bank reads: latest version of each question with its options in `position` order, `?includeArchived=`, `id DESC`; version history `version DESC`; one version; usage from `version_question_index` ordered `questionnaire_id, version DESC`
-- [ ] `archiveQuestion`: sets `archived_at` once (archiving an already-archived question is a no-op that returns `200` and writes no second audit row), audited `archive_question`. Existing placements are unaffected
-- [ ] Question-rule failures (`QUESTION_RULE_CODES`) on create and on saving a version map to the `request/invalid` `errors` extension, as the shared types already define
-- [ ] Tests → **M4** *bank CRUD*, *deterministic list order*: create → v1; save → v2 with v1 unchanged; archived hidden by default and shown with `includeArchived`; unknown ids `404`; two concurrent saves become v2 and v3; usage lists only published versions
+- [x] Bank reads: latest version of each question with its options in `position` order, `?includeArchived=`, `id DESC`; version history `version DESC`; one version; usage from `version_question_index` ordered `questionnaire_id, version DESC`
+- [x] `archiveQuestion`: sets `archived_at` once (archiving an already-archived question is a no-op that returns `200` and writes no second audit row), audited `archive_question`. Existing placements are unaffected
+- [x] Question-rule failures (`QUESTION_RULE_CODES`) on create and on saving a version map to the `request/invalid` `errors` extension, as the shared types already define
+- [x] Tests → **M4** *bank CRUD*, *deterministic list order*: create → v1; save → v2 with v1 unchanged; archived hidden by default and shown with `includeArchived`; unknown ids `404`; two concurrent saves become v2 and v3; usage lists only published versions
 
 #### G2 — draft lifecycle *(parallel)*
 
 `POST /questionnaires`, `GET /questionnaires/:id/draft`, `PUT /questionnaires/:id/draft`, `POST /questionnaires/:id/draft`, `POST /questionnaires/:id/draft/validate`
 
-- [ ] Draft read: `items` in `position` order and `questions` holding each pinned question version once; `ETag` from `formatDraftEtag`; `Cache-Control: no-store`
-- [ ] `PUT /draft` maps `replaceDraft`'s outcomes: `stale-or-missing-draft` → `409 questionnaire/draft-stale` when a draft exists, `404` when none does; `archived-question` and `unknown-question-version` → `422 questionnaire/draft-invalid` with the offending items in `items`. Responds with the new `ETag`
-- [ ] `openNextDraft` (new, in `db/definition/questionnaires.ts`): `FOR UPDATE` on the questionnaire as the **first** statement ([[9-database-schema#5. Concurrency control]]), `409 questionnaire/draft-exists` when a draft is open, `404` when nothing has been published, then copy the latest published version's items with their pinned question versions, audited `create_draft`. A copied item whose question has since been archived is kept; publish validation reports it
-- [ ] `validate` runs the same read-and-`validateDraft` path publish uses and never writes. If that needs `publishDraft`'s private helpers exported, G2 does that in `publish.ts` as a **pure extraction, no behaviour change**, and tells G3 before merging
-- [ ] Tests → **M4** *stale-ETag `409`*, *archived question rejected at add time*: two tabs, one gets `409`; the missing-`If-Match` `400`; two concurrent next-draft opens, where exactly one gets `201`; the copy pins the same question versions as the source; validate reports what publish would refuse and writes no audit row
+- [x] Draft read: `items` in `position` order and `questions` holding each pinned question version once; `ETag` from `formatDraftEtag`; `Cache-Control: no-store`
+- [x] `PUT /draft` maps `replaceDraft`'s outcomes: `stale-or-missing-draft` → `409 questionnaire/draft-stale` when a draft exists, `404` when none does; `archived-question` and `unknown-question-version` → `422 questionnaire/draft-invalid` with the offending items in `items`. Responds with the new `ETag`. *(Narrowed by [[2-design-doc#17. Decisions Log]] #75: `archived-question` fires for newly placed items only — see [[#How Track 6 runs]].)*
+- [x] `openNextDraft` (new, in `db/definition/questionnaires.ts`): `FOR UPDATE` on the questionnaire as the **first** statement ([[9-database-schema#5. Concurrency control]]), `409 questionnaire/draft-exists` when a draft is open, `404` when nothing has been published, then copy the latest published version's items with their pinned question versions, audited `create_draft`. A copied item whose question has since been archived is kept; ~~publish validation reports it~~ it is an existing placement, so under #75 neither saves nor publish report it
+- [x] `validate` runs the same read-and-`validateDraft` path publish uses and never writes. If that needs `publishDraft`'s private helpers exported, G2 does that in `publish.ts` as a **pure extraction, no behaviour change**, and tells G3 before merging
+- [x] Tests → **M4** *stale-ETag `409`*, *archived question rejected at add time*: two tabs, one gets `409`; the missing-`If-Match` `400`; two concurrent next-draft opens, where exactly one gets `201`; the copy pins the same question versions as the source; validate reports what publish would refuse and writes no audit row
 
 #### G3 — publish, version history, retirement *(parallel)*
 
 `POST /questionnaires/:id/publish`, `GET /questionnaires/:id/versions`, `GET /questionnaires/:id/versions/:v`, `PUT /questionnaires/:id/closes-at`
 
-- [ ] `POST /publish` maps `publishDraft`'s outcomes: `questionnaire-not-found` and `no-draft` → `404`; `stale` → `409 questionnaire/draft-stale`; `invalid` → `422 questionnaire/draft-invalid`; `published` → `201 VersionSummary`
-- [ ] Version reads (new file `db/definition/versions.ts`): history `version DESC`, metadata only, `itemCount` from the snapshot; one snapshot verbatim, with `ETag: "<questionnaireId>:<version>:<formatVersion>"` and `Cache-Control: private, max-age=31536000, immutable` (#44); a draft or an unknown version is `404`
-- [ ] `setClosesAt` (new file `db/definition/closes-at.ts`): questionnaire `FOR UPDATE` first; a non-null value (set or reschedule) is audited `retire` and `null` is audited `reopen`, each with `{ from, to }` in the summary; responds with `QuestionnaireSummary`
-- [ ] Tests → **M4** *publish happy path*, *publish failures as `422`*, *version history*: publish writes v1 then v2, with v1's snapshot byte-identical afterwards; a forward reference and an unsatisfiable predicate each return `422` naming the item; publish with a stale `If-Match` is `409`; the snapshot `ETag` and `Cache-Control` headers; clearing `closesAt` restores it
+- [x] `POST /publish` maps `publishDraft`'s outcomes: `questionnaire-not-found` and `no-draft` → `404`; `stale` → `409 questionnaire/draft-stale`; `invalid` → `422 questionnaire/draft-invalid`; `published` → `201 VersionSummary`
+- [x] Version reads (new file `db/definition/versions.ts`): history `version DESC`, metadata only, `itemCount` from the snapshot; one snapshot verbatim, with `ETag: "<questionnaireId>:<version>:<formatVersion>"` and `Cache-Control: private, max-age=31536000, immutable` (#44); a draft or an unknown version is `404`
+- [x] `setClosesAt` (new file `db/definition/closes-at.ts`): questionnaire `FOR UPDATE` first; a non-null value (set or reschedule) is audited `retire` and `null` is audited `reopen`, each with `{ from, to }` in the summary; responds with `QuestionnaireSummary`
+- [x] Tests → **M4** *publish happy path*, *publish failures as `422`*, *version history*: publish writes v1 then v2, with v1's snapshot byte-identical afterwards; a forward reference and an unsatisfiable predicate each return `422` naming the item; publish with a stale `If-Match` is `409`; the snapshot `ETag` and `Cache-Control` headers; clearing `closesAt` restores it
 
 #### G4 — integration *(serial, on `staging`, after G1–G3)*
 
-- [ ] Route completeness: every entry in `definitionRoutes` is registered at its method and URL with the shared schema object. It lands here because it fails until every group has merged
-- [ ] One flow through `inject()` alone, using no database function directly: create a question → create a questionnaire → `PUT /draft` → `validate` → `publish` → save a question revision → open the next draft → re-pin → publish v2 → list versions → fetch both snapshots → set and clear `closesAt`
-- [ ] **M4** ticked; **H3** done by hand against `staging`; `staging → main` merged with Checks green on its head
+- [x] Route completeness: every entry in `definitionRoutes` is registered at its method and URL with the shared schema object. It lands here because it fails until every group has merged
+- [x] One flow through `inject()` alone, using no database function directly: create a question → create a questionnaire → `PUT /draft` → `validate` → `publish` → save a question revision → open the next draft → re-pin → publish v2 → list versions → fetch both snapshots → set and clear `closesAt`
+- [x] **M4** ticked
+- [x] `staging → main` merged with Checks green on its head
+- [ ] **H3** done by hand against the merged Wave 2 API
 
 #### Track 4 file split
 
@@ -168,11 +170,81 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 
 ### Wave 3 — the two apps *(two parallel tracks)*
 
-> **Blocked until the five gaps in [[#Stop and ask]] are answered.** [[10-frontend]] does not decide them, and an agent will invent all five.
+> **Unblocked 2026-09-14.** Every Wave 3 gap in [[#Stop and ask]] is answered — [[2-design-doc#17. Decisions Log]] #53–#55 on 2026-09-13, and #58–#74 on 2026-09-14, which adopt the prototypes in `docs/designs/` for the question editor's constraint fields and options widget and defer `publishedBy` with authentication. **Once the contract commit below lands, Track 6 (admin app) and Track 7 (respondent app) are both fully unblocked.**
+
+#### Wave 3 contract commit *(serial, one agent, before Tracks 6 and 7 branch)*
+
+> **The only Wave 3 change to `packages/shared`, `packages/ui` and `apps/backend`, with one later exception:** the gh#17 fix (#75), which the user authorised to land on `staging/track-6` ([[#How Track 6 runs]]). Otherwise, after it, Tracks 6 and 7 each touch only their own app. It crosses files Tracks 1, 3 and 4 own, which is why one agent does it before anything branches: both apps consume `errorsByItemId` (#62), and Track 6 builds against the other changes.
+
+- [x] `errorsByItemId` in `packages/ui/src/questionnaire/`, with tests (#55, #62)
+- [x] `QuestionnaireSummary.updatedAt` in `packages/shared`, plus the backend list query: the latest `questionnaire_version.updated_at` per questionnaire, not moved by a `closesAt` change (#59)
+- [x] `question/type-changed` in `QUESTION_RULE_CODES`, plus the check in the backend's append-question-version path — `appendQuestionVersion`, under the question row lock it already takes — with a test (#61)
+- [x] The shadcn primitives Track 6 needs in `packages/ui`: `Dialog`, `Select` / `Combobox`, `Table` and `Popover` (#66). Generated files, no questionnaire logic
+- [x] Its rows in [[8-testing#7. Test case enumeration]]
 
 **Track 6 — admin app.** Five screens, code-based TanStack Router, TanStack Query, hand-rolled form state, dnd-kit reorders as optimistic draft mutations through the `If-Match` path with rollback on `409 questionnaire/draft-stale`.
 
-**Track 7 — respondent app.** No router; a state machine after one entry URL. Plain `fetch`, TanStack Form, `localStorage` partials including hidden items, filtered to visible once at submit. Storage-first resume. Client-side date validation against the **browser's** local date.
+- The question editor's constraint fields and options widget follow `QuestionFields` and `AdminQuestionEditor` ([[10-frontend#5.3 The question editor, and re-pinning]], #58). **The Yes / No template button is a required deliverable** (#36, #58): it is how the brief's yes/no type is visible in the admin UI, and the only way a question gets the reserved `yes` / `no` ids. The type selector is disabled after a question's first save (#61)
+- The author-facing `DraftItemCode` message catalogue (#60) gets a design subagent pass on its wording and presentation during execution. Its presentation calls are #76: no problem codes shown to authors (kept in `data-*` attributes for tests), a "no questions yet" all-clear for an empty draft rather than "Ready", and an (i) note on removing an archived question
+- A `409 questionnaire/draft-exists` on opening the next draft refetches and navigates to the existing draft, with no error (#67)
+- Preview's sample answers are plain inputs in an admin side panel; the renderer stays `readonly` (#68)
+- The list and bank keep TanStack Query's default refetch-on-window-focus (#69)
+- `publishedBy` is always `null`; the history screen renders it as absent (#64)
+- **Two known bugs (#65, #75).** [gh#17](https://github.com/kenziesimpson/questionnaire-platform/issues/17) is **fixed in Wave 3** (#75, superseding #65's punt): archiving gates new placements only, so an archived question already placed in a draft no longer blocks `PUT /draft` or publish, and the draft editor shows no archived state. The backend change lands on `staging/track-6` ([[#How Track 6 runs]]); unarchive, the picker change and an archive warning stay deferred. [gh#15](https://github.com/kenziesimpson/questionnaire-platform/issues/15) is still punted: a taken `key` returns `500`, and `key` may be removed — so do not present a key input as required
+
+#### How Track 6 runs
+
+Every PR is staged on a **`staging/track-6`** branch cut from `main` after the Wave 3 contract commit merges. A serial skeleton, **PR0**, lands on `staging/track-6` first. The screen PRs follow, each through a pull request targeting `staging/track-6` with Checks green; CI runs on every pull request whatever the base branch. PR0 pre-registers every route and seam, so the screen PRs touch disjoint files and merge into `staging/track-6` in any order their dependencies allow. `staging/track-6` merges to `main` once, when every PR below is in, with Checks green on its head. **H6** is done by hand against it.
+
+**Rules for every PR:**
+
+1. **PR0 owns the seams.** Screen PRs build on the router, API client, query keys and mutation hook rather than writing their own.
+2. **Every draft write goes through the shared optimistic-draft-mutation hook**, never a hand-rolled `useMutation` with its own `If-Match`.
+3. **Tests with the feature.** Each PR adds its own rows to [[8-testing#7. Test case enumeration]] under a Track 6 heading.
+
+**PR0 — the skeleton** *(serial, lands on `staging/track-6` before any screen PR)*
+
+- [x] `router.tsx`: every screen's route registered with a stub component, so no screen PR edits the route tree
+- [x] The API client: typed calls over `definitionApi` from `@qp/shared`, problem+json parsed into the shared error union, and the draft `ETag` captured and sent back as `If-Match`
+- [x] Query keys, one module, so every screen invalidates the same keys
+- [x] The shared optimistic-draft-mutation hook: apply locally, `PUT /draft` with `If-Match`, roll back and refetch on `409 questionnaire/draft-stale`
+
+| PR | Screen | Depends on |
+| --- | --- | --- |
+| PR1 | Questionnaire list | PR0 |
+| PR2 | Question editor dialog, including the Yes / No button | PR0 |
+| PR3 | Question bank | PR2 |
+| PR4 | Draft editor: items, reorder, predicate editor | PR2 |
+| PR5 | Publish-checks panel and the draft-item message catalogue; removes PR4's archived badge and frozen-draft copy (#75), presentation per #76 | PR4, and the design subagent pass, which starts once PR4's panel host exists and blocks only PR5's copy and layout |
+| History | Version history | PR0; can run in parallel |
+| Preview | Preview | PR0; can run in parallel |
+| PR6 | Integration, plus **H5** (admin half) and **H6** | Everything above |
+| gh#17 fix | Not a screen: archiving gates new placements only (#75), in `apps/backend`; `packages/shared`'s draft validator is unchanged | Nothing in Track 6; lands before `staging/track-6` merges to `main` |
+
+- [x] gh#17 fix (#75) merged into `staging/track-6`: `PUT /draft`, validate and publish report `draft/question-archived` only for items whose `(questionId, questionVersion)` pair is not already in the stored draft, with tests
+- [x] `staging/track-6 → main` merged with Checks green on its head
+
+**PR4 must tell a `422` from a `409`.** A `422 questionnaire/draft-invalid` is not a stale conflict and must not be reported as someone else's edit. Before the gh#17 fix lands, a reorder can hit one from an archived question elsewhere in the draft, for reasons that have nothing to do with the reorder; after it, only a newly placed item can draw `draft/question-archived` (#75). PR4's "Archived in bank" badge and frozen-draft copy are removed by PR5, since under #75 there is no archived state to show.
+
+**Track 7 — respondent app.** No router; a state machine after one entry URL. Plain `fetch`, TanStack Form, `localStorage` partials including hidden items, filtered to visible once at submit. Storage-first resume. Client-side date validation against the **browser's** local date. The primitives' sizes are used as they are; the prototypes' larger touch scale is deferred (#63).
+
+- Partials live under `qp:respondent:<questionnaireId>` in an envelope with a `formatVersion`, shape-checked on load; a mismatched or corrupt value is discarded, not a crash (#71)
+- A successful submit clears the stored answers and keeps `{ sessionId, questionnaireId }`, so reopening the link shows the receipt (#70)
+- `409 session/already-submitted` fetches `GET /sessions/:id` and shows the recorded receipt with a note, never a dead end (#72)
+- Network failures on any of the three calls get a manual retry; submit is disabled in flight; stored answers survive until a genuine `2xx` (#73)
+- **Not in scope: "start over"** on a resumed session, though `RespondentStart` draws it — punted as [gh#35](https://github.com/kenziesimpson/questionnaire-platform/issues/35) (#74)
+
+#### How Track 7 runs
+
+Four **stacked** PRs, staged on a **`staging/track-7`** branch cut from `main` after the Wave 3 contract commit merges. Each PR targets `staging/track-7`, or the PR below it in the stack, and CI runs on every pull request whatever the base branch. `staging/track-7` merges to `main` once, when all four are in, with Checks green on its head. **H4** is done by hand against it.
+
+Each PR adds its own [[8-testing#7. Test case enumeration]] rows with the feature. There is no separate integration PR.
+
+1. [x] **Execution client and storage.** A typed `fetch` for the three `/api/run` routes; the partials storage module with its envelope and shape check (#71); Vitest and RTL set up for `apps/respondent`
+2. [x] **State machine and happy path.** Start, resume, fill with branching, a client-side validation pre-check, submit only the visible answers, the receipt, and the closed and not-found screens
+3. [x] **Submission errors.** The `422` mapped through `errorsByItemId`, an error summary with jump-to-item links, focus on the first invalid item, and the `409 session/already-submitted` handling (#72)
+4. [x] **Network failure and retry** (#73)
+5. [x] `staging/track-7 → main` merged with Checks green on its head
 
 ### Wave 3b — observability and pipeline
 
@@ -196,19 +268,23 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 | `e2e/**`, CI workflows | 9 |
 | `docs/**`, `README.md`, `.claude/skills/**` | nobody — a doc-only pass, never a build agent. **One carve-out:** a track appends its own rows to [[8-testing#7. Test case enumeration]] and touches nothing else under `docs/` |
 
+**One Wave 3 crossing:** the gh#17 fix ([[2-design-doc#17. Decisions Log]] #75) changes `apps/backend` on `staging/track-6`, by explicit user authorisation, which also covered `packages/shared`; its draft validator needed no change, since validate and publish pass it no archived question ids for a stored draft's existing placements. It is not a transfer of ownership; nothing else in Track 6 touches either.
+
 **Contended:** root `package.json`, `tsconfig.base.json`, `docker-compose*.yml`, `.env.example`, the Vitest root config. Changed in Wave 1a and Track 2 only; any later track files a request rather than editing.
 
 ### Stop and ask
 
-An agent must not decide these alone. The first five block Wave 3.
+An agent must not decide these alone. The first five blocked Wave 3 and are all closed; `publishedBy` is deferred with authentication and no longer blocks anything.
 
-- [ ] Admin list sort and filter UI — #40 assigns sorting to the client but names no controls
-- [ ] Which control renders each of the five response types. Only the date control is pinned, to native `<input type="date">`
-- [ ] The draft editor's publish-validation error surface, and where `422 questionnaire/draft-invalid`'s per-item failures land
-- [ ] How `errorsByItemId` is built from the RFC 9457 body — the field names live only in [[7-application-boundary#6.1 Error format — RFC 9457 problem details]] and are not cross-referenced from the frontend doc
-- [ ] The question editor's constraint fields per response type
-- [ ] **`publishedBy` has no column** (blocks G3's `VersionSummary`). `questionnaire_version` stores `created_by`, which is whoever opened the draft, and `qp_definition` cannot read the publish row in `audit.event`. Filling `publishedBy` from `created_by` would label the draft's opener as the publisher; adding a `published_by` column needs a migration and a change to `promote_draft`
+- [x] Admin list sort and filter UI — resolved: client-side "most recently edited" only, nothing else ships in Wave 3. [[2-design-doc#17. Decisions Log]] #53, [gh#21](https://github.com/kenziesimpson/questionnaire-platform/issues/21) tracks the fuller sort/filter surface
+- [x] Which control renders each of the five response types — already settled in [[10-frontend#3. `packages/ui` — primitives and the renderer]]; this plan just hadn't caught up. The *authoring* widget for options was separate and is resolved below
+- [x] The draft editor's publish-validation error surface — resolved: a summary panel with jump-to-item links for the first pass. [[2-design-doc#17. Decisions Log]] #54, [gh#22](https://github.com/kenziesimpson/questionnaire-platform/issues/22) tracks inline per-item rendering as a follow-up
+- [x] How `errorsByItemId` is built from the RFC 9457 body — resolved: one function in `packages/ui`, used by both apps, dropping `answer/not-visible` and `answer/unknown-item` for now. [[2-design-doc#17. Decisions Log]] #55, [gh#23](https://github.com/kenziesimpson/questionnaire-platform/issues/23) tracks revisiting the two dropped codes
+- [x] The question editor's constraint fields per response type — resolved: the `QuestionFields` prototype, with the six cross-field rules unrepresentable in the controls. [[2-design-doc#17. Decisions Log]] #58
+- [ ] ~~**`publishedBy` has no column** (blocks G3's `VersionSummary`).~~ **Deferred with authentication, not resolved** — [[2-design-doc#17. Decisions Log]] #64. `publishedBy` stays `null` and the admin history screen renders it as absent. Not blocking. The original question: `questionnaire_version` stores `created_by`, which is whoever opened the draft, and `qp_definition` cannot read the publish row in `audit.event`. Filling `publishedBy` from `created_by` would label the draft's opener as the publisher; adding a `published_by` column needs a migration and a change to `promote_draft`
 - [ ] Anything that would add a custom migration, widen a grant, put an unpersisted value in the digest, or change what crosses the definition/execution boundary
+
+**The same design pass also settled one item not originally on this list:** the options-authoring widget (add/remove/reorder/mark-freeform) for `single_choice` and `multiple_choice` questions follows the `AdminQuestionEditor` prototype — drag to reorder, generated option ids shown and locked, freeform "Other" marked on its row ([[2-design-doc#17. Decisions Log]] #58). Both design items are resolved; nothing in Wave 3 waits on them.
 
 ### Agent-verified milestones
 
@@ -217,9 +293,9 @@ A wave is not done until its milestones are green.
 - [x] **M1** Engine units: branching truth table, every operator against every type, unanswered → `false`, digest determinism under key reordering, timezone cases
 - [x] **M2** DB invariants on Testcontainers: `UPDATE` and `DELETE` on published rows rejected; bad `response_shape` rejected; `qp_execution` denied on authoring tables; `qp_definition` denied on `response` and on `audit.event`; audit reachable only through `audit.record`; no-default-partition behaviour
 - [x] **M3** Renderer components plus the axe check; reveal and removal announced via `aria-live`
-- [ ] **M4** Definition API via `inject()`: bank CRUD, stale-ETag `409`, publish happy path, publish failures as `422`, archived question rejected at add time, version history, deterministic list order
-- [ ] **M5** Execution API via `inject()`: session pins the snapshot and ignores a later publish; resume; submit; idempotent replay returns the original receipt; answer to an invisible item `422`; the v1/v2 predicate-tightening fixture; closed questionnaire `409`
-- [ ] **M6** Cross-version aggregation: v1 and v2 responses aggregate on `opt_hyperten` while each renders through its own pinned `questionVersion`
+- [x] **M4** Definition API via `inject()`: bank CRUD, stale-ETag `409`, publish happy path, publish failures as `422`, archived question rejected at add time, version history, deterministic list order
+- [x] **M5** Execution API via `inject()`: session pins the snapshot and ignores a later publish; resume; submit; idempotent replay returns the original receipt; answer to an invisible item `422`; the v1/v2 predicate-tightening fixture; closed questionnaire `409`
+- [x] **M6** Cross-version aggregation: v1 and v2 responses aggregate on `opt_hyperten` while each renders through its own pinned `questionVersion`
 - [ ] **M7** Telemetry sentinel canary: a planted answer value reaches no exporter
 - [ ] **M8** Three Playwright specs against the composed stack
 - [ ] **M9** Whole suite, one command, headless, both CI jobs green from a clean clone
@@ -231,7 +307,7 @@ The things a green test cannot tell you.
 - [ ] **H1** *(after Track 2)* `docker compose up` from clean; then open `psql` and try to `UPDATE` a published snapshot yourself. Feel the barrier rather than trusting a green test
 - [ ] **H2** *(after Track 2)* Read the generated migration SQL by hand. [[9-database-schema#11. Migrations]]'s traps fail *silently*, and generated SQL is where they survive review
 - [ ] **H3** *(after Waves 2)* Drive the API by hand through the demo flow once and read the problem+json bodies. Shape and wording are judgement, not assertion
-- [ ] **H4** *(after Track 7)* Fill the demo questionnaire in a browser: answer yes, watch the branch appear; switch to no, watch it and its answers disappear; reload and resume; submit and confirm storage cleared
+- [ ] **H4** *(after Track 7)* Fill the demo questionnaire in a browser: answer yes, watch the branch appear; switch to no, watch it and its answers disappear; reload and resume; submit and confirm the stored answers are gone while the session id remains, then reopen the link and see the receipt
 - [ ] **H5** *(after Tracks 3, 6, 7)* Keyboard-only pass on both apps, then a screen reader on the reveal/remove announcement and on a dnd-kit reorder. No automated check covers this, and it is the accessibility claim the medical domain rests on
 - [ ] **H6** *(after Track 6)* Author from the bank, reorder by keyboard, set a predicate, preview, publish, read version history. Then open a second tab and provoke the draft `409` deliberately
 - [ ] **H7** *(after Track 8)* Enable the opt-in profile, submit once, follow the trace end to end including the client span, and confirm no answer value appears anywhere in it

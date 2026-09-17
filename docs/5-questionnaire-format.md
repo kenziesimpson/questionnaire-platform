@@ -309,6 +309,8 @@ Questions are **append-only**. There is no draft state on the question bank: eve
 - a stable `questionId` — what makes it "the same question" across every revision and every questionnaire that uses it;
 - an ordered series of `questionVersion`s, each an immutable snapshot of prompt, type and constraints.
 
+**The response type is fixed by the first save.** Prompt and constraints may change from version to version; the type may not. A condition is typed to the question it reads (§4.2), so a new type would turn every rule reading that question into a `predicate/type-mismatch` in questionnaires the author cannot see, the next time one re-pins it. Appending a version whose type differs from the latest is `400 request/invalid` with `question/type-changed`, one of the question rules the editor makes unrepresentable ([[2-design-doc#17. Decisions Log]] #61). A different type is a different question.
+
 **Saving is explicit.** Append-only means a naive autosave would spray versions, so the editor holds its working state client-side and writes only when the author commits — presented in the UI as closing out the edit dialog. One deliberate save, one version. This is the real cost of having no draft state on the bank, and it is a UI convention rather than a data-model one.
 
 A typo fix therefore also creates a version, including on a question no published questionnaire has ever used. That is what append-only means, and it is better than a "mutable until first use" rule, which would be a second lifecycle hiding inside the first.
@@ -318,6 +320,8 @@ A typo fix therefore also creates a version, including on a question no publishe
 There is no "upgrade this draft to the latest question versions" action yet (§8), so moving a questionnaire onto a newer question version means removing and re-adding the item. Clunky, deliberate, and written down rather than discovered.
 
 **Questions are archived, never deleted** — hidden from the picker, but retained, because published snapshots reference their content forever. This is an instance of a general rule; see [[2-design-doc#3. Constraints]].
+
+**Archiving means "not for new placements", and nothing more** ([[2-design-doc#17. Decisions Log]] #75). A placement is new when its `(questionId, questionVersion)` pair is not already in the stored draft; only a new one draws `draft/question-archived`, at save or at publish. An item already placed keeps its archived question through every save, into the next draft's copy, and through publish. Re-pinning that item to another version of the question is a new pair, so it is refused like any other new placement. The cost falls on remove-and-re-add: an archived question removed from a draft cannot be put back, since the picker does not offer it and there is no unarchive yet ([gh#17](https://github.com/kenziesimpson/questionnaire-platform/issues/17)). Re-creating it makes a new `questionId`, whose answers do not aggregate with the old one's (§6.3).
 
 ### 6.3 What a response stores
 

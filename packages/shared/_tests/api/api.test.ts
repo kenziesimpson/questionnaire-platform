@@ -1,10 +1,12 @@
+import type { Static } from "typebox";
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
-import { ProblemDetails } from "../../src/problems.js";
+import { DRAFT_ITEM_CODES, ProblemDetails, SUBMISSION_ITEM_CODES, type DraftItemCode } from "../../src/problems.js";
 import * as definition from "../../src/api/definition.js";
 import { formatDraftEtag, parseDraftEtag } from "../../src/api/etag.js";
 import * as execution from "../../src/api/execution.js";
 import type { BodyOf, ReplyOf } from "../../src/api/route.js";
+import type { Equal } from "../type-equality.js";
 
 const routes = [...definition.definitionRoutes, ...execution.executionRoutes];
 
@@ -91,5 +93,21 @@ describe("draft ETag", () => {
 
   it.each(['"x"', `W/"${versionId}"`, `W/"${versionId}:-1"`, `W/"${versionId}:01"`, "*"])("rejects %s", (etag) => {
     expect(parseDraftEtag(etag)).toBeUndefined();
+  });
+});
+
+describe("validateDraft item codes", () => {
+  const Item = definition.validateDraft.schema.response[200].properties.items.items;
+
+  it("types `code` as the draft item codes, never `never`", () => {
+    type Code = Static<typeof Item>["code"];
+    const exact: Equal<Code, DraftItemCode> = true;
+
+    expect(exact).toBe(true);
+  });
+
+  it("admits every draft item code and no submission item code", () => {
+    for (const code of DRAFT_ITEM_CODES) expect(Value.Check(Item, { itemId: "itm_01", code })).toBe(true);
+    expect(Value.Check(Item, { itemId: "itm_01", code: SUBMISSION_ITEM_CODES[0] })).toBe(false);
   });
 });

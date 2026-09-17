@@ -37,7 +37,8 @@ the working rules are in [`.claude/skills/database/SKILL.md`](../../.claude/skil
   `qp_owner` (`DATABASE_URL_OWNER`) and pre-creates the next 24 monthly `response` partitions.
 - `seed/` runs next, as `qp_definition` (`DATABASE_URL_DEFINITION`), and publishes the demo questionnaire
   through the real publish transaction. It is idempotent. See [`src/db/seed/README.md`](src/db/seed/README.md).
-- Roles are not migrations: `db/init/01-roles.sh` creates them when the Postgres volume is first initialised.
+- Roles are not migrations: `db/init/01-roles.sh` creates them, and the compose `roles` service re-applies it
+  before `migrate` on every `up`, so a new role or changed password reaches an existing volume.
 
 ## Hand-edited migrations
 

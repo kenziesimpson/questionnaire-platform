@@ -56,7 +56,7 @@ Single origin is preserved, so the trace-context propagation in [[6-observabilit
 
 The package holds two folders and one rule.
 
-`primitives/` is the shared component set — shadcn components over Radix, styled with Tailwind. Both applications import from it directly, so a button in the admin portal and a button in the respondent form are the same button.
+`primitives/` is the shared component set — shadcn components over Radix, styled with Tailwind. Both applications import from it directly, so a button in the admin portal and a button in the respondent form are the same button. Both apps use the primitives' sizes as they are for Wave 3. The prototypes in `docs/designs/` draw the respondent at a larger touch scale — 52px option rows and 44px inputs against the primitives' 32px controls — as a first approach rather than a pixel spec, and tuning to it is deferred ([[2-design-doc#17. Decisions Log]] #63).
 
 `questionnaire/` is the renderer: given a published definition and a set of answers, render the items that are visible. It is built from `primitives/` rather than from raw elements.
 
@@ -78,7 +78,7 @@ Visibility is computed inside the renderer by calling the shared rule engine, no
 
 **One control per response type.** `single_choice` is a Radix radio group inside a `<fieldset>` and `<legend>`, and `multiple_choice` a checkbox group inside the same. `text` is an input, or a textarea when the question is `multiline`. `number` is a text input with `inputMode` `decimal` (`numeric` for integer questions) and the unit shown after it, because answers are exact decimal strings (Decisions Log #42) and `type="number"` accepts forms the schema rejects. `date` is the native date input (§7). A freeform option's text box is always visible beside its radio or checkbox, with the option label as a hint that hides while the box has focus, and typing in it selects the option. Moving off the option (another radio, or unchecking it) keeps the typed text in the box but omits `otherText` from the answer, since the server rejects `otherText` without the option (`choice/other-text-without-other`); selecting the option again puts the text back. The retained text is local UI state seeded from the answer, so `answers` stays the source of truth for what is answered, and text retained for a deselected option is lost if its item unmounts, for example when a branch hides it. The single-choice control keeps the answer mapping apart from the view that draws the radios, so a dropdown presentation would be a second view rather than a second control — recorded as future work ([[2-design-doc#19. Future Work]]).
 
-**Errors are codes, not messages.** `errors` maps each `itemId` to the `SubmissionItemCode`s it failed, whether they came from the problem body's `items` extension ([[7-application-boundary#6.1 Error format — RFC 9457 problem details]]) or from the shared validator run client-side. One catalogue in `questionnaire/` turns a code into a message built from the question alone, so client and server errors read the same and no message can carry an answer. An item shows its first code; a view listing every current error per question is future work ([[2-design-doc#19. Future Work]]). `answer/not-visible` and `answer/unknown-item` never attach to a rendered item, so the renderer ignores them and the app decides what to do with them.
+**Errors are codes, not messages.** `errors` maps each `itemId` to the `SubmissionItemCode`s it failed, whether they came from the problem body's `items` extension ([[7-application-boundary#6.1 Error format — RFC 9457 problem details]]) or from the shared validator run client-side. One catalogue in `questionnaire/` turns a code into a message built from the question alone, so client and server errors read the same and no message can carry an answer. An item shows its first code; a view listing every current error per question is future work ([[2-design-doc#19. Future Work]]). `answer/not-visible` and `answer/unknown-item` never attach to a rendered item, so the renderer ignores them and the app decides what to do with them. `errorsByItemId`, which groups a problem body into that shape for both apps, lives in `questionnaire/` and is built in the serial Wave 3 contract commit before either app's track branches (Decisions Log #55, #62).
 
 ## 4. Respondent app
 
@@ -104,6 +104,7 @@ The respondent app has one URL, `/q/:questionnaireId`, and everything after it i
 2. If one exists, `GET /sessions/:sessionId`. A live `in_progress` session resumes with its answers; an already-`submitted` session renders the receipt; a `404` means the id is stale, so clear it and continue to step 3.
 3. Otherwise `POST /sessions`, which pins the current published version and returns the definition in the same response.
 4. A `409 questionnaire/closed` at either step renders the "responses closed" page.
+5. A network failure at either step shows a manual retry (Decisions Log #73).
 
 This sequencing — check storage, then resume, then create — is what keeps resume possible at all; creating a session unconditionally would orphan any in-progress one ([[7-application-boundary#5.2 There is no unpinned definition read]]).
 
@@ -111,13 +112,15 @@ There is **no `/s/:sessionId` resume link** in the prototype. With the checkpoin
 
 ### 4.3 Local persistence
 
-`localStorage`, keyed by questionnaire id, holding `{ sessionId, questionnaireId, answers, updatedAt }`.
+`localStorage`, one key per questionnaire — `qp:respondent:<questionnaireId>` — holding an envelope with a `formatVersion` around `{ sessionId, questionnaireId, answers, updatedAt }`. The envelope is shape-checked on load; a value with another `formatVersion`, the wrong shape or unparseable JSON is discarded and the app lands as if storage were empty, rather than crashing. Storage outlives deploys and can be edited by anyone with devtools, and discarding loses only unsubmitted answers (Decisions Log #71).
 
 **Answers to hidden items are kept, not pruned.** The alternative — deleting an answer the moment its branch closes — has to hold the invariant "storage contains only visible answers" across every mutation, and any path that misses it submits a stale answer and earns a `422`. Filtering once, at submit, is a single chokepoint instead of N, and it uses the same `visibleItems` call the server runs. Keeping them also means toggling *no → yes* restores what was typed rather than silently discarding it.
 
 The definition is **not** cached locally. `GET /sessions/:sessionId` returns the pinned definition on resume, so a second copy would only be an opportunity for the two to disagree.
 
-Local state is cleared on a successful submit.
+**A successful submit clears the stored answers and keeps `{ sessionId, questionnaireId }`.** Reopening the link then resumes to the `submitted` session and renders its receipt again (§4.2 step 2), as `RespondentDone` promises, instead of offering a blank form to someone who has already answered. Answers are cleared only on a genuine `2xx` (Decisions Log #70, #73).
+
+**There is no "start over" in Wave 3.** `RespondentStart` in `docs/designs/` draws the button on a resumed form; it is punted as [gh#35](https://github.com/kenziesimpson/questionnaire-platform/issues/35). When built, it clears the answers and keeps the same session, because a new session would leave two in progress for one respondent (Decisions Log #74).
 
 The tradeoffs of browser-held answers — no cross-device resume, incognito loses progress, Safari evicts storage for sites unvisited for roughly seven days — are listed in [[3-scaling#7. Known tradeoffs of browser-held partial answers]] and are accepted rather than mitigated.
 
@@ -129,17 +132,21 @@ The same is true of the relative date constraints (`not_future`, `not_past`). Th
 
 A `422` names item ids and rule codes and never carries values ([[7-application-boundary#5.5 Error bodies must not echo answers]]), so the client renders the message against the answer it already holds. Errors map onto items by `itemId` and are handed to the renderer as codes through the `errors` prop (§3).
 
+**`409 session/already-submitted`** means a different submission for this session already stands, usually from a second tab. The app fetches `GET /sessions/:sessionId` and shows the receipt that was actually recorded, with a note that this form was already submitted, rather than a dead-end error (Decisions Log #72).
+
+**A network failure** on submit, as on start and resume, shows a manual retry. Submit is disabled while a request is in flight, so a second click cannot race the first, and a retry is safe because submit is idempotent on the digest (Decisions Log #19, #73).
+
 ## 5. Admin app
 
 ### 5.1 Screens
 
 | Screen | Purpose |
 | --- | --- |
-| Questionnaire list | Status, current version, `closesAt`; create, open, retire |
+| Questionnaire list | Status, current version, `closesAt`; create, open, retire. Sorted most recently edited, on `updatedAt` (Decisions Log #53, #59) |
 | Draft editor | Item list — add from the bank, reorder, `required`, `visibleWhen`, publish |
-| Question bank | List, create, edit, archive; usage per question |
+| Question bank | List, create, edit, archive; usage per question. Sorted most recently edited, on `latest.createdAt` (#59) |
 | Version history | Published versions for one questionnaire, each openable |
-| Preview | One snapshot rendered through `questionnaire/` in `readonly` mode |
+| Preview | One snapshot rendered through `questionnaire/` in `readonly` mode; sample answers come from plain inputs in an admin side panel (Decisions Log #68) |
 
 The bank keeps its own screen rather than collapsing into the draft editor's picker, because reusable questions are a graded capability and a screen showing one question used by three questionnaires demonstrates reuse in a way a picker does not. `GET /questions/:questionId/usage` exists for exactly that column.
 
@@ -151,13 +158,35 @@ The draft is written back with `PUT /questionnaires/:id/draft`, which replaces t
 
 Reordering uses dnd-kit, and each drop is a draft mutation — optimistic through TanStack Query, rolled back if the write conflicts.
 
+**Opening the next draft can race too.** When two tabs open it and one gets `409 questionnaire/draft-exists`, that tab refetches and navigates to the draft that now exists, with no error: the author wanted a draft and one is open (Decisions Log #67).
+
 **Validation runs while editing, not at publish.** `POST /questionnaires/:id/draft/validate` is a dry run of the publish checks using the identical code path, so an unsatisfiable predicate or a forward reference surfaces as the author creates it. Publish then refuses on the same result, which means the editor cannot show a green state that publish disagrees with.
+
+Failures render as a summary panel with jump-to-item links (Decisions Log #54). Each `DraftItemCode` becomes a sentence through an **author-facing catalogue in `apps/admin`**, typed `Record<DraftItemCode, …>` so a code without a message fails to compile. A message names the problem and the fix. It is separate from the renderer's catalogue in §3, because authors see these codes and respondents never do. Its wording and presentation get a design pass during Track 6 (Decisions Log #60), which settled three things (#76). **Authors never see a problem code** — the sentence is the finding, and the code stays in a `data-*` attribute for tests. **An empty draft gets its own "no questions yet" all-clear line**, not "Ready". And the Remove confirmation for an archived question carries a small (i) note that re-creating it makes a new question whose answers are not tracked with the old one's.
+
+**Placed questions show no archived state.** Archiving gates new placements only (Decisions Log #75): an item whose question was archived after it was placed saves and publishes like any other, so there is nothing to report and no badge. What the author loses is re-adding it once removed — the picker does not offer archived questions — which is what the Remove note is for.
 
 ### 5.3 The question editor, and re-pinning
 
 The editor is a dialog. Questions are append-only and **saving is publishing** ([[5-questionnaire-format#6.2 Question identity and versioning]]), so the dialog holds working state client-side and writes exactly one new version when the author commits — one deliberate save, one version.
 
-Creating a question starts with choosing one of the five response types, which drives the constraint fields the rest of the dialog shows (§8, §9.4). A **Yes / No** template button shortcuts that choice: it creates a `single_choice` question pre-populated with two options — reserved ids `yes` / `no`, labels "Yes" and "No" — with those labels left editable, so the same question can read True / False or Agree / Disagree without becoming a different kind of thing. This is the editor's answer to the brief's "yes or no" response type now that `yes_no` is not a stored type ([[5-questionnaire-format#2. Question types]], Decisions Log #36).
+Creating a question starts with choosing one of the five response types, which drives the constraint fields the rest of the dialog shows (§8, §9.4). **The type is locked after the question's first save.** The dialog disables the selector, and the server refuses a version whose type differs from the latest with `400 request/invalid` and `question/type-changed`, because a condition is typed to the question it reads and a type change would break rules in questionnaires the author cannot see (Decisions Log #61).
+
+The fields follow the `QuestionFields` and `AdminQuestionEditor` prototypes in `docs/designs/` (Decisions Log #58):
+
+| Type | Fields after the prompt | What the controls hold |
+| --- | --- | --- |
+| `text` | Min length and max length inputs; `multiline` checkbox | Max clamped at or above min while typing — `question/min-length-exceeds-max-length` |
+| `single_choice` | Options list; "Allow a freeform Other" checkbox | Ids generated, never typed; only `other` can be freeform — `question/duplicate-option-id`, `question/freeform-not-other` |
+| `multiple_choice` | Options list; min and max selections inputs | Both bounds capped by the option count, max never below min — `question/min-selections-exceeds-max-selections`, `question/selections-exceed-options` |
+| `number` | `numberKind` as a Whole number / Decimal segmented control, required; min, max and unit inputs | Max never below min — `question/min-exceeds-max` |
+| `date` | Earliest and latest as native date inputs; `relative` as an Any / Not in the future / Not in the past segmented control | Latest never before earliest — `question/min-exceeds-max`. The fixed bounds and the relative rule are independent |
+
+**The six `QUESTION_RULE_CODES` cross-field rules are made unrepresentable in the controls, not reported after a save** — the predicate editor's move (§5.4). Their `400` exists for clients that are not this editor; an author who sees one has found an editor bug.
+
+**Options** are one row each: a drag handle for reordering (dnd-kit, as everywhere else), the generated option id shown in a locked chip, an editable label, and a remove button, with "Add option" below the list. The id is set once and never changes, so relabelling stays safe ([[5-questionnaire-format#2.1 Option ids are stable across question versions]]). The freeform `other` option is marked on its own row.
+
+A **Yes / No** template button, a required part of the editor (Decisions Log #58), shortcuts the type choice: it creates a `single_choice` question pre-populated with two options — reserved ids `yes` / `no`, labels "Yes" and "No" — with those labels left editable, so the same question can read True / False or Agree / Disagree without becoming a different kind of thing. This is the editor's answer to the brief's "yes or no" response type now that `yes_no` is not a stored type ([[5-questionnaire-format#2. Question types]], Decisions Log #36).
 
 That collides with pinning. Items pin a question version at add time and keep it, so an author who edits a question from inside the draft editor would create version *N+1* while the item stayed on *N*, and the edit would appear to do nothing.
 
@@ -186,7 +215,7 @@ Three races exist between two authors. The brief asks for concurrency control to
 
 The reason this is safe to accept is the blast radius rather than the frequency. Because pinning is always explicit and nothing auto-upgrades to latest, a lost authoring edit **cannot reach a published snapshot and cannot change what any collected response means**. It stays a collision between two authors over bank content, and both versions remain in the history to reconcile from. An `If-Match` on question saves would close it for the same cost as the draft ETag; it is declined because append-only already prevents the failure that matters, and the remaining exposure is one an author can see and fix. A question **version picker** in the draft editor ([[2-design-doc#19. Future Work]]) is the change that would make the divergence visible at the point it matters.
 
-**A archives a question while B's picker is stale.** Rejected at add time. Harmless to the data — snapshots hold question content forever — but adding a question that was just retired from the bank contradicts what archiving means.
+**A archives a question while B's picker is stale.** Rejected at add time. Harmless to the data — snapshots hold question content forever — but adding a question that was just retired from the bank contradicts what archiving means. Only the add is rejected: an item that already placed the question is untouched, and later saves and publish go through (Decisions Log #75).
 
 A fourth case is already covered elsewhere: re-pinning an item while that draft is being published is caught by the item guard's locking read ([[9-database-schema#4.1 The item guard, and the two ways it fails naively]]).
 
@@ -222,7 +251,7 @@ The through-line: **the respondent app stays dependency-light and imperative; th
 
 **Routing.** The respondent app has one URL and a state machine behind it; a router would be a dependency bought to read one path parameter. The admin app has nested screens and genuinely linkable resources — "here is v2 of the intake form" is a URL worth pasting. TanStack Router over React Router v7 for typed params and ecosystem fit; **code-based rather than file-based**, because file-based needs the Vite plugin plus a generated `routeTree.gen.ts` committed and kept in sync, which earns little across five screens and reads worse in review.
 
-**Server state.** Three uncached calls on one side; roughly eight endpoints with cross-invalidating mutations on the other, where publishing changes the questionnaire list, the version history and the draft state at once. TanStack Query is the tool for the second and dead weight on the first.
+**Server state.** Three uncached calls on one side; roughly eight endpoints with cross-invalidating mutations on the other, where publishing changes the questionnaire list, the version history and the draft state at once. TanStack Query is the tool for the second and dead weight on the first. The list and bank screens keep its default refetch-on-window-focus, so another tab's edit shows up when the author comes back (Decisions Log #69).
 
 **Form state.** TanStack Form in the respondent app, for ecosystem consistency and for the per-field error and touched bookkeeping the accessibility work depends on. Not in the admin app: the two admin forms that matter are dynamic in a way that fights schema-first form state — the question editor's constraint fields depend on the selected response type, and a condition row's operators depend on the referenced question's type — so a form library would spend its budget on conditional field registration. Controlled state and validation from `@qp/shared` is less machinery there, not more.
 
@@ -264,5 +293,5 @@ Considered to keep the respondent bundle minimal. The marginal cost of shadcn ov
 
 1. **Single-page rendering past demo size.** The model is fine for a handful of items and degrades for a long questionnaire. Pages and sections are already deferred ([[2-design-doc#18. Open Questions]] §5); if they arrive, the rendering model is the thing they change.
 2. **Admin authentication shape.** The access model is written ([[7-application-boundary#7. Access model and data barriers]]) but the client side of it — where a token lives, how a 401 is handled, whether the admin app is served at all to an unauthenticated caller — is undesigned because auth is out of scope.
-3. **Error and empty states.** Named here so they are built rather than discovered: network failure during submit, a definition that fails to load, an empty question bank, a questionnaire with no published version.
+3. **Error and empty states.** Named here so they are built rather than discovered: a definition that fails to load, an empty question bank, a questionnaire with no published version. Respondent network failures are settled: a manual retry (Decisions Log #73).
 4. **Optimistic update scope in the draft editor.** Reordering is optimistic; whether predicate and `required` edits should be is unsettled, and it interacts with how visible the `409` path is.

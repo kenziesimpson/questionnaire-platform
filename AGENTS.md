@@ -19,6 +19,19 @@ git worktree add ../qp-<short-task-name> -b <branch-name> main
 
 Commit and push from the worktree, then open a PR — `main` only changes by merging one. Multiple agent sessions run against this repo concurrently; editing the shared working copy in place risks clobbering another session's work. The git stash stack is shared across worktrees, so avoid bare `git stash` / `git stash pop`; make a temporary WIP commit instead if you need to set work aside.
 
+## Pull requests
+
+### Screenshots on UI changes
+
+A pull request that changes what `apps/admin`, `apps/respondent` or `packages/ui` renders carries screenshots in its description. Show every screen or component state it adds or changes, including loading, empty, error and conflict states. Capture at 1280px wide, and also at 390px for respondent screens.
+
+- **Capture from the running app** against the real backend (`docker compose up`, or the dev servers with the backend running), not from a test render. Use Playwright with Chromium for states that need interaction, such as an open dialog, a rejected submit or a `409`. Run `npx playwright install chromium` once; keep the capture script in your scratchpad and do not commit it.
+- **Never commit screenshots to the pull request's branch.** Push them to the orphan `pr-screenshots` branch as `pr-<number>/<screen>-<state>.png`. If the push is rejected because another agent pushed first, fetch, rebase and push again.
+- **Link each image by its blob URL,** which renders for anyone with access to the repository: `![<caption>](https://github.com/kenziesimpson/questionnaire-platform/blob/pr-screenshots/pr-<number>/<file>.png?raw=true)`. Open the pull request first so the number exists, then add the images with `gh pr edit --body`.
+- **Lay them out** under a `## Screenshots` heading, with one subheading per screen and a one-line caption per image naming the state.
+- **Recapture on every push that changes what renders**, including pushes that address review feedback. Retake each affected screenshot, delete any that no longer match the UI so no stale image remains, and update the description's screenshots and summary in the same round. A review change is not done until its screenshots are.
+- **Screenshots come before local validation.** After a change that affects what renders, push the code, capture and push the screenshots, and update the description. Only then run `lint`, `typecheck`, `npm test` and `build`. Reviewers see the new UI while the checks run, and a failing check means a follow-up push, not missing images. For a change confined to one app, running that app's and `packages/ui`'s test projects locally is enough; CI runs the full suite.
+
 ## Commands
 
 | Task | Command |
@@ -51,7 +64,10 @@ Tool directives that must be written in comment syntax are not prose comments an
 
 - Wire shapes are TypeBox schemas in `packages/shared`; derive TypeScript types from them with `Static`, never write a parallel interface.
 - `apps/backend/src/modules/definition` and `apps/backend/src/modules/execution` never import each other. Only `packages/telemetry` imports `pino` or `@opentelemetry/*`. Both are enforced by `eslint.config.mjs`.
+- The boundary reaches the db layer: `src/modules/execution` never imports `src/db/definition`, `src/db/seed` or `src/db/audit`, and `src/db/definition` never imports anything under `src/modules`. ESLint rejects both.
 - Respondent answer values never reach a log, span, metric or error body. Wrap them in `Sensitive<T>`.
+- Never cast through `unknown` or `any` (`x as unknown as T`). ESLint warns on it. Fix the types instead; if the cast is genuinely unavoidable (a third-party type that is wrong, an environment global the package cannot type), disable that one line with the reason: `// eslint-disable-next-line no-restricted-syntax -- <reason>`.
+- Never write raw SQL in `apps/backend`: build queries with drizzle's query builder (`eq`, `and`, `exists`, `notExists`, `max`, `inArray`, …). ESLint warns on the `sql` template and `sql.*` calls everywhere except `src/db/schema.ts`. Where Postgres needs something the builder cannot express — calling a database function, DDL, a JSONB function — disable that one statement with the reason.
 
 ### Migrations
 

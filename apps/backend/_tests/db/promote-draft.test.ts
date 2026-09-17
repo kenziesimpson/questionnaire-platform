@@ -1,7 +1,7 @@
 import { FORMAT_VERSION } from "@qp/shared";
 import { describe, expect, it } from "vitest";
-import { aDraftWithOneItem, aPublishedQuestionnaire, type DraftFixture } from "../fixtures.js";
-import { SQLSTATE, expectSqlState, useTestDatabase } from "../harness.js";
+import { aDraftWithOneItem, aPublishedQuestionnaire, type DraftFixture } from "./fixtures.js";
+import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
 
 const testDatabase = useTestDatabase();
 

@@ -1,3 +1,4 @@
+import type { Static } from "typebox";
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import {
@@ -5,11 +6,16 @@ import {
   PROBLEMS,
   PROBLEM_SLUGS,
   ProblemDetails,
+  QUESTION_RULE_CODES,
   SUBMISSION_ITEM_CODES,
   problem,
   problemSlug,
   problemType,
+  type DraftItemCode,
+  type ProblemType,
+  type SubmissionItemCode,
 } from "../src/problems.js";
+import type { Equal } from "./type-equality.js";
 
 describe("problem slugs", () => {
   it("is the closed set in [[7-application-boundary]] §6.1, with its statuses", () => {
@@ -32,6 +38,25 @@ describe("problem slugs", () => {
     expect(problemType("version/immutable")).toBe("https://qp.example/problems/version-immutable");
     for (const slug of PROBLEM_SLUGS) expect(problemSlug(problemType(slug))).toBe(slug);
     expect(problemSlug("https://qp.example/problems/made-up")).toBeUndefined();
+  });
+});
+
+describe("question rule codes", () => {
+  it("is the closed set of question rules, including the type lock", () => {
+    expect([...QUESTION_RULE_CODES]).toEqual([
+      "question/min-exceeds-max",
+      "question/min-length-exceeds-max-length",
+      "question/min-selections-exceeds-max-selections",
+      "question/selections-exceed-options",
+      "question/duplicate-option-id",
+      "question/freeform-not-other",
+      "question/type-changed",
+    ]);
+  });
+
+  it("carries question/type-changed in the request/invalid errors extension on the wire", () => {
+    const body = problem("request/invalid", { errors: [{ pointer: "/body/question/type", code: "question/type-changed" }] });
+    expect(Value.Check(ProblemDetails, body)).toBe(true);
   });
 });
 
@@ -110,5 +135,29 @@ describe("problem()", () => {
   it("rejects a problem body carrying an answer value", () => {
     const leaky = { ...problem("submission/invalid", { items: [{ itemId: "itm_03", code: "date/in-future" }] }), value: "2027-01-01" };
     expect(Value.Check(ProblemDetails, leaky)).toBe(false);
+  });
+});
+
+describe("ProblemDetails closed unions", () => {
+  it("types `type` as the problem URLs and `items[].code` as the item codes, never `never`", () => {
+    type ItemCode = NonNullable<Static<typeof ProblemDetails>["items"]>[number]["code"];
+    const exact: [Equal<Static<typeof ProblemDetails>["type"], ProblemType>, Equal<ItemCode, DraftItemCode | SubmissionItemCode>] = [true, true];
+
+    expect(exact).not.toContain(false);
+  });
+
+  it("types problemType's result as the URL of that slug", () => {
+    const versionImmutable: ProblemType<"version/immutable"> = problemType("version/immutable");
+
+    expect(versionImmutable).toBe("https://qp.example/problems/version-immutable");
+  });
+
+  it("admits the URL of every slug and every item code, and nothing else", () => {
+    for (const slug of PROBLEM_SLUGS) expect(Value.Check(ProblemDetails.properties.type, problemType(slug))).toBe(true);
+    expect(Value.Check(ProblemDetails.properties.type, "https://qp.example/problems/unknown")).toBe(false);
+
+    const Item = ProblemDetails.properties.items.items;
+    for (const code of [...DRAFT_ITEM_CODES, ...SUBMISSION_ITEM_CODES]) expect(Value.Check(Item, { itemId: "itm_01", code })).toBe(true);
+    expect(Value.Check(Item, { itemId: "itm_01", code: "schema/required" })).toBe(false);
   });
 });

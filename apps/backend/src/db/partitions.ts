@@ -36,16 +36,19 @@ export async function ensureResponsePartitions(
   const created: string[] = [];
   for (const partition of responsePartitionsFrom(firstMonth, months)) {
     const existing = await executor.execute<{ exists: boolean }>(
+      // eslint-disable-next-line no-restricted-syntax -- to_regclass is a catalog function the query builder cannot call
       sql`SELECT to_regclass(${`execution.${partition.name}`}) IS NOT NULL AS exists`,
     );
     if (existing.rows[0]?.exists) {
       continue;
     }
+    /* eslint-disable no-restricted-syntax -- partition DDL: the query builder has no CREATE TABLE ... PARTITION OF, and partition bounds cannot be bound parameters, so they are literal UTC timestamps computed by this module */
     await executor.execute(
       sql`CREATE TABLE IF NOT EXISTS ${sql.identifier("execution")}.${sql.identifier(partition.name)}
           PARTITION OF execution.response
           FOR VALUES FROM (${sql.raw(`'${partition.from.toISOString()}'`)}) TO (${sql.raw(`'${partition.to.toISOString()}'`)})`,
     );
+    /* eslint-enable no-restricted-syntax */
     created.push(partition.name);
   }
   return created;

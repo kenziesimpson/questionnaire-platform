@@ -9,7 +9,8 @@ import {
 import { eq } from "drizzle-orm";
 import type { Database, Transaction } from "../client.js";
 import { publishDraft } from "../definition/publish.js";
-import { createQuestionnaire, replaceDraft } from "../definition/questionnaires.js";
+import { replaceDraft } from "../definition/drafts.js";
+import { createQuestionnaire } from "../definition/questionnaires.js";
 import { appendQuestionVersion, createQuestion } from "../definition/questions.js";
 import { questionnaire } from "../schema.js";
 
@@ -62,7 +63,7 @@ async function saveBankHistoryFor(tx: Transaction, item: Item): Promise<void> {
   for (const content of later) {
     const appended = await appendQuestionVersion(tx, { questionId, content, ...common });
     if (appended.outcome !== "saved") {
-      throw new Error(`question ${questionId} disappeared while seeding`);
+      throw new Error(`question ${questionId} was not appended while seeding: ${appended.outcome}`);
     }
     saved = appended;
   }
@@ -96,7 +97,7 @@ export async function seedDemoQuestionnaire(db: Database): Promise<DemoSeedOutco
     });
     const edited = await replaceDraft(tx, {
       questionnaireId: INTAKE_QUESTIONNAIRE_ID,
-      expectedDraftRevision: created.draftRevision,
+      precondition: { versionId: created.draftVersionId, draftRevision: created.draftRevision },
       title: demo.title,
       items: demo.items.map((item) => ({
         itemId: item.itemId,
@@ -113,7 +114,7 @@ export async function seedDemoQuestionnaire(db: Database): Promise<DemoSeedOutco
     }
     const published = await publishDraft(tx, {
       questionnaireId: INTAKE_QUESTIONNAIRE_ID,
-      expectedDraftRevision: edited.draftRevision,
+      precondition: { versionId: edited.draftVersionId, draftRevision: edited.draftRevision },
       actorId: SEED_ACTOR,
       traceId: null,
     });

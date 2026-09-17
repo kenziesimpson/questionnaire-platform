@@ -2,6 +2,7 @@ export * from "./primitives.js";
 export * from "./domain/question.js";
 export * from "./domain/condition.js";
 export * from "./domain/definition.js";
+export { readStoredDefinition } from "./domain/stored-definition.js";
 export * from "./domain/draft.js";
 export * from "./domain/answer.js";
 export * from "./domain/session.js";
