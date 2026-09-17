@@ -1,6 +1,6 @@
 # Structural Refactor
 
-> **Draft.** This is the plan for one consolidation pass over the finished build, to prepare the codebase for adding telemetry and metrics. It comes from a structural audit made on 2026-09-16 (six area leads, each backed by per-file deep dives).
+> **Status: agreed, not started.** This is the plan for one consolidation pass over the finished build, to prepare the codebase for adding telemetry and metrics. It comes from a structural audit made on 2026-09-16 (six area leads, each backed by per-file deep dives).
 >
 > The pass has four aims:
 > - make each concept live in one place;
@@ -123,7 +123,7 @@ This is items 3 and 4 of the audit's first tier. It branches after PR 1 merges, 
 **Domain vocabulary**
 - Export the following from `packages/shared/src/domain/`: `QuestionOf`, `OTHER_OPTION_ID`, `optionIdsOf`, `freeformOptionOf`, `conditionsOf`, `referencedOptionIds`, `OPERATORS_BY_TYPE`, `isChoiceQuestion`, `draftItemOf`, `draftForValidation` and `questionInputOf`.
 - Delete every local copy of those helpers: 4 of `QuestionOf`, 3 of `OTHER_OPTION_ID`, 5 of the `Item`→`DraftItem` projection, 3 of the `QuestionContent`→`QuestionInput` strip, and so on.
-- Pick one definition of the "other" option: `id === OTHER_OPTION_ID && freeform`. Today it is detected three different ways, so this is a small behaviour change.
+- Use one definition of the "other" option everywhere: `id === OTHER_OPTION_ID && freeform`. Today it is detected three different ways, so this is a small behaviour change, recorded as a new Decisions Log row (§5).
 
 **Shared package surface**
 - Move `strict` into `primitives.ts` and delete `domain/utils.ts`. Remove the 7 re-declarations of `strict`.
@@ -190,11 +190,11 @@ This PR follows PR 3 and covers `src/db/definition`.
 
 Owns: `apps/backend/src/db/**` except `schema.ts`, `client.ts` and the migrations.
 
-#### PR 4b — Backend route and HTTP cleanup · S–M · *not yet confirmed*
+#### PR 4b — Backend route and HTTP cleanup · S–M
 
 > **Depends on:** PR 1, PR 3. **Can run alongside:** PR 2, PR 15; merges before PR 4.
 
-The audit recommended these alongside the database cleanup. This PR can merge with PR 4 or be dropped.
+This is its own PR, separate from the database cleanup in PR 4.
 
 - Add `notFoundProblem` in `src/http/problems.ts`; the same problem is built 6 times today. Make `registerRoute` fill in `instance` from `request.url` by default.
 - Add a `definitionProblem(refusal, instance)` mapper in `src/modules/definition/problems.ts`, replacing four switches that have already drifted from each other.
@@ -290,12 +290,12 @@ This PR follows PR 8. Today the form has a single field holding the whole answer
 
 - **One field per visible item**, named `answers.<itemId>`. Each field has its own validator that calls the shared per-answer validation (`validateAnswer`, which currently has no consumer).
 - **One form-level validator for rules that span items.** Whether an item is required depends on visibility, so this validator returns its errors mapped to fields with `{ fields }`.
-- **Touched and blur state decide when an item shows its errors.** This is the behaviour change: an error can appear after blur, not only after a submit attempt.
+- **An item shows its errors once the respondent leaves it.** A field is marked touched on blur, and its errors show from then on, updating as the answer changes. A submit attempt marks every visible field touched, so all errors show. This is the behaviour change: today errors appear only after a submit attempt.
 - **`form.Subscribe` drives the submit button state.** `onSubmitInvalid` still moves focus to the first error.
 - **Local persistence uses form listeners** (`listeners.onChange`) and no longer threads through `onAnswerChange`.
 - **`packages/ui` still holds no form state.** The screen maps field values and metadata into the renderer's `answers`/`errors` props.
 
-Before implementation, confirm when an error first shows: on blur, or on the first submit and then live after that. This affects the accessibility commitments in [[10-frontend#7. Accessibility]] and the e2e specs, and the PR needs screenshots.
+The PR updates [[10-frontend#7. Accessibility]] and the e2e specs for the new timing, adds a Decisions Log row for it (§5), and needs screenshots.
 
 It amends the respondent half of #32 and rewrites [[10-frontend#8. Library choices]] to describe what the form library now provides.
 
@@ -354,7 +354,7 @@ This is option B for #68. It follows PR 10.
 - The side panel renders `<QuestionnaireItems mode="interactive">` over the visible items. The previewed questionnaire stays `readonly`.
 - The renderer gains two small props: a label override, for the panel's item numbering, and a way to clear an answer.
 - Delete `version-preview/sample-answer-input.tsx` (188 lines).
-- The panel can now enter the free-text "Other" answer. That is a small behaviour gain.
+- The panel can now enter the free-text "Other" answer. This small behaviour change is recorded in the #68 amendment.
 - Amend #68: the "someone must hold the answers" obstacle does not apply, because `VersionPreview` already holds them.
 - Screenshots are required.
 
@@ -465,7 +465,7 @@ Documents the conventions this pass introduces:
 
 Each rule lands in the PR shown and gets cases in `tests/lint-*.test.ts`.
 
-The "today" column counts violations measured on 2026-09-16. "Proposed" marks rules that go beyond decisions already made in the audit review; confirm those before implementation.
+All rules below are agreed. The "today" column counts violations measured on 2026-09-16.
 
 ### 4.1 ESLint rules (no type information needed)
 
@@ -477,21 +477,21 @@ The "today" column counts violations measured on 2026-09-16. "Proposed" marks ru
 | L4 | Mutations live in `src/api/mutations` | Importing `useMutation` is allowed only there | `no-restricted-imports` with `importNames` | 5 | 4 files outside |
 | L5 | No prose comments | Rejects any comment except ESLint and TypeScript directives (`eslint-*`, `@ts-expect-error — <reason>`) | A local rule in `eslint.config.mjs` | 18 | about 190 lines |
 | L6 | Route paths are built only by the shared helper | Rejects regex literals matching `/:(…)/` outside `packages/shared/src/api/request.ts` | `no-restricted-syntax` on `Literal[regex.pattern=/^:\\(/]` | 1 | 4 |
-| L7 | *Proposed.* Library split by app (#32) | `@tanstack/react-query`, `@tanstack/react-router` and `@dnd-kit/*` are allowed only in `apps/admin`. `@tanstack/react-form` is allowed only in `apps/respondent`. `radix-ui` is allowed only in `packages/ui/src/primitives` | `no-restricted-imports` | 0 | 0; this codifies the current state |
+| L7 | Library split by app (#32) | `@tanstack/react-query`, `@tanstack/react-router` and `@dnd-kit/*` are allowed only in `apps/admin`. `@tanstack/react-form` is allowed only in `apps/respondent`. `radix-ui` is allowed only in `packages/ui/src/primitives` | `no-restricted-imports` | 0 | 0; this codifies the current state |
 | L8 | No named exports via `export *` in package entry points | Public APIs are explicit | `no-restricted-syntax` on `ExportAllDeclaration` in `packages/*/src` | 2 | 13 |
 | L9 | Shared vocabulary is not re-declared | Rejects declaring `QuestionOf`, `strict`, `OTHER_OPTION_ID`, `conditionsOf` and the other PR 2 names outside `packages/shared` | `no-restricted-syntax` on `TSTypeAliasDeclaration` and `VariableDeclarator` names | 2 | 14 |
 | L10 | Problem bodies are parsed only by `problemFromWire` | Rejects hand-built problem guards, and rejects calling `problem("resource/not-found", …)` outside `notFoundProblem` | `no-restricted-syntax` | 1 (and 4b, 16) | 6 in backend `src` |
 | L11 | Test support comes from support modules | `axe-core` and `vitest-axe` may be imported only in `@qp/ui/testing`. `_tests/**` may not import another directory's `harness` | `no-restricted-imports` | 2 | 7 admin files |
 | L12 | No deep imports into `packages/ui` internals | Apps import only the `@qp/ui/*` entry points. The package `exports` map already blocks most deep imports; this rule also blocks relative paths | `no-restricted-imports` | 10 | 0 |
 | L13 | Import extension convention | `.js` in backend, shared and telemetry; no extension in admin, ui, respondent and e2e | `no-restricted-syntax` on `ImportDeclaration[source.value=/…/]` per block | 14 | about 60 |
-| L14 | *Proposed.* No non-null assertions | Keeps PR 21 honest | `@typescript-eslint/no-non-null-assertion` | 21 | 5 (3 in `decimal.ts`) |
-| L15 | *Proposed.* No explicit `any` | Types stay honest; test data uses typed builders | `@typescript-eslint/no-explicit-any` | 2 | 16, all in shared tests |
-| L16 | *Proposed.* `fetch` only in API client modules | One transport per app. This is where trace headers and client spans will attach | `no-restricted-globals` everywhere except `apps/*/src/api/**`, `e2e/fixtures/**` and `e2e/stack/**` | 1 | 0 outside; this codifies the current state |
-| L17 | *Proposed.* `localStorage` only in `apps/respondent/src/storage` | One persistence seam | `no-restricted-globals` | 0 | 0; this codifies the current state |
-| L18 | *Proposed.* `process.env` only in `apps/backend/src/config.ts` and root config files | One environment reader, which is where telemetry configuration will land | `no-restricted-properties` | 4 | 1 extra (`drizzle.config.ts`, which is allowed as a config file) |
-| L19 | *Proposed.* No `console` in `src` | Logging goes through the logger, and later through telemetry. Allowed in the migrate and seed entry points and in `e2e/stack` | `no-console` | 0 | 0 outside the allowed files |
-| L20 | *Proposed.* No default exports except in tool config files | Consistent named imports | `no-restricted-syntax` on `ExportDefaultDeclaration` | 0 | 0 outside config files |
-| L21 | *Proposed.* Dates are formatted only in `src/lib/dates.ts` per app | One locale policy per app | `no-restricted-syntax` on `toLocale*String` and `Intl.DateTimeFormat` | 5 | 5 files |
+| L14 | No non-null assertions | Keeps PR 21 honest | `@typescript-eslint/no-non-null-assertion` | 21 | 5 (3 in `decimal.ts`) |
+| L15 | No explicit `any` | Types stay honest; test data uses typed builders | `@typescript-eslint/no-explicit-any` | 2 | 16, all in shared tests |
+| L16 | `fetch` only in API client modules | One transport per app. This is where trace headers and client spans will attach | `no-restricted-globals` everywhere except `apps/*/src/api/**`, `e2e/fixtures/**` and `e2e/stack/**` | 1 | 0 outside; this codifies the current state |
+| L17 | `localStorage` only in `apps/respondent/src/storage` | One persistence seam | `no-restricted-globals` | 0 | 0; this codifies the current state |
+| L18 | `process.env` only in `apps/backend/src/config.ts` and root config files | One environment reader, which is where telemetry configuration will land | `no-restricted-properties` | 4 | 1 extra (`drizzle.config.ts`, which is allowed as a config file) |
+| L19 | No `console` in `src` | Logging goes through the logger, and later through telemetry. Allowed in the migrate and seed entry points and in `e2e/stack` | `no-console` | 0 | 0 outside the allowed files |
+| L20 | No default exports except in tool config files | Consistent named imports | `no-restricted-syntax` on `ExportDefaultDeclaration` | 0 | 0 outside config files |
+| L21 | Dates are formatted only in `src/lib/dates.ts` per app | One locale policy per app | `no-restricted-syntax` on `toLocale*String` and `Intl.DateTimeFormat` | 5 | 5 files |
 
 Deferred to the telemetry work, not this pass: banning `request.log`, `reply.log` and `app.log` in `apps/backend/src` outside one logger adapter. There are 3 such calls today.
 
@@ -503,11 +503,11 @@ These are turned on with `parserOptions.projectService`:
 - `@typescript-eslint/no-floating-promises`: the code already writes `void` on purpose; this makes that required.
 - `@typescript-eslint/no-unnecessary-condition`: catches `undefined` checks that no longer do anything once PR 21 is in.
 
-Type-aware linting makes `npm run lint` noticeably slower. Measure it in PR 21 before deciding to keep these rules.
+Type-aware linting makes `npm run lint` noticeably slower; PR 21 reports the measured slowdown.
 
 ### 4.3 Repo-level checks that ESLint cannot express
 
-These are *proposed*. They would live as tests under `tests/`, next to `text-files.test.ts`.
+These are agreed. R1–R5 live as tests under `tests/`, next to `text-files.test.ts`; R6 runs in `npm run lint`.
 
 | # | Check | PR |
 | --- | --- | --- |
@@ -524,7 +524,9 @@ These are *proposed*. They would live as tests under `tests/`, next to `text-fil
 | --- | --- | --- |
 | #32 | Amend the respondent half: TanStack Form is used per field for validation and touched state, and the rationale is rewritten to match | 8b |
 | #66 | Amend: the unused `command`, `input-group` and Radix `select` primitives are removed; `native-select` and `tooltip` are added; `popover` is kept | 9 |
-| #68 | Amend: the sample-answer panel is built from the renderer in `interactive` mode, and the preview stays `readonly` | 12 |
+| #68 | Amend: the sample-answer panel is built from the renderer in `interactive` mode, and the preview stays `readonly`. The panel accepts the free-text "Other" answer | 12 |
+| New | One definition of the "other" option across the engine, the renderer and admin: `id === OTHER_OPTION_ID && freeform` | 2 |
+| New | The respondent shows an item's errors once the field is left (touched on blur), and every visible item's errors after a submit attempt | 8b |
 | New | Execution persistence lives in `src/db/execution`, mirroring the definition side | 3 |
 | New | Icons come only from lucide, through `@qp/ui/icons` | 11 |
 | New | The import extension convention depends on how a workspace is resolved | 14 |
