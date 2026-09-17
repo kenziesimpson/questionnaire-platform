@@ -9,6 +9,16 @@ Instructions for coding agents working in this repository.
 - `docs/4-implementation-plan.md` — the build plan. Its **Standing rules**, **File ownership** and **Stop and ask** sections are binding.
 - `docs/2-design-doc.md` — the design index and the Decisions Log. Never invent a decision; if a load-bearing one is missing, stop and ask.
 
+## Writing
+
+Clarity and concision are the top priorities in everything you write: docs, PR descriptions, commit messages, review comments and replies to the user.
+
+- **Lead with the answer.** State the conclusion, result or recommendation first. Add context only if the reader needs it.
+- **Cut what doesn't carry meaning.** No preamble, no restating the question, no recap of what you just did, no closing summary of what you already said.
+- **Commit to a position.** Give a recommendation, not a survey of options. Hedge only when the uncertainty is real, and then say exactly what is uncertain.
+- **Use plain words and short sentences.** Prefer a concrete example over an abstract description.
+- **Keep it short.** If a sentence can be deleted without losing information, delete it.
+
 ## Workflow
 
 Make every change on a git worktree, never directly in the checkout you started in and never directly on `main`:
