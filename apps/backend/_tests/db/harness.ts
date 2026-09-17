@@ -1,5 +1,5 @@
 import pg from "pg";
-import { afterAll, beforeAll, beforeEach, expect, inject } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, inject } from "vitest";
 import { openDatabase, type Database, type DatabaseHandle } from "../../src/db/client.js";
 import { ROLE_NAMES, TEMPLATE_DATABASE, withDatabase, withRole, type ApplicationRole } from "./server.js";
 
@@ -24,11 +24,24 @@ const TRUNCATE_DOMAIN_TABLES = `TRUNCATE
   definition.version_question_index, definition.question, definition.question_version,
   definition.question_version_option, execution.session, execution.response`;
 
+const CONNECTIONS_PER_POOL = 5;
+
+function databaseNameForThisWorker(): string {
+  const poolId = process.env.VITEST_POOL_ID;
+  if (poolId === undefined || poolId === "") {
+    throw new Error(
+      "VITEST_POOL_ID is unset, so every worker would share one test database and clobber each other's rows between tests",
+    );
+  }
+  return `qp_test_${poolId}`;
+}
+
 export function useTestDatabase(): TestDatabase {
   const server = inject("testDatabaseServer");
-  const databaseName = `qp_test_${process.env.VITEST_POOL_ID ?? "1"}`;
-  const clients: pg.Client[] = [];
+  const databaseName = databaseNameForThisWorker();
+  const clientsOpenedByTheCurrentTest: pg.Client[] = [];
   const handles = new Map<ApplicationRole, DatabaseHandle>();
+  let maintenance: pg.Client | undefined;
 
   const url = (role: ApplicationRole) =>
     withDatabase(withRole(server.adminUrl, ROLE_NAMES[role], server.passwords[role]), databaseName);
@@ -36,8 +49,13 @@ export function useTestDatabase(): TestDatabase {
   const connect = async (role: ApplicationRole) => {
     const client = new pg.Client({ connectionString: url(role) });
     await client.connect();
-    clients.push(client);
+    clientsOpenedByTheCurrentTest.push(client);
     return client;
+  };
+
+  const releaseClients = async () => {
+    const open = clientsOpenedByTheCurrentTest.splice(0);
+    await Promise.all(open.map((client) => client.end().catch(() => undefined)));
   };
 
   const database = (role: ApplicationRole) => {
@@ -45,20 +63,31 @@ export function useTestDatabase(): TestDatabase {
     if (existing !== undefined) {
       return existing.db;
     }
-    const handle = openDatabase(url(role));
+    const handle = openDatabase(url(role), { maxConnections: CONNECTIONS_PER_POOL });
     handles.set(role, handle);
     return handle.db;
   };
 
-  const withOwner = async <T>(work: (client: pg.Client) => Promise<T>): Promise<T> => {
+  const connectAsOwner = async () => {
     const client = new pg.Client({ connectionString: url("owner") });
     await client.connect();
-    try {
-      return await work(client);
-    } finally {
-      await client.end();
-    }
+    return client;
   };
+
+  const withOwner = async <T>(work: (client: pg.Client) => Promise<T>): Promise<T> => {
+    maintenance ??= await connectAsOwner();
+    return work(maintenance);
+  };
+
+  const withAuditOwner = async <T>(work: (client: pg.Client) => Promise<T>): Promise<T> =>
+    withOwner(async (owner) => {
+      await owner.query("SET ROLE audit_owner");
+      try {
+        return await work(owner);
+      } finally {
+        await owner.query("RESET ROLE");
+      }
+    });
 
   beforeAll(async () => {
     const admin = new pg.Client({ connectionString: server.adminUrl });
@@ -72,17 +101,18 @@ export function useTestDatabase(): TestDatabase {
   });
 
   beforeEach(async () => {
-    await withOwner(async (owner) => {
-      await owner.query(TRUNCATE_DOMAIN_TABLES);
-      await owner.query("SET ROLE audit_owner");
-      await owner.query("TRUNCATE audit.event");
-      await owner.query("RESET ROLE");
-    });
+    await withOwner((owner) => owner.query(TRUNCATE_DOMAIN_TABLES));
+    await withAuditOwner((owner) => owner.query("TRUNCATE audit.event"));
   });
 
+  afterEach(releaseClients);
+
   afterAll(async () => {
-    await Promise.all(clients.map((client) => client.end().catch(() => undefined)));
+    await releaseClients();
     await Promise.all([...handles.values()].map((handle) => handle.close()));
+    handles.clear();
+    await maintenance?.end().catch(() => undefined);
+    maintenance = undefined;
   });
 
   return {
@@ -90,13 +120,11 @@ export function useTestDatabase(): TestDatabase {
     connect,
     database,
     readAuditEvents: () =>
-      withOwner(async (owner) => {
-        await owner.query("SET ROLE audit_owner");
+      withAuditOwner(async (owner) => {
         const result = await owner.query<AuditEventRow>(
           `SELECT action, questionnaire_id, questionnaire_version_id, version, actor_id, summary
              FROM audit.event ORDER BY occurred_at, id`,
         );
-        await owner.query("RESET ROLE");
         return result.rows;
       }),
   };
