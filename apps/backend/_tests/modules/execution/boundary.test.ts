@@ -15,20 +15,24 @@ import {
   questionVersionOption,
 } from "../../../src/db/schema.js";
 import { executionModule } from "../../../src/modules/execution/plugin.js";
+import { answersYes, executionUrl, seedIntakeV1, startedSessionId, submit, useExecutionApp } from "../../db/execution/fixtures.js";
 import { expectSqlState, SQLSTATE, useTestDatabase } from "../../db/harness.js";
-import { answersYes, executionUrl, seedIntakeV1, startedSessionId, submit, useExecutionApp } from "./fixtures.js";
 
 const testDatabase = useTestDatabase();
 const executionApp = useExecutionApp(testDatabase);
 
-const EXECUTION_MODULE = fileURLToPath(new URL("../../../src/modules/execution/", import.meta.url));
+const EXECUTION_SOURCE_DIRECTORIES = ["modules", "db"].map((layer) =>
+  fileURLToPath(new URL(`../../../src/${layer}/execution/`, import.meta.url)),
+);
 
-async function executionModuleSources(): Promise<string> {
-  const files = await readdir(EXECUTION_MODULE, { recursive: true });
-  const sources = await Promise.all(
-    files.filter((file) => file.endsWith(".ts")).map((file) => readFile(`${EXECUTION_MODULE}${file}`, "utf8")),
+async function executionSources(): Promise<string> {
+  const perDirectory = await Promise.all(
+    EXECUTION_SOURCE_DIRECTORIES.map(async (directory) => {
+      const files = await readdir(directory, { recursive: true });
+      return Promise.all(files.filter((file) => file.endsWith(".ts")).map((file) => readFile(`${directory}${file}`, "utf8")));
+    }),
   );
-  return sources.join("\n");
+  return perDirectory.flat().join("\n");
 }
 
 describe("the execution module on its own", () => {
@@ -59,15 +63,15 @@ describe("the execution module on its own", () => {
   });
 
   it("imports from the schema only the execution tables, the questionnaire row it is granted, and the definition schema for the published view", async () => {
-    const source = await executionModuleSources();
-    const schemaImports = [...source.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*"[./]*db\/schema\.js"/g)]
+    const source = await executionSources();
+    const schemaImports = [...source.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*"[./]*(?:db\/)?schema\.js"/g)]
       .flatMap((match) => match[1]!.split(","))
       .map((name) => name.trim())
       .filter((name) => name !== "");
 
     expect(new Set(schemaImports)).toEqual(new Set(["definitionSchema", "questionnaire", "response", "session"]));
     expect(source).toContain('.view("published_questionnaire_version"');
-    expect(source).not.toMatch(/from\s*"[./]*db\/(definition|seed)\//);
+    expect(source).not.toMatch(/from\s*"[./]*(?:db\/)?(definition|seed)\//);
   });
 });
 

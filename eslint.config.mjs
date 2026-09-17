@@ -14,23 +14,49 @@ const telemetryOnly = {
 
 const pathGap = "/+(\\./+)*";
 
+const relativeSibling = (name) => `^(\\.{1,2}/+)*\\.\\./+(\\.{1,2}/+)*${name}`;
+
 function otherModule(name) {
   return {
-    regex: `(^|/)modules${pathGap}${name}(/|$)|^(\\.{1,2}/+)*\\.\\./+(\\.{1,2}/+)*${name}(/|$)`,
+    regex: `(^|/)modules${pathGap}${name}(/|$)|${relativeSibling(name)}(/|$)`,
     message: `The definition and execution modules share nothing but @qp/shared. Importing modules/${name} crosses the boundary.`,
   };
 }
 
+const definitionSideOfTheDbLayer = `(^|/)db${pathGap}(definition|seed)(/|$)|(^|/)db${pathGap}audit(\\.[cm]?[jt]s)?$`;
+
+const definitionDbLayerMessage =
+  "db/definition, db/seed and db/audit belong to the definition side. Execution may use db/client, db/schema and the rest of the db layer, but not those.";
+
 const definitionDbLayer = {
-  regex: `(^|/)db${pathGap}(definition|seed)(/|$)|(^|/)db${pathGap}audit(\\.[cm]?[jt]s)?$`,
-  message:
-    "db/definition, db/seed and db/audit belong to the definition side. Execution may use db/client, db/schema and the rest of the db layer, but not those.",
+  regex: definitionSideOfTheDbLayer,
+  message: definitionDbLayerMessage,
 };
 
-const anyModule = {
-  regex: "(^|/)modules(/|$)",
-  message: "db/definition sits below the backend modules and imports none of them.",
+const definitionDbLayerFromItsSibling = {
+  regex: `${definitionSideOfTheDbLayer}|${relativeSibling("(definition|seed)")}(/|$)|${relativeSibling("audit")}(\\.[cm]?[jt]s)?$`,
+  message: definitionDbLayerMessage,
 };
+
+const executionSideOfTheDbLayer = `(^|/)db${pathGap}execution(/|$)`;
+
+const executionDbLayerMessage =
+  "db/execution belongs to the execution side. The definition half of the backend reaches no session or response persistence; it sees execution only through @qp/shared.";
+
+const executionDbLayer = {
+  regex: executionSideOfTheDbLayer,
+  message: executionDbLayerMessage,
+};
+
+const executionDbLayerFromItsSibling = {
+  regex: `${executionSideOfTheDbLayer}|${relativeSibling("execution")}(/|$)`,
+  message: executionDbLayerMessage,
+};
+
+const anyModuleBelow = (side) => ({
+  regex: "(^|/)modules(/|$)",
+  message: `db/${side} sits below the backend modules and imports none of them.`,
+});
 
 const doubleAssertionThrough = (keyword, spelling) =>
   ["TSAsExpression", "TSTypeAssertion"].map((inner) => ({
@@ -122,7 +148,7 @@ export default tseslint.config(
   {
     name: "module boundary: definition",
     files: ["apps/backend/src/modules/definition/**"],
-    rules: { "no-restricted-imports": restrict(otherModule("execution")) },
+    rules: { "no-restricted-imports": restrict(otherModule("execution"), executionDbLayer) },
   },
   {
     name: "module boundary: execution",
@@ -132,10 +158,15 @@ export default tseslint.config(
   {
     name: "module boundary: the definition side of the db layer",
     files: ["apps/backend/src/db/definition/**"],
-    rules: { "no-restricted-imports": restrict(anyModule) },
+    rules: { "no-restricted-imports": restrict(anyModuleBelow("definition"), executionDbLayerFromItsSibling) },
   },
   {
     ...reactHooks.configs.flat.recommended,
     files: reactWorkspaces,
+  },
+  {
+    name: "module boundary: the execution side of the db layer",
+    files: ["apps/backend/src/db/execution/**"],
+    rules: { "no-restricted-imports": restrict(anyModuleBelow("execution"), definitionDbLayerFromItsSibling) },
   },
 );

@@ -1,8 +1,8 @@
 import type { PublishedDefinition, Receipt, Session } from "@qp/shared";
 import { eq } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
-import type { Executor } from "../../db/client.js";
-import { questionnaire, session } from "../../db/schema.js";
+import type { Executor } from "../client.js";
+import { questionnaire, session } from "../schema.js";
 import type { PublishedDefinitions } from "./published-definitions.js";
 
 export interface SessionRow {
