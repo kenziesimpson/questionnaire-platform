@@ -795,16 +795,17 @@ Two independent reasons. A migration file is committed to git, and
 cluster-wide — they belong to the Postgres server rather than to one database — so creating them from
 inside a per-database migration is the wrong layer even without the secret.
 
-They go in `docker-entrypoint-initdb.d` instead, as `db/init/01-roles.sh`. Five identities, three
-connection strings:
+They go in a shell script instead, `db/init/01-roles.sh`, run by the one-shot `roles` compose
+service — not by the postgres entrypoint's `docker-entrypoint-initdb.d`, which the `db` service does not
+mount. Five identities, three connection strings:
 
 | Identity | Created by | Connects? |
 | --- | --- | --- |
-| bootstrap superuser (`POSTGRES_USER`) | `initdb`, at cluster creation | Only to run the init script |
-| `qp_owner` | the init script | Yes — the `migrate` service, `DATABASE_URL_OWNER` |
-| `qp_definition` | the init script | Yes — backend authoring pool, `DATABASE_URL_DEFINITION` |
-| `qp_execution` | the init script | Yes — backend execution pool, `DATABASE_URL_EXECUTION` |
-| `audit_owner` | the init script, **`NOLOGIN`** | **No.** No password, no connection string |
+| bootstrap superuser (`POSTGRES_USER`) | `initdb`, at cluster creation | Only to run `01-roles.sh`, via the `roles` service |
+| `qp_owner` | the `roles` service | Yes — the `migrate` service, `DATABASE_URL_OWNER` |
+| `qp_definition` | the `roles` service | Yes — backend authoring pool, `DATABASE_URL_DEFINITION` |
+| `qp_execution` | the `roles` service | Yes — backend execution pool, `DATABASE_URL_EXECUTION` |
+| `audit_owner` | the `roles` service, **`NOLOGIN`** | **No.** No password, no connection string |
 
 **The bootstrap superuser and `qp_owner` are different roles, deliberately.** `initdb` creates
 `POSTGRES_USER` as a cluster superuser — that is not configurable — so letting `qp_owner` *be*
@@ -822,20 +823,21 @@ and the rest of the cluster to the blast radius of that one service. Separating 
 conventional Postgres arrangement rather than extra machinery, which is where
 [[2-design-doc#17. Decisions Log]] #33 points.
 
-**It must be a `.sh`, not a `.sql`.** The entrypoint runs both, but `psql -f` performs no
-interpolation, so a `.sql` file cannot read `$QP_DEFINITION_PASSWORD` — the passwords would have to be
-literal, which is the thing this section exists to prevent. The committed artifact holds role names,
-grants and ownership statements, and no secrets.
+**It must be a `.sh`, not a `.sql`.** `psql -f` performs no interpolation, so a `.sql` file cannot read
+`$QP_DEFINITION_PASSWORD` — the passwords would have to be literal, which is the thing this section
+exists to prevent. The committed artifact holds role names, grants and ownership statements, and no
+secrets.
 
-**The entrypoint runs it only once, so compose runs it again on every `up`.** `docker-entrypoint-initdb.d`
-executes only when the data directory is empty, so on its own a new role or a rotated password would
-never reach an existing volume, and `migrate` would fail with `28P01` or `role does not exist`. A
-one-shot `roles` service therefore runs the same script against `db` before `migrate` on every
-`docker compose up` ([[2-design-doc#17. Decisions Log]] #60). The script is written to be re-run: each
-`CREATE ROLE` is guarded by `NOT EXISTS`, and each login role's password is set by an unconditional
-`ALTER ROLE ... PASSWORD`, so the environment is always the source of truth. Adding a role means adding
-it to the script (plus its password variable in compose and `.env.example`) and granting it privileges
-in a normal migration; the `roles` service guarantees it exists before that migration runs.
+**The `roles` service is the only path that runs it, on every `up`, including against an empty
+volume.** The `db` service does not mount `db/init`, so the postgres entrypoint never runs
+`01-roles.sh` — the one-shot `roles` service runs it against `db` before `migrate` on every
+`docker compose up`, first boot or not ([[2-design-doc#17. Decisions Log]] #60). That is deliberate:
+two provisioning paths for the same roles is redundant and only one needs to stay correct. The script is
+written to be re-run: each `CREATE ROLE` is guarded by `NOT EXISTS`, and each login role's password is
+set by an unconditional `ALTER ROLE ... PASSWORD`, so the environment is always the source of truth.
+Adding a role means adding it to the script (plus its password variable in compose and `.env.example`)
+and granting it privileges in a normal migration; the `roles` service guarantees it exists before that
+migration runs.
 
 **`ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner` has a hidden dependency.** It applies only to objects
 created *by* `qp_owner`. If migrations ever run as some other identity — easy to do by pointing the
@@ -850,9 +852,9 @@ ambient privilege. It weakens nothing: the append-only guarantee is about `qp_de
 no privilege on the table at all.
 
 **One script, two callers.** The Testcontainers Postgres (§ [[8-testing#4. Postgres for integration tests — Testcontainers]])
-needs the same roles and will never run compose's `initdb.d`. If the test harness reimplements the
+needs the same roles and will never run the `roles` service. If the test harness reimplements the
 setup, the two drift and the grant tests pass against roles that do not match what ships. The same file
-is executed on both paths — by the entrypoint under compose, and by `execInContainer` in
+is executed on both paths — by the `roles` service under compose, and by `execInContainer` in
 `globalSetup`.
 
 ### 11.4 Partitions must exist before a row needs one

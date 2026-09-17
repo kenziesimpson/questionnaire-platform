@@ -1,19 +1,18 @@
+x-qp-db-env: &qp-db-env
+  POSTGRES_USER: ${POSTGRES_USER:-questionnaire}
+  POSTGRES_DB: ${POSTGRES_DB:-questionnaire_platform}
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-questionnaire}
+      <<: *qp-db-env
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-questionnaire}
-      POSTGRES_DB: ${POSTGRES_DB:-questionnaire_platform}
-      QP_OWNER_PASSWORD: ${QP_OWNER_PASSWORD:-qp_owner}
-      QP_DEFINITION_PASSWORD: ${QP_DEFINITION_PASSWORD:-qp_definition}
-      QP_EXECUTION_PASSWORD: ${QP_EXECUTION_PASSWORD:-qp_execution}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-questionnaire} -d ${POSTGRES_DB:-questionnaire_platform}"]
       interval: 5s
@@ -24,10 +23,9 @@ services:
     image: postgres:16-alpine
     command: ["sh", "/qp-init/01-roles.sh"]
     environment:
+      <<: *qp-db-env
       PGHOST: db
       PGPASSWORD: ${POSTGRES_PASSWORD:-questionnaire}
-      POSTGRES_USER: ${POSTGRES_USER:-questionnaire}
-      POSTGRES_DB: ${POSTGRES_DB:-questionnaire_platform}
       QP_OWNER_PASSWORD: ${QP_OWNER_PASSWORD:-qp_owner}
       QP_DEFINITION_PASSWORD: ${QP_DEFINITION_PASSWORD:-qp_definition}
       QP_EXECUTION_PASSWORD: ${QP_EXECUTION_PASSWORD:-qp_execution}
