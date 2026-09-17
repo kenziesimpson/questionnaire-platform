@@ -9,6 +9,7 @@ import {
   QUESTION_RULE_CODES,
   SUBMISSION_ITEM_CODES,
   problem,
+  problemFromWire,
   problemSlug,
   problemType,
   type DraftItemCode,
@@ -159,5 +160,83 @@ describe("ProblemDetails closed unions", () => {
     const Item = ProblemDetails.properties.items.items;
     for (const code of [...DRAFT_ITEM_CODES, ...SUBMISSION_ITEM_CODES]) expect(Value.Check(Item, { itemId: "itm_01", code })).toBe(true);
     expect(Value.Check(Item, { itemId: "itm_01", code: "schema/required" })).toBe(false);
+  });
+});
+
+describe("problemFromWire", () => {
+  const drop = { unknownCodes: "drop" } as const;
+  const reject = { unknownCodes: "reject" } as const;
+
+  const wire = (body: object) => ({ title: "t", status: 400, ...body });
+
+  it("reads a slug with no extensions, keeping detail and instance and omitting the ones the body left out", () => {
+    const body = { ...problem("resource/not-found", { instance: "/api/run/sessions/x" }) };
+
+    for (const options of [drop, reject]) {
+      expect(problemFromWire(body, options)).toEqual({ slug: "resource/not-found", problem: body });
+    }
+    expect(problemFromWire(problem("questionnaire/draft-stale"), drop)).toEqual({
+      slug: "questionnaire/draft-stale",
+      problem: problem("questionnaire/draft-stale"),
+    });
+  });
+
+  it("reads each extension-carrying slug back into its typed members", () => {
+    const requestInvalid = problem("request/invalid", { errors: [{ pointer: "/body/question/max", code: "question/min-exceeds-max" }] });
+    const draftInvalid = problem("questionnaire/draft-invalid", { items: [{ itemId: "itm_03", code: "predicate/forward-reference" }] });
+    const submissionInvalid = problem("submission/invalid", { items: [{ itemId: "itm_03", code: "answer/not-visible" }] });
+    const internal = problem("internal", { detail: "4bf92f3577b34da6a3ce929d0e0e4736" });
+
+    for (const body of [requestInvalid, draftInvalid, submissionInvalid, internal]) {
+      expect(problemFromWire(body, drop)?.problem).toEqual(body);
+      expect(problemFromWire(body, reject)?.problem).toEqual(body);
+    }
+  });
+
+  it.each([
+    ["a body that is not problem+json", { title: "t", status: 404 }],
+    ["a body carrying an answer value", { ...problem("resource/not-found"), value: "2027-01-01" }],
+    ["a type outside the closed slug union", wire({ type: "https://example.com/other" })],
+  ])("answers undefined for %s under either policy", (_, body) => {
+    expect(problemFromWire(body, drop)).toBeUndefined();
+    expect(problemFromWire(body, reject)).toBeUndefined();
+  });
+
+  it("drops codes this build does not know under `drop`, and refuses the body under `reject`", () => {
+    const body = {
+      ...problem("submission/invalid", { items: [{ itemId: "itm_01", code: "answer/required" }] }),
+      items: [
+        { itemId: "itm_01", code: "answer/required" },
+        { itemId: "itm_02", code: "predicate/unsatisfiable" },
+      ],
+    };
+
+    expect(problemFromWire(body, drop)?.problem).toEqual(
+      problem("submission/invalid", { items: [{ itemId: "itm_01", code: "answer/required" }] }),
+    );
+    expect(problemFromWire(body, reject)).toBeUndefined();
+  });
+
+  it("fills a missing extension with an empty one under `drop`, and refuses the body under `reject`", () => {
+    const noItems = wire({ type: problemType("submission/invalid"), status: 422 });
+    const noErrors = wire({ type: problemType("request/invalid") });
+    const noDetail = wire({ type: problemType("internal"), status: 500 });
+
+    expect(problemFromWire(noItems, drop)?.problem).toEqual(problem("submission/invalid", { items: [] }));
+    expect(problemFromWire(noErrors, drop)?.problem).toEqual(problem("request/invalid", { errors: [] }));
+    expect(problemFromWire(noDetail, drop)?.problem).toEqual(problem("internal", { detail: "" }));
+    for (const body of [noItems, noErrors, noDetail]) expect(problemFromWire(body, reject)).toBeUndefined();
+  });
+
+  it("takes the title and status from the slug, never from the body", () => {
+    const lying = { ...problem("questionnaire/closed"), title: "Gone", status: 410 };
+
+    expect(problemFromWire(lying, drop)?.problem).toEqual(problem("questionnaire/closed"));
+  });
+
+  it("keeps the slug and its body correlated, so a consumer can switch on one and read the other", () => {
+    const parsed = problemFromWire(problem("submission/invalid", { items: [{ itemId: "itm_01", code: "choice/too-many" }] }), reject);
+
+    expect(parsed?.slug === "submission/invalid" && parsed.problem.items).toEqual([{ itemId: "itm_01", code: "choice/too-many" }]);
   });
 });

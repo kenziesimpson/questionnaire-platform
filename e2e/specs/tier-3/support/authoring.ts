@@ -3,6 +3,7 @@ import {
   definitionApi,
   ProblemDetails,
   problemSlug,
+  routePath,
   type ProblemDetailsWire,
   type ProblemSlug,
   type Question,
@@ -61,12 +62,7 @@ export async function problemReplyOfResponse(response: Response): Promise<Proble
 export type RouteParams = Readonly<Record<string, string | number>>;
 
 function definitionPath(route: RouteDefinition, params: RouteParams): string {
-  const path = route.url.replace(/:([A-Za-z]+)/g, (_segment, name: string) => {
-    const value = params[name];
-    if (value === undefined) throw new Error(`Missing path parameter "${name}" for ${route.url}`);
-    return encodeURIComponent(String(value));
-  });
-  return `${definitionApi.DEFINITION_PREFIX}${path}`;
+  return `${definitionApi.DEFINITION_PREFIX}${routePath(route.url, params)}`;
 }
 
 function isDefinitionCall(message: Request, route: RouteDefinition, params: RouteParams): boolean {

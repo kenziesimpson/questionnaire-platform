@@ -17,6 +17,7 @@ export { validateDraft, type DraftForValidation, type DraftValidation } from "./
 export { validateQuestionRules, type QuestionRuleError } from "./engine/question-rules.js";
 export * from "./demo/intake.js";
 export * from "./api/route.js";
+export * from "./api/request.js";
 export * from "./api/etag.js";
 export * as definitionApi from "./api/definition.js";
 export * as executionApi from "./api/execution.js";

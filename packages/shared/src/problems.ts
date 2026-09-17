@@ -1,4 +1,5 @@
 import Type, { type Static } from "typebox";
+import { Value } from "typebox/value";
 import { Slug } from "./primitives.js";
 
 /**
@@ -110,6 +111,22 @@ export interface ItemError<C extends string> {
   code: C;
 }
 
+export function isQuestionRuleCode(code: string): code is QuestionRuleCode {
+  return QUESTION_RULE_CODES.some((rule) => rule === code);
+}
+
+export function isRequestErrorCode(code: string): code is RequestErrorCode {
+  return code.startsWith("schema/") || isQuestionRuleCode(code);
+}
+
+export function isDraftItemCode(code: string): code is DraftItemCode {
+  return DRAFT_ITEM_CODES.some((known) => known === code);
+}
+
+export function isSubmissionItemCode(code: string): code is SubmissionItemCode {
+  return SUBMISSION_ITEM_CODES.some((known) => known === code);
+}
+
 /** Extension members each slug carries. A slug absent here carries none. */
 interface ProblemExtensions {
   "request/invalid": { errors: PointerError[] };
@@ -133,16 +150,24 @@ export type Problem<S extends ProblemSlug = ProblemSlug> = S extends ProblemSlug
 
 export type ProblemInit<S extends ProblemSlug> = { detail?: string; instance?: string } & ExtensionFor<S>;
 
+function problemBody<S extends ProblemSlug>(slug: S, members: object): Problem<S> {
+  const { status, title } = PROBLEMS[slug];
+  return { type: problemType(slug), title, status, ...members } as Problem<S>;
+}
+
 /**
  * The only way to build a problem body. `detail` must not contain a submitted answer — the redaction
  * rule applies to error bodies as much as to telemetry ([[7-application-boundary]] §5.5).
  */
 export function problem<S extends ProblemSlug>(slug: S, ...init: {} extends ProblemInit<S> ? [ProblemInit<S>?] : [ProblemInit<S>]): Problem<S> {
-  const { status, title } = PROBLEMS[slug];
-  return { type: problemType(slug), title, status, ...(init[0] ?? {}) } as Problem<S>;
+  return problemBody(slug, init[0] ?? {});
 }
 
 const strict = { additionalProperties: false } as const;
+
+export function ItemErrorOf<Codes extends string[]>(codes: readonly [...Codes]) {
+  return Type.Object({ itemId: Slug, code: Type.Enum(codes) }, strict);
+}
 
 /** The wire schema, for `4xx` / `5xx` responses on every route. */
 export const ProblemDetails = Type.Object(
@@ -153,17 +178,77 @@ export const ProblemDetails = Type.Object(
     detail: Type.Optional(Type.String()),
     instance: Type.Optional(Type.String()),
     errors: Type.Optional(Type.Array(Type.Object({ pointer: Type.String(), code: Type.String() }, strict))),
-    items: Type.Optional(
-      Type.Array(
-        Type.Object(
-          { itemId: Slug, code: Type.Enum([...DRAFT_ITEM_CODES, ...SUBMISSION_ITEM_CODES]) },
-          strict,
-        ),
-      ),
-    ),
+    items: Type.Optional(Type.Array(ItemErrorOf([...DRAFT_ITEM_CODES, ...SUBMISSION_ITEM_CODES]))),
   },
   strict,
 );
 export type ProblemDetailsWire = Static<typeof ProblemDetails>;
 
 export const PROBLEM_CONTENT_TYPE = "application/problem+json";
+
+export type UnknownCodes = "drop" | "reject";
+
+export interface ProblemFromWireOptions {
+  unknownCodes: UnknownCodes;
+}
+
+export type WireProblem<S extends ProblemSlug = ProblemSlug> = S extends ProblemSlug
+  ? { readonly slug: S; readonly problem: Problem<S> }
+  : never;
+
+type ExtensionReaders = {
+  [S in keyof ProblemExtensions]: (wire: ProblemDetailsWire, unknownCodes: UnknownCodes) => ProblemExtensions[S] | undefined;
+};
+
+function keptCodes<Wire, Known extends Wire>(
+  declared: readonly Wire[] | undefined,
+  isKnown: (candidate: Wire) => candidate is Known,
+  unknownCodes: UnknownCodes,
+): Known[] | undefined {
+  if (declared === undefined) return unknownCodes === "drop" ? [] : undefined;
+  const kept = declared.filter(isKnown);
+  return unknownCodes === "drop" || kept.length === declared.length ? kept : undefined;
+}
+
+function itemsOf<C extends string>(isCode: (code: string) => code is C) {
+  const isItemError = (item: { itemId: string; code: string }): item is ItemError<C> => isCode(item.code);
+  return (wire: ProblemDetailsWire, unknownCodes: UnknownCodes) => {
+    const items = keptCodes(wire.items, isItemError, unknownCodes);
+    return items === undefined ? undefined : { items };
+  };
+}
+
+const isPointerError = (error: { pointer: string; code: string }): error is PointerError => isRequestErrorCode(error.code);
+
+const PROBLEM_EXTENSIONS: ExtensionReaders = {
+  "request/invalid": (wire, unknownCodes) => {
+    const errors = keptCodes(wire.errors, isPointerError, unknownCodes);
+    return errors === undefined ? undefined : { errors };
+  },
+  "questionnaire/draft-invalid": itemsOf(isDraftItemCode),
+  "submission/invalid": itemsOf(isSubmissionItemCode),
+  internal: ({ detail }, unknownCodes) =>
+    detail === undefined ? (unknownCodes === "drop" ? { detail: "" } : undefined) : { detail },
+};
+
+function carriesExtensions(slug: ProblemSlug): slug is keyof ProblemExtensions {
+  return slug in PROBLEM_EXTENSIONS;
+}
+
+function locationOf({ detail, instance }: ProblemDetailsWire): { detail?: string; instance?: string } {
+  return { ...(detail === undefined ? {} : { detail }), ...(instance === undefined ? {} : { instance }) };
+}
+
+/**
+ * The only way to read a problem body off the wire ([[11-structural-refactor]] §3, PR 1). `"drop"`
+ * keeps a known slug whose extension carries codes this build does not know, dropping those codes;
+ * `"reject"` answers `undefined` unless every code and every required extension is known.
+ */
+export function problemFromWire(wire: unknown, { unknownCodes }: ProblemFromWireOptions): WireProblem | undefined {
+  if (!Value.Check(ProblemDetails, wire)) return undefined;
+  const slug = problemSlug(wire.type);
+  if (slug === undefined) return undefined;
+  const extensions = carriesExtensions(slug) ? PROBLEM_EXTENSIONS[slug](wire, unknownCodes) : {};
+  if (extensions === undefined) return undefined;
+  return { slug, problem: problemBody(slug, { ...locationOf(wire), ...extensions }) } as WireProblem;
+}

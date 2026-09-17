@@ -1,7 +1,7 @@
-import { executionApi, PROBLEM_CONTENT_TYPE, ProblemDetails, type HttpMethod } from "@qp/shared";
+import { executionApi, PROBLEM_CONTENT_TYPE, problemFromWire, type HttpMethod, type WireProblem } from "@qp/shared";
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
-import { executionProblemOf, type ExecutionProblem, type ExecutionProblemSlug } from "./problems.ts";
+import type { ExecutionProblem, ExecutionProblemSlug } from "./problems.ts";
 
 export type ExecutionOutcome<Body, S extends ExecutionProblemSlug> =
   | { readonly kind: "ok"; readonly body: Body }
@@ -20,14 +20,6 @@ export interface ExecutionRequest<Success extends TSchema, S extends ExecutionPr
 interface Exchange {
   readonly status: number;
   readonly text: string;
-}
-
-export function pathOf(url: string, params: Readonly<Record<string, string>>): string {
-  return url.replace(/:(\w+)/g, (_segment, name: string) => {
-    const value = params[name];
-    if (value === undefined) throw new Error(`missing path parameter ${name}`);
-    return encodeURIComponent(value);
-  });
 }
 
 async function exchange({ method, path, body }: ExecutionRequest<TSchema, ExecutionProblemSlug>): Promise<Exchange | undefined> {
@@ -49,7 +41,7 @@ function parsedJson(text: string): unknown {
   }
 }
 
-function isRouteProblem<S extends ExecutionProblemSlug>(slugs: readonly S[], candidate: ExecutionProblem): candidate is ExecutionProblem<S> {
+function isRouteProblem<S extends ExecutionProblemSlug>(slugs: readonly S[], candidate: WireProblem): candidate is ExecutionProblem<S> {
   return slugs.some((slug) => slug === candidate.slug);
 }
 
@@ -65,9 +57,9 @@ export async function sendExecutionRequest<Success extends TSchema, S extends Ex
     return Value.Check(request.success.schema, body) ? { kind: "ok", body } : { kind: "unexpected-response", status };
   }
 
-  const executionProblem = Value.Check(ProblemDetails, body) ? executionProblemOf(body) : undefined;
-  if (executionProblem !== undefined && executionProblem.problem.status === status && isRouteProblem(request.problems, executionProblem)) {
-    return { kind: "problem", ...executionProblem };
+  const parsed = problemFromWire(body, { unknownCodes: "reject" });
+  if (parsed !== undefined && parsed.problem.status === status && isRouteProblem(request.problems, parsed)) {
+    return { kind: "problem", ...parsed };
   }
   return { kind: "unexpected-response", status };
 }

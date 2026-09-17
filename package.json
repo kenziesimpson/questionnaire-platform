@@ -16,6 +16,7 @@
     "dev:respondent": "npm run dev -w apps/respondent",
     "dev:admin": "npm run dev -w apps/admin",
     "build": "npm run build -w packages/shared && npm run build -w packages/telemetry && npm run build -w apps/backend && npm run build -w apps/respondent && npm run build -w apps/admin",
+    "pretest": "npm run build -w packages/shared",
     "test": "vitest run",
     "test:e2e": "npm run test -w e2e",
     "typecheck": "npm run build -w packages/shared && npm run typecheck --workspaces --if-present",

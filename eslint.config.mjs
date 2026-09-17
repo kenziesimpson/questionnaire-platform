@@ -40,9 +40,49 @@ const doubleAssertionThrough = (keyword, spelling) =>
 
 const doubleAssertions = [...doubleAssertionThrough("TSUnknownKeyword", "unknown"), ...doubleAssertionThrough("TSAnyKeyword", "any")];
 
+const routePathLiteral = {
+  selector: "Literal[regex.pattern=/^:\\(/]",
+  message:
+    "Route paths are filled in by routePath in packages/shared/src/api/request.ts, which is the one place that knows the `:param` syntax. Import it instead of matching `:param` with a regex.",
+};
+
 const restrict = (...patterns) => ["error", { patterns: [telemetryOnly, ...patterns] }];
 
-const syntax = (...selectors) => ["warn", ...doubleAssertions, ...selectors];
+const confine = (...globals) => ["error", ...globals];
+
+const syntax = (...selectors) => ["warn", ...doubleAssertions, routePathLiteral, ...selectors];
+
+const appSources = ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}"];
+
+const problemParsingMessage =
+  "Problem bodies are read off the wire by problemFromWire in packages/shared/src/problems.ts, which owns the code guards and the unknown-code policy. Parse through it and keep only this consumer's policy here.";
+
+const problemParsing = [
+  {
+    selector: 'CallExpression[callee.object.name="Value"][callee.property.name="Check"][arguments.0.name="ProblemDetails"]',
+    message: problemParsingMessage,
+  },
+  {
+    selector: "TSTypePredicate[typeAnnotation.typeAnnotation.typeName.name=/^(PointerError|RequestErrorCode|DraftItemCode|SubmissionItemCode|ItemError)$/]",
+    message: problemParsingMessage,
+  },
+];
+
+const notFoundProblem = {
+  selector: 'CallExpression[callee.name="problem"][arguments.0.value="resource/not-found"]',
+  message:
+    "The `resource/not-found` body is built in one place, notFoundProblem in apps/backend/src/http/problems.ts. Call that instead, and read one off the wire with problemFromWire.",
+};
+
+const syntaxInsideTheRoutePathHelper = ["warn", ...doubleAssertions, ...problemParsing, notFoundProblem];
+
+const fetchOwners = ["apps/*/src/api/**", "e2e/fixtures/**", "e2e/stack/**"];
+
+const fetchOutsideApiClients = {
+  name: "fetch",
+  message:
+    "fetch belongs to an app's API client (apps/*/src/api/**) or to the e2e fixtures and stack, so one module per app owns the transport that trace headers and client spans will attach to.",
+};
 
 const rawSqlMessage =
   "Raw SQL through drizzle's `sql` bypasses the query builder's types. Use the builder (eq, and, exists, notExists, max, inArray, …); if Postgres needs something the builder cannot express, such as calling a database function or DDL, disable it with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>";
@@ -137,5 +177,22 @@ export default tseslint.config(
   {
     ...reactHooks.configs.flat.recommended,
     files: reactWorkspaces,
+  },
+  {
+    name: "L10: problem bodies are parsed only by problemFromWire",
+    files: appSources,
+    ignores: ["apps/backend/src/**", "packages/shared/src/problems.ts"],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem) },
+  },
+  {
+    name: "L16: fetch only in API client modules",
+    files: everyFile,
+    ignores: fetchOwners,
+    rules: { "no-restricted-globals": confine(fetchOutsideApiClients) },
+  },
+  {
+    name: "L6: routePath owns the :param syntax",
+    files: ["packages/shared/src/api/request.ts"],
+    rules: { "no-restricted-syntax": syntaxInsideTheRoutePathHelper },
   },
 );
