@@ -135,6 +135,22 @@ describe("the questionnaire list", () => {
     );
   });
 
+  it("links the name to the questionnaire, and lets you copy that link", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderList({ [`GET ${LIST_URL}`]: () => jsonResponse(200, [intake]) });
+
+    await screen.findByRole("table");
+
+    const nameLink = within(rowOf("Patient Intake")).getByRole("link", { name: "Patient Intake" });
+    expect(nameLink).toHaveAttribute("href", `${window.location.origin}/q/${INTAKE_ID}`);
+    expect(nameLink).toHaveAttribute("target", "_blank");
+
+    await userEvent.click(within(rowOf("Patient Intake")).getByRole("button", { name: "Copy link to Patient Intake" }));
+
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/q/${INTAKE_ID}`);
+  });
+
   it("reads closed and last edited as of when the list was loaded, and again when a refetch lands", async () => {
     const loadedAt = Date.parse("2026-01-14T12:00:00.000Z");
     const closingSoon = aSummary({

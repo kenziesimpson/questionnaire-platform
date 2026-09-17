@@ -63,6 +63,10 @@ export function fullTimestamp(iso: string): string {
   return calendarDateTime.format(Date.parse(iso));
 }
 
+export function respondentLink(questionnaireId: string, origin: string = window.location.origin): string {
+  return `${origin}/q/${questionnaireId}`;
+}
+
 const twoDigits = (value: number) => String(value).padStart(2, "0");
 
 export function toLocalDateTimeInput(instant: number): string {

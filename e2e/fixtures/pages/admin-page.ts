@@ -70,6 +70,14 @@ export class AdminPage {
     return this.page.getByRole("link", { name: `History of ${questionnaireName}`, exact: true });
   }
 
+  nameLink(questionnaireName: string): Locator {
+    return this.page.getByRole("link", { name: questionnaireName, exact: true });
+  }
+
+  copyLinkButton(questionnaireName: string): Locator {
+    return this.page.getByRole("button", { name: `Copy link to ${questionnaireName}`, exact: true });
+  }
+
   publishButton(): Locator {
     return this.page.getByRole("button", { name: "Publish", exact: true });
   }
