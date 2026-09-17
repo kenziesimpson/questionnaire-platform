@@ -1,8 +1,5 @@
-import { ESLint } from "eslint";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-
-const eslint = new ESLint({ cwd: fileURLToPath(new URL("..", import.meta.url)) });
+import { lintAs } from "./lint-harness.js";
 
 const REPOSITORY = "apps/backend/src/db/definition/example.ts";
 const TEST = "apps/backend/_tests/db/example.test.ts";
@@ -11,8 +8,7 @@ const HARNESS = "apps/backend/_tests/db/harness.ts";
 const GLOBAL_SETUP = "apps/backend/_tests/db/global-setup.ts";
 
 async function messages(rule: string, code: string, filePath: string) {
-  const [result] = await eslint.lintText(code, { filePath });
-  return (result?.messages ?? []).filter((message) => message.ruleId === rule);
+  return (await lintAs(filePath, code)).filter((message) => message.ruleId === rule);
 }
 
 const restrictedSyntax = (code: string, filePath = REPOSITORY) => messages("no-restricted-syntax", code, filePath);
@@ -39,10 +35,10 @@ describe("constructing a Postgres connection", () => {
   });
 
   it.each([
-    ["the factory", FACTORY],
-    ["the harness", HARNESS],
-    ["the harness globalSetup", GLOBAL_SETUP],
-  ])("allows %s to construct connections", async (_, filePath) => {
+    ["the factory, which is the constructor the rule points everything at", FACTORY],
+    ["the harness, which needs a raw client to reach the postgres database", HARNESS],
+    ["the harness globalSetup, which CREATEs the per-worker database before any pool of it can exist", GLOBAL_SETUP],
+  ])("allows %s", async (_, filePath) => {
     expect(await restrictedSyntax(NAMESPACED_POOL, filePath)).toEqual([]);
     expect(await restrictedSyntax(NAMESPACED_CLIENT, filePath)).toEqual([]);
   });

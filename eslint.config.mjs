@@ -1,20 +1,8 @@
-// ESLint carries the repo's import boundaries plus the React hooks rules for the TSX workspaces.
-// The boundaries are two rule families, both `no-restricted-imports`
-// ([[7-application-boundary]] §3.1, [[6-observability]] §3.1):
-//
-//   1. Only packages/telemetry may import pino or OpenTelemetry.
-//   2. The backend's definition and execution modules may not import each other, execution may not
-//      import the definition side of the db layer, and db/definition may not import any module.
-//
-//
-// A third family, `no-restricted-syntax`, keeps every Postgres connection coming from one
-// constructor so pool sizing has a single place to land ([[2-design-doc#17. Decisions Log]] #77),
-// and keeps `openDatabase` out of backend tests, which take databases from the harness instead.
-//
-// Both rules are configured once per file, so a later block replaces an earlier one's options
-// rather than merging; each block therefore restates the patterns it inherits.
+// Why these boundaries exist: [[11-structural-refactor]] §4, [[7-application-boundary]] §3.1, [[6-observability]] §3.1.
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
+
+const everyFile = ["**/*.{ts,tsx,mts,cts,js,mjs,cjs}"];
 
 const reactWorkspaces = ["apps/respondent/**/*.{ts,tsx}", "apps/admin/**/*.{ts,tsx}", "packages/ui/**/*.{ts,tsx}"];
 
@@ -44,8 +32,6 @@ const anyModule = {
   message: "db/definition sits below the backend modules and imports none of them.",
 };
 
-const restrict = (...patterns) => ["error", { patterns }];
-
 const doubleAssertionThrough = (keyword, spelling) =>
   ["TSAsExpression", "TSTypeAssertion"].map((inner) => ({
     selector: `TSAsExpression > ${inner}.expression[typeAnnotation.type="${keyword}"]`,
@@ -53,6 +39,10 @@ const doubleAssertionThrough = (keyword, spelling) =>
   }));
 
 const doubleAssertions = [...doubleAssertionThrough("TSUnknownKeyword", "unknown"), ...doubleAssertionThrough("TSAnyKeyword", "any")];
+
+const restrict = (...patterns) => ["error", { patterns: [telemetryOnly, ...patterns] }];
+
+const syntax = (...selectors) => ["warn", ...doubleAssertions, ...selectors];
 
 const rawSqlMessage =
   "Raw SQL through drizzle's `sql` bypasses the query builder's types. Use the builder (eq, and, exists, notExists, max, inArray, …); if Postgres needs something the builder cannot express, such as calling a database function or DDL, disable it with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>";
@@ -81,56 +71,68 @@ const openDatabaseOutsideTheHarness = {
     "Backend tests take databases from useTestDatabase() in _tests/db/harness.ts, so the harness owns every connection's lifetime and budget (Decisions Log #77). Type imports from db/client are fine. If a test genuinely needs its own handle, disable it with a reason: // eslint-disable-next-line no-restricted-imports -- <reason>",
 };
 
-// The three files below are the connection constructors themselves: db/client.ts is the factory the
-// rule points everything at, and the harness and its globalSetup need raw clients to reach the
-// `postgres` database and CREATE the per-worker one, which no pool of the target database can do.
 const filesThatMayConstructConnections = [
   "apps/backend/src/db/client.ts",
   "apps/backend/_tests/db/harness.ts",
   "apps/backend/_tests/db/global-setup.ts",
 ];
 
-const noDoubleAssertion = ["warn", ...doubleAssertions];
-const noDoubleAssertionOrRawSql = ["warn", ...doubleAssertions, ...rawSql];
-const noDoubleAssertionOrRawSqlOrConnectionConstruction = ["warn", ...doubleAssertions, ...rawSql, ...connectionConstruction];
-
 export default tseslint.config(
-  { ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**"] },
   {
-    files: ["**/*.{ts,tsx,mts,cts,js,mjs,cjs}"],
-    languageOptions: { parser: tseslint.parser },
-    linterOptions: { reportUnusedDisableDirectives: "error" },
-    rules: { "no-restricted-imports": restrict(telemetryOnly), "no-restricted-syntax": noDoubleAssertion },
+    ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**", "**/playwright-report/**", "**/test-results/**", "**/.stacks/**"],
   },
   {
+    name: "parser and disable directives",
+    files: everyFile,
+    languageOptions: { parser: tseslint.parser },
+    linterOptions: { reportUnusedDisableDirectives: "error" },
+  },
+  {
+    name: "telemetry imports",
+    files: everyFile,
+    rules: { "no-restricted-imports": restrict() },
+  },
+  {
+    name: "telemetry imports inside packages/telemetry",
     files: ["packages/telemetry/**"],
     rules: { "no-restricted-imports": "off" },
   },
   {
+    name: "double type assertions",
+    files: everyFile,
+    rules: { "no-restricted-syntax": syntax() },
+  },
+  {
+    name: "raw SQL and connection construction in the backend",
     files: ["apps/backend/**/*.ts"],
     ignores: ["apps/backend/src/db/schema.ts"],
-    rules: { "no-restricted-syntax": noDoubleAssertionOrRawSqlOrConnectionConstruction },
+    rules: { "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction) },
   },
   {
+    name: "connection construction inside the connection constructors",
     files: filesThatMayConstructConnections,
-    rules: { "no-restricted-syntax": noDoubleAssertionOrRawSql },
+    rules: { "no-restricted-syntax": syntax(...rawSql) },
   },
   {
+    name: "openDatabase imports in backend tests",
     files: ["apps/backend/_tests/**/*.ts"],
     ignores: ["apps/backend/_tests/db/harness.ts"],
-    rules: { "no-restricted-imports": restrict(telemetryOnly, openDatabaseOutsideTheHarness) },
+    rules: { "no-restricted-imports": restrict(openDatabaseOutsideTheHarness) },
   },
   {
+    name: "module boundary: definition",
     files: ["apps/backend/src/modules/definition/**"],
-    rules: { "no-restricted-imports": restrict(telemetryOnly, otherModule("execution")) },
+    rules: { "no-restricted-imports": restrict(otherModule("execution")) },
   },
   {
+    name: "module boundary: execution",
     files: ["apps/backend/src/modules/execution/**"],
-    rules: { "no-restricted-imports": restrict(telemetryOnly, otherModule("definition"), definitionDbLayer) },
+    rules: { "no-restricted-imports": restrict(otherModule("definition"), definitionDbLayer) },
   },
   {
+    name: "module boundary: the definition side of the db layer",
     files: ["apps/backend/src/db/definition/**"],
-    rules: { "no-restricted-imports": restrict(telemetryOnly, anyModule) },
+    rules: { "no-restricted-imports": restrict(anyModule) },
   },
   {
     ...reactHooks.configs.flat.recommended,

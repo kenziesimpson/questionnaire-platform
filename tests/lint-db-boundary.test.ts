@@ -1,12 +1,8 @@
-import { ESLint } from "eslint";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-
-const eslint = new ESLint({ cwd: fileURLToPath(new URL("..", import.meta.url)) });
+import { lintAs } from "./lint-harness.js";
 
 async function restrictedImports(filePath: string, code: string): Promise<string[]> {
-  const [result] = await eslint.lintText(code, { filePath });
-  return (result?.messages ?? []).filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message);
+  return (await lintAs(filePath, code)).filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message);
 }
 
 const EXECUTION = "apps/backend/src/modules/execution/submit.ts";
@@ -49,7 +45,7 @@ describe("execution never imports the definition side of the db layer", () => {
     expect(await restrictedImports(NESTED_EXECUTION, code.replaceAll("../../db/", "../../../db/"))).toEqual([]);
   });
 
-  it("still rejects the definition module and telemetry, which this rule restates", async () => {
+  it("still rejects the definition module and telemetry, which this rule inherits", async () => {
     expect(await restrictedImports(EXECUTION, `import { x } from "../definition/repository.js";`)).toHaveLength(1);
     expect(await restrictedImports(EXECUTION, `import pino from "pino";`)).toHaveLength(1);
     expect(await restrictedImports(NESTED_EXECUTION, `import { trace } from "@opentelemetry/api";`)).toHaveLength(1);
@@ -83,7 +79,7 @@ describe("db/definition never imports a backend module", () => {
     expect(await restrictedImports(DB_DEFINITION, code)).toEqual([]);
   });
 
-  it("still rejects telemetry, which this rule restates", async () => {
+  it("still rejects telemetry, which this rule inherits", async () => {
     expect(await restrictedImports(DB_DEFINITION, `import pino from "pino";`)).toHaveLength(1);
     expect(await restrictedImports(NESTED_DB_DEFINITION, `import { trace } from "@opentelemetry/api";`)).toHaveLength(1);
   });
