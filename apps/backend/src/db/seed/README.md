@@ -59,7 +59,7 @@ If the intake questionnaire already exists, the seed does nothing and prints
 ## Running it locally
 
 ```bash
-docker compose up db
+docker compose up -d roles
 npm run db:migrate -w apps/backend
 npm run db:seed -w apps/backend
 ```
