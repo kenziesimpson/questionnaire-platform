@@ -4,6 +4,7 @@ import { executionApi, INTAKE_QUESTIONNAIRE_ID, PROBLEM_CONTENT_TYPE, problem } 
 import { sql } from "drizzle-orm";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
+// eslint-disable-next-line no-restricted-imports -- an unreachable database is this test's subject: it opens a handle only to close it before the request
 import { openDatabase } from "../../../src/db/client.js";
 import {
   question,

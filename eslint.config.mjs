@@ -6,8 +6,13 @@
 //   2. The backend's definition and execution modules may not import each other, execution may not
 //      import the definition side of the db layer, and db/definition may not import any module.
 //
-// `no-restricted-imports` is configured once per file, so a later block replaces an earlier one's
-// options rather than merging; each block therefore restates the telemetry patterns it inherits.
+//
+// A third family, `no-restricted-syntax`, keeps every Postgres connection coming from one
+// constructor so pool sizing has a single place to land ([[2-design-doc#17. Decisions Log]] #77),
+// and keeps `openDatabase` out of backend tests, which take databases from the harness instead.
+//
+// Both rules are configured once per file, so a later block replaces an earlier one's options
+// rather than merging; each block therefore restates the patterns it inherits.
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
@@ -57,8 +62,37 @@ const rawSql = [
   { selector: 'CallExpression[callee.type="MemberExpression"][callee.object.name="sql"]', message: rawSqlMessage },
 ];
 
+const connectionConstructionMessage =
+  "Connections come from one constructor: `openDatabase` in apps/backend/src/db/client.ts, which is where pool sizing lands ([[2-design-doc#17. Decisions Log]] #77). Constructing a pg client or pool directly bypasses it. Where a raw connection is genuinely needed — connecting to another database in order to create one — disable it with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>";
+
+const connectionConstruction = [
+  {
+    selector: 'NewExpression[callee.object.name="pg"][callee.property.name=/^(Client|Pool)$/]',
+    message: connectionConstructionMessage,
+  },
+  { selector: 'NewExpression[callee.name=/^(Client|Pool)$/]', message: connectionConstructionMessage },
+];
+
+const openDatabaseOutsideTheHarness = {
+  regex: "(^|/)db/client(\\.[cm]?[jt]s)?$",
+  importNames: ["openDatabase"],
+  allowTypeImports: true,
+  message:
+    "Backend tests take databases from useTestDatabase() in _tests/db/harness.ts, so the harness owns every connection's lifetime and budget (Decisions Log #77). Type imports from db/client are fine. If a test genuinely needs its own handle, disable it with a reason: // eslint-disable-next-line no-restricted-imports -- <reason>",
+};
+
+// The three files below are the connection constructors themselves: db/client.ts is the factory the
+// rule points everything at, and the harness and its globalSetup need raw clients to reach the
+// `postgres` database and CREATE the per-worker one, which no pool of the target database can do.
+const filesThatMayConstructConnections = [
+  "apps/backend/src/db/client.ts",
+  "apps/backend/_tests/db/harness.ts",
+  "apps/backend/_tests/db/global-setup.ts",
+];
+
 const noDoubleAssertion = ["warn", ...doubleAssertions];
 const noDoubleAssertionOrRawSql = ["warn", ...doubleAssertions, ...rawSql];
+const noDoubleAssertionOrRawSqlOrConnectionConstruction = ["warn", ...doubleAssertions, ...rawSql, ...connectionConstruction];
 
 export default tseslint.config(
   { ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**"] },
@@ -75,7 +109,16 @@ export default tseslint.config(
   {
     files: ["apps/backend/**/*.ts"],
     ignores: ["apps/backend/src/db/schema.ts"],
+    rules: { "no-restricted-syntax": noDoubleAssertionOrRawSqlOrConnectionConstruction },
+  },
+  {
+    files: filesThatMayConstructConnections,
     rules: { "no-restricted-syntax": noDoubleAssertionOrRawSql },
+  },
+  {
+    files: ["apps/backend/_tests/**/*.ts"],
+    ignores: ["apps/backend/_tests/db/harness.ts"],
+    rules: { "no-restricted-imports": restrict(telemetryOnly, openDatabaseOutsideTheHarness) },
   },
   {
     files: ["apps/backend/src/modules/definition/**"],
