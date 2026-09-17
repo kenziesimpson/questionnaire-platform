@@ -4,6 +4,8 @@ import tseslint from "typescript-eslint";
 
 const everyFile = ["**/*.{ts,tsx,mts,cts,js,mjs,cjs}"];
 
+const everySourceFile = ["**/src/**/*.{ts,tsx,mts,cts,js,mjs,cjs}"];
+
 const reactWorkspaces = ["apps/respondent/**/*.{ts,tsx}", "apps/admin/**/*.{ts,tsx}", "packages/ui/**/*.{ts,tsx}"];
 
 const telemetryOnly = {
@@ -40,9 +42,54 @@ const doubleAssertionThrough = (keyword, spelling) =>
 
 const doubleAssertions = [...doubleAssertionThrough("TSUnknownKeyword", "unknown"), ...doubleAssertionThrough("TSAnyKeyword", "any")];
 
-const restrict = (...patterns) => ["error", { patterns: [telemetryOnly, ...patterns] }];
+const appLibraries = [
+  {
+    home: "apps/admin",
+    group: ["@tanstack/react-query", "@tanstack/react-query/*"],
+    message:
+      "TanStack Query holds admin's cached server state ([[2-design-doc#17. Decisions Log]] #32). The respondent app makes three uncached calls through fetch and takes no query library.",
+  },
+  {
+    home: "apps/admin",
+    group: ["@tanstack/react-router", "@tanstack/react-router/*"],
+    message:
+      "TanStack Router routes apps/admin ([[2-design-doc#17. Decisions Log]] #32). The respondent app is one URL and routes nothing.",
+  },
+  {
+    home: "apps/admin",
+    group: ["@dnd-kit/*"],
+    message:
+      "dnd-kit reorders draft items and question options in apps/admin ([[2-design-doc#17. Decisions Log]] #32). Nothing else in the repository drags.",
+  },
+  {
+    home: "apps/respondent",
+    group: ["@tanstack/react-form", "@tanstack/react-form/*"],
+    message:
+      "TanStack Form carries the respondent's per-field validation and touched state ([[2-design-doc#17. Decisions Log]] #32). Admin's two hard forms are shaped at runtime and take no form library.",
+  },
+  {
+    home: "packages/ui/src/primitives",
+    group: ["radix-ui", "radix-ui/*"],
+    message:
+      "Radix is reached through the shared primitives in packages/ui/src/primitives ([[2-design-doc#17. Decisions Log]] #32). Apps import @qp/ui so both get one component set.",
+  },
+];
 
-const syntax = (...selectors) => ["warn", ...doubleAssertions, ...selectors];
+const librariesAwayFrom = (home) => appLibraries.filter((library) => library.home !== home).map(({ group, message }) => ({ group, message }));
+
+const restrictOutside = (home, ...patterns) => ["error", { patterns: [telemetryOnly, ...librariesAwayFrom(home), ...patterns] }];
+
+const restrict = (...patterns) => restrictOutside(undefined, ...patterns);
+
+const noDefaultExport = {
+  selector: "ExportDefaultDeclaration",
+  message:
+    "Exports are named, so an import reads the same everywhere. Tool config files and the vitest and Playwright globalSetup and globalTeardown entry points are the exception, because those tools load a default export.",
+};
+
+const syntaxAllowingDefaultExport = (...selectors) => ["warn", ...doubleAssertions, ...selectors];
+
+const syntax = (...selectors) => syntaxAllowingDefaultExport(noDefaultExport, ...selectors);
 
 const rawSqlMessage =
   "Raw SQL through drizzle's `sql` bypasses the query builder's types. Use the builder (eq, and, exists, notExists, max, inArray, …); if Postgres needs something the builder cannot express, such as calling a database function or DDL, disable it with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>";
@@ -75,6 +122,32 @@ const filesThatMayConstructConnections = [
   "apps/backend/src/db/client.ts",
   "apps/backend/_tests/db/harness.ts",
   "apps/backend/_tests/db/global-setup.ts",
+];
+
+const persistenceSeamMessage =
+  "The respondent reads and writes partial answers through apps/respondent/src/storage, so the envelope format, the quota and failure handling, and later the telemetry around them live in one seam.";
+
+const localStorageAwayFromTheSeam = { name: "localStorage", message: persistenceSeamMessage };
+
+const localStorageThroughAnObject = ["window", "globalThis"].map((object) => ({
+  object,
+  property: "localStorage",
+  message: persistenceSeamMessage,
+}));
+
+const terminalEntryPoints = [
+  "apps/backend/src/db/migrate.ts",
+  "apps/backend/src/db/seed/seed.ts",
+  "e2e/stack/stack-cli.ts",
+  "e2e/stack/global-setup.ts",
+  "e2e/stack/global-teardown.ts",
+];
+
+const filesThatMustDefaultExport = [
+  "**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}",
+  "apps/backend/_tests/db/global-setup.ts",
+  "e2e/stack/global-setup.ts",
+  "e2e/stack/global-teardown.ts",
 ];
 
 export default tseslint.config(
@@ -137,5 +210,44 @@ export default tseslint.config(
   {
     ...reactHooks.configs.flat.recommended,
     files: reactWorkspaces,
+  },
+  {
+    name: "library split by app: admin",
+    files: ["apps/admin/**"],
+    rules: { "no-restricted-imports": restrictOutside("apps/admin") },
+  },
+  {
+    name: "library split by app: respondent",
+    files: ["apps/respondent/**"],
+    rules: { "no-restricted-imports": restrictOutside("apps/respondent") },
+  },
+  {
+    name: "library split by app: the shared primitives",
+    files: ["packages/ui/src/primitives/**"],
+    rules: { "no-restricted-imports": restrictOutside("packages/ui/src/primitives") },
+  },
+  {
+    name: "localStorage outside the respondent's persistence seam",
+    files: everySourceFile,
+    ignores: ["apps/respondent/src/storage/**"],
+    rules: {
+      "no-restricted-globals": ["error", localStorageAwayFromTheSeam],
+      "no-restricted-properties": ["error", ...localStorageThroughAnObject],
+    },
+  },
+  {
+    name: "console outside the entry points that write to a terminal",
+    files: [...everySourceFile, "e2e/**/*.{ts,tsx}"],
+    rules: { "no-console": "error" },
+  },
+  {
+    name: "the entry points that write to a terminal",
+    files: terminalEntryPoints,
+    rules: { "no-console": "off" },
+  },
+  {
+    name: "default exports in tool config files and framework entry points",
+    files: filesThatMustDefaultExport,
+    rules: { "no-restricted-syntax": syntaxAllowingDefaultExport(...rawSql) },
   },
 );
