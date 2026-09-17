@@ -41,7 +41,7 @@ Two PRs can run at the same time when the files they own don't overlap. The wave
 
 | Wave | PRs, run in parallel | Waits for |
 | --- | --- | --- |
-| 0 | PR 0 (lint harness), PR 17 (compose), PR 20 (ownership table) | nothing |
+| 0 | PR 0 (lint harness), PR 0b (the four rules PR 0 left unowned), PR 17 (compose), PR 20 (ownership table) | nothing |
 | 1 | PR 1 (request helpers, problem parser), PR 3 (`db/execution`), PR 13 (tsconfig presets) | PR 0 |
 | 2 | PR 2 (shared vocabulary, test support), PR 4b (route cleanup), PR 15 (root scripts) | PR 1 and PR 3 |
 | 3 | PR 4 (database cleanup), PR 5 → PR 6 (admin), PR 7 → PR 8 → PR 8b (respondent), PR 9 (primitives), PR 10 (questionnaire index), PR 16 (e2e), PR 18 (comments) | PR 2 |
@@ -67,6 +67,7 @@ graph LR
   PR4 -. merges before .-> PR18
   PR11 & PR12 & PR16 & PR8b & PR6 & PR4 & PR18 & PR9 --> PR14
   PR14 --> PR19 --> PR21
+  PR0b
   PR17
   PR20
 ```
@@ -76,6 +77,7 @@ Dotted arrows mean the order to merge in; they don't block starting work.
 **Files that many PRs touch.** These cause small, predictable rebase conflicts even between PRs marked parallel:
 
 - **`eslint.config.mjs`.** Most PRs add a rule to it. After PR 0, each rule is its own named block appended to the list, so a conflict means keeping both blocks.
+  After PR 0b, `restrict()` also carries L7's library patterns, so a block scoped inside `apps/admin`, `apps/respondent` or `packages/ui/src/primitives` builds its patterns with `restrictOutside(<that home>, …)`; `restrict()` there would ban the home its own libraries live in.
 - **The Decisions Log in [[2-design-doc#17. Decisions Log]].** New rows are numbered in merge order (§5), so the PR that merges second renumbers its row.
 - **[[8-testing#7. Test case enumeration]].** Rows are grouped per workspace, so parallel PRs edit different parts of the table.
 
@@ -93,6 +95,22 @@ This lands first, because every later PR adds lint rules and lint tests.
 - Extract `tests/lint-harness.ts` with one helper signature, `lintAs(filePath, code)`. All five `tests/lint-*.test.ts` files use it.
 
 Owns: `eslint.config.mjs`, `tests/**`.
+
+#### PR 0b — The four lint rules PR 0 left unowned · S
+
+> **Depends on:** nothing. **Can run alongside:** anything.
+
+PR 0 merged without the four rules §4.1 assigned to it. All four measure 0 violations, so this lands them and corrects the table.
+
+- **L7** appends the library split to the patterns `restrict()` inherits, and gives `apps/admin`, `apps/respondent` and `packages/ui/src/primitives` a block each carrying every library but its own.
+- **L17** covers the bare global and the `window.` and `globalThis.` member forms, because the seam itself reads `globalThis.localStorage` and `no-restricted-globals` alone would not see a copy of that line.
+- **L19** allowlists five entry points by exact path, not by directory.
+- **L20** appends the `ExportDefaultDeclaration` selector to the ones `syntax()` inherits, and exempts `*.config.*` and the three framework `globalSetup`/`globalTeardown` files. Flat config replaces a rule's options rather than merging them, so an exempting block restates every other selector that applies to the files it names: the backend's config files keep the raw-SQL and connection-construction warnings, and the backend harness's `globalSetup` keeps raw SQL while keeping the connection-construction exemption it already had.
+- Amend the §4.1 rows whose wording is wider than the rule that ships (L17, L19, L20), and move all four to this PR.
+
+Lint rules: L7, L17, L19 and L20.
+
+Owns: the four blocks it appends to `eslint.config.mjs`, `tests/lint-{library-split,storage,console,default-exports}.test.ts`, this document.
 
 #### PR 1 — Shared request helpers, one problem parser, and `pretest` · M
 
@@ -477,7 +495,7 @@ All rules below are agreed. The "today" column counts violations measured on 202
 | L4 | Mutations live in `src/api/mutations` | Importing `useMutation` is allowed only there | `no-restricted-imports` with `importNames` | 5 | 4 files outside |
 | L5 | No prose comments | Rejects any comment except ESLint and TypeScript directives (`eslint-*`, `@ts-expect-error — <reason>`) | A local rule in `eslint.config.mjs` | 18 | about 190 lines |
 | L6 | Route paths are built only by the shared helper | Rejects regex literals matching `/:(…)/` outside `packages/shared/src/api/request.ts` | `no-restricted-syntax` on `Literal[regex.pattern=/^:\\(/]` | 1 | 4 |
-| L7 | Library split by app (#32) | `@tanstack/react-query`, `@tanstack/react-router` and `@dnd-kit/*` are allowed only in `apps/admin`. `@tanstack/react-form` is allowed only in `apps/respondent`. `radix-ui` is allowed only in `packages/ui/src/primitives` | `no-restricted-imports` | 0 | 0; this codifies the current state |
+| L7 | Library split by app (#32) | `@tanstack/react-query`, `@tanstack/react-router` and `@dnd-kit/*` are allowed only in `apps/admin`. `@tanstack/react-form` is allowed only in `apps/respondent`. `radix-ui` is allowed only in `packages/ui/src/primitives`. Each home covers the workspace's tests as well as its sources | `no-restricted-imports` | 0b | 0; this codifies the current state |
 | L8 | No named exports via `export *` in package entry points | Public APIs are explicit | `no-restricted-syntax` on `ExportAllDeclaration` in `packages/*/src` | 2 | 13 |
 | L9 | Shared vocabulary is not re-declared | Rejects declaring `QuestionOf`, `strict`, `OTHER_OPTION_ID`, `conditionsOf` and the other PR 2 names outside `packages/shared` | `no-restricted-syntax` on `TSTypeAliasDeclaration` and `VariableDeclarator` names | 2 | 14 |
 | L10 | Problem bodies are parsed only by `problemFromWire` | Rejects hand-built problem guards, and rejects calling `problem("resource/not-found", …)` outside `notFoundProblem` | `no-restricted-syntax` | 1 (and 4b, 16) | 6 in backend `src` |
@@ -487,10 +505,10 @@ All rules below are agreed. The "today" column counts violations measured on 202
 | L14 | No non-null assertions | Keeps PR 21 honest | `@typescript-eslint/no-non-null-assertion` | 21 | 5 (3 in `decimal.ts`) |
 | L15 | No explicit `any` | Types stay honest; test data uses typed builders | `@typescript-eslint/no-explicit-any` | 2 | 16, all in shared tests |
 | L16 | `fetch` only in API client modules | One transport per app. This is where trace headers and client spans will attach | `no-restricted-globals` everywhere except `apps/*/src/api/**`, `e2e/fixtures/**` and `e2e/stack/**` | 1 | 0 outside; this codifies the current state |
-| L17 | `localStorage` only in `apps/respondent/src/storage` | One persistence seam | `no-restricted-globals` | 0 | 0; this codifies the current state |
+| L17 | `localStorage` only in `apps/respondent/src/storage` | One persistence seam, in production code: the rule covers every `src` directory and not `_tests/**` or `e2e/**`, whose Playwright `page.evaluate` callbacks run in the browser | `no-restricted-globals` for the bare global, plus `no-restricted-properties` for `window.localStorage` and `globalThis.localStorage`, which the global rule does not see | 0b | 0; this codifies the current state |
 | L18 | `process.env` only in `apps/backend/src/config.ts` and root config files | One environment reader, which is where telemetry configuration will land | `no-restricted-properties` | 4 | 1 extra (`drizzle.config.ts`, which is allowed as a config file) |
-| L19 | No `console` in `src` | Logging goes through the logger, and later through telemetry. Allowed in the migrate and seed entry points and in `e2e/stack` | `no-console` | 0 | 0 outside the allowed files |
-| L20 | No default exports except in tool config files | Consistent named imports | `no-restricted-syntax` on `ExportDefaultDeclaration` | 0 | 0 outside config files |
+| L19 | No `console` in `src` | Logging goes through the logger, and later through telemetry. The rule covers every `src` directory and all of `e2e/`, and allows five entry points that write to a terminal by exact path: `apps/backend/src/db/migrate.ts`, `apps/backend/src/db/seed/seed.ts` and `e2e/stack/{stack-cli,global-setup,global-teardown}.ts` | `no-console` | 0b | 0 outside the allowed files |
+| L20 | No default exports except in tool config files | Consistent named imports. `*.config.*` is exempt, and so are the three `globalSetup`/`globalTeardown` files vitest and Playwright load by default export: `apps/backend/_tests/db/global-setup.ts` and `e2e/stack/{global-setup,global-teardown}.ts`. An exempted file loses only this selector and keeps every other `no-restricted-syntax` selector that reaches it | `no-restricted-syntax` on `ExportDefaultDeclaration` | 0b | 0 outside those files |
 | L21 | Dates are formatted only in `src/lib/dates.ts` per app | One locale policy per app | `no-restricted-syntax` on `toLocale*String` and `Intl.DateTimeFormat` | 5 | 5 files |
 
 Deferred to the telemetry work, not this pass: banning `request.log`, `reply.log` and `app.log` in `apps/backend/src` outside one logger adapter. There are 3 such calls today.
