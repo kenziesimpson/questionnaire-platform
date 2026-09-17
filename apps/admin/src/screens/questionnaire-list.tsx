@@ -4,9 +4,10 @@ import { Button } from "@qp/ui/primitives/button";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@qp/ui/primitives/table";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { questionnaireQueries } from "../api/queries";
 import { useOpenDraft, type OpenDraft } from "../api/use-open-draft";
+import { CheckIcon, LinkIcon } from "../components/icons";
 import { Panel } from "../components/panel";
 import { Pill } from "../components/pill";
 import { ClosesAtDialog } from "./questionnaire-list/closes-at-dialog";
@@ -15,6 +16,7 @@ import {
   closesLabel,
   fullTimestamp,
   lastEditedLabel,
+  respondentLink,
   sortByMostRecentlyEdited,
   statusLabel,
   statusOf,
@@ -40,6 +42,27 @@ function Muted({ children }: { children: ReactNode }) {
   return <span className="text-muted-foreground">{children}</span>;
 }
 
+function CopyLinkButton({ questionnaireId, name }: { questionnaireId: string; name: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  return (
+    <button
+      type="button"
+      aria-label={`Copy link to ${name}`}
+      className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+      onClick={() => void navigator.clipboard.writeText(respondentLink(questionnaireId)).then(() => setCopied(true))}
+    >
+      {copied ? <CheckIcon size={13} /> : <LinkIcon size={13} />}
+    </button>
+  );
+}
+
 function QuestionnaireRow({ summary, now, drafts }: { summary: QuestionnaireSummary; now: number; drafts: OpenDraft }) {
   const status = statusOf(summary, now);
   const closed = status.kind === "closed";
@@ -49,7 +72,17 @@ function QuestionnaireRow({ summary, now, drafts }: { summary: QuestionnaireSumm
     <TableRow>
       <TableCell className="py-3 pl-4 whitespace-normal">
         <div className="flex flex-col gap-0.5">
-          <span className={cn("font-medium", closed && "text-muted-foreground")}>{summary.name}</span>
+          <div className="flex items-center gap-1.5">
+            <a
+              href={respondentLink(summary.questionnaireId)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline"
+            >
+              <span className={cn("font-medium", closed && "text-muted-foreground")}>{summary.name}</span>
+            </a>
+            <CopyLinkButton questionnaireId={summary.questionnaireId} name={summary.name} />
+          </div>
           {summary.key === null ? null : (
             <span className="font-mono text-xs text-muted-foreground">{summary.key}</span>
           )}
