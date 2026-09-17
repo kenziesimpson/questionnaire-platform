@@ -1,12 +1,8 @@
-import { ESLint } from "eslint";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-
-const eslint = new ESLint({ cwd: fileURLToPath(new URL("..", import.meta.url)) });
+import { lintAs } from "./lint-harness.js";
 
 async function restrictedImports(filePath: string, code: string): Promise<string[]> {
-  const [result] = await eslint.lintText(code, { filePath });
-  return (result?.messages ?? []).filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message);
+  return (await lintAs(filePath, code)).filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message);
 }
 
 const DEFINITION = "apps/backend/src/modules/definition/routes/publish.ts";
@@ -24,7 +20,7 @@ describe("telemetry boundary: only packages/telemetry imports pino or OpenTeleme
     expect(await restrictedImports("packages/shared/src/engine.ts", code)).toHaveLength(1);
   });
 
-  it("still rejects them inside a backend module, where the module rule replaces the base options", async () => {
+  it("still rejects them inside a backend module, which inherits the base patterns", async () => {
     expect(await restrictedImports(DEFINITION, `import pino from "pino";`)).toHaveLength(1);
     expect(await restrictedImports(EXECUTION, `import { trace } from "@opentelemetry/api";`)).toHaveLength(1);
   });
