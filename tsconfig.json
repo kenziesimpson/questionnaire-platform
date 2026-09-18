@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "types": ["node"]
+  },
+  "include": ["tests", "eslint.config.mjs", "vitest.config.mts"]
+}

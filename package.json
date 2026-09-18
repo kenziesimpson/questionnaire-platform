@@ -18,7 +18,7 @@
     "build": "npm run build -w packages/shared && npm run build -w packages/telemetry && npm run build -w apps/backend && npm run build -w apps/respondent && npm run build -w apps/admin",
     "test": "vitest run",
     "test:e2e": "npm run test -w e2e",
-    "typecheck": "npm run build -w packages/shared && npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run build -w packages/shared && tsc -p tsconfig.json --noEmit && npm run typecheck --workspaces --if-present",
     "lint": "eslint . && npm run lint --workspaces --if-present"
   },
   "devDependencies": {
