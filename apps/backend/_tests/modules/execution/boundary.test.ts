@@ -25,6 +25,19 @@ const EXECUTION_SOURCE_DIRECTORIES = ["modules", "db"].map((layer) =>
   fileURLToPath(new URL(`../../../src/${layer}/execution/`, import.meta.url)),
 );
 
+const DEFINITION_SIDE_IMPORT = /from\s*"[./]*(?:db\/)?(?:(?:definition|seed)\/|audit(?:\.[cm]?[jt]s)?")/;
+
+const DEFINITION_SIDE_IMPORT_SPELLINGS = [
+  `import { publishDraft } from "../../db/definition/publish.js";`,
+  `import { publishDraft } from "../definition/publish.js";`,
+  `import { seedDemoQuestionnaire } from "../../db/seed/demo-questionnaire.js";`,
+  `import { seedDemoQuestionnaire } from "../seed/demo-questionnaire.js";`,
+  `import { recordAudit } from "../../db/audit.js";`,
+  `import { recordAudit } from "../audit.js";`,
+  `import { recordAudit } from "../audit";`,
+  `export { recordAudit } from "../audit.js";`,
+];
+
 async function executionSources(): Promise<string> {
   const perDirectory = await Promise.all(
     EXECUTION_SOURCE_DIRECTORIES.map(async (directory) => {
@@ -71,7 +84,8 @@ describe("the execution module on its own", () => {
 
     expect(new Set(schemaImports)).toEqual(new Set(["definitionSchema", "questionnaire", "response", "session"]));
     expect(source).toContain('.view("published_questionnaire_version"');
-    expect(source).not.toMatch(/from\s*"[./]*(?:db\/)?(definition|seed)\//);
+    expect(DEFINITION_SIDE_IMPORT_SPELLINGS.filter((line) => !DEFINITION_SIDE_IMPORT.test(line))).toEqual([]);
+    expect(source).not.toMatch(DEFINITION_SIDE_IMPORT);
   });
 });
 
