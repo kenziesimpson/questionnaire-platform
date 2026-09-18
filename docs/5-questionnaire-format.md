@@ -17,7 +17,7 @@ Reusable question content never carries placement or branching. A question is re
 
 There are no edges between questions. Order is the list index; the next question is the first unanswered item whose predicate evaluates true. Convergence after a branch is not a property to prove — it is the only thing a list can do. See §6 for the models this was chosen over.
 
-**Identifiers come in two kinds.** Bank rows, questionnaires, sessions and published versions are addressed by uuid (v7 or v4), never a sequential integer. `itemId`, `optionId` and the `key` slugs on questions and questionnaires are different: they are authored identifiers that live inside a document rather than as a database row, matching `^[a-z][a-z0-9_]{0,63}$`. `yes`, `no` and `other` are reserved option ids by editor convention (§2, §2.3), not by this pattern — the pattern only constrains shape, not which slugs are meaningful.
+**Identifiers come in two kinds.** Bank rows, questionnaires, sessions and published versions are addressed by uuid (v7 or v4), never a sequential integer. `itemId`, `optionId` and the `key` slugs on questions and questionnaires are different: they are authored identifiers that live inside a document rather than as a database row, matching `^[a-z][a-z0-9_]{0,63}$`. That pattern only constrains shape, not which slugs are meaningful: `yes` and `no` are reserved by editor convention alone (§2), while `other` carries an enforced guarantee, not just a convention (§2.3).
 
 ## 2. Question types
 

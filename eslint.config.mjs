@@ -316,9 +316,11 @@ const proseCommentMessage =
 
 const tsExpectErrorWithReason = /^@ts-expect-error\s+—\s+\S/;
 
+const eslintDirectivePrefixes = ["eslint-disable-next-line", "eslint-disable-line", "eslint-disable", "eslint-enable", "eslint-env"];
+
 function isAllowedDirectiveComment(value) {
   const text = value.trim();
-  return text.startsWith("eslint-") || tsExpectErrorWithReason.test(text);
+  return eslintDirectivePrefixes.some((prefix) => text.startsWith(prefix)) || tsExpectErrorWithReason.test(text);
 }
 
 const noProseComments = {

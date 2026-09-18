@@ -58,6 +58,12 @@ describe("L5: no prose comments in packages/shared and packages/telemetry", () =
     const code = `// A prose comment.\nexport const x = 1;`;
     expect(await proseComments("apps/backend/src/server.ts", code)).toEqual([]);
     expect(await proseComments("apps/admin/src/api/client.ts", code)).toEqual([]);
+    expect(await proseComments("packages/ui/src/primitives/dialog.tsx", code)).toEqual([]);
     expect(await proseComments("eslint.config.mjs", code)).toEqual([]);
+  });
+
+  it("rejects a comment that merely starts with the word eslint, rather than a real directive", async () => {
+    const code = `// eslint-ish musings about this function\nexport const x = 1;`;
+    expect(await proseComments("packages/shared/src/engine.ts", code)).toHaveLength(1);
   });
 });
