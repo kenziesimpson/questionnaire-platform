@@ -107,73 +107,28 @@ describe("QuestionEditorDialog — fields per response type", () => {
   });
 });
 
-describe("QuestionEditorDialog — the six cross-field rules cannot be entered", () => {
-  it("text: raising the min length above the max drags the max up, and a max typed below the min is clamped to it", async () => {
-    renderEditor();
-    await typeInto("Max length", "5");
-
-    await typeInto("Min length", "12");
-    expect(field("Max length")).toHaveValue("12");
-
-    const max = await typeInto("Max length", "3");
-    fireEvent.blur(max);
-    expect(field("Max length")).toHaveValue("12");
-  });
-
-  it("number: the max never stays below the min, and letters cannot be typed into a bound", async () => {
+describe("QuestionEditorDialog — field wiring the clamping unit tests do not cover", () => {
+  it("number: letters cannot be typed into a bound", async () => {
     renderEditor();
     await chooseType("Number");
-    await typeInto("Max", "10");
-
     await typeInto("Min", "25.5");
-    expect(field("Max")).toHaveValue("25.5");
 
-    const max = await typeInto("Max", "-4");
-    fireEvent.blur(max);
-    expect(field("Max")).toHaveValue("25.5");
-
-    await typeInto("Unit", "kg");
     await userEvent.type(field("Min"), "x");
     expect(field("Min")).toHaveValue("25.5");
   });
 
-  it("date: an earliest after the latest moves the latest, and a latest before the earliest is clamped to it", async () => {
+  it("date: the latest field's min attribute tracks the earliest value", async () => {
     renderEditor();
     await chooseType("Date");
     const earliest = inDialog().getByLabelText("Earliest");
     const latest = inDialog().getByLabelText("Latest");
-    fireEvent.change(latest, { target: { value: "2026-03-01" } });
 
     fireEvent.change(earliest, { target: { value: "2026-06-01" } });
-    expect(latest).toHaveValue("2026-06-01");
     expect(latest).toHaveAttribute("min", "2026-06-01");
-
-    fireEvent.change(latest, { target: { value: "2026-01-01" } });
-    fireEvent.blur(latest);
-    expect(latest).toHaveValue("2026-06-01");
   });
+});
 
-  it("multiple choice: min selections above max drags max up, both are capped by the option count, and removing an option lowers them", async () => {
-    renderEditor();
-    await chooseType("Multiple choice");
-    await userEvent.click(inDialog().getByRole("button", { name: "Add option" }));
-    await userEvent.click(inDialog().getByRole("button", { name: "Add option" }));
-    await typeInto("Max selections", "1");
-
-    await typeInto("Min selections", "2");
-    expect(field("Max selections")).toHaveValue("2");
-
-    await typeInto("Min selections", "9");
-    expect(field("Min selections")).toHaveValue("3");
-    await typeInto("Max selections", "7");
-    expect(field("Max selections")).toHaveValue("3");
-
-    const [firstRemove] = inDialog().getAllByRole("button", { name: /^Remove option/ });
-    await userEvent.click(firstRemove!);
-    expect(field("Min selections")).toHaveValue("2");
-    expect(field("Max selections")).toHaveValue("2");
-  });
-
+describe("QuestionEditorDialog — the remaining rules cannot be entered", () => {
   it("option ids are generated, never typed, and every added option gets a distinct id outside the reserved ones", async () => {
     renderEditor();
     await chooseType("Single choice");

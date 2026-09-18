@@ -10,7 +10,8 @@ import { GripIcon, LockIcon, PlusIcon, RemoveIcon } from "../../components/icons
 import { Pill } from "../../components/pill";
 import { SortableList, SortableRow, useSortableList } from "../../components/sortable-list";
 import { optionPointer, type FieldErrors } from "./field-errors";
-import { addOption, edits, type EditableOption, type QuestionForm } from "./question-form";
+import { addOption, edits } from "./form-edits";
+import type { EditableOption, QuestionForm } from "./form-state";
 
 interface OptionsEditorProps {
   form: QuestionForm;

@@ -10,7 +10,6 @@ import { InfoTip } from "../../components/info-tip";
 import { Pill } from "../../components/pill";
 import { SortableList, SortableRow, useSortableList } from "../../components/sortable-list";
 import { isArchived, RESPONSE_TYPE_LABELS } from "../../lib/question";
-import { laterReferencesIn, listOfPositions } from "./conditions";
 import {
   dependantsOf,
   moveItem,
@@ -21,15 +20,9 @@ import {
   setRequired,
   setVisibleWhen,
 } from "./draft-changes";
+import { laterReferencesIn, listOfPositions } from "./draft-selectors";
+import { itemDomId } from "./item-dom";
 import { PredicateEditor } from "./predicate-editor";
-
-export function itemDomId(itemId: string) {
-  return `draft-item-${itemId}`;
-}
-
-export function rulesEditorOf(itemId: string): HTMLElement | null {
-  return document.getElementById(itemDomId(itemId))?.querySelector<HTMLElement>("[data-rules-editor]") ?? null;
-}
 
 interface DraftItemsProps {
   draft: QuestionnaireDraft;

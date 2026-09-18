@@ -4,8 +4,9 @@ import { describedByFor, errorIdFor, FieldMessages, InputField } from "../../com
 import { SegmentedControl } from "../../components/segmented-control";
 import { COUNT_PATTERN, DECIMAL_INPUT_PATTERN } from "../../lib/input-patterns";
 import type { FieldErrors } from "./field-errors";
+import { edits } from "./form-edits";
+import type { NumberKind, QuestionForm, RelativeDate } from "./form-state";
 import { OptionsEditor } from "./options-editor";
-import { edits, type NumberKind, type QuestionForm, type RelativeDate } from "./question-form";
 
 interface ConstraintFieldsProps {
   form: QuestionForm;
