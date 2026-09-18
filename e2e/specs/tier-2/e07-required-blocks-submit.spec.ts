@@ -17,6 +17,20 @@ test.describe("E7 — a required answer blocks submit, and focus lands on it", (
     const pharmacyBox = page.getByRole("textbox", { name: pharmacy });
     const summary = respondent.errorSummary();
 
+    await expect(pharmacyBox).not.toHaveAttribute("aria-invalid", "true");
+    await expect(conditionGroup).not.toHaveAttribute("aria-invalid", "true");
+    await expect(summary).toHaveCount(0);
+
+    await pharmacyBox.focus();
+    await pharmacyBox.blur();
+
+    await expect(summary).toBeVisible();
+    await expect(summary.getByRole("heading", { level: 2, name: ERROR_SUMMARY_TITLES.oneAnswer })).toBeVisible();
+    await expect(pharmacyBox).toHaveAttribute("aria-invalid", "true");
+    await expect(pharmacyBox).toHaveAccessibleDescription(ITEM_ERROR_MESSAGES.required);
+    await expect(conditionGroup).not.toHaveAttribute("aria-invalid", "true");
+    expect(submitRequests).toHaveLength(0);
+
     await respondent.submit();
 
     await expect(summary).toBeVisible();

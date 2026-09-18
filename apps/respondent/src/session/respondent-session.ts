@@ -12,7 +12,7 @@ export interface ExecutionClient {
   readonly submitSession: typeof submitSession;
 }
 
-export const fetchExecutionClient: ExecutionClient = { createSession, getSession, submitSession };
+const fetchExecutionClient: ExecutionClient = { createSession, getSession, submitSession };
 
 export interface PartialsStorage {
   readonly readPartials: typeof readPartials;
@@ -21,13 +21,14 @@ export interface PartialsStorage {
   readonly clearPartialAnswers: typeof clearPartialAnswers;
 }
 
-export const localPartialsStorage: PartialsStorage = { readPartials, writePartials, removePartials, clearPartialAnswers };
+const localPartialsStorage: PartialsStorage = { readPartials, writePartials, removePartials, clearPartialAnswers };
 
 export interface RespondentSession {
   readonly getState: () => RespondentState;
   readonly subscribe: (listener: () => void) => () => void;
   readonly enter: () => Promise<void>;
-  readonly changeAnswers: (itemId: string, answers: ClientAnswers) => void;
+  readonly changeAnswers: (itemId: string) => void;
+  readonly persistAnswers: (answers: ClientAnswers) => void;
   readonly submit: (answers: ClientAnswers) => Promise<void>;
   readonly retry: () => Promise<void>;
   readonly startNewSession: () => Promise<void>;
@@ -150,11 +151,15 @@ export function createRespondentSession(
     }
   }
 
-  function changeAnswers(itemId: string, answers: ClientAnswers) {
+  function changeAnswers(itemId: string) {
+    if (formContextOf(state) === null) return;
+    dispatch({ type: "answerChanged", itemId });
+  }
+
+  function persistAnswers(answers: ClientAnswers) {
     const form = formContextOf(state);
     if (form === null) return;
     storage.writePartials(form.session, answers);
-    dispatch({ type: "answerChanged", itemId });
   }
 
   async function fetchRecordedReceipt(session: Session) {
@@ -241,6 +246,7 @@ export function createRespondentSession(
     },
     enter,
     changeAnswers,
+    persistAnswers,
     submit,
     retry,
     startNewSession,

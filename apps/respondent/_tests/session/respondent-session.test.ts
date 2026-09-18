@@ -216,19 +216,20 @@ describe("changeAnswers", () => {
     const storage = fakeStorage();
     const session = createRespondentSession(INTAKE_QUESTIONNAIRE_ID, client, storage);
 
-    session.changeAnswers("itm_04", { itm_04: { type: "text", text: "x" } });
+    session.changeAnswers("itm_04");
 
     expect(storage.writePartials).not.toHaveBeenCalled();
   });
 
-  it("writes the new answers against the current session", async () => {
+  it("no longer writes to storage itself; local persistence is a separate call now", async () => {
     const client = fakeClient();
     const storage = fakeStorage();
     const session = await readySession(client, storage);
+    storage.writePartials.mockClear();
 
-    session.changeAnswers("itm_04", { itm_04: { type: "text", text: "Corner pharmacy" } });
+    session.changeAnswers("itm_04");
 
-    expect(storage.writePartials).toHaveBeenCalledWith(inProgressSession, { itm_04: { type: "text", text: "Corner pharmacy" } });
+    expect(storage.writePartials).not.toHaveBeenCalled();
   });
 
   it("notifies subscribers when the change clears a server-rejected item's errors", async () => {
@@ -244,10 +245,33 @@ describe("changeAnswers", () => {
     const listener = vi.fn();
     session.subscribe(listener);
 
-    session.changeAnswers("itm_04", { itm_04: { type: "text", text: "Short" } });
+    session.changeAnswers("itm_04");
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect(session.getState()).toMatchObject({ name: "ready", rejection: { itemErrors: {} } });
+  });
+});
+
+describe("persistAnswers", () => {
+  it("does nothing when there is no form to persist against", () => {
+    const client = fakeClient();
+    const storage = fakeStorage();
+    const session = createRespondentSession(INTAKE_QUESTIONNAIRE_ID, client, storage);
+
+    session.persistAnswers({ itm_04: { type: "text", text: "x" } });
+
+    expect(storage.writePartials).not.toHaveBeenCalled();
+  });
+
+  it("writes the given answers against the current session through the injected storage", async () => {
+    const client = fakeClient();
+    const storage = fakeStorage();
+    const session = await readySession(client, storage);
+    storage.writePartials.mockClear();
+
+    session.persistAnswers({ itm_04: { type: "text", text: "Corner pharmacy" } });
+
+    expect(storage.writePartials).toHaveBeenCalledWith(inProgressSession, { itm_04: { type: "text", text: "Corner pharmacy" } });
   });
 });
 

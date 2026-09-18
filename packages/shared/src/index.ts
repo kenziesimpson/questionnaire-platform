@@ -54,7 +54,7 @@ export {
   serverDateContext,
 } from "./engine/calendar.js";
 export { evaluateVisibility, visibleAnswers, visibleItems } from "./engine/visibility.js";
-export { validateSubmission } from "./engine/answer-validation.js";
+export { validateAnswer, validateSubmission } from "./engine/answer-validation.js";
 export { responseDigest } from "./engine/digest.js";
 export { validateDraft, type DraftValidation } from "./engine/draft-validation.js";
 export { validateQuestionRules } from "./engine/question-rules.js";
