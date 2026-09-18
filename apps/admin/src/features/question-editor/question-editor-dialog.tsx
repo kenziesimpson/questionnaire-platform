@@ -12,7 +12,10 @@ import { SegmentedControl } from "../../components/segmented-control";
 import { RESPONSE_TYPE_LABELS } from "../../lib/question";
 import { ConstraintFields } from "./constraint-fields";
 import { NO_ERRORS, hasErrors, missingEntries, placeErrors, type SaveErrors } from "./field-errors";
-import { blankForm, edits, formFromQuestion, questionInputFromForm, type QuestionForm } from "./question-form";
+import { edits } from "./form-edits";
+import { questionInputFromForm } from "./form-serialize";
+import type { QuestionForm } from "./form-state";
+import { useQuestionForm } from "./use-question-form";
 
 export interface QuestionEditorDialogProps {
   open: boolean;
@@ -96,7 +99,7 @@ function YesNoCheckbox({ form, editing, onChange }: { form: QuestionForm; editin
 
 function OpenQuestionEditor({ onOpenChange, question, onSaved }: Omit<QuestionEditorDialogProps, "open">) {
   const editing = question !== undefined;
-  const [form, setForm] = useState(() => (question === undefined ? blankForm() : formFromQuestion(question)));
+  const [form, setForm] = useQuestionForm(question);
   const [errors, setErrors] = useState<SaveErrors>(NO_ERRORS);
   const [returnFocusTo] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null));
   const dragging = useRef(false);

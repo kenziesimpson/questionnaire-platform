@@ -1,5 +1,5 @@
 import { QUESTION_RULE_CODES, isChoiceQuestion, type PointerError, type QuestionRuleCode, type RequestErrorCode } from "@qp/shared";
-import { optionCount, type QuestionForm } from "./question-form";
+import { optionCount, type QuestionForm } from "./form-state";
 
 export type FieldErrors = Record<string, string[]>;
 

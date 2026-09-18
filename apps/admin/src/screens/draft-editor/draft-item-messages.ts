@@ -9,8 +9,8 @@ import {
   type ResponseType,
 } from "@qp/shared";
 import { RESPONSE_TYPE_LABELS } from "../../lib/question";
-import { laterReferencesIn, listOfPositions, referenceOf, type Reference } from "./conditions";
 import { pinnedQuestionOf } from "./draft-changes";
+import { laterReferencesIn, listOfPositions, referenceOf, type Reference } from "./draft-selectors";
 
 interface DraftItemContext {
   draft: QuestionnaireDraft;
