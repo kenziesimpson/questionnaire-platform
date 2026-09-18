@@ -14,6 +14,15 @@ export interface ExecutionClient {
 
 export const fetchExecutionClient: ExecutionClient = { createSession, getSession, submitSession };
 
+export interface PartialsStorage {
+  readonly readPartials: typeof readPartials;
+  readonly writePartials: typeof writePartials;
+  readonly removePartials: typeof removePartials;
+  readonly clearPartialAnswers: typeof clearPartialAnswers;
+}
+
+export const localPartialsStorage: PartialsStorage = { readPartials, writePartials, removePartials, clearPartialAnswers };
+
 export interface RespondentSession {
   readonly getState: () => RespondentState;
   readonly subscribe: (listener: () => void) => () => void;
@@ -41,7 +50,11 @@ function receiptOf({ sessionId, questionnaireId, version, submittedAt }: Session
   return submittedAt === null ? undefined : { sessionId, questionnaireId, version, submittedAt };
 }
 
-export function createRespondentSession(questionnaireId: string, client: ExecutionClient = fetchExecutionClient): RespondentSession {
+export function createRespondentSession(
+  questionnaireId: string,
+  client: ExecutionClient = fetchExecutionClient,
+  storage: PartialsStorage = localPartialsStorage,
+): RespondentSession {
   let state = INITIAL_STATE;
   const listeners = new Set<() => void>();
 
@@ -60,7 +73,7 @@ export function createRespondentSession(questionnaireId: string, client: Executi
     const outcome = await client.createSession(questionnaireId);
     if (outcome.kind === "ok") {
       const { session, definition } = outcome.body;
-      writePartials(session, carriedAnswers);
+      storage.writePartials(session, carriedAnswers);
       dispatch({ type: "sessionStarted", session, definition });
     } else if (outcome.kind === "problem" && outcome.slug === "questionnaire/closed") {
       dispatch({ type: "questionnaireClosed" });
@@ -81,11 +94,11 @@ export function createRespondentSession(questionnaireId: string, client: Executi
       } else if (receipt === undefined) {
         failed({ kind: "unexpected-response", status: 200 });
       } else {
-        clearPartialAnswers(session);
+        storage.clearPartialAnswers(session);
         dispatch({ type: "submittedSessionResumed", receipt, definition });
       }
     } else if (outcome.kind === "problem" && outcome.slug === "resource/not-found") {
-      removePartials(questionnaireId);
+      storage.removePartials(questionnaireId);
       dispatch({ type: "storedSessionStale" });
       await start({});
     } else if (outcome.kind === "problem" && outcome.slug === "questionnaire/closed") {
@@ -97,7 +110,7 @@ export function createRespondentSession(questionnaireId: string, client: Executi
 
   async function enter() {
     if (state.name !== "entering") return;
-    const stored = readPartials(questionnaireId);
+    const stored = storage.readPartials(questionnaireId);
     if (stored === undefined) {
       dispatch({ type: "noStoredSession" });
       await start({});
@@ -110,7 +123,7 @@ export function createRespondentSession(questionnaireId: string, client: Executi
   function changeAnswers(itemId: string, answers: ClientAnswers) {
     const form = formContextOf(state);
     if (form === null) return;
-    writePartials(form.session, answers);
+    storage.writePartials(form.session, answers);
     dispatch({ type: "answerChanged", itemId });
   }
 
@@ -124,7 +137,7 @@ export function createRespondentSession(questionnaireId: string, client: Executi
     if (receipt === undefined) {
       failed({ kind: "unexpected-response", status: 200 });
     } else {
-      clearPartialAnswers(session);
+      storage.clearPartialAnswers(session);
       dispatch({ type: "recordedReceiptFetched", receipt, definition: outcome.body.definition });
     }
   }
@@ -136,7 +149,7 @@ export function createRespondentSession(questionnaireId: string, client: Executi
     dispatch({ type: "submitRequested" });
     const outcome = await client.submitSession(session.sessionId, sensitive(visibleAnswers(definition, answers)));
     if (outcome.kind === "ok") {
-      clearPartialAnswers(session);
+      storage.clearPartialAnswers(session);
       dispatch({ type: "submitAccepted", receipt: outcome.body.receipt });
     } else if (outcome.kind !== "problem") {
       failed(outcome);
