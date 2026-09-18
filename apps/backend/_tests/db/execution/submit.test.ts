@@ -1,11 +1,5 @@
-import {
-  INTAKE_QUESTION_IDS,
-  INTAKE_QUESTIONNAIRE_ID,
-  problemType,
-  PROBLEM_CONTENT_TYPE,
-  responseDigest,
-  type ResponseRow,
-} from "@qp/shared";
+import { problemType, PROBLEM_CONTENT_TYPE, responseDigest, type ResponseRow } from "@qp/shared";
+import { INTAKE_QUESTION_IDS, INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { v4 as uuidv4 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { useTestDatabase } from "../harness.js";

@@ -1,10 +1,8 @@
-import { PROBLEM_CONTENT_TYPE, PositiveInt, problemType } from "@qp/shared";
+import { PROBLEM_CONTENT_TYPE, PositiveInt, problemType, strict } from "@qp/shared";
 import Fastify, { type FastifyInstance } from "fastify";
 import Type from "typebox";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { replyNotFound, replyWithProblem, requestValidatorCompiler } from "../../src/http/problems.js";
-
-const strict = { additionalProperties: false } as const;
 
 let app: FastifyInstance;
 

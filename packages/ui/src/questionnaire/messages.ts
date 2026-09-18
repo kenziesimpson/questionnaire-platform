@@ -1,5 +1,4 @@
-import type { QuestionContent, SubmissionItemCode } from "@qp/shared";
-import type { QuestionOf } from "./types";
+import { freeformOptionOf, type QuestionContent, type QuestionOf, type SubmissionItemCode } from "@qp/shared";
 
 export const CODES_WITHOUT_A_RENDERED_ITEM = ["answer/not-visible", "answer/unknown-item"] as const;
 
@@ -14,8 +13,7 @@ function asType<T extends QuestionContent["type"]>(question: QuestionContent, ty
 }
 
 function otherLabel(question: QuestionContent): string {
-  const choice = asType(question, "single_choice") ?? asType(question, "multiple_choice");
-  return choice?.options.find((option) => option.freeform)?.label ?? "Other";
+  return freeformOptionOf(question)?.label ?? "Other";
 }
 
 function withUnit(value: number, unit: string | undefined): string {

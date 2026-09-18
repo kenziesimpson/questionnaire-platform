@@ -1,23 +1,77 @@
-export * from "./primitives.js";
-export * from "./domain/question.js";
-export * from "./domain/condition.js";
-export * from "./domain/definition.js";
+export { IsoDateTime, PositiveInt, SLUG_PATTERN, Uuid, strict } from "./primitives.js";
+export {
+  OTHER_OPTION_ID,
+  Option,
+  Question,
+  QuestionContent,
+  QuestionInput,
+  QuestionUsage,
+  QuestionVersion,
+  QuestionVersionSummary,
+  RESPONSE_TYPES,
+  ResponseType,
+  freeformOptionOf,
+  isChoiceQuestion,
+  optionIdsOf,
+  questionInputOf,
+  type QuestionOf,
+} from "./domain/question.js";
+export { Condition, OPERATORS_BY_TYPE, Predicate, conditionsOf, referencedOptionIds, type ConditionOf } from "./domain/condition.js";
+export { FORMAT_VERSION, Item, PublishedDefinition, VersionSummary } from "./domain/definition.js";
 export { readStoredDefinition } from "./domain/stored-definition.js";
-export * from "./domain/draft.js";
-export * from "./domain/answer.js";
-export * from "./domain/session.js";
-export * from "./problems.js";
-export * from "./sensitive.js";
-export * from "./engine/calendar.js";
-export { canonicalDecimal, compareDecimals, compareDecimalToNumber, decimalFromNumber, isIntegerDecimal } from "./engine/decimal.js";
-export { evaluateVisibility, visibleAnswers, visibleItems, type HasItems } from "./engine/visibility.js";
-export { validateAnswer, validateSubmission, type SubmissionValidation } from "./engine/answer-validation.js";
-export { canonicalResponseRows, responseDigest } from "./engine/digest.js";
-export { validateDraft, type DraftForValidation, type DraftValidation } from "./engine/draft-validation.js";
-export { validateQuestionRules, type QuestionRuleError } from "./engine/question-rules.js";
-export * from "./demo/intake.js";
-export * from "./api/route.js";
-export * from "./api/request.js";
-export * from "./api/etag.js";
+export { DraftItem, QuestionnaireDraft, QuestionnaireSummary, draftForValidation, draftItemOf } from "./domain/draft.js";
+export { ClientAnswerValue, ClientAnswers, ResponseRow, answerFor, type ClientAnswerValueOf } from "./domain/answer.js";
+export { Receipt, Session, SessionStatus } from "./domain/session.js";
+export {
+  DRAFT_ITEM_CODES,
+  PROBLEM_CONTENT_TYPE,
+  ProblemDetails,
+  QUESTION_RULE_CODES,
+  SUBMISSION_ITEM_CODES,
+  problem,
+  problemFromWire,
+  problemSlug,
+  problemType,
+  type DraftItemCode,
+  type ItemError,
+  type PointerError,
+  type Problem,
+  type ProblemDetailsWire,
+  type ProblemInit,
+  type ProblemSlug,
+  type QuestionRuleCode,
+  type RequestErrorCode,
+  type SubmissionItemCode,
+  type WireProblem,
+} from "./problems.js";
+export { Sensitive, sensitive } from "./sensitive.js";
+export {
+  SERVER_RELATIVE_DATE_TOLERANCE_DAYS,
+  addDays,
+  calendarDateIn,
+  dayNumber,
+  respondentDateContext,
+  serverDateContext,
+} from "./engine/calendar.js";
+export { evaluateVisibility, visibleAnswers, visibleItems } from "./engine/visibility.js";
+export { validateSubmission } from "./engine/answer-validation.js";
+export { responseDigest } from "./engine/digest.js";
+export { validateDraft, type DraftValidation } from "./engine/draft-validation.js";
+export { validateQuestionRules } from "./engine/question-rules.js";
+export {
+  defineRoute,
+  type BodyOf,
+  type HeadersOf,
+  type HttpMethod,
+  type ParamsOf,
+  type QueryOf,
+  type ReplyOf,
+  type RouteDefinition,
+  type RouteWith,
+  type SuccessBody,
+  type SuccessStatus,
+} from "./api/route.js";
+export { routePath, routeSearch, successSchemaOf, type PathParams, type QueryParams, type RequestParts } from "./api/request.js";
+export { formatDraftEtag, isDraftEtagFor, parseDraftEtag } from "./api/etag.js";
 export * as definitionApi from "./api/definition.js";
 export * as executionApi from "./api/execution.js";

@@ -1,5 +1,5 @@
 import Type from "typebox";
-import { Uuid } from "../primitives.js";
+import { Uuid, strict } from "../primitives.js";
 import { ClientAnswers } from "../domain/answer.js";
 import { PublishedDefinition } from "../domain/definition.js";
 import { Receipt, Session } from "../domain/session.js";
@@ -12,7 +12,6 @@ import { defineRoute } from "./route.js";
  */
 export const EXECUTION_PREFIX = "/api/run";
 
-const strict = { additionalProperties: false } as const;
 const SessionParams = Type.Object({ sessionId: Uuid }, strict);
 const SessionWithDefinition = Type.Object({ session: Session, definition: PublishedDefinition }, strict);
 

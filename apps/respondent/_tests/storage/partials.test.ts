@@ -1,4 +1,5 @@
-import { INTAKE_QUESTIONNAIRE_ID, type ClientAnswers } from "@qp/shared";
+import { type ClientAnswers } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearPartialAnswers,

@@ -1,8 +1,7 @@
 import { Value } from "typebox/value";
-import { Condition, RESPONSE_TYPES, type QuestionVersion, type QuestionnaireDraft } from "@qp/shared";
+import { Condition, OPERATORS_BY_TYPE, RESPONSE_TYPES, type QuestionVersion, type QuestionnaireDraft } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import {
-  OPERATORS,
   defaultConditionFor,
   isComplete,
   earlierItemsThan,
@@ -41,26 +40,16 @@ function draftOf(types: QuestionVersion["type"][]): QuestionnaireDraft {
 }
 
 describe("predicate conditions", () => {
-  it("offers exactly the operators format §4.2 allows per type", () => {
-    expect(OPERATORS).toEqual({
-      text: ["answered"],
-      single_choice: ["is", "isNot", "isAnyOf", "isNoneOf"],
-      multiple_choice: ["includes", "excludes", "includesAnyOf", "includesAllOf"],
-      number: ["eq", "neq", "lt", "lte", "gt", "gte", "between"],
-      date: ["before", "onOrBefore", "after", "onOrAfter", "between"],
-    });
-  });
-
   it("builds a default condition for every type with bounds, and every operator switch of it, that the shared Condition schema accepts", () => {
     for (const type of RESPONSE_TYPES) {
       const initial = defaultConditionFor("itm_01", questions[type]);
       expect(isComplete(initial)).toBe(true);
       expect(Value.Check(Condition, initial)).toBe(true);
-      for (const op of OPERATORS[type]) {
+      for (const op of OPERATORS_BY_TYPE[type]) {
         const switched = withOperator(initial, op);
         expect(switched.op).toBe(op);
         expect(Value.Check(Condition, switched)).toBe(true);
-        expect(Value.Check(Condition, withOperator(switched, OPERATORS[type][0] ?? op))).toBe(true);
+        expect(Value.Check(Condition, withOperator(switched, OPERATORS_BY_TYPE[type][0] ?? op))).toBe(true);
       }
     }
     expect(defaultConditionFor("itm_01", questions.number)).toMatchObject({ op: "eq", value: 18 });

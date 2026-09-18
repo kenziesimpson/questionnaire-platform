@@ -1,16 +1,14 @@
-import type { Condition, ConditionOf, DraftItem, QuestionVersion, QuestionnaireDraft, ResponseType } from "@qp/shared";
-import { conditionsOf, pinnedQuestionOf } from "./draft-changes";
+import {
+  conditionsOf,
+  referencedOptionIds,
+  type Condition,
+  type DraftItem,
+  type QuestionVersion,
+  type QuestionnaireDraft,
+} from "@qp/shared";
+import { pinnedQuestionOf } from "./draft-changes";
 
 export type Operator = Condition["op"];
-type OperatorOf<T extends ResponseType> = ConditionOf<T>["op"];
-
-export const OPERATORS: { readonly [T in ResponseType]: readonly OperatorOf<T>[] } = {
-  text: ["answered"],
-  single_choice: ["is", "isNot", "isAnyOf", "isNoneOf"],
-  multiple_choice: ["includes", "excludes", "includesAnyOf", "includesAllOf"],
-  number: ["eq", "neq", "lt", "lte", "gt", "gte", "between"],
-  date: ["before", "onOrBefore", "after", "onOrAfter", "between"],
-};
 
 export const OPERATOR_LABELS: Record<Operator, string> = {
   answered: "is",
@@ -34,10 +32,6 @@ export const OPERATOR_LABELS: Record<Operator, string> = {
   after: "is after",
   onOrAfter: "is on or after",
 };
-
-export function operatorsFor(type: ResponseType): readonly Operator[] {
-  return OPERATORS[type];
-}
 
 export const UNSET_NUMBER = Number.NaN;
 export const UNSET_DATE = "";
@@ -84,23 +78,19 @@ const MANY_OPTION_MULTIPLE = ["includesAnyOf", "includesAllOf"] as const;
 const NUMBER_COMPARISONS = ["eq", "neq", "lt", "lte", "gt", "gte"] as const;
 const DATE_COMPARISONS = ["before", "onOrBefore", "after", "onOrAfter"] as const;
 
-function optionIdsIn(condition: { optionId: string } | { optionIds: string[] }): string[] {
-  return "optionIds" in condition ? condition.optionIds : [condition.optionId];
-}
-
 export function withOperator(condition: Condition, op: Operator): Condition {
   const { itemId } = condition;
   switch (condition.type) {
     case "text":
       return condition;
     case "single_choice": {
-      const ids = optionIdsIn(condition);
+      const ids = [...referencedOptionIds(condition)];
       if (isOneOf(op, SINGLE_OPTION_CHOICE)) return { type: "single_choice", itemId, op, optionId: ids[0] ?? "" };
       if (isOneOf(op, MANY_OPTION_CHOICE)) return { type: "single_choice", itemId, op, optionIds: ids };
       return condition;
     }
     case "multiple_choice": {
-      const ids = optionIdsIn(condition);
+      const ids = [...referencedOptionIds(condition)];
       if (isOneOf(op, SINGLE_OPTION_MULTIPLE)) return { type: "multiple_choice", itemId, op, optionId: ids[0] ?? "" };
       if (isOneOf(op, MANY_OPTION_MULTIPLE)) return { type: "multiple_choice", itemId, op, optionIds: ids };
       return condition;

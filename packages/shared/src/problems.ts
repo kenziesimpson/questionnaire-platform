@@ -1,6 +1,6 @@
 import Type, { type Static } from "typebox";
 import { Value } from "typebox/value";
-import { Slug } from "./primitives.js";
+import { Slug, strict } from "./primitives.js";
 
 /**
  * RFC 9457 problem details ([[7-application-boundary]] §6.1). The slug set is closed: a handler
@@ -163,8 +163,6 @@ export function problem<S extends ProblemSlug>(slug: S, ...init: {} extends Prob
   return problemBody(slug, init[0] ?? {});
 }
 
-const strict = { additionalProperties: false } as const;
-
 export function ItemErrorOf<Codes extends string[]>(codes: readonly [...Codes]) {
   return Type.Object({ itemId: Slug, code: Type.Enum(codes) }, strict);
 }
@@ -251,7 +249,6 @@ const PROBLEM_EXTENSIONS: ExtensionReaders = {
   "submission/invalid": itemsOf(isSubmissionItemCode),
   internal: ({ detail }) => (detail === undefined ? undefined : { detail }),
 };
-
 
 function carriesExtensions(slug: ProblemSlug): slug is keyof ProblemExtensions {
   return slug in PROBLEM_EXTENSIONS;

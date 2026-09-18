@@ -1,11 +1,14 @@
+import { draftItemOf, questionInputOf, type Item, type PublishedDefinition } from "@qp/shared";
 import {
-  INTAKE_QUESTION_IDS,
+  INTAKE_EARLIER_REVISIONS,
+  INTAKE_ITEM_IDS,
+  INTAKE_QUESTION_KEYS,
+  INTAKE_QUESTION_ROLES,
   INTAKE_QUESTIONNAIRE_ID,
+  INTAKE_QUESTIONNAIRE_KEY,
   intakeDefinition,
-  type Item,
-  type QuestionContent,
-  type QuestionInput,
-} from "@qp/shared";
+  type IntakeQuestionRole,
+} from "@qp/shared/demo";
 import { eq } from "drizzle-orm";
 import type { Database, Transaction } from "../client.js";
 import { publishDraft } from "../definition/publish.js";
@@ -16,50 +19,25 @@ import { questionnaire } from "../schema.js";
 
 const SEED_ACTOR = "seed";
 
-const QUESTION_KEYS: Record<string, string> = {
-  [INTAKE_QUESTION_IDS.hasCondition]: "qst_has_condition",
-  [INTAKE_QUESTION_IDS.whichCondition]: "qst_which_condition",
-  [INTAKE_QUESTION_IDS.diagnosedOn]: "qst_diagnosed_on",
-  [INTAKE_QUESTION_IDS.pharmacy]: "qst_pharmacy",
-};
-
-const EARLIER_WHICH_CONDITION_REVISIONS: readonly QuestionInput[] = [
-  {
-    type: "single_choice",
-    prompt: "Which medical condition do you have?",
-    options: [
-      { optionId: "opt_diabetes", label: "Diabetes" },
-      { optionId: "opt_hyperten", label: "Hypertension" },
-    ],
-  },
-  {
-    type: "single_choice",
-    prompt: "Which condition?",
-    options: [
-      { optionId: "opt_diabetes", label: "Diabetes" },
-      { optionId: "opt_hyperten", label: "Hypertension" },
-    ],
-  },
-];
-
 export type DemoSeedOutcome = "seeded" | "already-seeded";
 
-function asQuestionInput(content: QuestionContent): QuestionInput {
-  const { questionId: _questionId, questionVersion: _questionVersion, ...input } = content;
-  return input;
+function intakeItem(demo: PublishedDefinition, role: IntakeQuestionRole): Item {
+  const item = demo.items.find((candidate) => candidate.itemId === INTAKE_ITEM_IDS[role]);
+  if (item === undefined) {
+    throw new Error(`the intake definition has no item ${INTAKE_ITEM_IDS[role]}`);
+  }
+  return item;
 }
 
-async function saveBankHistoryFor(tx: Transaction, item: Item): Promise<void> {
+async function saveBankHistoryFor(tx: Transaction, role: IntakeQuestionRole, item: Item): Promise<void> {
   const { questionId, questionVersion } = item.question;
   const common = { createdBy: SEED_ACTOR, traceId: null };
-  const earlier = questionId === INTAKE_QUESTION_IDS.whichCondition ? EARLIER_WHICH_CONDITION_REVISIONS : [];
-  const revisions = [...earlier, asQuestionInput(item.question)];
-  const [first, ...later] = revisions;
+  const [first, ...later] = [...INTAKE_EARLIER_REVISIONS[role], questionInputOf(item.question)];
   if (first === undefined) {
     throw new Error(`no revisions to seed for question ${questionId}`);
   }
 
-  let saved = await createQuestion(tx, { questionId, key: QUESTION_KEYS[questionId] ?? null, content: first, ...common });
+  let saved = await createQuestion(tx, { questionId, key: INTAKE_QUESTION_KEYS[role], content: first, ...common });
   for (const content of later) {
     const appended = await appendQuestionVersion(tx, { questionId, content, ...common });
     if (appended.outcome !== "saved") {
@@ -83,13 +61,13 @@ export async function seedDemoQuestionnaire(db: Database): Promise<DemoSeedOutco
       return "already-seeded";
     }
 
-    for (const item of demo.items) {
-      await saveBankHistoryFor(tx, item);
+    for (const role of INTAKE_QUESTION_ROLES) {
+      await saveBankHistoryFor(tx, role, intakeItem(demo, role));
     }
 
     const created = await createQuestionnaire(tx, {
       questionnaireId: INTAKE_QUESTIONNAIRE_ID,
-      key: "qnr_intake",
+      key: INTAKE_QUESTIONNAIRE_KEY,
       name: demo.title,
       title: demo.title,
       createdBy: SEED_ACTOR,
@@ -99,13 +77,7 @@ export async function seedDemoQuestionnaire(db: Database): Promise<DemoSeedOutco
       questionnaireId: INTAKE_QUESTIONNAIRE_ID,
       precondition: { versionId: created.draftVersionId, draftRevision: created.draftRevision },
       title: demo.title,
-      items: demo.items.map((item) => ({
-        itemId: item.itemId,
-        required: item.required,
-        visibleWhen: item.visibleWhen,
-        questionId: item.question.questionId,
-        questionVersion: item.question.questionVersion,
-      })),
+      items: demo.items.map(draftItemOf),
       actorId: SEED_ACTOR,
       traceId: null,
     });

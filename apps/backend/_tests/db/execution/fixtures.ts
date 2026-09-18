@@ -1,14 +1,5 @@
-import {
-  executionApi,
-  INTAKE_QUESTION_IDS,
-  INTAKE_QUESTIONNAIRE_ID,
-  intakeDefinition,
-  type ClientAnswers,
-  type DraftItem,
-  type Item,
-  type QuestionContent,
-  type QuestionInput,
-} from "@qp/shared";
+import { draftItemOf, executionApi, questionInputOf, type ClientAnswers, type Item } from "@qp/shared";
+import { INTAKE_QUESTION_IDS, INTAKE_QUESTIONNAIRE_ID, intakeDefinition } from "@qp/shared/demo";
 import Fastify, { type FastifyInstance, type LightMyRequestResponse } from "fastify";
 import { afterEach, beforeEach, vi } from "vitest";
 import { appendQuestionVersion, createQuestion } from "../../../src/db/definition/questions.js";
@@ -58,21 +49,6 @@ export function useExecutionApp(testDatabase: TestDatabase): () => FastifyInstan
 }
 
 const actor = { createdBy: "test", traceId: null };
-
-function draftItemOf(item: Item): DraftItem {
-  return {
-    itemId: item.itemId,
-    required: item.required,
-    visibleWhen: item.visibleWhen,
-    questionId: item.question.questionId,
-    questionVersion: item.question.questionVersion,
-  };
-}
-
-function questionInputOf(content: QuestionContent): QuestionInput {
-  const { questionId: _questionId, questionVersion: _questionVersion, ...input } = content;
-  return input;
-}
 
 export async function seedIntakeV1(testDatabase: TestDatabase): Promise<void> {
   const outcome = await seedDemoQuestionnaire(testDatabase.database("definition"));

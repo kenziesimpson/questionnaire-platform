@@ -18,13 +18,15 @@ stored-snapshot loader, so every reader upgrades and checks a published snapshot
 
 | Path | Contents |
 | --- | --- |
-| `src/primitives.ts` | Shared TypeBox primitives (`Uuid`, `Slug`, `IsoDate`, …) |
-| `src/domain/` | Questionnaire, question, condition, definition, draft, answer and session schemas; `readStoredDefinition`, which upgrades a stored snapshot to the current format and checks it |
+| `src/primitives.ts` | Shared TypeBox primitives (`Uuid`, `Slug`, `IsoDate`, …) and `strict` |
+| `src/domain/` | Questionnaire, question, condition, definition, draft, answer and session schemas; the vocabulary every workspace uses instead of its own copy (`QuestionOf`, `OTHER_OPTION_ID`, `freeformOptionOf`, `conditionsOf`, `OPERATORS_BY_TYPE`, `draftItemOf`, `questionInputOf`, …); `readStoredDefinition`, which upgrades a stored snapshot to the current format and checks it |
+| `src/demo/intake.ts` | The seeded demo questionnaire: its definition, ids, keys and bank history. Exported only as `@qp/shared/demo`: the seed and the test fixtures use it, and it is not part of the package API |
 | `src/problems.ts` | The closed set of RFC 9457 problem types the API can return |
 | `src/sensitive.ts` | `Sensitive<T>`, the wrapper that keeps a respondent's answer values out of logs |
 | `src/api/` | Route/schema plumbing and ETag helpers shared by the definition and execution APIs |
 
-`src/index.ts` re-exports the public surface; `definitionApi` and `executionApi` are exposed as
+`src/index.ts` names every export it re-exports; `export *` is rejected by lint (L8), and a name nothing
+outside the package imports is not exported. `definitionApi` and `executionApi` are exposed as
 namespaces to keep the two API surfaces distinguishable at the import site.
 
 ## Scripts

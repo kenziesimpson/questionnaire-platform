@@ -1,5 +1,5 @@
-import { QUESTION_RULE_CODES, type PointerError, type QuestionRuleCode, type RequestErrorCode } from "@qp/shared";
-import { isChoice, optionCount, type QuestionForm } from "./question-form";
+import { QUESTION_RULE_CODES, isChoiceQuestion, type PointerError, type QuestionRuleCode, type RequestErrorCode } from "@qp/shared";
+import { optionCount, type QuestionForm } from "./question-form";
 
 export type FieldErrors = Record<string, string[]>;
 
@@ -76,7 +76,7 @@ export function placeErrors(form: QuestionForm, errors: readonly PointerError[])
 export function missingEntries(form: QuestionForm): SaveErrors {
   let byField: FieldErrors = {};
   if (form.prompt.trim() === "") byField = append(byField, "/prompt", "Enter the question's prompt.");
-  if (isChoice(form.type)) {
+  if (isChoiceQuestion(form)) {
     if (optionCount(form) === 0) byField = append(byField, "/options", "Add at least one option.");
     form.options.forEach(({ label }, index) => {
       if (label.trim() === "") byField = append(byField, optionPointer(index), "Enter a label for this option.");

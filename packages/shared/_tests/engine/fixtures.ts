@@ -1,7 +1,6 @@
 import type { Condition, Predicate } from "../../src/domain/condition.js";
 import { FORMAT_VERSION, type Item, type PublishedDefinition } from "../../src/domain/definition.js";
 import type { QuestionContent, QuestionInput } from "../../src/domain/question.js";
-import type { DraftForValidation } from "../../src/engine/draft-validation.js";
 
 const questionIds = new Map<string, string>();
 
@@ -29,19 +28,6 @@ export function aDefinition(items: Item[]): PublishedDefinition {
     version: 1,
     title: "Fixture",
     items,
-  };
-}
-
-export function draftOf(definition: { items: readonly Item[] }): DraftForValidation {
-  return {
-    items: definition.items.map((item) => ({
-      itemId: item.itemId,
-      required: item.required,
-      visibleWhen: item.visibleWhen,
-      questionId: item.question.questionId,
-      questionVersion: item.question.questionVersion,
-    })),
-    questions: definition.items.map((item) => item.question),
   };
 }
 

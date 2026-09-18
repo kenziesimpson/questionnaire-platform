@@ -1,6 +1,6 @@
 import Type, { type Static } from "typebox";
-import { IsoDate, Slug } from "../primitives.js";
-import { strict } from "./utils.js";
+import { IsoDate, Slug, strict } from "../primitives.js";
+import type { ResponseType } from "./question.js";
 
 /**
  * Conditions are discriminated by the response type of the item they reference, so the operator
@@ -124,3 +124,22 @@ export const Predicate = Type.Union([
   Type.Object({ any: Type.Array(Condition) }, strict),
 ]);
 export type Predicate = Static<typeof Predicate>;
+
+export const OPERATORS_BY_TYPE: { readonly [T in ResponseType]: readonly ConditionOf<T>["op"][] } = {
+  text: ["answered"],
+  single_choice: ["is", "isNot", "isAnyOf", "isNoneOf"],
+  multiple_choice: ["includes", "excludes", "includesAnyOf", "includesAllOf"],
+  number: ["eq", "neq", "lt", "lte", "gt", "gte", "between"],
+  date: ["before", "onOrBefore", "after", "onOrAfter", "between"],
+};
+
+export function conditionsOf(predicate: Predicate | null): readonly Condition[] {
+  if (predicate === null) return [];
+  return "all" in predicate ? predicate.all : predicate.any;
+}
+
+export function referencedOptionIds(condition: Condition): readonly string[] {
+  if ("optionId" in condition) return [condition.optionId];
+  if ("optionIds" in condition) return condition.optionIds;
+  return [];
+}

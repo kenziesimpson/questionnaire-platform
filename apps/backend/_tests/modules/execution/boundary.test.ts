@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { executionApi, INTAKE_QUESTIONNAIRE_ID, PROBLEM_CONTENT_TYPE, problem } from "@qp/shared";
+import { executionApi, PROBLEM_CONTENT_TYPE, problem } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { sql } from "drizzle-orm";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";

@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { DraftItem, Question, QuestionVersion, QuestionnaireDraft } from "@qp/shared";
+import { conditionsOf, type DraftItem, type Question, type QuestionVersion, type QuestionnaireDraft } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { useId, useState } from "react";
@@ -23,7 +23,6 @@ import { isArchived } from "../question-bank/bank-display";
 import { RESPONSE_TYPE_LABELS } from "../question-editor/question-form";
 import { laterReferencesIn, listOfPositions } from "./conditions";
 import {
-  conditionsOf,
   dependantsOf,
   moveItem,
   pinnedQuestionOf,

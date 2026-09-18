@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import pg from "pg";
 import type { StackEndpoints } from "./stack-endpoints.ts";
 

@@ -1,5 +1,5 @@
-import type { Option, QuestionInput, QuestionVersion, ResponseType } from "@qp/shared";
-import { NO_OPTION_ID, OTHER_OPTION_ID, YES_OPTION_ID, generateOptionId } from "./option-ids";
+import { OTHER_OPTION_ID, freeformOptionOf, optionIdsOf, type Option, type QuestionInput, type QuestionVersion, type ResponseType } from "@qp/shared";
+import { NO_OPTION_ID, YES_OPTION_ID, generateOptionId } from "./option-ids";
 
 type NumberQuestion = Extract<QuestionInput, { type: "number" }>;
 type DateQuestion = Extract<QuestionInput, { type: "date" }>;
@@ -108,16 +108,16 @@ function withYesNoUnchecked(form: QuestionForm): QuestionForm {
 
 export function isYesNoQuestion(question: QuestionVersion): boolean {
   if (question.type !== "single_choice") return false;
-  const ids = question.options.map(({ optionId }) => optionId).sort();
+  const ids = optionIdsOf(question).sort();
   return ids.length === 2 && ids[0] === NO_OPTION_ID && ids[1] === YES_OPTION_ID;
 }
 
 const textOf = (value: number | undefined) => (value === undefined ? "" : String(value));
 
-function choiceFieldsOf(options: readonly Option[]) {
-  const other = options.find(({ optionId }) => optionId === OTHER_OPTION_ID);
+function choiceFieldsOf(question: Extract<QuestionVersion, { options: Option[] }>) {
+  const other = freeformOptionOf(question);
   return {
-    options: options.filter(({ optionId }) => optionId !== OTHER_OPTION_ID).map(({ optionId, label }) => ({ optionId, label })),
+    options: question.options.filter((option) => option !== other).map(({ optionId, label }) => ({ optionId, label })),
     otherEnabled: other !== undefined,
     otherLabel: other?.label ?? DEFAULT_OTHER_LABEL,
   };
@@ -128,10 +128,10 @@ function constraintsOf(question: QuestionVersion): Partial<QuestionForm> {
     case "text":
       return { minLength: textOf(question.minLength), maxLength: textOf(question.maxLength), multiline: question.multiline ?? false };
     case "single_choice":
-      return { ...choiceFieldsOf(question.options), yesNo: isYesNoQuestion(question) };
+      return { ...choiceFieldsOf(question), yesNo: isYesNoQuestion(question) };
     case "multiple_choice":
       return {
-        ...choiceFieldsOf(question.options),
+        ...choiceFieldsOf(question),
         minSelections: textOf(question.minSelections),
         maxSelections: textOf(question.maxSelections),
       };
@@ -247,7 +247,7 @@ export function serializedOptions(form: QuestionForm): Option[] {
   return form.otherEnabled && !form.yesNo ? [...regular, { optionId: OTHER_OPTION_ID, label: form.otherLabel, freeform: true }] : regular;
 }
 
-export function questionInputOf(draft: QuestionForm): QuestionInput {
+export function questionInputFromForm(draft: QuestionForm): QuestionInput {
   const form = committed(draft);
   const prompt = form.prompt;
   switch (form.type) {
@@ -288,5 +288,3 @@ export function questionInputOf(draft: QuestionForm): QuestionInput {
       };
   }
 }
-
-export const isChoice = (type: ResponseType) => type === "single_choice" || type === "multiple_choice";

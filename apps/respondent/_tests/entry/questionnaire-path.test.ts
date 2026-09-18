@@ -1,4 +1,4 @@
-import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { describe, expect, it } from "vitest";
 import { questionnaireIdFromPath } from "../../src/entry/questionnaire-path.ts";
 

@@ -13,7 +13,7 @@ import {
   RESPONSE_TYPE_LABELS,
   blankForm,
   formFromQuestion,
-  questionInputOf,
+  questionInputFromForm,
   edits,
   type QuestionForm,
 } from "./question-form";
@@ -129,7 +129,7 @@ function OpenQuestionEditor({ onOpenChange, question, onSaved }: Omit<QuestionEd
       setErrors(missing);
       return;
     }
-    save.mutate(questionInputOf(form), {
+    save.mutate(questionInputFromForm(form), {
       onSuccess: (saved) => {
         onSaved(saved);
         onOpenChange(false);
