@@ -76,7 +76,7 @@ test.describe("E25 a published version is not editable", () => {
     }
     await expect(snapshot.getByRole("textbox")).toHaveCount(0);
 
-    const sampleGate = sampleAnswers.getByRole("group", { name: `1. ${promptOf(published.gate)}`, exact: true });
+    const sampleGate = sampleAnswers.getByRole("radiogroup", { name: `1. ${promptOf(published.gate)}` });
     await sampleGate.getByRole("radio", { name: "Yes", exact: true }).check();
     const revealedFollowUp = snapshot.getByRole("textbox", { name: promptOf(published.followUp) });
     await expect(revealedFollowUp).toBeVisible();
