@@ -78,6 +78,14 @@ The guard tests:
   fails unless it reports no schema changes.
 - `_tests/db/migration-lock.test.ts` is the lock described above.
 
+## Migrations that refuse existing data
+
+`0015_other_option_id_reserved.sql` reserves the option id `other` for the freeform option ([Decisions Log](../../docs/2-design-doc.md) #83). Before PR 2c the API accepted a plain option under `other`, so a database written to before then may hold one. The migration then stops before changing anything and raises `23514`, listing each question version and option that breaks the rule. Every pending migration runs in one transaction, so the database stays on `0014`, and compose does not start the backend.
+
+Nothing can repair such a row. Question versions are append-only and published ones immutable (#13), so a migration that made the option freeform, or deleted it, would change what an existing version asked and what its responses mean. For a development or demo database, reset it: `docker compose down -v`, then `docker compose up --build`. No production deployment exists. Before one does, any database that has taken questions from clients other than the admin editor has to be checked with the query at the top of `0015`.
+
+The check at the top of `0015` is written by hand into the generated file. Like the `0000` edits, it survives only because committed migrations are never regenerated, and `migrations.lock.json` pins it.
+
 ## Scripts
 
 | Command | What it does |

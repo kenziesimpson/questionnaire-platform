@@ -243,6 +243,25 @@ describe("POST /questions/:questionId/versions", () => {
     expect((await get(`/questions/${questionId}/versions`)).json()).toHaveLength(1);
   });
 
+  it("rejects a version with an option that has the other id and is not freeform as question/other-not-freeform, and saves nothing", async () => {
+    const questionId = await aQuestion(aChoiceQuestion);
+    const auditBefore = await testDatabase.readAuditEvents();
+
+    const response = await post(`/questions/${questionId}/versions`, {
+      question: { ...aChoiceQuestion, options: [{ optionId: "opt_zeta", label: "Zeta" }, { optionId: "other", label: "None of these" }] },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      type: problemType("request/invalid"),
+      title: expect.any(String),
+      status: 400,
+      errors: [{ pointer: "/body/question/options/1/optionId", code: "question/other-not-freeform" }],
+    });
+    expect((await get(`/questions/${questionId}/versions`)).json()).toHaveLength(1);
+    expect(await testDatabase.readAuditEvents()).toEqual(auditBefore);
+  });
+
   it("rejects a version whose response type differs from the latest as request/invalid with question/type-changed, and saves nothing", async () => {
     const questionId = await aQuestion();
     const auditBefore = await testDatabase.readAuditEvents();

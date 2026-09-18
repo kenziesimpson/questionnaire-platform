@@ -5,7 +5,7 @@ import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { createQuestion, listQuestionVersionSummaries } from "../../src/db/definition/questions.js";
 import { MIGRATIONS_FOLDER } from "../../src/db/migrator.js";
-import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
+import { SQLSTATE, expectSqlState, sqlStateOf, useTestDatabase } from "./harness.js";
 
 const testDatabase = useTestDatabase();
 
@@ -86,7 +86,7 @@ describe("question_version_option: freeform exactly when the option id is other"
     expect(await listQuestionVersionSummaries(db, questionId)).toBeUndefined();
   });
 
-  it("makes the reserving migration fail, not rewrite the row, when a stored option breaks the rule", async () => {
+  it("makes the reserving migration fail before changing anything, naming the stored option that breaks the rule", async () => {
     const owner = await testDatabase.connect("owner");
     await owner.query("BEGIN");
     try {
@@ -98,7 +98,13 @@ describe("question_version_option: freeform exactly when the option id is other"
       const questionId = await aChoiceQuestionVersion(owner);
       await insertOption(owner, questionId, "other", false);
 
-      await expectSqlState(runInOrder(owner, migrationStatements(RESERVING_MIGRATION)), SQLSTATE.checkViolation);
+      const failure = await runInOrder(owner, migrationStatements(RESERVING_MIGRATION)).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      expect(sqlStateOf(failure)).toBe(SQLSTATE.checkViolation);
+      expect(String(failure)).toContain(`${questionId} version 1 option other`);
     } finally {
       await owner.query("ROLLBACK");
     }
