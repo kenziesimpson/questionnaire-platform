@@ -8,6 +8,7 @@ Instructions for coding agents working in this repository.
 - `.claude/skills/database/SKILL.md` — before touching schema, migrations, repositories or seeds.
 - `docs/4-implementation-plan.md` — the build plan. Its **Standing rules** and **Stop and ask** sections are binding. Its **File ownership** section is deprecated; see [[11-structural-refactor#2. File ownership during the pass]] for current ownership.
 - `docs/2-design-doc.md` — the design index and the Decisions Log. Never invent a decision; if a load-bearing one is missing, stop and ask.
+- `docs/11-structural-refactor.md` — the conventions a structural-refactor pass established across the repo, and the lint rules (§4.1) that keep them enforced. Several are repeated below; consult it directly when a rule's exact reach is unclear.
 
 ## Writing
 
@@ -75,9 +76,11 @@ Tool directives that must be written in comment syntax are not prose comments an
 - Wire shapes are TypeBox schemas in `packages/shared`; derive TypeScript types from them with `Static`, never write a parallel interface.
 - `apps/backend/src/modules/definition` and `apps/backend/src/modules/execution` never import each other. Only `packages/telemetry` imports `pino` or `@opentelemetry/*`. Both are enforced by `eslint.config.mjs`.
 - The boundary reaches the db layer, where each half has its own directory: `src/modules/execution` and `src/db/execution` never import `src/db/definition`, `src/db/seed` or `src/db/audit`; `src/modules/definition` and `src/db/definition` never import `src/db/execution`; and neither side of `src/db` imports anything under `src/modules`. ESLint rejects all of them.
+- Icons come only from `lucide-react`, re-exported through `@qp/ui/icons` (`packages/ui/src/icons.ts`). Only that file and `packages/ui/src/primitives/**` import `lucide-react` directly, and no inline `<svg>` appears outside `packages/ui`. ESLint rejects both.
 - Respondent answer values never reach a log, span, metric or error body. Wrap them in `Sensitive<T>`.
 - Never cast through `unknown` or `any` (`x as unknown as T`). ESLint warns on it. Fix the types instead; if the cast is genuinely unavoidable (a third-party type that is wrong, an environment global the package cannot type), disable that one line with the reason: `// eslint-disable-next-line no-restricted-syntax -- <reason>`.
 - Never write raw SQL in `apps/backend`: build queries with drizzle's query builder (`eq`, `and`, `exists`, `notExists`, `max`, `inArray`, …). ESLint warns on the `sql` template and `sql.*` calls everywhere except `src/db/schema.ts`. Where Postgres needs something the builder cannot express — calling a database function, DDL, a JSONB function — disable that one statement with the reason.
+- Relative imports carry the compiled `.js` extension in `apps/backend`, `packages/shared` and `packages/telemetry`, which compile for Node with `tsc`; they carry no extension in `apps/admin`, `apps/respondent`, `packages/ui` and e2e's `fixtures/`/`specs/`, which a bundler or Playwright resolves itself. `e2e/stack` is neither: its scripts run directly under `node` with no compile step (its own `tsconfig.stack.json`), so a relative import there names the `.ts` file that actually exists — never `.js`, which nothing produces. ESLint enforces all three per workspace.
 
 ### Migrations
 
@@ -88,3 +91,8 @@ Tool directives that must be written in comment syntax are not prose comments an
 Tests are written with the feature, not after. Add one row per case to `docs/8-testing.md` §7 — the only file under `docs/` a build track may edit.
 
 Every package keeps its tests in a `_tests/` directory at the package root, mirroring `src/`'s layout: a test for `src/domain/answer.ts` lives at `_tests/domain/answer.test.ts`, not beside the source file. `_tests/` is included in the package's typecheck config and excluded from its build config.
+
+Test support that more than one file needs has one home per kind, not a copy per consumer:
+
+- **Cross-workspace support** (jsdom polyfills, the axe runner, a fake-`fetch` server) lives in `packages/ui/src/testing`, exported as `@qp/ui/testing`. Admin, respondent and ui import from it; only it imports `axe-core` or `vitest-axe`.
+- **Support local to one workspace's tests** lives beside them. Admin's is `_tests/support/` (`render-app.tsx`, `routes.ts`, `builders.ts`, `http.ts`); a workspace with less to share, such as respondent, keeps one `fixtures.ts` at its `_tests/` root instead. The backend gives each test directory its own `harness.ts` (builds the app) and `fixtures.ts` (data and request helpers) — `_tests/modules/definition/`, `_tests/modules/execution/` — with `_tests/db/fixtures.ts` shared at the db root.
