@@ -1,6 +1,6 @@
 import { conditionsOf, type DraftItem, type Predicate, type QuestionVersion, type QuestionnaireDraft } from "@qp/shared";
-import type { DraftChange } from "../../api/use-draft-mutation";
-import { generateUnusedId, randomSuffix } from "../../components/generated-id";
+import type { DraftChange } from "../../api/draft-types";
+import { generateUnusedId, randomSuffix } from "../../lib/generated-id";
 
 const GENERATED_PREFIX = "itm_";
 

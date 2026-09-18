@@ -3,7 +3,7 @@ import { vi } from "vitest";
 import {
   QuestionEditorDialog,
   type QuestionEditorDialogProps,
-} from "../../../src/screens/question-editor/question-editor-dialog";
+} from "../../../src/features/question-editor/question-editor-dialog";
 import { withQueryClient } from "../../support/render-app";
 
 export function renderEditor(props: Partial<QuestionEditorDialogProps> = {}) {

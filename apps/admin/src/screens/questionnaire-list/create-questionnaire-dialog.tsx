@@ -1,4 +1,3 @@
-import { definitionApi } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import {
   Dialog,
@@ -12,17 +11,9 @@ import {
 } from "@qp/ui/primitives/dialog";
 import { Input } from "@qp/ui/primitives/input";
 import { Label } from "@qp/ui/primitives/label";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useId, useRef, useState, type FormEvent, type Ref } from "react";
-import { callDefinition } from "../../api/client";
-import { queryKeys } from "../../api/query-keys";
+import { useCreateQuestionnaire, type NewQuestionnaire } from "../../api/mutations/use-create-questionnaire";
 import { PlusIcon } from "../../components/icons";
-
-interface NewQuestionnaire {
-  name: string;
-  title: string;
-}
 
 function RequiredField({
   label,
@@ -66,21 +57,13 @@ function RequiredField({
 }
 
 export function CreateQuestionnaireDialog() {
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [fields, setFields] = useState<NewQuestionnaire>({ name: "", title: "" });
   const [showMissing, setShowMissing] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
 
-  const create = useMutation({
-    mutationFn: (body: NewQuestionnaire) => callDefinition(definitionApi.createQuestionnaire, { body }),
-    onSuccess: async ({ questionnaireId }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.questionnaires.list() });
-      await navigate({ to: "/questionnaires/$questionnaireId/draft", params: { questionnaireId } });
-    },
-  });
+  const create = useCreateQuestionnaire();
 
   const changeOpen = (next: boolean) => {
     setOpen(next);

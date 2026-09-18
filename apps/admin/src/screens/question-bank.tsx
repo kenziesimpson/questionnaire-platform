@@ -7,13 +7,14 @@ import { questionQueries } from "../api/queries";
 import { PlusIcon } from "../components/icons";
 import { Panel } from "../components/panel";
 import { Pill } from "../components/pill";
+import { RetryNotice } from "../components/query-state";
+import { QuestionEditorDialog } from "../features/question-editor/question-editor-dialog";
+import { useQuestionEditor } from "../features/question-editor/use-question-editor";
+import { fullTimestamp, lastEditedLabel } from "../lib/dates";
+import { isArchived, RESPONSE_TYPE_LABELS, sortByLatestEdit } from "../lib/question";
 import { ArchiveQuestionDialog } from "./question-bank/archive-question-dialog";
-import { bankCountLabel, isArchived, sortByLatestEdit } from "./question-bank/bank-display";
+import { bankCountLabel } from "./question-bank/bank-display";
 import { UsageCell } from "./question-bank/usage-cell";
-import { RESPONSE_TYPE_LABELS } from "./question-editor/question-form";
-import { QuestionEditorDialog } from "./question-editor/question-editor-dialog";
-import { useQuestionEditor } from "./question-editor/use-question-editor";
-import { fullTimestamp, lastEditedLabel } from "./questionnaire-list/summary-display";
 
 function QuestionRow({
   question,
@@ -135,10 +136,7 @@ export function QuestionBankScreen() {
 
       {questions === undefined && list.isError ? (
         <Panel role="alert">
-          <p className="font-medium">The question bank could not be loaded.</p>
-          <Button variant="outline" onClick={() => void list.refetch()} disabled={list.isFetching}>
-            Try again
-          </Button>
+          <RetryNotice message="The question bank could not be loaded." onRetry={() => void list.refetch()} retrying={list.isFetching} size="default" />
         </Panel>
       ) : questions === undefined ? (
         <Panel role="status">

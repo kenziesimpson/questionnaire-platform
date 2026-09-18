@@ -1,9 +1,9 @@
 import type { DraftItemCode, QuestionnaireDraft } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import { useId, useState, type ReactNode, type Ref } from "react";
-import { problemCount } from "../../components/counts";
 import { AlertCircleIcon, ArrowRightIcon, CheckIcon, SpinnerIcon } from "../../components/icons";
 import { Pill } from "../../components/pill";
+import { problemCount } from "../../lib/counts";
 import { DRAFT_ITEM_MESSAGES } from "./draft-item-messages";
 import { promptOf } from "./draft-changes";
 

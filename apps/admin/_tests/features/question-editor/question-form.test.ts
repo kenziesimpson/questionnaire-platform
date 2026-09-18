@@ -6,7 +6,7 @@ import {
   formFromQuestion,
   questionInputFromForm,
   type QuestionForm,
-} from "../../../src/screens/question-editor/question-form";
+} from "../../../src/features/question-editor/question-form";
 
 const withType = (patch: Partial<QuestionForm>): QuestionForm => ({ ...blankForm(), prompt: "PR2 Prompt", ...patch });
 

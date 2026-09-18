@@ -13,9 +13,9 @@ import {
   type RouteWith,
   type SuccessBody,
   type VersionSummary,
-  type BodyOf,
 } from "@qp/shared";
 import { Value } from "typebox/value";
+import type { DraftContent, VersionedDraft } from "./draft-types";
 import { UnexpectedResponseError, problemErrorFrom } from "./problem-error";
 
 type DefinitionRoute = (typeof definitionApi.definitionRoutes)[number];
@@ -101,13 +101,6 @@ export function callDefinition<R extends PlainDefinitionRoute & RouteWith<201>>(
 export async function callDefinition(route: RouteDefinition, parts: LooseParts): Promise<unknown> {
   return (await checkedExchange(route, parts)).body;
 }
-
-export interface VersionedDraft {
-  draft: QuestionnaireDraft;
-  etag: string;
-}
-
-export type DraftContent = BodyOf<typeof definitionApi.replaceDraft>;
 
 function versionedDraft({ status, body, headers }: Exchange<QuestionnaireDraft>): VersionedDraft {
   const etag = headers.get("etag");

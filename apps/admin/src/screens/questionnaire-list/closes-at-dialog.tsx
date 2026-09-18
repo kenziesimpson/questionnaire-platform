@@ -1,4 +1,4 @@
-import { definitionApi, type QuestionnaireSummary } from "@qp/shared";
+import type { QuestionnaireSummary } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import {
   Dialog,
@@ -12,10 +12,8 @@ import {
 } from "@qp/ui/primitives/dialog";
 import { Input } from "@qp/ui/primitives/input";
 import { Label } from "@qp/ui/primitives/label";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useId, useState, type FormEvent } from "react";
-import { callDefinition } from "../../api/client";
-import { questionnaireQueries } from "../../api/queries";
+import { useSetClosesAt } from "../../api/mutations/use-set-closes-at";
 import { fromLocalDateTimeInput, toLocalDateTimeInput } from "./summary-display";
 
 type ClosingAction = "Retire" | "Reopen" | "Reschedule";
@@ -25,26 +23,14 @@ function closingActionOf(summary: QuestionnaireSummary, closed: boolean): Closin
   return closed ? "Reopen" : "Reschedule";
 }
 
-function replaceSummary(summaries: QuestionnaireSummary[] | undefined, updated: QuestionnaireSummary) {
-  return summaries?.map((summary) => (summary.questionnaireId === updated.questionnaireId ? updated : summary));
-}
-
 export function ClosesAtDialog({ summary, closed }: { summary: QuestionnaireSummary; closed: boolean }) {
-  const queryClient = useQueryClient();
   const inputId = useId();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
   const [showMissing, setShowMissing] = useState(false);
   const action = closingActionOf(summary, closed);
 
-  const save = useMutation({
-    mutationFn: (closesAt: string | null) =>
-      callDefinition(definitionApi.setClosesAt, { params: { id: summary.questionnaireId }, body: { closesAt } }),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(questionnaireQueries.list().queryKey, (summaries) => replaceSummary(summaries, updated));
-      setOpen(false);
-    },
-  });
+  const save = useSetClosesAt(summary.questionnaireId);
 
   const changeOpen = (next: boolean) => {
     setOpen(next);
@@ -60,7 +46,7 @@ export function ClosesAtDialog({ summary, closed }: { summary: QuestionnaireSumm
       setShowMissing(true);
       return;
     }
-    save.mutate(closesAt);
+    save.mutate(closesAt, { onSuccess: () => setOpen(false) });
   };
 
   const missing = showMissing && fromLocalDateTimeInput(value) === null;
@@ -113,7 +99,7 @@ export function ClosesAtDialog({ summary, closed }: { summary: QuestionnaireSumm
                 variant={closed ? "default" : "outline"}
                 className="sm:mr-auto"
                 disabled={save.isPending}
-                onClick={() => save.mutate(null)}
+                onClick={() => save.mutate(null, { onSuccess: () => setOpen(false) })}
               >
                 Clear closing date
               </Button>

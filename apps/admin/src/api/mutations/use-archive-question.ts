@@ -1,9 +1,9 @@
 import { definitionApi, type Question } from "@qp/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { callDefinition } from "../../api/client";
-import { isProblem } from "../../api/problem-error";
-import { questionQueries } from "../../api/queries";
-import { queryKeys } from "../../api/query-keys";
+import { callDefinition } from "../client";
+import { isProblem } from "../problem-error";
+import { questionQueries } from "../queries";
+import { queryKeys } from "../query-keys";
 
 function replaceQuestion(questions: Question[] | undefined, archived: Question): Question[] | undefined {
   return questions?.map((question) => (question.questionId === archived.questionId ? archived : question));

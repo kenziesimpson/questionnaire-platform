@@ -1,8 +1,8 @@
 import type { QuestionnaireDraft } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
-import type { DraftRejection } from "../../api/use-draft-mutation";
-import { problemCount } from "../../components/counts";
+import type { DraftRejection } from "../../api/draft-types";
 import { AlertCircleIcon } from "../../components/icons";
+import { problemCount } from "../../lib/counts";
 import { DRAFT_ITEM_MESSAGES } from "./draft-item-messages";
 
 export type DraftWrite = "change" | "publish";

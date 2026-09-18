@@ -6,11 +6,10 @@ import { useRef } from "react";
 import { questionQueries } from "../../api/queries";
 import { PlusIcon } from "../../components/icons";
 import { Pill } from "../../components/pill";
-import { sortByLatestEdit } from "../question-bank/bank-display";
-import { QuestionEditorDialog } from "../question-editor/question-editor-dialog";
-import { RESPONSE_TYPE_LABELS } from "../question-editor/question-form";
-import { useQuestionEditor } from "../question-editor/use-question-editor";
-import { lastEditedLabel } from "../questionnaire-list/summary-display";
+import { lastEditedLabel } from "../../lib/dates";
+import { RESPONSE_TYPE_LABELS, sortByLatestEdit } from "../../lib/question";
+import { QuestionEditorDialog } from "../../features/question-editor/question-editor-dialog";
+import { useQuestionEditor } from "../../features/question-editor/use-question-editor";
 import { isPlaced } from "./draft-changes";
 
 export interface AddFromBankDialogProps {

@@ -1,7 +1,7 @@
 import type { Question, QuestionnaireSummary } from "@qp/shared";
 import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { describe, expect, it } from "vitest";
-import { bankCountLabel, groupUsage, sortByLatestEdit } from "../../../src/screens/question-bank/bank-display";
+import { bankCountLabel, groupUsage } from "../../../src/screens/question-bank/bank-display";
 import { aBankQuestion, aQuestionVersion } from "../../support/builders";
 
 const REVIEW_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8d0";
@@ -23,19 +23,6 @@ const intake: QuestionnaireSummary = {
   createdAt: "2026-09-01T09:00:00.000Z",
   updatedAt: "2026-09-02T09:00:00.000Z",
 };
-
-describe("sortByLatestEdit", () => {
-  it("orders questions by their latest version's createdAt, newest first, keeping the server order for ties", () => {
-    const questions = [
-      aQuestion("01a0950e-56a0-73d6-b936-4a1e10eff9a3", "2026-09-10T09:00:00.000Z"),
-      aQuestion("01a0950e-56a0-73d6-b936-4a1e10eff9a2", "2026-09-14T09:00:00.000Z"),
-      aQuestion("01a0950e-56a0-73d6-b936-4a1e10eff9a1", "2026-09-10T09:00:00.000Z"),
-    ];
-
-    expect(sortByLatestEdit(questions).map((question) => question.questionId.slice(-1))).toEqual(["2", "3", "1"]);
-    expect(questions.map((question) => question.questionId.slice(-1))).toEqual(["3", "2", "1"]);
-  });
-});
 
 describe("bankCountLabel", () => {
   it("counts questions and names how many are archived only when some are", () => {

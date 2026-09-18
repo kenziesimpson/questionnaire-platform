@@ -1,17 +1,11 @@
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { useId, type ReactNode } from "react";
-import { describedByFor, errorIdFor, FieldMessages, InputField } from "./field";
+import { describedByFor, errorIdFor, FieldMessages, InputField } from "../../components/field";
+import { SegmentedControl } from "../../components/segmented-control";
+import { COUNT_PATTERN, DECIMAL_INPUT_PATTERN } from "../../lib/input-patterns";
 import type { FieldErrors } from "./field-errors";
 import { OptionsEditor } from "./options-editor";
-import {
-  COUNT_PATTERN,
-  DECIMAL_INPUT_PATTERN,
-  edits,
-  type NumberKind,
-  type QuestionForm,
-  type RelativeDate,
-} from "./question-form";
-import { SegmentedControl } from "./segmented-control";
+import { edits, type NumberKind, type QuestionForm, type RelativeDate } from "./question-form";
 
 interface ConstraintFieldsProps {
   form: QuestionForm;

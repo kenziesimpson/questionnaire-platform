@@ -1,6 +1,6 @@
 import { Input } from "@qp/ui/primitives/input";
 import { useId, type ComponentProps } from "react";
-import type { FieldErrors } from "./field-errors";
+import type { FieldErrors } from "../features/question-editor/field-errors";
 
 export function errorIdFor(baseId: string) {
   return `${baseId}-error`;

@@ -5,17 +5,17 @@ import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, Tabl
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
+import { useOpenDraft, type OpenDraft } from "../api/mutations/use-open-draft";
 import { questionnaireQueries } from "../api/queries";
-import { useOpenDraft, type OpenDraft } from "../api/use-open-draft";
 import { ArchiveIcon, CheckIcon, LinkIcon } from "../components/icons";
 import { Panel } from "../components/panel";
 import { Pill } from "../components/pill";
+import { RetryNotice } from "../components/query-state";
+import { fullTimestamp, lastEditedLabel } from "../lib/dates";
 import { ClosesAtDialog } from "./questionnaire-list/closes-at-dialog";
 import { CreateQuestionnaireDialog } from "./questionnaire-list/create-questionnaire-dialog";
 import {
   closesLabel,
-  fullTimestamp,
-  lastEditedLabel,
   respondentLink,
   sortByMostRecentlyEdited,
   statusLabel,
@@ -215,10 +215,7 @@ export function QuestionnaireListScreen() {
 
       {summaries === undefined && list.isError ? (
         <Panel role="alert">
-          <p className="font-medium">The questionnaires could not be loaded.</p>
-          <Button variant="outline" onClick={() => void list.refetch()} disabled={list.isFetching}>
-            Try again
-          </Button>
+          <RetryNotice message="The questionnaires could not be loaded." onRetry={() => void list.refetch()} retrying={list.isFetching} size="default" />
         </Panel>
       ) : summaries === undefined ? (
         <Panel role="status">

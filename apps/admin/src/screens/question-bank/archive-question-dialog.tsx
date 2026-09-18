@@ -11,8 +11,8 @@ import {
   DialogTrigger,
 } from "@qp/ui/primitives/dialog";
 import { useState } from "react";
+import { useArchiveQuestion } from "../../api/mutations/use-archive-question";
 import { isProblem } from "../../api/problem-error";
-import { useArchiveQuestion } from "./use-archive-question";
 
 function archiveFailureMessage(error: Error): string {
   if (isProblem(error, "resource/not-found")) return "This question no longer exists, so nothing was archived.";

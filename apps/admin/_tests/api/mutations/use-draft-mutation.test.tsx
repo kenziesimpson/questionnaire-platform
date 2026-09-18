@@ -4,12 +4,13 @@ import { QueryClientProvider, useQuery, type QueryClient } from "@tanstack/react
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { questionnaireQueries } from "../../src/api/queries";
-import { useDraftMutation, type PublishOutcome } from "../../src/api/use-draft-mutation";
-import { QUESTIONNAIRE_ID, aDraft, etagAt } from "../support/builders";
-import { deferred, draftResponse } from "../support/http";
-import { testQueryClient } from "../support/render-app";
-import { DRAFT_URL } from "../support/routes";
+import type { PublishOutcome } from "../../../src/api/draft-types";
+import { useDraftMutation } from "../../../src/api/mutations/use-draft-mutation";
+import { questionnaireQueries } from "../../../src/api/queries";
+import { QUESTIONNAIRE_ID, aDraft, etagAt } from "../../support/builders";
+import { deferred, draftResponse } from "../../support/http";
+import { testQueryClient } from "../../support/render-app";
+import { DRAFT_URL } from "../../support/routes";
 
 const draftQuery = questionnaireQueries.draft(QUESTIONNAIRE_ID);
 const validationQuery = questionnaireQueries.draftValidation(QUESTIONNAIRE_ID);

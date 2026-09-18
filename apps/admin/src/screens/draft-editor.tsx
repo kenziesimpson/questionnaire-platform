@@ -4,22 +4,24 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, getRouteApi, useNavigate } from "@tanstack/react-router";
 import { useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import type { DraftChange } from "../api/draft-types";
+import { useDraftMutation } from "../api/mutations/use-draft-mutation";
+import { useOpenDraft } from "../api/mutations/use-open-draft";
 import { isProblem } from "../api/problem-error";
 import { questionQueries, questionnaireQueries } from "../api/queries";
-import { useDraftMutation, type DraftChange } from "../api/use-draft-mutation";
-import { useOpenDraft } from "../api/use-open-draft";
 import { BackToQuestionnaires } from "../components/back-to-questionnaires";
-import { problemCount, questionCount } from "../components/counts";
 import { PlusIcon } from "../components/icons";
 import { Notice } from "../components/notice";
 import { QuestionnaireNotFound } from "../components/questionnaire-not-found";
+import { LoadingLine, RetryNotice } from "../components/query-state";
+import { QuestionEditorDialog } from "../features/question-editor/question-editor-dialog";
+import { useQuestionEditor } from "../features/question-editor/use-question-editor";
+import { problemCount, questionCount } from "../lib/counts";
 import { AddFromBankDialog } from "./draft-editor/add-from-bank-dialog";
 import { addItem, repinItem } from "./draft-editor/draft-changes";
 import { DraftItems, itemDomId, rulesEditorOf } from "./draft-editor/draft-items";
 import { DraftRejectionNotice, type DraftWrite } from "./draft-editor/draft-rejection-notice";
 import { PublishChecksPanel, type JumpOptions, type PublishChecks } from "./draft-editor/publish-checks-panel";
-import { QuestionEditorDialog } from "./question-editor/question-editor-dialog";
-import { useQuestionEditor } from "./question-editor/use-question-editor";
 
 const route = getRouteApi("/questionnaires/$questionnaireId/draft");
 
@@ -302,11 +304,7 @@ function MissingDraft({ questionnaireId }: { questionnaireId: string }) {
   const list = useQuery(questionnaireQueries.list());
   const summary = list.data?.find((candidate) => candidate.questionnaireId === questionnaireId);
   if (list.isPending) {
-    return (
-      <p role="status" className="text-sm text-muted-foreground">
-        Loading draft…
-      </p>
-    );
+    return <LoadingLine>Loading draft…</LoadingLine>;
   }
   if (summary === undefined) {
     return (
@@ -330,19 +328,12 @@ export function DraftEditorScreen() {
 
   const body = (() => {
     if (draft.isPending) {
-      return (
-        <p role="status" className="text-sm text-muted-foreground">
-          Loading draft…
-        </p>
-      );
+      return <LoadingLine>Loading draft…</LoadingLine>;
     }
     if (isProblem(draft.error, "resource/not-found")) return <MissingDraft questionnaireId={questionnaireId} />;
     return (
       <Notice alert>
-        <p className="font-medium">The draft could not be loaded.</p>
-        <Button variant="outline" size="sm" disabled={draft.isFetching} onClick={() => void draft.refetch()}>
-          {draft.isFetching ? "Retrying…" : "Try again"}
-        </Button>
+        <RetryNotice message="The draft could not be loaded." onRetry={() => void draft.refetch()} retrying={draft.isFetching} />
       </Notice>
     );
   })();

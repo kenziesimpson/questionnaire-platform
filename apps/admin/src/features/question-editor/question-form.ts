@@ -39,17 +39,6 @@ export interface QuestionForm {
   relative: RelativeDate;
 }
 
-export const RESPONSE_TYPE_LABELS: Record<ResponseType, string> = {
-  text: "Text",
-  single_choice: "Single choice",
-  multiple_choice: "Multiple choice",
-  number: "Number",
-  date: "Date",
-};
-
-export const COUNT_PATTERN = /^\d*$/;
-export const DECIMAL_INPUT_PATTERN = /^-?\d*\.?\d*$/;
-
 const DEFAULT_OTHER_LABEL = "Other";
 
 const emptyConstraints = {
@@ -225,6 +214,11 @@ export const edits = {
   }),
   options: (form: QuestionForm, options: EditableOption[]): QuestionForm => withSelectionsCapped({ ...form, options }),
   otherEnabled: (form: QuestionForm, otherEnabled: boolean): QuestionForm => withSelectionsCapped({ ...form, otherEnabled }),
+  optionLabel: (form: QuestionForm, optionId: string, label: string): QuestionForm => ({
+    ...form,
+    options: form.options.map((option) => (option.optionId === optionId ? { ...option, label } : option)),
+  }),
+  otherLabel: (form: QuestionForm, otherLabel: string): QuestionForm => ({ ...form, otherLabel }),
 };
 
 export function addOption(form: QuestionForm): { form: QuestionForm; added: string } {
