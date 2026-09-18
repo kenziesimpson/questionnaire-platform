@@ -123,6 +123,26 @@ describe("POST /questions", () => {
     expect((await get("/questions?includeArchived=true")).json()).toEqual([]);
     expect(await testDatabase.readAuditEvents()).toEqual([]);
   });
+
+  it("rejects an option with the other id that is not freeform as question/other-not-freeform, and writes nothing", async () => {
+    const response = await post("/questions", {
+      question: {
+        type: "multiple_choice",
+        prompt: "Which symptoms?",
+        options: [{ optionId: "opt_cough", label: "Cough" }, { optionId: "other", label: "None of these" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      type: problemType("request/invalid"),
+      title: expect.any(String),
+      status: 400,
+      errors: [{ pointer: "/body/question/options/1/optionId", code: "question/other-not-freeform" }],
+    });
+    expect((await get("/questions?includeArchived=true")).json()).toEqual([]);
+    expect(await testDatabase.readAuditEvents()).toEqual([]);
+  });
 });
 
 describe("GET /questions", () => {
