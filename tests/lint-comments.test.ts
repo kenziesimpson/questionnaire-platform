@@ -5,7 +5,7 @@ async function proseComments(filePath: string, code: string): Promise<string[]> 
   return (await lintAs(filePath, code)).filter((m) => m.ruleId === "local/no-prose-comments").map((m) => m.message);
 }
 
-describe("L5: no prose comments in packages/shared and packages/telemetry", () => {
+describe("L5: no prose comments", () => {
   it.each([
     ["a line comment", `// A regular explanatory comment.\nexport const x = 1;`],
     ["a block comment", `/* A regular explanatory comment. */\nexport const x = 1;`],
@@ -54,13 +54,22 @@ describe("L5: no prose comments in packages/shared and packages/telemetry", () =
     expect(await proseComments("packages/shared/src/engine.ts", code)).toHaveLength(1);
   });
 
-  it("does not reach files outside packages/shared and packages/telemetry", async () => {
+  it.each([
+    ["apps/backend/src/server.ts"],
+    ["apps/admin/src/api/client.ts"],
+    ["packages/ui/src/primitives/dialog.tsx"],
+  ])("rejects a prose comment in %s now that the rule is repo-wide", async (filePath) => {
     const code = `// A prose comment.\nexport const x = 1;`;
-    expect(await proseComments("apps/backend/src/server.ts", code)).toEqual([]);
-    expect(await proseComments("apps/admin/src/api/client.ts", code)).toEqual([]);
-    expect(await proseComments("packages/ui/src/primitives/dialog.tsx", code)).toEqual([]);
-    expect(await proseComments("eslint.config.mjs", code)).toEqual([]);
+    expect(await proseComments(filePath, code)).toHaveLength(1);
   });
+
+  it.each([["eslint.config.mjs"], ["vitest.config.mts"], ["apps/backend/vitest.config.ts"]])(
+    "allows a prose comment anywhere in the config file %s, exempt file-wide like L20's default-export rule",
+    async (filePath) => {
+      const code = `// A config-file header comment.\nexport default {\n  // and one buried in the body too\n  plugins: [],\n};`;
+      expect(await proseComments(filePath, code)).toEqual([]);
+    },
+  );
 
   it("rejects a comment that merely starts with the word eslint, rather than a real directive", async () => {
     const code = `// eslint-ish musings about this function\nexport const x = 1;`;

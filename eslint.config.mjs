@@ -334,8 +334,10 @@ const terminalEntryPoints = [
   "e2e/stack/global-teardown.ts",
 ];
 
+const theToolConfigFiles = ["**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}"];
+
 const filesThatMustDefaultExport = [
-  "**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}",
+  ...theToolConfigFiles,
   "apps/backend/_tests/db/global-setup.ts",
   "e2e/stack/global-setup.ts",
   "e2e/stack/global-teardown.ts",
@@ -722,8 +724,9 @@ export default tseslint.config(
     rules: { "@typescript-eslint/no-restricted-imports": ["error", { patterns: [theTestSupportPackage, theTestSupportDirectory] }] },
   },
   {
-    name: "L5: no prose comments in packages/shared and packages/telemetry",
-    files: ["packages/shared/**", "packages/telemetry/**"],
+    name: "L5: no prose comments",
+    files: everyFile,
+    ignores: theToolConfigFiles,
     plugins: { local: noProseComments },
     rules: { "local/no-prose-comments": "error" },
   },
