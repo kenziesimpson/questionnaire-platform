@@ -5,11 +5,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createQuestion } from "../../../src/db/definition/questions.js";
 import { questionnaireItem, questionVersion } from "../../../src/db/schema.js";
 import { replyWithDefinitionProblem } from "../../../src/modules/definition/errors.js";
-import { aPublishedQuestionnaire, aTextQuestion } from "../../db/fixtures.js";
-import { useTestDatabase } from "../../db/harness.js";
+import { actor, aPublishedQuestionnaire, aTextQuestion, useTestDatabase } from "../../db/fixtures.js";
 
 const testDatabase = useTestDatabase();
-const actor = { createdBy: "test", traceId: null };
 
 let app: FastifyInstance;
 let failure: () => Promise<unknown>;

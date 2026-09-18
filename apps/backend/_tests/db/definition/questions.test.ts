@@ -2,11 +2,10 @@ import type { QuestionInput } from "@qp/shared";
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { appendQuestionVersion, createQuestion, listQuestionVersionSummaries } from "../../../src/db/definition/questions.js";
-import { aTextQuestion, theStatementWaitingOnALock, whileHoldingALock } from "../fixtures.js";
+import { actor, aTextQuestion, theStatementWaitingOnALock, whileHoldingALock } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 
 const testDatabase = useTestDatabase();
-const actor = { createdBy: "test", traceId: null };
 
 const QUESTION_LOCK_STATEMENT = /from "definition"\."question" where "definition"\."question"\."id" = \$1 for update$/;
 

@@ -9,11 +9,10 @@ import {
 import { replaceDraft } from "../../../src/db/definition/drafts.js";
 import { createQuestionnaire } from "../../../src/db/definition/questionnaires.js";
 import { createQuestion } from "../../../src/db/definition/questions.js";
-import { aTextQuestion } from "../fixtures.js";
+import { actor, aTextQuestion } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 
 const testDatabase = useTestDatabase();
-const actor = { createdBy: "test", traceId: null };
 
 const colours: QuestionInput = {
   type: "single_choice",

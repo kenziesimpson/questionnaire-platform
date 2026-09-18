@@ -6,7 +6,6 @@ import { useTestDatabase } from "../harness.js";
 import {
   answersNo,
   answersYes,
-  NOW,
   problemOf,
   publishMeasurementsQuestionnaire,
   SENTINEL_DATE,
@@ -14,9 +13,8 @@ import {
   seedIntakeV1,
   startedSessionId,
   submit,
-  freezeTimeAt,
-  useExecutionApp,
 } from "./fixtures.js";
+import { freezeTimeAt, NOW, useExecutionApp } from "./harness.js";
 
 const testDatabase = useTestDatabase();
 const executionApp = useExecutionApp(testDatabase);

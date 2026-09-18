@@ -15,8 +15,9 @@ import Type, { type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import { definitionModule } from "../../../src/modules/definition/plugin.js";
-import { useTestDatabase } from "../../db/harness.js";
-import { definitionUrl, useDefinitionApp } from "./harness.js";
+import { useTestDatabase } from "../../db/fixtures.js";
+import { definitionUrl } from "./fixtures.js";
+import { useDefinitionApp } from "./harness.js";
 
 const testDatabase = useTestDatabase();
 const app = useDefinitionApp(testDatabase);

@@ -17,7 +17,7 @@ import {
 } from "../../../src/db/schema.js";
 import { executionModule } from "../../../src/modules/execution/plugin.js";
 import { answersYes, executionUrl, seedIntakeV1, startedSessionId, submit, useExecutionApp } from "../../db/execution/fixtures.js";
-import { expectSqlState, SQLSTATE, useTestDatabase } from "../../db/harness.js";
+import { expectSqlState, SQLSTATE, useTestDatabase } from "../../db/fixtures.js";
 
 const testDatabase = useTestDatabase();
 const executionApp = useExecutionApp(testDatabase);
