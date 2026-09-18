@@ -26,13 +26,14 @@ respondent form and the admin preview.
 
 | Path | Contents |
 | --- | --- |
-| `src/primitives/` | shadcn components written by the CLI (`button`, `input`, `label`, `radio-group`, `checkbox`, `textarea`, `dialog`, `popover`, `table`, `native-select`, and `tooltip`) |
+| `src/primitives/` | shadcn components written by the CLI (`alert`, `button`, `input`, `label`, `radio-group`, `checkbox`, `textarea`, `dialog`, `popover`, `table`, `native-select`, and `tooltip`) |
+| `src/icons.ts` | Every lucide icon the apps use, re-exported as `@qp/ui/icons`. `lucide-react` is otherwise importable only inside `src/primitives/` |
 | `src/questionnaire/` | `QuestionnaireForm`, `QuestionnaireItems`, one control per response type, the `aria-live` visibility announcer, the error catalogue, and `errorsByItemId`, which groups a `submission/invalid` body into the `errors` prop |
 | `src/styles/globals.css` | Tailwind v4 entry, shadcn theme tokens, and the `@source` that scans this package |
 | `src/lib/utils.ts` | The `cn` helper the shadcn `utils` alias points at |
 | `components.json` | shadcn configuration for components written into this package |
 
-Import paths are `@qp/ui/primitives/<name>`, `@qp/ui/questionnaire`, `@qp/ui/lib/utils` and
+Import paths are `@qp/ui/primitives/<name>`, `@qp/ui/questionnaire`, `@qp/ui/icons`, `@qp/ui/lib/utils` and
 `@qp/ui/globals.css`.
 
 ## Tailwind and shadcn in a package

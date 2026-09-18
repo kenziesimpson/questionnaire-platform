@@ -1,11 +1,12 @@
 import type { UniqueIdentifier } from "@dnd-kit/core";
 import { verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { conditionsOf, type DraftItem, type Question, type QuestionVersion, type QuestionnaireDraft } from "@qp/shared";
+import { GitBranchIcon, GripVerticalIcon, XIcon } from "@qp/ui/icons";
+import { Alert } from "@qp/ui/primitives/alert";
 import { Button } from "@qp/ui/primitives/button";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { useId, useState } from "react";
 import type { DraftChange } from "../../api/draft-types";
-import { GripIcon, RemoveIcon, RulesIcon } from "../../components/icons";
 import { InfoTip } from "../../components/info-tip";
 import { Pill } from "../../components/pill";
 import { SortableList, SortableRow, useSortableList } from "../../components/sortable-list";
@@ -200,7 +201,7 @@ function SortableItemRow({
               {...attributes}
               {...listeners}
             >
-              <GripIcon />
+              <GripVerticalIcon size={14} fill="currentColor" aria-hidden="true" />
             </button>
             <span id={nameId} className="sr-only">
               Question {position},
@@ -242,7 +243,7 @@ function SortableItemRow({
                   aria-label={`Rules for question ${position}`}
                   onClick={() => onRulesOpenChange(!rulesOpen)}
                 >
-                  <RulesIcon />
+                  <GitBranchIcon size={13} aria-hidden="true" />
                   Rules
                 </Button>
               </div>
@@ -262,14 +263,14 @@ function SortableItemRow({
                   Edit
                 </Button>
                 <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove question ${position}`} disabled={locked} onClick={remove}>
-                  <RemoveIcon />
+                  <XIcon size={13} aria-hidden="true" />
                 </Button>
               </span>
               <NewerVersion item={item} position={position} bankQuestion={bankQuestion} onChange={onChange} locked={locked} />
             </div>
           </div>
           {confirmingRemoval && (
-            <div role="alert" className="mx-3.5 mb-3 ml-[4.25rem] flex flex-wrap items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-[13px]">
+            <Alert variant="destructive" className="mx-3.5 mb-3 ml-[4.25rem] flex-wrap items-center px-3 py-2.5 text-[13px]">
               <span className="flex flex-1 items-center gap-1">
                 {dependants.length > 0
                   ? `Conditions on ${listOfPositions(dependants)} use this question. Removing it removes those conditions too.`
@@ -282,7 +283,7 @@ function SortableItemRow({
               <Button type="button" variant="outline" size="sm" onClick={() => setConfirmingRemoval(false)}>
                 Keep it
               </Button>
-            </div>
+            </Alert>
           )}
           <div id={rulesId} hidden={!rulesOpen} className="mx-3.5 mb-3.5 ml-[4.25rem]">
             {rulesOpen && (

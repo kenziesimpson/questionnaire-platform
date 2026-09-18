@@ -1,4 +1,5 @@
 import type { PublishedDefinition, Receipt } from "@qp/shared";
+import { CheckIcon } from "@qp/ui/icons";
 import type { ReactNode } from "react";
 import { Aside, ScreenHeading, ScreenLayout, StatusBadge } from "./screen-layout.tsx";
 
@@ -31,9 +32,7 @@ export interface ReceiptScreenProps {
 export function ReceiptScreen({ receipt, definition, alreadySubmitted }: ReceiptScreenProps) {
   return (
     <ScreenLayout>
-      <StatusBadge>
-        <path d="M20 6 9 17l-5-5" />
-      </StatusBadge>
+      <StatusBadge icon={<CheckIcon size={22} />} />
       <ScreenHeading title={alreadySubmitted ? "This form was already submitted" : "Your answers were submitted"} />
       {alreadySubmitted && <AlreadySubmittedNote />}
       <dl className="flex flex-col gap-3 rounded-lg border bg-muted p-5 text-sm">

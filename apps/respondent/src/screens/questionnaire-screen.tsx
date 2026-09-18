@@ -9,8 +9,10 @@ import {
   type PublishedDefinition,
   type SubmissionItemCode,
 } from "@qp/shared";
-import { focusItem, QuestionnaireForm, type ItemErrors } from "@qp/ui/questionnaire";
+import { AlertCircleIcon, RotateCcwIcon } from "@qp/ui/icons";
+import { Alert, AlertDescription, AlertTitle } from "@qp/ui/primitives/alert";
 import { Button } from "@qp/ui/primitives/button";
+import { focusItem, QuestionnaireForm, type ItemErrors } from "@qp/ui/questionnaire";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useEffect, useEffectEvent, useId, useMemo, useRef, useState, type FocusEvent } from "react";
 import { browserTimeZone } from "../answers/precheck.ts";
@@ -69,21 +71,7 @@ function itemIdFromBlurTarget(target: EventTarget | null): string | undefined {
 function RestoreStrip() {
   return (
     <div className="flex items-center gap-3 rounded-lg border bg-muted px-4 py-3 text-sm">
-      <svg
-        aria-hidden="true"
-        className="shrink-0 text-muted-foreground"
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-        <path d="M3 3v5h5" />
-      </svg>
+      <RotateCcwIcon aria-hidden="true" className="shrink-0 text-muted-foreground" size={16} />
       <p>We restored the answers you started on this device.</p>
     </div>
   );
@@ -92,32 +80,17 @@ function RestoreStrip() {
 function SubmitFailedAlert({ retry }: { retry: RetryControl | null }) {
   const messageId = useId();
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-4 text-sm">
-      <div id={messageId} role="alert" className="flex gap-2">
-        <svg
-          aria-hidden="true"
-          className="mt-0.5 shrink-0 text-destructive"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="12" cy="12" r="10" />
-          <path d="M12 8v5" />
-          <path d="M12 16h.01" />
-        </svg>
+    <div className="flex flex-col gap-4">
+      <Alert id={messageId} variant="destructive" className="gap-2">
+        <AlertCircleIcon aria-hidden="true" className="mt-0.5 shrink-0 text-destructive" size={16} />
         <div className="flex flex-col gap-1 leading-relaxed">
-          <p className="font-semibold text-destructive">Your answers were not submitted.</p>
-          <p>
+          <AlertTitle className="text-destructive">Your answers were not submitted.</AlertTitle>
+          <AlertDescription className="text-foreground">
             They are still saved on this device.
             {retry !== null && ` ${TRANSIENT_FAILURE_EXPLANATION}`}
-          </p>
+          </AlertDescription>
         </div>
-      </div>
+      </Alert>
       {retry !== null && (
         <div className="flex flex-col sm:flex-row sm:pl-6">
           <RetryButton retry={retry} describedBy={messageId} focusOnMount />

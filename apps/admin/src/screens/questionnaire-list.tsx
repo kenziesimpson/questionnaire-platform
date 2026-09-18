@@ -1,5 +1,7 @@
 import type { QuestionnaireSummary } from "@qp/shared";
+import { ArchiveIcon, CheckIcon, LinkIcon } from "@qp/ui/icons";
 import { cn } from "@qp/ui/lib/utils";
+import { Alert } from "@qp/ui/primitives/alert";
 import { Button } from "@qp/ui/primitives/button";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@qp/ui/primitives/table";
 import { useQuery } from "@tanstack/react-query";
@@ -7,7 +9,6 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { useOpenDraft, type OpenDraft } from "../api/mutations/use-open-draft";
 import { questionnaireQueries } from "../api/queries";
-import { ArchiveIcon, CheckIcon, LinkIcon } from "../components/icons";
 import { Panel } from "../components/panel";
 import { Pill } from "../components/pill";
 import { RetryNotice } from "../components/query-state";
@@ -60,7 +61,7 @@ function CopyLinkButton({ questionnaireId, name }: { questionnaireId: string; na
       className={cn(ROW_ICON_CLASS, "outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50")}
       onClick={() => void navigator.clipboard.writeText(respondentLink(questionnaireId)).then(() => setCopied(true))}
     >
-      {copied ? <CheckIcon size={13} /> : <LinkIcon size={13} />}
+      {copied ? <CheckIcon size={13} aria-hidden="true" /> : <LinkIcon size={13} aria-hidden="true" />}
     </button>
   );
 }
@@ -68,7 +69,7 @@ function CopyLinkButton({ questionnaireId, name }: { questionnaireId: string; na
 function ArchivedMark({ name }: { name: string }) {
   return (
     <span className={ROW_ICON_CLASS} role="img" aria-label={`${name} is archived`} title="Archived">
-      <ArchiveIcon size={13} />
+      <ArchiveIcon size={13} aria-hidden="true" />
     </span>
   );
 }
@@ -156,12 +157,12 @@ function OpenDraftFailureNotice({ drafts, summaries }: { drafts: OpenDraft; summ
   const { questionnaireId } = drafts.failure;
   const name = summaries.find((summary) => summary.questionnaireId === questionnaireId)?.name ?? "this questionnaire";
   return (
-    <div role="alert" className="flex items-center justify-between gap-4 rounded-lg border border-destructive/40 px-4 py-3 text-sm">
+    <Alert variant="destructive" className="items-center justify-between gap-4">
       <span>The draft of {name} could not be opened. Try again.</span>
       <Button variant="ghost" size="sm" onClick={drafts.dismissFailure}>
         Dismiss
       </Button>
-    </div>
+    </Alert>
   );
 }
 

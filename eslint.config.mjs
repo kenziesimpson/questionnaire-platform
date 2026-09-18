@@ -159,7 +159,21 @@ const testSupportLibraries = [
 const librariesAwayFrom = (home) =>
   [...appLibraries, ...testSupportLibraries].filter((library) => library.home !== home).map(({ group, message }) => ({ group, message }));
 
-const restrictOutside = (home, ...patterns) => ["error", { patterns: [telemetryOnly, ...librariesAwayFrom(home), ...patterns] }];
+const theIconsModule = "packages/ui/src/icons.ts";
+
+const theUiPrimitivesHome = "packages/ui/src/primitives";
+
+const lucideReactHomes = [theIconsModule, theUiPrimitivesHome];
+
+const lucideReactMessage =
+  "Icons come only from lucide, through @qp/ui/icons ([[2-design-doc#17. Decisions Log]] #85). A primitive that needs one directly may still import lucide-react itself ([[11-structural-refactor]] L2).";
+
+const lucideReactOutsideItsHomes = { group: ["lucide-react", "lucide-react/*"], message: lucideReactMessage };
+
+const restrictOutside = (home, ...patterns) => [
+  "error",
+  { patterns: [telemetryOnly, ...(lucideReactHomes.includes(home) ? [] : [lucideReactOutsideItsHomes]), ...librariesAwayFrom(home), ...patterns] },
+];
 
 const restrict = (...patterns) => restrictOutside(undefined, ...patterns);
 
@@ -179,6 +193,12 @@ const unnamedReExport = {
   selector: "ExportAllDeclaration[exported=null]",
   message:
     "`export *` re-exports whatever the other module happens to export, so an entry point's API grows without anyone naming it. List the names; `export * as namespace` is fine, because it adds one named export.",
+};
+
+const noSvgJsx = {
+  selector: 'JSXOpeningElement[name.name="svg"]',
+  message:
+    "An <svg> is drawn only inside packages/ui, through @qp/ui/icons or a primitive. Import the icon component instead of hand-drawing one ([[11-structural-refactor]] L2).",
 };
 
 const sharedVocabularyNames = [
@@ -360,7 +380,7 @@ const theTestSupportPackage = { group: ["@qp/ui/testing", "@qp/ui/testing/*"], m
 
 const theTestSupportDirectory = { regex: "^(\\.{1,2}/+)+([^/]+/+)*testing(/|$)", message: testSupportMessage };
 
-const uiEntryPoints = ["questionnaire", "testing"];
+const uiEntryPoints = ["questionnaire", "testing", "icons"];
 
 const uiInternalsMessage =
   "Apps reach @qp/ui only through the entry points packages/ui/package.json declares in its exports map. A relative path into packages/ui/src, or a bare import deeper than a single-file entry such as ./questionnaire, reaches past what the package exports.";
@@ -479,7 +499,12 @@ export default tseslint.config(
   {
     name: "library split by app: the shared primitives",
     files: ["packages/ui/src/primitives/**"],
-    rules: { "no-restricted-imports": restrictOutside("packages/ui/src/primitives") },
+    rules: { "no-restricted-imports": restrictOutside(theUiPrimitivesHome) },
+  },
+  {
+    name: "L2: lucide-react inside the icons module, one of its two homes",
+    files: [theIconsModule],
+    rules: { "no-restricted-imports": restrictOutside(theIconsModule) },
   },
   ...privateAdminScreens.map((name) => ({
     name: `L3: screens/${name}'s own files, which may reach the other private screens but stay outside them`,
@@ -608,14 +633,19 @@ export default tseslint.config(
   {
     name: "L10: problem bodies in the frontends, the shared packages and e2e",
     files: sourcesOutsideTheBackend,
-    ignores: ["apps/backend/src/**", theProblemParser],
+    ignores: ["apps/backend/src/**", theProblemParser, "packages/ui/src/**"],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, noSvgJsx) },
+  },
+  {
+    name: "L2 and L10: packages/ui draws <svg> and parses problem bodies without the outside restrictions",
+    files: ["packages/ui/src/**/*.{ts,tsx}"],
     rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem) },
   },
   {
     name: "L21: dates are formatted only in admin's src/lib/dates.ts",
     files: ["apps/admin/src/**/*.{ts,tsx}"],
     ignores: [adminDatesHome],
-    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, ...dateFormatting) },
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, noSvgJsx, ...dateFormatting) },
   },
   {
     name: "L10: problem bodies in the e2e entry points, which must default-export",

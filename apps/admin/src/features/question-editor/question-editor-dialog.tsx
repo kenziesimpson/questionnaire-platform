@@ -1,4 +1,6 @@
 import { RESPONSE_TYPES, type QuestionVersion } from "@qp/shared";
+import { LockIcon } from "@qp/ui/icons";
+import { Alert, AlertDescription } from "@qp/ui/primitives/alert";
 import { Button } from "@qp/ui/primitives/button";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@qp/ui/primitives/dialog";
@@ -7,7 +9,6 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { isProblem } from "../../api/problem-error";
 import { useSaveQuestion } from "../../api/mutations/use-save-question";
 import { describedByFor, errorIdFor, FieldMessages } from "../../components/field";
-import { LockIcon } from "../../components/icons";
 import { SegmentedControl } from "../../components/segmented-control";
 import { RESPONSE_TYPE_LABELS } from "../../lib/question";
 import { ConstraintFields } from "./constraint-fields";
@@ -59,7 +60,7 @@ function TypeRow({
         disabled={editing}
         describedBy={describedByFor(errors.byField, "/type", errorId, noteId)}
         onChange={(type) => onChange(edits.type(form, type))}
-        trailing={editing ? <LockIcon className="text-muted-foreground" /> : undefined}
+        trailing={editing ? <LockIcon size={14} className="text-muted-foreground" aria-hidden="true" /> : undefined}
       />
       <p id={noteId} className="text-xs leading-normal text-muted-foreground">
         {editing
@@ -172,11 +173,13 @@ function OpenQuestionEditor({ onOpenChange, question, onSaved }: Omit<QuestionEd
         >
           <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
             {(failure !== null || errors.unplaced.length > 0) && (
-              <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
-                {[...(failure === null ? [] : [failure]), ...errors.unplaced].map((message) => (
-                  <p key={message}>{message}</p>
-                ))}
-              </div>
+              <Alert variant="destructive">
+                <AlertDescription className="text-destructive">
+                  {[...(failure === null ? [] : [failure]), ...errors.unplaced].map((message) => (
+                    <p key={message}>{message}</p>
+                  ))}
+                </AlertDescription>
+              </Alert>
             )}
             <TypeRow form={form} editing={editing} errors={errors} onChange={change} />
             {form.type === "single_choice" && <YesNoCheckbox form={form} editing={editing} onChange={change} />}

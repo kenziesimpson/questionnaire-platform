@@ -1,10 +1,10 @@
 import type { Question, QuestionVersion } from "@qp/shared";
+import { PlusIcon } from "@qp/ui/icons";
 import { cn } from "@qp/ui/lib/utils";
 import { Button } from "@qp/ui/primitives/button";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@qp/ui/primitives/table";
 import { useQuery } from "@tanstack/react-query";
 import { questionQueries } from "../api/queries";
-import { PlusIcon } from "../components/icons";
 import { Panel } from "../components/panel";
 import { Pill } from "../components/pill";
 import { RetryNotice } from "../components/query-state";
@@ -129,7 +129,7 @@ export function QuestionBankScreen() {
           </p>
         </div>
         <Button type="button" onClick={() => editor.create()}>
-          <PlusIcon />
+          <PlusIcon size={13} aria-hidden="true" />
           New question
         </Button>
       </div>

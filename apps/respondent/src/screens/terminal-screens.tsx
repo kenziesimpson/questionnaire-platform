@@ -1,3 +1,4 @@
+import { AlertCircleIcon, CircleXIcon, SearchIcon } from "@qp/ui/icons";
 import { useId } from "react";
 import { NewSessionButton, RetryButton, type NewSessionControl, type RetryControl } from "./retry-button.tsx";
 import { Aside, Lead, ScreenHeading, ScreenLayout, StatusBadge } from "./screen-layout.tsx";
@@ -17,11 +18,7 @@ export function LoadingScreen() {
 export function ClosedScreen() {
   return (
     <ScreenLayout>
-      <StatusBadge>
-        <circle cx="12" cy="12" r="10" />
-        <path d="m15 9-6 6" />
-        <path d="m9 9 6 6" />
-      </StatusBadge>
+      <StatusBadge icon={<CircleXIcon size={22} />} />
       <ScreenHeading title="This questionnaire is closed" />
       <Aside>If your clinic sent you this link, ask them for a current one.</Aside>
     </ScreenLayout>
@@ -31,10 +28,7 @@ export function ClosedScreen() {
 export function NotFoundScreen() {
   return (
     <ScreenLayout>
-      <StatusBadge>
-        <circle cx="11" cy="11" r="8" />
-        <path d="m21 21-4.3-4.3" />
-      </StatusBadge>
+      <StatusBadge icon={<SearchIcon size={22} />} />
       <ScreenHeading title="Questionnaire not found">
         <Lead>This link does not lead to a questionnaire that is open for responses.</Lead>
       </ScreenHeading>
@@ -46,11 +40,7 @@ export function NotFoundScreen() {
 export function EntryFailedScreen() {
   return (
     <ScreenLayout>
-      <StatusBadge>
-        <circle cx="12" cy="12" r="10" />
-        <path d="M12 8v4" />
-        <path d="M12 16h.01" />
-      </StatusBadge>
+      <StatusBadge icon={<AlertCircleIcon size={22} />} />
       <ScreenHeading title="Something went wrong">
         <Lead>The questionnaire could not be loaded. Any answers saved on this device are kept.</Lead>
       </ScreenHeading>
@@ -72,11 +62,7 @@ function RetryableFailureScreen({ title, explanation, retry, focusOnMount, newSe
   const adviceId = useId();
   return (
     <ScreenLayout>
-      <StatusBadge>
-        <circle cx="12" cy="12" r="10" />
-        <path d="M12 8v4" />
-        <path d="M12 16h.01" />
-      </StatusBadge>
+      <StatusBadge icon={<AlertCircleIcon size={22} />} />
       <div role="alert">
         <ScreenHeading title={title}>
           <Lead id={explanationId}>{explanation}</Lead>

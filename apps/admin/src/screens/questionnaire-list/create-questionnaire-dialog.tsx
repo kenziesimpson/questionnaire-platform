@@ -1,3 +1,4 @@
+import { PlusIcon } from "@qp/ui/icons";
 import { Button } from "@qp/ui/primitives/button";
 import {
   Dialog,
@@ -13,7 +14,6 @@ import { useRef, useState, type FormEvent } from "react";
 import { useCreateQuestionnaire, type NewQuestionnaire } from "../../api/mutations/use-create-questionnaire";
 import { InputField } from "../../components/field";
 import type { FieldErrors } from "../../features/question-editor/field-errors";
-import { PlusIcon } from "../../components/icons";
 
 const NO_ERRORS: FieldErrors = {};
 
@@ -57,7 +57,7 @@ export function CreateQuestionnaireDialog() {
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogTrigger asChild>
         <Button>
-          <PlusIcon size={15} />
+          <PlusIcon size={15} aria-hidden="true" />
           New questionnaire
         </Button>
       </DialogTrigger>
