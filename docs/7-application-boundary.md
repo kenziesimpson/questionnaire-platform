@@ -260,6 +260,8 @@ A `422` says which item failed and which rule it failed, never what was entered:
 }
 ```
 
+Every problem body carries `instance`, set to the request's URL, path and query as sent, whichever route or handler produced it. The server sets it in one place, so no route can leave it out.
+
 A standard beats a bespoke envelope here for one reason worth more than familiarity: it already specifies how to add fields. Validation failures carry `errors: [{ pointer, code }]`, submit failures carry `items: [{ itemId, code }]`, and both are extension members rather than a second error shape.
 
 `type` slugs come from a closed union in `@qp/shared`, so they are exhaustive on the client and cannot be invented at a call site:

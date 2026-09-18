@@ -10,13 +10,13 @@ const IMMUTABLE_SNAPSHOT_CACHE_CONTROL = "private, max-age=31536000, immutable";
 export function registerVersionRoutes(scope: FastifyInstance, database: Database): void {
   registerRoute(scope, definitionApi.listVersions, async (request) => {
     const versions = await listVersionSummaries(database, request.params.id);
-    return versions === undefined ? notFoundProblem(request.url) : { status: 200, body: versions };
+    return versions === undefined ? notFoundProblem() : { status: 200, body: versions };
   });
 
   registerRoute(scope, definitionApi.getVersion, async (request) => {
     const snapshot = await readPublishedSnapshot(database, request.params.id, request.params.v);
     if (snapshot === undefined) {
-      return notFoundProblem(request.url);
+      return notFoundProblem();
     }
     return {
       status: 200,

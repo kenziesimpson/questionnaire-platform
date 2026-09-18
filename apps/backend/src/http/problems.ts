@@ -6,11 +6,11 @@ import { pointerErrors, requestValidatorCompiler } from "./validation.js";
 type ProblemErrorHandler = (error: FastifyError, request: FastifyRequest, reply: FastifyReply) => FastifyReply;
 
 export function sendProblem(reply: FastifyReply, body: Problem): FastifyReply {
-  return reply.code(body.status).type(PROBLEM_CONTENT_TYPE).send(body);
+  return reply.code(body.status).type(PROBLEM_CONTENT_TYPE).send({ ...body, instance: reply.request.url });
 }
 
-export function notFoundProblem(instance: string): Problem<"resource/not-found"> {
-  return problem("resource/not-found", { instance });
+export function notFoundProblem(): Problem<"resource/not-found"> {
+  return problem("resource/not-found");
 }
 
 export function replyWithProblem(error: FastifyError, request: FastifyRequest, reply: FastifyReply): FastifyReply {
@@ -25,7 +25,7 @@ export function replyWithProblem(error: FastifyError, request: FastifyRequest, r
 }
 
 function replyNotFound(request: FastifyRequest, reply: FastifyReply): FastifyReply {
-  return sendProblem(reply, notFoundProblem(request.url));
+  return sendProblem(reply, notFoundProblem());
 }
 
 export function applyHttpDefaults(scope: FastifyInstance, errorHandler: ProblemErrorHandler): void {

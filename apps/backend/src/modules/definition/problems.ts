@@ -17,20 +17,20 @@ type Accepted = { readonly outcome: "saved" | "created" | "published" | "updated
 
 export type DefinitionRefusal = Exclude<DefinitionOutcome, Accepted>;
 
-export function definitionProblem(refusal: DefinitionRefusal, instance: string): Problem {
+export function definitionProblem(refusal: DefinitionRefusal): Problem {
   switch (refusal.outcome) {
     case "questionnaire-not-found":
     case "question-not-found":
     case "no-draft":
     case "nothing-published":
-      return notFoundProblem(instance);
+      return notFoundProblem();
     case "stale":
-      return problem("questionnaire/draft-stale", { instance });
+      return problem("questionnaire/draft-stale");
     case "draft-exists":
-      return problem("questionnaire/draft-exists", { instance });
+      return problem("questionnaire/draft-exists");
     case "invalid":
-      return problem("questionnaire/draft-invalid", { instance, items: [...refusal.items] });
+      return problem("questionnaire/draft-invalid", { items: [...refusal.items] });
     case "type-changed":
-      return problem("request/invalid", { instance, errors: [{ pointer: "/body/question/type", code: "question/type-changed" }] });
+      return problem("request/invalid", { errors: [{ pointer: "/body/question/type", code: "question/type-changed" }] });
   }
 }

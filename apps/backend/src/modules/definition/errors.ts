@@ -10,10 +10,10 @@ const QUESTION_VERSION_PRIMARY_KEY = "question_version_pkey";
 export function replyWithDefinitionProblem(error: FastifyError, request: FastifyRequest, reply: FastifyReply): FastifyReply {
   const databaseError = databaseErrorOf(error);
   if (databaseError?.code === IMMUTABLE_ROW) {
-    return sendProblem(reply, problem("version/immutable", { instance: request.url }));
+    return sendProblem(reply, problem("version/immutable"));
   }
   if (databaseError?.code === UNIQUE_VIOLATION && databaseError.constraint === QUESTION_VERSION_PRIMARY_KEY) {
-    return sendProblem(reply, problem("question/version-conflict", { instance: request.url }));
+    return sendProblem(reply, problem("question/version-conflict"));
   }
   return replyWithProblem(error, request, reply);
 }

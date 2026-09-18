@@ -55,7 +55,7 @@ describe("replyWithDefinitionProblem", () => {
     );
 
     expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({ type: problemType("question/version-conflict") });
+    expect(response.json()).toMatchObject({ type: problemType("question/version-conflict"), instance: "/fail" });
   });
 
   it("answers any other unique violation as internal", async () => {
@@ -65,6 +65,6 @@ describe("replyWithDefinitionProblem", () => {
     const response = await responseWhen(() => createQuestion(db, { key: "taken", content: aTextQuestion, ...actor }));
 
     expect(response.statusCode).toBe(500);
-    expect(response.json()).toMatchObject({ type: problemType("internal") });
+    expect(response.json()).toMatchObject({ type: problemType("internal"), instance: "/fail" });
   });
 });

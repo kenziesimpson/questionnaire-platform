@@ -91,7 +91,7 @@ describe("the execution module on its own", () => {
 });
 
 describe("an unhandled failure", () => {
-  it("is 500 internal whose detail is the request id, carrying no error text", async () => {
+  it("is 500 internal at the request URL, whose detail is the request id, carrying no error text", async () => {
     const unreachable = openDatabase(testDatabase.url("execution"));
     await unreachable.close();
     const app = Fastify({ genReqId: () => "req-correlation-1" });
@@ -101,7 +101,7 @@ describe("an unhandled failure", () => {
 
     expect(response.statusCode).toBe(500);
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
-    expect(response.json()).toEqual(problem("internal", { detail: "req-correlation-1" }));
+    expect(response.json()).toEqual(problem("internal", { detail: "req-correlation-1", instance: executionUrl("/sessions") }));
     await app.close();
   });
 });

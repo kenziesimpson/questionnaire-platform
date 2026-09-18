@@ -48,17 +48,17 @@ export function registerQuestionRoutes(scope: FastifyInstance, database: Databas
 
   registerRoute(scope, definitionApi.getQuestion, async (request) => {
     const found = await readQuestion(database, request.params.questionId);
-    return found === undefined ? notFoundProblem(request.url) : { status: 200, body: found };
+    return found === undefined ? notFoundProblem() : { status: 200, body: found };
   });
 
   registerRoute(scope, definitionApi.listQuestionVersions, async (request) => {
     const versions = await listQuestionVersionSummaries(database, request.params.questionId);
-    return versions === undefined ? notFoundProblem(request.url) : { status: 200, body: versions };
+    return versions === undefined ? notFoundProblem() : { status: 200, body: versions };
   });
 
   registerRoute(scope, definitionApi.getQuestionVersion, async (request) => {
     const found = await readQuestionVersion(database, request.params.questionId, request.params.v);
-    return found === undefined ? notFoundProblem(request.url) : { status: 200, body: found };
+    return found === undefined ? notFoundProblem() : { status: 200, body: found };
   });
 
   registerRoute(scope, definitionApi.createQuestionVersion, async (request) => {
@@ -73,7 +73,7 @@ export function registerQuestionRoutes(scope: FastifyInstance, database: Databas
       traceId: null,
     });
     if (appended.outcome !== "saved") {
-      return definitionProblem(appended, request.url);
+      return definitionProblem(appended);
     }
     return { status: 201, body: appended.question.latest };
   });
@@ -85,13 +85,13 @@ export function registerQuestionRoutes(scope: FastifyInstance, database: Databas
       traceId: null,
     });
     if (archived.outcome === "question-not-found") {
-      return definitionProblem(archived, request.url);
+      return definitionProblem(archived);
     }
     return { status: 200, body: archived.question };
   });
 
   registerRoute(scope, definitionApi.getQuestionUsage, async (request) => {
     const usage = await listQuestionUsage(database, request.params.questionId);
-    return usage === undefined ? notFoundProblem(request.url) : { status: 200, body: usage };
+    return usage === undefined ? notFoundProblem() : { status: 200, body: usage };
   });
 }

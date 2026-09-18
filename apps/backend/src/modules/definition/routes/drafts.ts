@@ -23,7 +23,7 @@ export function registerDraftRoutes(scope: FastifyInstance, database: Database):
   registerRoute(scope, definitionApi.getDraft, async (request) => {
     const current = await readDraft(database, request.params.id);
     if (current === undefined) {
-      return notFoundProblem(request.url);
+      return notFoundProblem();
     }
     return { status: 200, body: current.draft, headers: draftHeaders(current) };
   });
@@ -43,7 +43,7 @@ export function registerDraftRoutes(scope: FastifyInstance, database: Database):
       traceId: null,
     });
     if (outcome.outcome !== "saved") {
-      return definitionProblem(outcome, request.url);
+      return definitionProblem(outcome);
     }
     return { status: 200, body: outcome.draft, headers: draftHeaders(outcome) };
   });
@@ -55,7 +55,7 @@ export function registerDraftRoutes(scope: FastifyInstance, database: Database):
       traceId: null,
     });
     if (outcome.outcome !== "created") {
-      return definitionProblem(outcome, request.url);
+      return definitionProblem(outcome);
     }
     return { status: 201, body: outcome.draft, headers: draftHeaders(outcome) };
   });
@@ -63,7 +63,7 @@ export function registerDraftRoutes(scope: FastifyInstance, database: Database):
   registerRoute(scope, definitionApi.validateDraft, async (request) => {
     const validation = await validateOpenDraft(database, request.params.id);
     if (validation === undefined) {
-      return notFoundProblem(request.url);
+      return notFoundProblem();
     }
     return { status: 200, body: validation };
   });
@@ -80,7 +80,7 @@ export function registerDraftRoutes(scope: FastifyInstance, database: Database):
       traceId: null,
     });
     if (published.outcome !== "published") {
-      return definitionProblem(published, request.url);
+      return definitionProblem(published);
     }
     return { status: 201, body: published.summary };
   });

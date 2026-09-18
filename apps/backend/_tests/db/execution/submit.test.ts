@@ -1,4 +1,4 @@
-import { problemType, PROBLEM_CONTENT_TYPE, responseDigest, type ResponseRow } from "@qp/shared";
+import { executionApi, problemType, PROBLEM_CONTENT_TYPE, responseDigest, type ResponseRow } from "@qp/shared";
 import { INTAKE_QUESTION_IDS, INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { v4 as uuidv4 } from "uuid";
 import { describe, expect, it } from "vitest";
@@ -310,12 +310,17 @@ describe("POST /api/run/sessions/:sessionId/submit — rejected", () => {
     expect(await storedSession(sessionId)).toMatchObject({ status: "in_progress" });
   });
 
-  it("is 404 for an unknown session", async () => {
+  it("is 404 at the submit URL for an unknown session", async () => {
     const app = executionApp();
+    const sessionId = uuidv4();
 
-    const response = await submit(app, uuidv4(), answersNo());
+    const response = await submit(app, sessionId, answersNo());
 
-    expect(problemOf(response)).toMatchObject({ type: problemType("resource/not-found"), status: 404 });
+    expect(problemOf(response)).toMatchObject({
+      type: problemType("resource/not-found"),
+      status: 404,
+      instance: `${executionApi.EXECUTION_PREFIX}/sessions/${sessionId}/submit`,
+    });
   });
 });
 

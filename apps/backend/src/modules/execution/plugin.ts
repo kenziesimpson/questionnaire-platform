@@ -13,16 +13,16 @@ export interface ExecutionModuleOptions {
 
 type Refusal = Exclude<SessionWithDefinitionOutcome | SubmitOutcome, { readonly outcome: "found" | "submitted" | "replayed" }>;
 
-function problemFor(refusal: Refusal, instance: string): Problem {
+function problemFor(refusal: Refusal): Problem {
   switch (refusal.outcome) {
     case "not-found":
-      return notFoundProblem(instance);
+      return notFoundProblem();
     case "closed":
-      return problem("questionnaire/closed", { instance });
+      return problem("questionnaire/closed");
     case "already-submitted":
-      return problem("session/already-submitted", { instance });
+      return problem("session/already-submitted");
     case "invalid":
-      return problem("submission/invalid", { instance, items: [...refusal.items] });
+      return problem("submission/invalid", { items: [...refusal.items] });
   }
 }
 
@@ -37,7 +37,7 @@ export async function executionModule(scope: FastifyInstance, { database }: Exec
   registerRoute(scope, executionApi.createSession, async (request) => {
     const started = await startSession(database, definitions, request.body.questionnaireId, new Date());
     if (started.outcome !== "found") {
-      return problemFor(started, request.url);
+      return problemFor(started);
     }
     return { status: 201, body: { session: sessionView(started.session), definition: started.definition } };
   });
@@ -45,7 +45,7 @@ export async function executionModule(scope: FastifyInstance, { database }: Exec
   registerRoute(scope, executionApi.getSession, async (request) => {
     const resumed = await resumeSession(database, definitions, request.params.sessionId, new Date());
     if (resumed.outcome !== "found") {
-      return problemFor(resumed, request.url);
+      return problemFor(resumed);
     }
     return { status: 200, body: { session: sessionView(resumed.session), definition: resumed.definition } };
   });
@@ -57,7 +57,7 @@ export async function executionModule(scope: FastifyInstance, { database }: Exec
       now: new Date(),
     });
     if (submitted.outcome !== "submitted" && submitted.outcome !== "replayed") {
-      return problemFor(submitted, request.url);
+      return problemFor(submitted);
     }
     return { status: 200, body: { receipt: submitted.receipt } };
   });

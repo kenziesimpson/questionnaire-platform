@@ -28,18 +28,8 @@ const createWidget = defineRoute({
   },
 });
 
-const refreshWidget = defineRoute({
-  method: "POST",
-  url: "/widgets/:widgetId/refresh",
-  schema: {
-    params: Type.Object({ widgetId: Uuid }, strict),
-    response: { 200: Widget },
-  },
-});
-
 const MISSING_WIDGET = "01a0950e-56a0-73d6-b936-4a1e10eff8c0";
 const NEW_WIDGET = "01a0950e-56a0-73d6-b936-4a1e10eff8c1";
-const RELOCATED_WIDGET = "01a0950e-56a0-73d6-b936-4a1e10eff8c2";
 
 let app: FastifyInstance;
 
@@ -50,14 +40,8 @@ beforeAll(async () => {
 
   registerRoute(app, getWidget, async (request) =>
     request.params.widgetId === MISSING_WIDGET
-      ? notFoundProblem(request.url)
+      ? notFoundProblem()
       : { status: 200, body: { widgetId: request.params.widgetId, size: request.query.size ?? 1 } },
-  );
-
-  registerRoute(app, refreshWidget, async (request) =>
-    request.params.widgetId === RELOCATED_WIDGET
-      ? problem("questionnaire/draft-stale", { instance: `/widgets/${NEW_WIDGET}` })
-      : problem("questionnaire/draft-stale"),
   );
 
   registerRoute(app, createWidget, async (request) => ({
@@ -101,28 +85,12 @@ describe("registerRoute", () => {
     expect(response.json()).toEqual({ widgetId: NEW_WIDGET, size: 2 });
   });
 
-  it("sends a returned problem as application/problem+json with its status", async () => {
-    const response = await app.inject({ method: "GET", url: `/widgets/${MISSING_WIDGET}` });
+  it("sends a returned problem as application/problem+json with its status, at the request URL", async () => {
+    const response = await app.inject({ method: "GET", url: `/widgets/${MISSING_WIDGET}?size=2` });
 
     expect(response.statusCode).toBe(404);
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
-    expect(response.json()).toMatchObject({ type: problemType("resource/not-found"), instance: `/widgets/${MISSING_WIDGET}` });
-  });
-
-  it("fills in a returned problem's instance from the request URL when the handler gave none", async () => {
-    const response = await app.inject({ method: "POST", url: `/widgets/${NEW_WIDGET}/refresh?reason=x` });
-
-    expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({
-      type: problemType("questionnaire/draft-stale"),
-      instance: `/widgets/${NEW_WIDGET}/refresh?reason=x`,
-    });
-  });
-
-  it("keeps an instance the handler set", async () => {
-    const response = await app.inject({ method: "POST", url: `/widgets/${RELOCATED_WIDGET}/refresh` });
-
-    expect(response.json()).toMatchObject({ instance: `/widgets/${NEW_WIDGET}` });
+    expect(response.json()).toMatchObject({ type: problemType("resource/not-found"), instance: `/widgets/${MISSING_WIDGET}?size=2` });
   });
 
   it("serializes through the response schema, dropping fields it does not declare", async () => {
@@ -167,7 +135,7 @@ describe("RouteHandler types", () => {
     };
 
     const problemOnAnyRoute: RouteHandler<typeof createWidget> = async () =>
-      problem("questionnaire/draft-stale", { instance: "/widgets" });
+      problem("questionnaire/draft-stale");
 
     expect([wrongStatus, wrongBody, undeclaredParam, bodyOnGet, problemOnAnyRoute]).toHaveLength(5);
   });

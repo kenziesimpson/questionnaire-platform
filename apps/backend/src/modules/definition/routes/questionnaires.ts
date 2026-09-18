@@ -32,7 +32,7 @@ export function registerQuestionnaireRoutes(scope: FastifyInstance, database: Da
       traceId: null,
     });
     if (updated.outcome !== "updated") {
-      return definitionProblem(updated, request.url);
+      return definitionProblem(updated);
     }
     return { status: 200, body: updated.questionnaire };
   });

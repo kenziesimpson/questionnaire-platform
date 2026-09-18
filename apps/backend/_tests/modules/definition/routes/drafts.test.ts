@@ -383,7 +383,7 @@ describe("PUT /questionnaires/:id/draft", () => {
   it.each([
     ["missing", undefined, "schema/required"],
     ["malformed", "W/\"not-a-draft-etag\"", "schema/pattern"],
-  ])("is 400 when If-Match is %s, and writes nothing", async (_label, ifMatch, code) => {
+  ])("is 400 at the draft URL when If-Match is %s, and writes nothing", async (_label, ifMatch, code) => {
     const db = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(db);
     const eventsBefore = await testDatabase.readAuditEvents();
@@ -393,6 +393,7 @@ describe("PUT /questionnaires/:id/draft", () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({
       type: problemType("request/invalid"),
+      instance: draftUrl(draft.questionnaireId),
       errors: [{ pointer: "/headers/if-match", code }],
     });
     expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
