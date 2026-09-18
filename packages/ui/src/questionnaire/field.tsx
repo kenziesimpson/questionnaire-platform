@@ -15,7 +15,7 @@ export function useFieldIds(): FieldIds {
   return { base, control: `${base}-control`, legend: `${base}-legend`, error: `${base}-error`, hint: `${base}-hint` };
 }
 
-export function describedBy(...ids: (string | false | undefined)[]): string | undefined {
+function describedBy(...ids: (string | false | undefined)[]): string | undefined {
   const present = ids.filter((id): id is string => Boolean(id));
   return present.length > 0 ? present.join(" ") : undefined;
 }
@@ -27,7 +27,7 @@ export function errorAria(ids: FieldIds, error: string | undefined, ...otherDesc
   };
 }
 
-export function RequiredMark() {
+function RequiredMark() {
   return (
     <span aria-hidden="true" className="text-destructive">
       *

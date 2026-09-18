@@ -3,7 +3,6 @@
   "ignoreWorkspaces": ["packages/telemetry"],
   "ignoreIssues": {
     "packages/ui/src/primitives/**": ["exports", "types"],
-    "packages/ui/src/questionnaire/**": ["exports", "types"],
     "apps/admin/src/**": ["exports", "types"],
     "apps/backend/src/http/**": ["types"],
     "apps/backend/src/config.ts": ["exports"],

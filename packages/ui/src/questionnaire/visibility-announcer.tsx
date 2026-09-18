@@ -22,7 +22,7 @@ export function describeVisibilityChange(before: readonly Item[], after: readonl
     .join(" ");
 }
 
-export function useVisibilityAnnouncement(items: readonly Item[]): string {
+function useVisibilityAnnouncement(items: readonly Item[]): string {
   const [previous, setPrevious] = useState(items);
   const [announcement, setAnnouncement] = useState("");
   if (!sameItems(previous, items)) {

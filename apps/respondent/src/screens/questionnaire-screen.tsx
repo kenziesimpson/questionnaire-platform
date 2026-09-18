@@ -1,5 +1,5 @@
 import type { ClientAnswers, ClientAnswerValue } from "@qp/shared";
-import { QuestionnaireForm, type RenderedItemErrors } from "@qp/ui/questionnaire";
+import { focusItem, QuestionnaireForm, type ItemErrors } from "@qp/ui/questionnaire";
 import { Button } from "@qp/ui/primitives/button";
 import { revalidateLogic, useForm, useStore } from "@tanstack/react-form";
 import { useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
@@ -7,7 +7,6 @@ import { precheckAnswers } from "../answers/precheck.ts";
 import type { SubmissionRejection } from "../answers/submission-rejection.ts";
 import { isRetryable, type Failure, type FormContext } from "../session/respondent-state.ts";
 import { ErrorSummary, errorSummaryEntries, errorSummaryTitle } from "./error-summary.tsx";
-import { focusItem } from "./focus-item.ts";
 import { RetryButton, type RetryControl } from "./retry-button.tsx";
 import { Lead, ScreenHeading, ScreenLayout } from "./screen-layout.tsx";
 import { TRANSIENT_FAILURE_EXPLANATION } from "./terminal-screens.tsx";
@@ -21,7 +20,7 @@ export interface QuestionnaireScreenProps {
   readonly onSubmit: (answers: ClientAnswers) => Promise<void>;
 }
 
-const NO_ERRORS: RenderedItemErrors = {};
+const NO_ERRORS: ItemErrors = {};
 
 function RestoreStrip() {
   return (

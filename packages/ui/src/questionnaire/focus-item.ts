@@ -1,3 +1,5 @@
+import { ITEM_ID_ATTRIBUTE } from "./item-id-attribute";
+
 const FOCUSABLE_CANDIDATES = 'input:not([type="hidden"]), textarea, select, button, [tabindex]';
 
 function isKeyboardReachable(element: HTMLElement): boolean {
@@ -5,7 +7,9 @@ function isKeyboardReachable(element: HTMLElement): boolean {
 }
 
 function itemWrapper(container: HTMLElement, itemId: string): HTMLElement | undefined {
-  return Array.from(container.querySelectorAll<HTMLElement>("[data-item-id]")).find((element) => element.dataset.itemId === itemId);
+  return Array.from(container.querySelectorAll<HTMLElement>(`[${ITEM_ID_ATTRIBUTE}]`)).find(
+    (element) => element.getAttribute(ITEM_ID_ATTRIBUTE) === itemId,
+  );
 }
 
 export function focusItem(container: HTMLElement, itemId: string): boolean {

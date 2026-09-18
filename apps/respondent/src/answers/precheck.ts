@@ -1,8 +1,8 @@
 import { problem, respondentDateContext, validateSubmission, visibleAnswers, type ClientAnswers, type PublishedDefinition } from "@qp/shared";
-import { errorsByItemId, type RenderedItemErrors } from "@qp/ui/questionnaire";
+import { errorsByItemId, type ItemErrors } from "@qp/ui/questionnaire";
 
 export interface PrecheckFailure {
-  readonly itemErrors: RenderedItemErrors;
+  readonly itemErrors: ItemErrors;
 }
 
 export function browserTimeZone(): string {

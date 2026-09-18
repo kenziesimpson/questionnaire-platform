@@ -1,10 +1,13 @@
-import { freeformOptionOf, type QuestionContent, type QuestionOf, type SubmissionItemCode } from "@qp/shared";
+import { freeformOptionOf, SUBMISSION_ITEM_CODES, type QuestionContent, type QuestionOf, type SubmissionItemCode } from "@qp/shared";
 
 export const CODES_WITHOUT_A_RENDERED_ITEM = ["answer/not-visible", "answer/unknown-item"] as const;
 
 type CodeWithoutARenderedItem = (typeof CODES_WITHOUT_A_RENDERED_ITEM)[number];
 
 export type RenderedItemErrorCode = Exclude<SubmissionItemCode, CodeWithoutARenderedItem>;
+
+const RENDERED_ITEM_ERROR_CODES = new Set<string>(SUBMISSION_ITEM_CODES);
+for (const code of CODES_WITHOUT_A_RENDERED_ITEM) RENDERED_ITEM_ERROR_CODES.delete(code);
 
 type MessageFor = (question: QuestionContent) => string;
 
@@ -67,11 +70,11 @@ export const ITEM_ERROR_MESSAGES: { readonly [C in RenderedItemErrorCode]: Messa
   "date/in-past": () => "Enter a date that is not in the past.",
 };
 
-function isRendered(code: SubmissionItemCode): code is RenderedItemErrorCode {
-  return !(CODES_WITHOUT_A_RENDERED_ITEM as readonly SubmissionItemCode[]).includes(code);
+export function isRenderedItemErrorCode(code: string): code is RenderedItemErrorCode {
+  return RENDERED_ITEM_ERROR_CODES.has(code);
 }
 
 export function itemErrorMessage(codes: readonly SubmissionItemCode[] | undefined, question: QuestionContent): string | undefined {
-  const code = codes?.find(isRendered);
+  const code = codes?.find(isRenderedItemErrorCode);
   return code === undefined ? undefined : ITEM_ERROR_MESSAGES[code](question);
 }
