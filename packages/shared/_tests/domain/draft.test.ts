@@ -26,7 +26,6 @@ describe("draftForValidation", () => {
     const draft = draftForValidation(items);
     expect(draft.items).toEqual(items.map(draftItemOf));
     expect(draft.questions).toEqual(items.map((item) => item.question));
-    expect(draft.archivedQuestionIds).toBeUndefined();
     expect(validateDraft(draft)).toEqual({ valid: true, items: [] });
   });
 });

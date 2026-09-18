@@ -4,7 +4,7 @@ import { v7 as uuidv7 } from "uuid";
 import type { Database } from "../../../src/db/client.js";
 import { replaceDraft } from "../../../src/db/definition/drafts.js";
 import { createQuestion } from "../../../src/db/definition/questions.js";
-import { actor, aTextQuestion, type TestDatabase } from "../../db/fixtures.js";
+import { actor, aTextQuestion, theOpenDraftOf, type TestDatabase } from "../../db/fixtures.js";
 
 export function definitionUrl(path: string): string {
   return `${definitionApi.DEFINITION_PREFIX}${path}`;
@@ -13,6 +13,11 @@ export function definitionUrl(path: string): string {
 export interface OpenDraft {
   readonly draftVersionId: string;
   readonly draftRevision: number;
+}
+
+export async function theOpenDraft(db: Database, questionnaireId: string): Promise<OpenDraft> {
+  const { versionId, draftRevision } = await theOpenDraftOf(db, questionnaireId);
+  return { draftVersionId: versionId, draftRevision };
 }
 
 export async function createNextDraftDirectly(testDatabase: TestDatabase, questionnaireId: string): Promise<OpenDraft> {
@@ -46,7 +51,7 @@ export async function saveDraft(db: Database, questionnaireId: string, draft: Op
   if (saved.outcome !== "saved") {
     throw new Error(`test draft was not saved: ${saved.outcome}`);
   }
-  return { draftVersionId: saved.draftVersionId, draftRevision: saved.draftRevision };
+  return { draftVersionId: saved.draft.versionId, draftRevision: saved.draftRevision };
 }
 
 export async function aSecondItem(db: Database): Promise<DraftItem> {

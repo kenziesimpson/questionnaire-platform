@@ -7,7 +7,8 @@ import { v7 as uuidv7 } from "uuid";
 import { describe, expect, inject, it } from "vitest";
 // eslint-disable-next-line no-restricted-imports -- this test migrates a scratch database of its own, which the harness does not hand out
 import { openDatabase } from "../../src/db/client.js";
-import { createQuestion, listQuestionVersionSummaries } from "../../src/db/definition/questions.js";
+import { listQuestionVersionSummaries } from "../../src/db/definition/question-reads.js";
+import { createQuestion } from "../../src/db/definition/questions.js";
 import { MIGRATIONS_FOLDER } from "../../src/db/migrations.js";
 import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
 import { ROLE_NAMES, withDatabase, withRole, type ApplicationRole } from "./server.js";
@@ -125,7 +126,7 @@ describe("question_version_option: freeform exactly when the option id is other"
 
     await expectSqlState(
       createQuestion(db, {
-        questionId,
+        seededQuestionId: questionId,
         key: null,
         content: { type: "single_choice", prompt: "Pick", options: [{ optionId: "other", label: "None of these" }] },
         createdBy: "test",

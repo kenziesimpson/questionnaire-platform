@@ -1,7 +1,8 @@
 import type { QuestionInput } from "@qp/shared";
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
-import { appendQuestionVersion, createQuestion, listQuestionVersionSummaries } from "../../../src/db/definition/questions.js";
+import { listQuestionVersionSummaries } from "../../../src/db/definition/question-reads.js";
+import { appendQuestionVersion, createQuestion } from "../../../src/db/definition/questions.js";
 import { actor, aTextQuestion, theStatementWaitingOnALock, whileHoldingALock } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 

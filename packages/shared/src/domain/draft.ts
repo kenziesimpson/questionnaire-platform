@@ -33,7 +33,6 @@ export function draftItemOf(item: Item): DraftItem {
 export interface DraftForValidation {
   items: readonly DraftItem[];
   questions: readonly QuestionContent[];
-  archivedQuestionIds?: ReadonlySet<string>;
 }
 
 export function draftForValidation(items: readonly Item[]): DraftForValidation {

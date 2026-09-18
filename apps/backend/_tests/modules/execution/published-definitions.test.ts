@@ -1,7 +1,6 @@
 import { FORMAT_VERSION, PROBLEM_CONTENT_TYPE, problemType } from "@qp/shared";
 import { describe, expect, it } from "vitest";
-import { aQuestionnairePublishedAs } from "../fixtures.js";
-import { useTestDatabase } from "../harness.js";
+import { aQuestionnairePublishedAs, useTestDatabase } from "../../db/fixtures.js";
 import { problemOf, startSession } from "./fixtures.js";
 import { useExecutionApp } from "./harness.js";
 

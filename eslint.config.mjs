@@ -271,6 +271,15 @@ const localStorageThroughAnObject = ["window", "globalThis"].map((object) => ({
   message: persistenceSeamMessage,
 }));
 
+const environmentSeamMessage =
+  "The backend reads process.env once, in apps/backend/src/config.ts, so every setting has one name, one default and one place for telemetry configuration to land. Tool config files read the environment directly; application code takes what it needs from config.ts.";
+
+const processEnvAwayFromTheReader = [{ object: "process", property: "env", message: environmentSeamMessage }];
+
+const theEnvironmentReader = "apps/backend/src/config.ts";
+
+const theStorageSeam = "apps/respondent/src/storage/**";
+
 const terminalEntryPoints = [
   "apps/backend/src/db/migrate.ts",
   "apps/backend/src/db/seed/seed.ts",
@@ -391,20 +400,36 @@ export default tseslint.config(
     },
   },
   {
-    name: "L16 and L17: fetch and localStorage in the sources that own neither",
+    name: "L16, L17 and L18: fetch, localStorage and process.env in the sources that own none of them",
     files: everySourceFile,
-    ignores: [...apiClients, "apps/respondent/src/storage/**"],
+    ignores: [...apiClients, theStorageSeam, theEnvironmentReader],
     rules: {
       "no-restricted-globals": confine(fetchAwayFromTheTransport, localStorageAwayFromTheSeam),
-      "no-restricted-properties": ["error", ...fetchThroughAnObject, ...localStorageThroughAnObject],
+      "no-restricted-properties": ["error", ...fetchThroughAnObject, ...localStorageThroughAnObject, ...processEnvAwayFromTheReader],
     },
   },
   {
-    name: "L17: localStorage inside the API clients, which own the transport but not the persistence seam",
+    name: "L17 and L18: localStorage and process.env inside the API clients, which own the transport and neither of the other two",
     files: apiClients,
     rules: {
       "no-restricted-globals": confine(localStorageAwayFromTheSeam),
-      "no-restricted-properties": ["error", ...localStorageThroughAnObject],
+      "no-restricted-properties": ["error", ...localStorageThroughAnObject, ...processEnvAwayFromTheReader],
+    },
+  },
+  {
+    name: "L16 and L18: fetch and process.env inside the respondent's persistence seam, which owns localStorage and neither of the other two",
+    files: [theStorageSeam],
+    rules: {
+      "no-restricted-globals": confine(fetchAwayFromTheTransport),
+      "no-restricted-properties": ["error", ...fetchThroughAnObject, ...processEnvAwayFromTheReader],
+    },
+  },
+  {
+    name: "L18: the environment reader itself, which owns process.env and neither of the other two seams",
+    files: [theEnvironmentReader],
+    rules: {
+      "no-restricted-globals": confine(fetchAwayFromTheTransport, localStorageAwayFromTheSeam),
+      "no-restricted-properties": ["error", ...fetchThroughAnObject, ...localStorageThroughAnObject],
     },
   },
   {

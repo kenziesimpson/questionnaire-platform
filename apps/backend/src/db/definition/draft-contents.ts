@@ -1,7 +1,5 @@
 import type { DraftItem, DraftItemCode, Item, ItemError, QuestionVersion } from "@qp/shared";
-import { and, inArray, isNotNull } from "drizzle-orm";
 import type { Executor } from "../client.js";
-import { question } from "../schema.js";
 import { readItems } from "./questionnaire-items.js";
 import { storedQuestionToContent, storedQuestionToVersion } from "./question-content.js";
 import { pinnedByDraft, questionVersionKey, readQuestionVersions, type LoadedQuestionVersion } from "./question-versions.js";
@@ -52,16 +50,4 @@ export function itemsWithQuestionContent(contents: DraftContents): Item[] {
       question: storedQuestionToContent(stored, options),
     };
   });
-}
-
-export async function archivedQuestionIds(executor: Executor, questionIds: readonly string[]): Promise<Set<string>> {
-  const distinct = [...new Set(questionIds)];
-  if (distinct.length === 0) {
-    return new Set();
-  }
-  const archived = await executor
-    .select({ id: question.id })
-    .from(question)
-    .where(and(inArray(question.id, distinct), isNotNull(question.archivedAt)));
-  return new Set(archived.map((row) => row.id));
 }

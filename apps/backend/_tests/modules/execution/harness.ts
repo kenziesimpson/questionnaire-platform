@@ -2,7 +2,7 @@ import { executionApi } from "@qp/shared";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, vi } from "vitest";
 import { executionModule } from "../../../src/modules/execution/plugin.js";
-import type { TestDatabase } from "../harness.js";
+import type { TestDatabase } from "../../db/fixtures.js";
 
 export const NOW = new Date("2026-09-14T10:00:00.000Z");
 

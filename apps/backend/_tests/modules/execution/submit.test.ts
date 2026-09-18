@@ -2,7 +2,7 @@ import { executionApi, problemType, PROBLEM_CONTENT_TYPE, responseDigest, type R
 import { INTAKE_QUESTION_IDS, INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { v4 as uuidv4 } from "uuid";
 import { describe, expect, it } from "vitest";
-import { useTestDatabase } from "../harness.js";
+import { useTestDatabase } from "../../db/fixtures.js";
 import {
   answersNo,
   answersYes,

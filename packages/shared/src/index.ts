@@ -72,6 +72,6 @@ export {
   type SuccessStatus,
 } from "./api/route.js";
 export { routePath, routeSearch, successSchemaOf, type PathParams, type QueryParams, type RequestParts } from "./api/request.js";
-export { formatDraftEtag, isDraftEtagFor, parseDraftEtag, snapshotEtag } from "./api/etag.js";
+export { formatDraftEtag, isDraftEtagFor, parseDraftEtag, snapshotEtag, type DraftPrecondition } from "./api/etag.js";
 export * as definitionApi from "./api/definition.js";
 export * as executionApi from "./api/execution.js";

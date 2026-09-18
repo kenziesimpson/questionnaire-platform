@@ -2,15 +2,13 @@ import { definitionApi, problem, validateQuestionRules, type Problem, type Quest
 import type { FastifyInstance } from "fastify";
 import type { Database } from "../../../db/client.js";
 import {
-  appendQuestionVersion,
-  archiveQuestion,
-  createQuestion,
-  readQuestion,
-  readQuestionVersion,
-  listQuestions,
   listQuestionUsage,
   listQuestionVersionSummaries,
-} from "../../../db/definition/questions.js";
+  listQuestions,
+  readQuestion,
+  readQuestionVersion,
+} from "../../../db/definition/question-reads.js";
+import { appendQuestionVersion, archiveQuestion, createQuestion } from "../../../db/definition/questions.js";
 import { notFoundProblem } from "../../../http/problems.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";

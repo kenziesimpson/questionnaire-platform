@@ -12,6 +12,7 @@ import {
   actor,
   aPublishedQuestionnaire,
   QUESTIONNAIRE_LOCK_STATEMENT,
+  theOpenDraftOf,
   theStatementWaitingOnALock,
   whileHoldingALock,
 } from "../fixtures.js";
@@ -51,8 +52,9 @@ describe("listQuestionnaireSummaries updatedAt", () => {
   it("is the latest questionnaire_version.updated_at, moved by a draft write and not by setClosesAt", async () => {
     const db = testDatabase.database("definition");
     const created = await createQuestionnaire(db, { key: null, name: "Edited", title: "Edited", ...actor });
+    const draft = await theOpenDraftOf(db, created.questionnaireId);
     const client = await testDatabase.connect("definition");
-    await client.query("UPDATE definition.questionnaire_version SET updated_at = $1 WHERE id = $2", ["2026-01-01T00:00:00.000Z", created.draftVersionId]);
+    await client.query("UPDATE definition.questionnaire_version SET updated_at = $1 WHERE id = $2", ["2026-01-01T00:00:00.000Z", draft.versionId]);
     const updatedAtOf = async () => (await readQuestionnaireSummary(db, created.questionnaireId))?.updatedAt;
     expect(await updatedAtOf()).toBe("2026-01-01T00:00:00.000Z");
 
@@ -61,14 +63,14 @@ describe("listQuestionnaireSummaries updatedAt", () => {
 
     const written = await replaceDraft(db, {
       questionnaireId: created.questionnaireId,
-      precondition: { versionId: created.draftVersionId, draftRevision: created.draftRevision },
+      precondition: draft,
       title: "Edited again",
       items: [],
       actorId: null,
       traceId: null,
     });
     const stored = await client.query<{ updated_at: Date }>("SELECT updated_at FROM definition.questionnaire_version WHERE id = $1", [
-      created.draftVersionId,
+      draft.versionId,
     ]);
 
     expect(written.outcome).toBe("saved");

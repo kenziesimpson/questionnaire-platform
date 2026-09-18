@@ -3,9 +3,10 @@ import { desc, eq, max, type SQL } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { recordAudit } from "../audit.js";
 import type { Executor } from "../client.js";
+import { mustExist } from "../errors.js";
 import { questionnaire, questionnaireVersion } from "../schema.js";
-import { openDraftExists, readOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
-import { readBack } from "./read-back.js";
+import { withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
+import { openDraftExists } from "./questionnaire-version-rows.js";
 
 function latestVersionEdits(executor: Executor) {
   return executor
@@ -16,13 +17,6 @@ function latestVersionEdits(executor: Executor) {
     .from(questionnaireVersion)
     .groupBy(questionnaireVersion.questionnaireId)
     .as("latest_version_edit");
-}
-
-function lastEditedAt(questionnaireId: string, updatedAt: Date | null): string {
-  if (updatedAt === null) {
-    throw new Error(`questionnaire ${questionnaireId} has no version to take updatedAt from`);
-  }
-  return updatedAt.toISOString();
 }
 
 async function selectQuestionnaireSummaries(executor: Executor, filter?: SQL): Promise<QuestionnaireSummary[]> {
@@ -51,7 +45,7 @@ async function selectQuestionnaireSummaries(executor: Executor, filter?: SQL): P
     closesAt: row.closesAt?.toISOString() ?? null,
     hasDraft: row.hasDraft,
     createdAt: row.createdAt.toISOString(),
-    updatedAt: lastEditedAt(row.questionnaireId, row.updatedAt),
+    updatedAt: mustExist(row.updatedAt, `the latest version of questionnaire ${row.questionnaireId}`).toISOString(),
   }));
 }
 
@@ -68,7 +62,7 @@ export async function readQuestionnaireSummary(
 }
 
 export interface CreateQuestionnaireCommand {
-  readonly questionnaireId?: string;
+  readonly seededQuestionnaireId?: string;
   readonly key: string | null;
   readonly name: string;
   readonly title: string;
@@ -78,8 +72,6 @@ export interface CreateQuestionnaireCommand {
 
 export interface CreatedQuestionnaire {
   readonly questionnaireId: string;
-  readonly draftVersionId: string;
-  readonly draftRevision: number;
   readonly summary: QuestionnaireSummary;
 }
 
@@ -88,7 +80,7 @@ export async function createQuestionnaire(
   command: CreateQuestionnaireCommand,
 ): Promise<CreatedQuestionnaire> {
   return executor.transaction(async (tx) => {
-    const questionnaireId = command.questionnaireId ?? uuidv7();
+    const questionnaireId = command.seededQuestionnaireId ?? uuidv7();
     const draftVersionId = uuidv7();
     await tx.insert(questionnaire).values({ id: questionnaireId, key: command.key, name: command.name });
     await tx.insert(questionnaireVersion).values({
@@ -107,9 +99,8 @@ export async function createQuestionnaire(
       summary: null,
       traceId: command.traceId,
     });
-    const draft = readBack(await readOpenDraft(tx, questionnaireId), "the draft just created");
-    const summary = readBack(await readQuestionnaireSummary(tx, questionnaireId), "the questionnaire just created");
-    return { questionnaireId, draftVersionId: draft.id, draftRevision: draft.draftRevision, summary };
+    const summary = mustExist(await readQuestionnaireSummary(tx, questionnaireId), "the questionnaire just created");
+    return { questionnaireId, summary };
   });
 }
 
@@ -140,7 +131,7 @@ export async function setClosesAt(executor: Executor, command: SetClosesAtComman
       traceId: command.traceId,
     });
 
-    const summary = readBack(await readQuestionnaireSummary(tx, command.questionnaireId), "the questionnaire just updated");
+    const summary = mustExist(await readQuestionnaireSummary(tx, command.questionnaireId), "the questionnaire just updated");
     return { outcome: "updated", questionnaire: summary };
   });
 }

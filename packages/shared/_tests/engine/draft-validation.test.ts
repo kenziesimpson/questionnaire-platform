@@ -42,12 +42,6 @@ describe("validateDraft — placements (§5.5, #41)", () => {
     const unresolved = { ...draft, questions: draft.questions.slice(0, 1) };
     expect(validateDraft(unresolved)).toEqual({ valid: false, items: [{ itemId: "itm_02", code: "draft/question-version-unknown" }] });
   });
-
-  it("rejects an item whose question the caller reports as archived", () => {
-    const definition = aDefinition([anItem("itm_01", questions.text()), anItem("itm_02", questions.text())]);
-    const draft = { ...draftForValidation(definition.items), archivedQuestionIds: new Set([definition.items[1]!.question.questionId]) };
-    expect(validateDraft(draft).items).toEqual([{ itemId: "itm_02", code: "draft/question-archived" }]);
-  });
 });
 
 describe("validateDraft — referential integrity and forward references (§5.2, §5.4)", () => {

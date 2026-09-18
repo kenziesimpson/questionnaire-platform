@@ -2,7 +2,8 @@ import { executionApi, type RouteDefinition } from "@qp/shared";
 import Fastify, { type RouteOptions } from "fastify";
 import { describe, expect, it } from "vitest";
 import { executionModule } from "../../../src/modules/execution/plugin.js";
-import { executionUrl, useExecutionApp } from "../../db/execution/fixtures.js";
+import { executionUrl } from "./fixtures.js";
+import { useExecutionApp } from "./harness.js";
 import { useTestDatabase } from "../../db/fixtures.js";
 
 const testDatabase = useTestDatabase();

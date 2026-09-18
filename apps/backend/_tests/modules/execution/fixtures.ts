@@ -3,10 +3,7 @@ import { INTAKE_QUESTION_IDS, INTAKE_QUESTIONNAIRE_ID, intakeDefinition } from "
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { appendQuestionVersion, createQuestion } from "../../../src/db/definition/questions.js";
 import { seedDemoQuestionnaire } from "../../../src/db/seed/demo-questionnaire.js";
-import { actor, aPublishedQuestionnaireOf, publishNextVersion } from "../fixtures.js";
-import type { TestDatabase } from "../harness.js";
-
-export { useExecutionApp } from "./harness.js";
+import { actor, aPublishedQuestionnaireOf, publishNextVersion, type TestDatabase } from "../../db/fixtures.js";
 
 export const SENTINEL_TEXT = "SENTINEL-ANSWER-7f3a";
 export const SENTINEL_DATE = "1999-12-31";
