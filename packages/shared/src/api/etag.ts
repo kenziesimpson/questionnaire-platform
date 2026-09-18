@@ -19,3 +19,7 @@ export function isDraftEtagFor(etag: string | null | undefined, versionId: strin
   if (etag === null || etag === undefined) return false;
   return parseDraftEtag(etag)?.versionId === versionId.toLowerCase();
 }
+
+export function snapshotEtag(questionnaireId: string, version: number, formatVersion: number): string {
+  return `"${questionnaireId}:${version}:${formatVersion}"`;
+}

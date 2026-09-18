@@ -1,4 +1,4 @@
-import { definitionApi, problem, type Problem } from "@qp/shared";
+import { definitionApi, problem, snapshotEtag, type Problem } from "@qp/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { publishDraft } from "../../../db/definition/publish.js";
 import { listVersionSummaries, readPublishedSnapshot } from "../../../db/definition/versions.js";
@@ -11,10 +11,6 @@ const IMMUTABLE_SNAPSHOT_CACHE_CONTROL = "private, max-age=31536000, immutable";
 
 function notFound(request: FastifyRequest): Problem {
   return problem("resource/not-found", { instance: request.url });
-}
-
-function snapshotEtag(questionnaireId: string, version: number, formatVersion: number): string {
-  return `"${questionnaireId}:${version}:${formatVersion}"`;
 }
 
 export async function versionRoutes(scope: FastifyInstance, { database }: DefinitionModuleOptions): Promise<void> {

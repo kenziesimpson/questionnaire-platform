@@ -3,7 +3,7 @@ import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import { DRAFT_ITEM_CODES, ProblemDetails, SUBMISSION_ITEM_CODES, type DraftItemCode } from "../../src/problems.js";
 import * as definition from "../../src/api/definition.js";
-import { formatDraftEtag, isDraftEtagFor, parseDraftEtag } from "../../src/api/etag.js";
+import { formatDraftEtag, isDraftEtagFor, parseDraftEtag, snapshotEtag } from "../../src/api/etag.js";
 import * as execution from "../../src/api/execution.js";
 import type { BodyOf, ReplyOf } from "../../src/api/route.js";
 import type { Equal } from "../type-equality.js";
@@ -110,6 +110,16 @@ describe("draft ETag", () => {
       expect(isDraftEtagFor("*", versionId)).toBe(false);
       expect(isDraftEtagFor(formatDraftEtag(other, 1), versionId)).toBe(false);
     });
+  });
+});
+
+describe("snapshot ETag", () => {
+  it("is the strong ETag \"<questionnaireId>:<version>:<formatVersion>\", which no draft ETag parser accepts", () => {
+    const questionnaireId = "01a0950e-56a0-73d6-b936-4a1e10eff8c0";
+    const etag = snapshotEtag(questionnaireId, 2, 1);
+
+    expect(etag).toBe(`"${questionnaireId}:2:1"`);
+    expect(parseDraftEtag(etag)).toBeUndefined();
   });
 });
 
