@@ -50,6 +50,7 @@ function screenFor(view: RespondentView, session: RespondentSession): ReactEleme
           submitFailure={view.submitFailure}
           rejection={view.rejection}
           onAnswerChange={session.changeAnswers}
+          onPersist={session.persistAnswers}
           onSubmit={session.submit}
         />
       );

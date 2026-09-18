@@ -265,6 +265,24 @@ describe("touched-on-blur error timing", () => {
 
     expect(screen.queryByText("Enter a date that is not in the future.")).not.toBeInTheDocument();
   });
+
+  it("moving focus within the same item, such as a radio to its own freeform Other box, does not touch it early", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await user.click(within(hasCondition()).getByRole("radio", { name: "Yes" }));
+    await user.click(within(whichCondition()).getByRole("radio", { name: "Other" }));
+    const otherBox = screen.getByRole("textbox", { name: "Other, please specify" });
+
+    await user.click(otherBox);
+
+    expect(screen.queryByText('Enter your answer for "Other".')).not.toBeInTheDocument();
+    expect(whichCondition()).not.toHaveAttribute("aria-invalid", "true");
+
+    await user.tab();
+
+    expect(await screen.findByText('Enter your answer for "Other".')).toBeInTheDocument();
+    expect(whichCondition()).toHaveAttribute("aria-invalid", "true");
+  });
 });
 
 describe("a submission the server rejects with 422 submission/invalid", () => {

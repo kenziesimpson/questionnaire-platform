@@ -221,7 +221,7 @@ describe("changeAnswers", () => {
     expect(storage.writePartials).not.toHaveBeenCalled();
   });
 
-  it("no longer writes to storage itself; local persistence is the screen's job now", async () => {
+  it("no longer writes to storage itself; local persistence is a separate call now", async () => {
     const client = fakeClient();
     const storage = fakeStorage();
     const session = await readySession(client, storage);
@@ -249,6 +249,29 @@ describe("changeAnswers", () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect(session.getState()).toMatchObject({ name: "ready", rejection: { itemErrors: {} } });
+  });
+});
+
+describe("persistAnswers", () => {
+  it("does nothing when there is no form to persist against", () => {
+    const client = fakeClient();
+    const storage = fakeStorage();
+    const session = createRespondentSession(INTAKE_QUESTIONNAIRE_ID, client, storage);
+
+    session.persistAnswers({ itm_04: { type: "text", text: "x" } });
+
+    expect(storage.writePartials).not.toHaveBeenCalled();
+  });
+
+  it("writes the given answers against the current session through the injected storage", async () => {
+    const client = fakeClient();
+    const storage = fakeStorage();
+    const session = await readySession(client, storage);
+    storage.writePartials.mockClear();
+
+    session.persistAnswers({ itm_04: { type: "text", text: "Corner pharmacy" } });
+
+    expect(storage.writePartials).toHaveBeenCalledWith(inProgressSession, { itm_04: { type: "text", text: "Corner pharmacy" } });
   });
 });
 

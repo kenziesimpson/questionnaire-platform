@@ -28,6 +28,7 @@ export interface RespondentSession {
   readonly subscribe: (listener: () => void) => () => void;
   readonly enter: () => Promise<void>;
   readonly changeAnswers: (itemId: string) => void;
+  readonly persistAnswers: (answers: ClientAnswers) => void;
   readonly submit: (answers: ClientAnswers) => Promise<void>;
   readonly retry: () => Promise<void>;
   readonly startNewSession: () => Promise<void>;
@@ -155,6 +156,12 @@ export function createRespondentSession(
     dispatch({ type: "answerChanged", itemId });
   }
 
+  function persistAnswers(answers: ClientAnswers) {
+    const form = formContextOf(state);
+    if (form === null) return;
+    storage.writePartials(form.session, answers);
+  }
+
   async function fetchRecordedReceipt(session: Session) {
     const outcome = await client.getSession(session.sessionId);
     if (outcome.kind !== "ok") {
@@ -239,6 +246,7 @@ export function createRespondentSession(
     },
     enter,
     changeAnswers,
+    persistAnswers,
     submit,
     retry,
     startNewSession,

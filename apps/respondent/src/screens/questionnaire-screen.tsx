@@ -13,10 +13,10 @@ import { focusItem, QuestionnaireForm, type ItemErrors } from "@qp/ui/questionna
 import { Button } from "@qp/ui/primitives/button";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useEffect, useEffectEvent, useId, useMemo, useRef, useState, type FocusEvent } from "react";
+import { browserTimeZone } from "../answers/precheck.ts";
 import type { SubmissionRejection } from "../answers/submission-rejection.ts";
 import type { FormContext } from "../session/respondent-state.ts";
 import type { SubmitFailureView } from "../session/respondent-view.ts";
-import { writePartials } from "../storage/partials.ts";
 import { ErrorSummary, errorSummaryEntries, errorSummaryTitle } from "./error-summary.tsx";
 import { RetryButton, type RetryControl } from "./retry-button.tsx";
 import { Lead, ScreenHeading, ScreenLayout } from "./screen-layout.tsx";
@@ -28,6 +28,7 @@ export interface QuestionnaireScreenProps {
   readonly submitFailure: SubmitFailureView | null;
   readonly rejection: SubmissionRejection | null;
   readonly onAnswerChange: (itemId: string) => void;
+  readonly onPersist: (answers: ClientAnswers) => void;
   readonly onSubmit: (answers: ClientAnswers) => Promise<void>;
 }
 
@@ -142,20 +143,21 @@ export function QuestionnaireScreen({
   submitFailure,
   rejection,
   onAnswerChange,
+  onPersist,
   onSubmit,
 }: QuestionnaireScreenProps) {
-  const { session, definition, restoredAnswers, restored } = context;
+  const { definition, restoredAnswers, restored } = context;
   const formRef = useRef<HTMLFormElement>(null);
   const summaryRef = useRef<HTMLElement>(null);
   const announcerRef = useRef<HTMLParagraphElement>(null);
   const focusRequests = useFocusRequests(submitting, rejection);
-  const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, []);
+  const timeZone = useMemo(() => browserTimeZone(), []);
 
   const form = useForm({
     defaultValues: { answers: restoredAnswers },
     validators: { onChange: requiredAnswersValidator(definition) },
     listeners: {
-      onChange: ({ formApi }) => writePartials(session, formApi.state.values.answers),
+      onChange: ({ formApi }) => onPersist(formApi.state.values.answers),
     },
     onSubmit: ({ value }) => onSubmit(value.answers),
     onSubmitInvalid: focusRequests.request,
@@ -207,7 +209,10 @@ export function QuestionnaireScreen({
 
   function handleFormBlur(event: FocusEvent<HTMLFormElement>) {
     const itemId = itemIdFromBlurTarget(event.target);
-    if (itemId !== undefined) form.validateField(answerFieldName(itemId), "change");
+    if (itemId === undefined) return;
+    const stayedWithinItem = itemIdFromBlurTarget(event.relatedTarget) === itemId;
+    if (stayedWithinItem) return;
+    form.validateField(answerFieldName(itemId), "change");
   }
 
   async function submitForm() {
