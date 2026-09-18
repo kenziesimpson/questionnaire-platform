@@ -2,12 +2,15 @@ import type { Page, Request, Response } from "@playwright/test";
 import { executionApi } from "@qp/shared";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
-import { problemReplyOf as replyOf, type ProblemReply } from "../../../fixtures/index.ts";
+import {
+  matchesExecutionRoute,
+  problemReplyOf as replyOf,
+  recordRequests,
+  waitForExecutionResponse,
+  type ProblemReply,
+} from "../../../fixtures/index.ts";
 
-const SESSIONS_PATH = `${executionApi.EXECUTION_PREFIX}/sessions`;
-const SUBMIT_PATH = new RegExp(`^${SESSIONS_PATH}/[^/]+/submit$`);
-
-export const SUBMIT_URL_GLOB = `**${SESSIONS_PATH}/*/submit`;
+export const SUBMIT_URL_GLOB = `**${executionApi.EXECUTION_PREFIX}${executionApi.submitSession.url.replace(":sessionId", "*")}`;
 
 export const SubmitBody = executionApi.submitSession.schema.body;
 export type SubmitBody = Static<typeof SubmitBody>;
@@ -15,28 +18,16 @@ export type SubmitBody = Static<typeof SubmitBody>;
 export const SubmitReceiptBody = executionApi.submitSession.schema.response[200];
 export type SubmitReceiptBody = Static<typeof SubmitReceiptBody>;
 
-function pathnameOf(url: string): string {
-  return new URL(url).pathname;
-}
-
-export function isSubmitRequest(request: Request): boolean {
-  return request.method() === "POST" && SUBMIT_PATH.test(pathnameOf(request.url()));
+function isSubmitRequest(request: Request): boolean {
+  return matchesExecutionRoute(request, executionApi.submitSession);
 }
 
 export function isCreateSessionRequest(request: Request): boolean {
-  return request.method() === "POST" && pathnameOf(request.url()) === SESSIONS_PATH;
+  return matchesExecutionRoute(request, executionApi.createSession);
 }
 
 export function isGetSessionRequest(request: Request, sessionId: string): boolean {
-  return request.method() === "GET" && pathnameOf(request.url()) === `${SESSIONS_PATH}/${sessionId}`;
-}
-
-export function recordRequests(page: Page, matches: (request: Request) => boolean): Request[] {
-  const recorded: Request[] = [];
-  page.on("request", (request) => {
-    if (matches(request)) recorded.push(request);
-  });
-  return recorded;
+  return matchesExecutionRoute(request, executionApi.getSession, { sessionId });
 }
 
 export function recordSubmitRequests(page: Page): Request[] {
@@ -44,7 +35,7 @@ export function recordSubmitRequests(page: Page): Request[] {
 }
 
 export function waitForSubmitResponse(page: Page): Promise<Response> {
-  return page.waitForResponse((response) => isSubmitRequest(response.request()));
+  return waitForExecutionResponse(page, executionApi.submitSession);
 }
 
 function parsedJson(text: string | null): unknown {

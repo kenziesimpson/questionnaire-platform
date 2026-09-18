@@ -1,11 +1,15 @@
 import { definitionApi } from "@qp/shared";
-import { expect, test, uniqueName, type DefinitionApi, type PublishedQuestionnaire } from "../../fixtures/index.ts";
 import {
+  expect,
   problemReplyOfResponse,
   recordDefinitionRequests,
-  textQuestionInput,
+  test,
+  uniqueName,
   waitForDefinitionResponse,
-} from "./support/authoring.ts";
+  type DefinitionApi,
+  type PublishedQuestionnaire,
+} from "../../fixtures/index.ts";
+import { textQuestionInput } from "./support/question-input.ts";
 
 async function publishedWithoutDraft(api: DefinitionApi, label: string): Promise<PublishedQuestionnaire> {
   const question = await api.createQuestion(textQuestionInput(`${label} question`));

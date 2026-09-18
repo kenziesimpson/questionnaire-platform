@@ -1,15 +1,7 @@
 import { definitionApi, parseDraftEtag } from "@qp/shared";
-import { expect, test, uniqueName } from "../../fixtures/index.ts";
-import {
-  createTextQuestions,
-  dragHandle,
-  expectDraftItemOrder,
-  moveItemByKeyboard,
-  promptOf,
-  reorderLiveRegion,
-  tabUntilFocused,
-  waitForDefinitionResponse,
-} from "./support/authoring.ts";
+import { expect, test, uniqueName, waitForDefinitionResponse } from "../../fixtures/index.ts";
+import { tabUntilFocused } from "./support/keyboard.ts";
+import { createTextQuestions, promptOf } from "./support/question-input.ts";
 
 test.describe("E21 reordering by keyboard", () => {
   test("a drag handle reached with Tab moves a question with Space and the arrow keys, announces each step, and the order persists through If-Match", async ({
@@ -27,15 +19,15 @@ test.describe("E21 reordering by keyboard", () => {
     );
 
     await admin.openDraftEditor(questionnaireId);
-    await expectDraftItemOrder(page, [firstPrompt, secondPrompt, thirdPrompt]);
+    await admin.expectDraftItemOrder([firstPrompt, secondPrompt, thirdPrompt]);
 
-    const handle = dragHandle(page, 1);
+    const handle = admin.dragHandle(1);
     await tabUntilFocused(page, handle);
     await expect(handle).toBeFocused();
 
     const write = waitForDefinitionResponse(page, definitionApi.replaceDraft, { id: questionnaireId });
-    await moveItemByKeyboard(page, { prompt: firstPrompt, from: 1, to: 3, total: 3 });
-    await expect(reorderLiveRegion(page)).toHaveText(`Question “${firstPrompt}” was dropped in position 3 of 3.`);
+    await admin.moveItemByKeyboard({ prompt: firstPrompt, from: 1, to: 3, total: 3 });
+    await expect(admin.reorderLiveRegion()).toHaveText(`Question “${firstPrompt}” was dropped in position 3 of 3.`);
 
     const response = await write;
     expect(response.status()).toBe(200);
@@ -45,12 +37,12 @@ test.describe("E21 reordering by keyboard", () => {
     expect(parseDraftEtag(savedEtag ?? "")?.draftRevision).toBe((parseDraftEtag(placed.etag)?.draftRevision ?? 0) + 1);
 
     const reordered = [secondPrompt, thirdPrompt, firstPrompt];
-    await expectDraftItemOrder(page, reordered);
+    await admin.expectDraftItemOrder(reordered);
     await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
 
     await page.reload();
     await expect(admin.publishButton()).toBeVisible();
-    await expectDraftItemOrder(page, reordered);
+    await admin.expectDraftItemOrder(reordered);
 
     const persisted = await api.getDraft(questionnaireId);
     expect(persisted.etag).toBe(savedEtag);

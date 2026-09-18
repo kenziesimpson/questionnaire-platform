@@ -1,4 +1,6 @@
 import { problemFromWire, type Problem, type ProblemSlug } from "@qp/shared";
+import type { Response } from "@playwright/test";
+import type { ApiExchange } from "./api-exchange.ts";
 
 export interface ProblemReply {
   readonly status: number;
@@ -16,4 +18,12 @@ export function problemOf<S extends ProblemSlug>(reply: ProblemReply, slug: S): 
     throw new Error(`Expected ${slug}, got ${reply.slug ?? "a body outside the problem contract"} with status ${reply.status}`);
   }
   return reply.problem as Problem<S>;
+}
+
+export function problemReplyOfExchange(exchange: ApiExchange): ProblemReply {
+  return problemReplyOf(exchange.status, exchange.body);
+}
+
+export async function problemReplyOfResponse(response: Response): Promise<ProblemReply> {
+  return problemReplyOf(response.status(), await response.json());
 }

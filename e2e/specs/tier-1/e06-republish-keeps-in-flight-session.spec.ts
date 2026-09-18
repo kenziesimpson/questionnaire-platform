@@ -1,3 +1,4 @@
+import { executionApi } from "@qp/shared";
 import {
   createDemoShapedQuestionnaire,
   DEMO_ITEM_IDS,
@@ -5,10 +6,12 @@ import {
   DEMO_V1,
   DEMO_V2,
   expect,
+  matchesExecutionRoute,
   publishDemoHypertensionRelabel,
+  recordRequests,
   test,
 } from "../../fixtures/index.ts";
-import { ApiTraffic, MainFrameNavigations } from "./support/respondent-browser.ts";
+import { MainFrameNavigations } from "./support/respondent-browser.ts";
 
 const prompts = DEMO_V1.prompts;
 const YES = DEMO_V1.optionLabel(DEMO_OPTION_IDS.yes);
@@ -25,8 +28,7 @@ test.describe("E6 — a republish does not disturb an in-flight session", () => 
     browserErrors,
   }) => {
     const demo = await createDemoShapedQuestionnaire(api, { name: "E6 in-flight" });
-    const traffic = new ApiTraffic();
-    traffic.watch(context);
+    const traffic = recordRequests(context);
 
     await respondent.openForm(demo.questionnaireId);
     await expect(page.getByText(`${DEMO_V1.title} · version 1`, { exact: true })).toBeVisible();
@@ -51,8 +53,8 @@ test.describe("E6 — a republish does not disturb an in-flight session", () => 
 
     expect(receipt.sessionId).toBe(sessionId);
     expect(navigations.urls).toEqual([]);
-    expect(traffic.sessionCreations()).toHaveLength(1);
-    expect(traffic.submissions(sessionId)).toHaveLength(1);
+    expect(traffic.filter((request) => matchesExecutionRoute(request, executionApi.createSession))).toHaveLength(1);
+    expect(traffic.filter((request) => matchesExecutionRoute(request, executionApi.submitSession, { sessionId }))).toHaveLength(1);
 
     const [v1] = await db.versionsOf(demo.questionnaireId);
     expect(await db.session(sessionId)).toMatchObject({

@@ -18,6 +18,16 @@ export const ADMIN_PATHS = {
   versionPreview: (questionnaireId: string, version: number) => `${ADMIN_BASE_PATH}/questionnaires/${questionnaireId}/versions/${version}`,
 } as const;
 
+const DRAFT_ITEM_LIST_NAME = "Questions, in the order respondents see them";
+const SENSOR_SETTLE_ATTEMPT_MS = 750;
+
+export interface KeyboardMove {
+  readonly prompt: string;
+  readonly from: number;
+  readonly to: number;
+  readonly total: number;
+}
+
 export class AdminPage {
   readonly page: Page;
 
@@ -88,5 +98,47 @@ export class AdminPage {
 
   draftItemsRegion(): Locator {
     return this.page.getByRole("region", { name: /^\d+ questions?$/ });
+  }
+
+  draftItemList(): Locator {
+    return this.page.getByRole("list", { name: DRAFT_ITEM_LIST_NAME, exact: true });
+  }
+
+  draftItemRow(position: number, prompt: string): Locator {
+    return this.draftItemList().getByRole("listitem", { name: `Question ${position}, ${prompt}`, exact: true });
+  }
+
+  async expectDraftItemOrder(prompts: readonly string[]): Promise<void> {
+    const rows = this.draftItemList().locator(":scope > li");
+    await expect(rows).toHaveCount(prompts.length);
+    for (const [index, prompt] of prompts.entries()) {
+      await expect(rows.nth(index)).toHaveAccessibleName(`Question ${index + 1}, ${prompt}`);
+    }
+  }
+
+  dragHandle(position: number): Locator {
+    return this.page.getByRole("button", { name: `Drag to reorder question ${position}`, exact: true });
+  }
+
+  reorderLiveRegion(): Locator {
+    return this.page.getByRole("status").and(this.page.locator('[aria-live="assertive"]'));
+  }
+
+  private async pressUntilAnnounced(key: string, announcement: string): Promise<void> {
+    const announcements = this.reorderLiveRegion();
+    await expect(async () => {
+      if ((await announcements.textContent()) !== announcement) await this.page.keyboard.press(key);
+      await expect(announcements).toHaveText(announcement, { timeout: SENSOR_SETTLE_ATTEMPT_MS });
+    }).toPass();
+  }
+
+  async moveItemByKeyboard({ prompt, from, to, total }: KeyboardMove): Promise<void> {
+    await this.pressUntilAnnounced("Space", `Picked up question “${prompt}”. It is in position ${from} of ${total}.`);
+    const arrow = to > from ? "ArrowDown" : "ArrowUp";
+    const step = to > from ? 1 : -1;
+    for (let position = from + step; position !== to + step; position += step) {
+      await this.pressUntilAnnounced(arrow, `Question “${prompt}” moved to position ${position} of ${total}.`);
+    }
+    await this.pressUntilAnnounced("Space", `Question “${prompt}” was dropped in position ${to} of ${total}.`);
   }
 }

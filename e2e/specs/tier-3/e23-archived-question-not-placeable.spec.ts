@@ -1,6 +1,6 @@
 import { definitionApi } from "@qp/shared";
-import { draftItem, expect, problemOf, test, uniqueName } from "../../fixtures/index.ts";
-import { problemReplyOfExchange, promptOf, textQuestionInput } from "./support/authoring.ts";
+import { draftItem, expect, problemOf, problemReplyOfExchange, test, uniqueName } from "../../fixtures/index.ts";
+import { promptOf, textQuestionInput } from "./support/question-input.ts";
 
 const PUBLISHED_ITEM_ID = "itm_archived_later";
 const DIRECT_ADD_ITEM_ID = "itm_direct_add";

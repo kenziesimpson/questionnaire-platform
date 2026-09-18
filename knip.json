@@ -10,7 +10,12 @@
     "packages/shared/src/domain/condition.ts": ["exports"],
     "packages/shared/src/problems.ts": ["exports", "types"],
     "apps/respondent/src/**": ["exports", "types"],
-    "e2e/**": ["exports", "types"],
+    "e2e/fixtures/index.ts": ["exports", "types"],
+    "e2e/fixtures/api/api-exchange.ts": ["exports", "types"],
+    "e2e/fixtures/demo/demo-questionnaire.ts": ["exports", "types"],
+    "e2e/fixtures/pages/admin-page.ts": ["exports", "types"],
+    "e2e/stack/compose-stack.ts": ["exports"],
+    "e2e/stack/kept-stacks.ts": ["exports"],
     "**/_tests/**": ["exports", "types"]
   },
   "workspaces": {

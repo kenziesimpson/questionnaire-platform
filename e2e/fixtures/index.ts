@@ -1,11 +1,21 @@
-export { expect, test, type StackTestFixtures, type StackWorkerFixtures } from "./test.ts";
+export { expect, test, type OpenSecondContext, type SecondContextOptions, type StackTestFixtures, type StackWorkerFixtures } from "./test.ts";
 export {
   ApiContractError,
   ApiProblemError,
   type ApiExchange,
   type ApiRequestParts,
 } from "./api/api-exchange.ts";
-export { problemOf, problemReplyOf, type ProblemReply } from "./api/problem-reply.ts";
+export { problemOf, problemReplyOf, problemReplyOfExchange, problemReplyOfResponse, type ProblemReply } from "./api/problem-reply.ts";
+export {
+  definitionUrlPattern,
+  isDefinitionRequest,
+  matchesExecutionRoute,
+  recordDefinitionRequests,
+  recordRequests,
+  waitForDefinitionResponse,
+  waitForExecutionResponse,
+} from "./api/route-traffic.ts";
+export { Deferred } from "./deferred.ts";
 export {
   DefinitionApi,
   draftItem,
@@ -44,6 +54,6 @@ export {
   type DemoShapedOptions,
   type DemoShapedQuestionnaire,
 } from "./demo/demo-questionnaire.ts";
-export { ADMIN_HEADINGS, ADMIN_PATHS, AdminPage } from "./pages/admin-page.ts";
+export { ADMIN_HEADINGS, ADMIN_PATHS, AdminPage, type KeyboardMove } from "./pages/admin-page.ts";
 export { RESPONDENT_BUTTONS, RESPONDENT_HEADINGS, RespondentPage, type RespondentReceipt, type StoredValue } from "./pages/respondent-page.ts";
 export { RESPONDENT_STORAGE_FORMAT_VERSION, RespondentStorageEnvelope, respondentStorageKey } from "./pages/respondent-storage.ts";

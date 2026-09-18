@@ -40,7 +40,7 @@ export class DraftAuthoring {
   }
 
   draftItems(): Locator {
-    return this.page.getByRole("list", { name: "Questions, in the order respondents see them" });
+    return this.admin.draftItemList();
   }
 
   draftItem(position: number): Locator {
