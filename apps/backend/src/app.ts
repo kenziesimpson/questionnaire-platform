@@ -12,7 +12,7 @@ export interface AppOptions {
 }
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
-  const app = Fastify({ logger: options.logger ?? false, genReqId: () => randomUUID() });
+  const app = Fastify({ logger: options.logger ?? false, genReqId: () => randomUUID(), frameworkErrors: replyWithProblem });
 
   applyHttpDefaults(app, replyWithProblem);
   app.get("/health", async () => ({ status: "ok" }));

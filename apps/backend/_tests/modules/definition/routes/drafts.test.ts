@@ -12,7 +12,6 @@ import {
 import { Value } from "typebox/value";
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
-import type { Database } from "../../../../src/db/client.js";
 import { publishDraft } from "../../../../src/db/definition/publish.js";
 import { createNextDraft, replaceDraft } from "../../../../src/db/definition/drafts.js";
 import { createQuestionnaire } from "../../../../src/db/definition/questionnaires.js";
@@ -20,6 +19,7 @@ import { appendQuestionVersion, createQuestion } from "../../../../src/db/defini
 import { AUTHOR_PLACEHOLDER } from "../../../../src/modules/definition/author.js";
 import { aDraftWithOneItem, aPublishedQuestionnaire, aTextQuestion, type DraftFixture } from "../../../db/fixtures.js";
 import { useTestDatabase } from "../../../db/harness.js";
+import { aSecondItem, createNextDraftDirectly, publish, saveDraft, storedSnapshotText } from "../fixtures.js";
 import { definitionUrl, useDefinitionApp } from "../harness.js";
 
 const testDatabase = useTestDatabase();
@@ -91,62 +91,6 @@ async function draftRowCount(questionnaireId: string): Promise<number> {
     [questionnaireId],
   );
   return rows.rowCount ?? 0;
-}
-
-interface OpenDraft {
-  readonly draftVersionId: string;
-  readonly draftRevision: number;
-}
-
-function publish(questionnaireId: string, draft: OpenDraft) {
-  return app().inject({
-    method: "POST",
-    url: definitionUrl(`/questionnaires/${questionnaireId}/publish`),
-    headers: { "if-match": formatDraftEtag(draft.draftVersionId, draft.draftRevision) },
-  });
-}
-
-async function saveDraft(db: Database, questionnaireId: string, draft: OpenDraft, items: DraftItem[]): Promise<OpenDraft> {
-  const outcome = saved(
-    await replaceDraft(db, {
-      questionnaireId,
-      precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
-      title: "Fixture",
-      items,
-      actorId: "test",
-      traceId: null,
-    }),
-  );
-  return { draftVersionId: outcome.draftVersionId, draftRevision: outcome.draftRevision };
-}
-
-async function createNextDraftDirectly(questionnaireId: string): Promise<OpenDraft> {
-  const draftVersionId = uuidv7();
-  const client = await testDatabase.connect("definition");
-  await client.query(
-    `INSERT INTO definition.questionnaire_version (id, questionnaire_id, status, title, created_by)
-     VALUES ($1, $2, 'draft', 'Fixture', 'test')`,
-    [draftVersionId, questionnaireId],
-  );
-  return { draftVersionId, draftRevision: 0 };
-}
-
-async function aSecondItem(db: Database): Promise<DraftItem> {
-  const saved = await createQuestion(db, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
-  return { itemId: "itm_02", required: false, visibleWhen: null, questionId: saved.questionId, questionVersion: 1 };
-}
-
-async function storedSnapshotText(questionnaireId: string, version: number): Promise<string> {
-  const client = await testDatabase.connect("definition");
-  const result = await client.query<{ snapshot: string }>(
-    `SELECT snapshot::text AS snapshot FROM definition.questionnaire_version WHERE questionnaire_id = $1 AND version = $2`,
-    [questionnaireId, version],
-  );
-  const row = result.rows[0];
-  if (row === undefined) {
-    throw new Error(`version ${version} is not stored`);
-  }
-  return row.snapshot;
 }
 
 async function draftStatusOf(draftVersionId: string): Promise<string | undefined> {
@@ -724,7 +668,7 @@ describe("POST /questionnaires/:id/publish", () => {
     const db = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(db);
 
-    const first = await publish(draft.questionnaireId, draft);
+    const first = await publish(app(), draft.questionnaireId, draft);
 
     expect(first.statusCode).toBe(201);
     expect(Value.Check(VersionSummary, first.json())).toBe(true);
@@ -735,16 +679,16 @@ describe("POST /questionnaires/:id/publish", () => {
       itemCount: 1,
       formatVersion: 1,
     });
-    const storedBefore = await storedSnapshotText(draft.questionnaireId, 1);
+    const storedBefore = await storedSnapshotText(testDatabase, draft.questionnaireId, 1);
     const servedBefore = await app().inject({ method: "GET", url: definitionUrl(`/questionnaires/${draft.questionnaireId}/versions/1`) });
 
-    const opened = await createNextDraftDirectly(draft.questionnaireId);
+    const opened = await createNextDraftDirectly(testDatabase, draft.questionnaireId);
     const next = await saveDraft(db, draft.questionnaireId, opened, [placement("itm_01", draft.questionId), await aSecondItem(db)]);
-    const second = await publish(draft.questionnaireId, next);
+    const second = await publish(app(), draft.questionnaireId, next);
 
     expect(second.statusCode).toBe(201);
     expect(second.json()).toMatchObject({ questionnaireId: draft.questionnaireId, version: 2, itemCount: 2, publishedBy: null });
-    expect(await storedSnapshotText(draft.questionnaireId, 1)).toBe(storedBefore);
+    expect(await storedSnapshotText(testDatabase, draft.questionnaireId, 1)).toBe(storedBefore);
     const servedAfter = await app().inject({ method: "GET", url: definitionUrl(`/questionnaires/${draft.questionnaireId}/versions/1`) });
     expect(servedAfter.payload).toBe(servedBefore.payload);
     const publishEvents = (await testDatabase.readAuditEvents()).filter((event) => event.action === "publish");
@@ -764,7 +708,7 @@ describe("POST /questionnaires/:id/publish", () => {
     }
     const draft = await saveDraft(db, created.questionnaireId, created, items);
 
-    const response = await publish(created.questionnaireId, draft);
+    const response = await publish(app(), created.questionnaireId, draft);
 
     expect(response.statusCode).toBe(422);
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
@@ -796,7 +740,7 @@ describe("POST /questionnaires/:id/publish", () => {
     const db = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(db);
 
-    const response = await publish(draft.questionnaireId, { ...draft, draftRevision: draft.draftRevision - 1 });
+    const response = await publish(app(), draft.questionnaireId, { ...draft, draftRevision: draft.draftRevision - 1 });
 
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ type: problemType("questionnaire/draft-stale") });
@@ -806,11 +750,11 @@ describe("POST /questionnaires/:id/publish", () => {
   it("refuses the previous draft's ETag with 409 even when the next draft has reached the same revision", async () => {
     const db = testDatabase.database("definition");
     const published = await aPublishedQuestionnaire(db);
-    const opened = await createNextDraftDirectly(published.questionnaireId);
+    const opened = await createNextDraftDirectly(testDatabase, published.questionnaireId);
     const next = await saveDraft(db, published.questionnaireId, opened, [placement("itm_01", published.questionId)]);
     expect(next.draftRevision).toBe(published.draftRevision);
 
-    const response = await publish(published.questionnaireId, published);
+    const response = await publish(app(), published.questionnaireId, published);
 
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ type: problemType("questionnaire/draft-stale") });
@@ -821,8 +765,8 @@ describe("POST /questionnaires/:id/publish", () => {
     const db = testDatabase.database("definition");
     const published = await aPublishedQuestionnaire(db);
 
-    const noDraft = await publish(published.questionnaireId, published);
-    const unknown = await publish(uuidv7(), published);
+    const noDraft = await publish(app(), published.questionnaireId, published);
+    const unknown = await publish(app(), uuidv7(), published);
 
     for (const response of [noDraft, unknown]) {
       expect(response.statusCode).toBe(404);
@@ -834,7 +778,7 @@ describe("POST /questionnaires/:id/publish", () => {
     const db = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(db);
 
-    const responses = await Promise.all([publish(draft.questionnaireId, draft), publish(draft.questionnaireId, draft)]);
+    const responses = await Promise.all([publish(app(), draft.questionnaireId, draft), publish(app(), draft.questionnaireId, draft)]);
 
     expect(responses.map((response) => response.statusCode).sort()).toEqual([201, 404]);
     const publishEvents = (await testDatabase.readAuditEvents()).filter((event) => event.action === "publish");

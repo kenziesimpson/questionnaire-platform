@@ -11,7 +11,7 @@ async function restrictedSyntax(code: string, filePath = ADMIN_API) {
 const valueCheck = 'import { ProblemDetails } from "@qp/shared";\nimport { Value } from "typebox/value";\nexport const ok = (b: unknown) => Value.Check(ProblemDetails, b);';
 const codeGuard =
   'import { DRAFT_ITEM_CODES, type DraftItemCode } from "@qp/shared";\nexport function isDraftItemCode(code: string): code is DraftItemCode {\n  return DRAFT_ITEM_CODES.some((known) => known === code);\n}';
-const notFound = 'import { problem } from "@qp/shared";\nexport const nf = problem("resource/not-found", { instance: "/x" });';
+const notFound = 'import { problem } from "@qp/shared";\nexport const nf = problem("resource/not-found");';
 
 describe("L10 — problem bodies are parsed only by problemFromWire", () => {
   it.each([
@@ -93,9 +93,9 @@ describe("L10 — problem bodies are parsed only by problemFromWire", () => {
 
   it("allows resource/not-found only inside notFoundProblem, even in its own module", async () => {
     const builder =
-      'import { problem } from "@qp/shared";\nexport function notFoundProblem(instance: string) {\n  return problem("resource/not-found", { instance });\n}';
+      'import { problem } from "@qp/shared";\nexport function notFoundProblem() {\n  return problem("resource/not-found");\n}';
     const secondBuilder =
-      'import { problem } from "@qp/shared";\nexport function replyGone(instance: string) {\n  return problem("resource/not-found", { instance });\n}';
+      'import { problem } from "@qp/shared";\nexport function replyGone() {\n  return problem("resource/not-found");\n}';
 
     expect(await restrictedSyntax(builder, "apps/backend/src/http/problems.ts")).toEqual([]);
     expect(await restrictedSyntax(secondBuilder, "apps/backend/src/http/problems.ts")).toHaveLength(1);
@@ -104,7 +104,7 @@ describe("L10 — problem bodies are parsed only by problemFromWire", () => {
 
   it("does not exempt a function named notFoundProblem outside apps/backend/src/http/problems.ts", async () => {
     const localBuilder =
-      'import { problem } from "@qp/shared";\nexport function notFoundProblem(instance: string) {\n  return problem("resource/not-found", { instance });\n}';
+      'import { problem } from "@qp/shared";\nexport function notFoundProblem() {\n  return problem("resource/not-found");\n}';
 
     for (const filePath of ["apps/backend/src/modules/definition/problems.ts", "apps/backend/src/db/schema.ts", "apps/backend/src/db/client.ts"]) {
       const messages = await restrictedSyntax(localBuilder, filePath);

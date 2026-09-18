@@ -423,22 +423,6 @@ export default tseslint.config(
     rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem) },
   },
   {
-    name: "L10: problem bodies in the backend, alongside its raw SQL and connection restrictions",
-    files: ["apps/backend/src/**/*.ts"],
-    ignores: ["apps/backend/src/db/schema.ts", "apps/backend/src/db/client.ts"],
-    rules: { "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction, ...problemParsing) },
-  },
-  {
-    name: "L10: problem bodies in the schema declaration, whose checks and defaults are SQL expressions",
-    files: ["apps/backend/src/db/schema.ts"],
-    rules: { "no-restricted-syntax": syntax(...problemParsing) },
-  },
-  {
-    name: "L10: problem bodies in the connection constructor, which constructs connections",
-    files: ["apps/backend/src/db/client.ts"],
-    rules: { "no-restricted-syntax": syntax(...rawSql, ...problemParsing) },
-  },
-  {
     name: "L10: problem bodies in the e2e entry points, which must default-export",
     files: e2eFilesThatMustDefaultExport,
     rules: { "no-restricted-syntax": syntaxAllowingDefaultExport(...problemParsing, notFoundProblem) },

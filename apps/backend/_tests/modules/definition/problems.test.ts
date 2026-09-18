@@ -21,16 +21,18 @@ describe("definitionProblem", () => {
   it("answers invalid draft content with 422 draft-invalid naming each item", () => {
     const items = [{ itemId: "itm_01", code: "draft/question-archived" as const }];
 
-    expect(definitionProblem({ outcome: "invalid", items })).toMatchObject({
+    expect(definitionProblem({ outcome: "invalid", items })).toEqual({
       type: problemType("questionnaire/draft-invalid"),
+      title: expect.any(String),
       status: 422,
       items,
     });
   });
 
   it("answers a changed response type with 400 request/invalid pointing at the type", () => {
-    expect(definitionProblem({ outcome: "type-changed" })).toMatchObject({
+    expect(definitionProblem({ outcome: "type-changed" })).toEqual({
       type: problemType("request/invalid"),
+      title: expect.any(String),
       status: 400,
       errors: [{ pointer: "/body/question/type", code: "question/type-changed" }],
     });
