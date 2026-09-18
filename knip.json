@@ -6,14 +6,18 @@
     "packages/ui/src/questionnaire/**": ["files", "exports", "types"],
     "apps/admin/src/**": ["files", "exports", "types"],
     "apps/backend/src/db/**": ["files", "exports", "types"],
-    "apps/backend/src/http/**": ["files", "exports", "types"],
-    "apps/backend/src/modules/definition/**": ["files", "exports", "types"],
+    "apps/backend/src/http/**": ["types"],
     "apps/backend/src/config.ts": ["exports"],
+    "packages/shared/src/domain/condition.ts": ["exports"],
+    "packages/shared/src/problems.ts": ["exports", "types"],
     "apps/respondent/src/**": ["files", "exports", "types"],
     "e2e/**": ["files", "exports", "types"],
     "**/_tests/**": ["files", "exports", "types"]
   },
   "workspaces": {
+    "packages/shared": {
+      "entry": ["src/index.ts", "src/demo/intake.ts"]
+    },
     "apps/backend": {
       "ignoreDependencies": ["pino", "pino-pretty", "@fastify/otel"]
     }
