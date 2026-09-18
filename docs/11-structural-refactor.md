@@ -175,7 +175,7 @@ Owns: `packages/shared/src/{index.ts,primitives.ts,domain,engine,demo}`, `packag
 
 #### PR 2c — The `other` option id is reserved · S · changes behaviour
 
-> **Depends on:** PR 2a. **Can run alongside:** PR 2b, PR 4b, PR 15.
+> **Depends on:** PR 2a. **Can run alongside:** PR 2b, PR 4b, PR 15. **PR 4b merges first**, because it renames `apps/backend/src/db/migrator.ts` to `migrations.ts`, which this PR's `_tests/db/other-option.test.ts` imports and git does not report as a conflict. Whichever of the two lands second fixes that import.
 
 **Added after PR 2a.** PR 2a made `id === OTHER_OPTION_ID && freeform` the one definition of the other option (#82), which left an edge case: on a question with a plain `other` option, ticking the editor's freeform Other checkbox failed with `question/duplicate-option-id`. This PR makes the rule work both ways, so an option has the id `other` exactly when it is freeform. It is a contract change, recorded as Decisions Log #83.
 
@@ -183,7 +183,7 @@ Owns: `packages/shared/src/{index.ts,primitives.ts,domain,engine,demo}`, `packag
 - Migration `0015` replaces `freeform_is_other` with `freeform_exactly_when_other` (`freeform = (option_id = 'other')`) and drops `qvo_one_freeform`, which the primary key now covers. It fails if a stored row breaks the rule.
 - The admin editor needs no new state: option ids are generated with the `opt_` prefix, so an author cannot type or generate `other` on an ordinary row.
 
-Owns: `packages/shared/src/{problems.ts,engine/question-rules.ts}`, `apps/backend/src/db/schema.ts`, `apps/backend/drizzle/0015_*`, `apps/admin/src/screens/question-editor/field-errors.ts`.
+Owns: `packages/shared/src/{problems.ts,engine/question-rules.ts}`, `apps/backend/src/db/schema.ts`, `apps/backend/drizzle/{0015_other_option_id_reserved.sql,migrations.lock.json,meta/{_journal.json,0015_snapshot.json}}`, `apps/backend/README.md`, `apps/admin/src/screens/question-editor/field-errors.ts`, and these test files: `packages/shared/_tests/{problems.test.ts,engine/question-rules.test.ts}`, `apps/backend/_tests/db/other-option.test.ts`, `apps/backend/_tests/modules/definition/routes/questions.test.ts` and `apps/admin/_tests/screens/question-editor/question-form.test.ts`. `questions.test.ts` is also edited by PR 4b and PR 2b, so this PR rebases onto whichever merges first.
 
 ### Phase B — Backend
 
@@ -568,7 +568,7 @@ These are agreed. R1–R5 live as tests under `tests/`, next to `text-files.test
 | #66 | Amend: the unused `command`, `input-group` and Radix `select` primitives are removed; `native-select` and `tooltip` are added; `popover` is kept | 9 |
 | #68 | Amend: the sample-answer panel is built from the renderer in `interactive` mode, and the preview stays `readonly`. The panel accepts the free-text "Other" answer | 12 |
 | New | One definition of the "other" option across the engine, the renderer and admin: `id === OTHER_OPTION_ID && freeform` | 2a |
-| New | The id `other` is reserved for the freeform option in both directions; amends the row above | 2c |
+| New | The id `other` is reserved for the freeform option in both directions; supersedes the plain-`other` clause of the row above | 2c |
 | New | The respondent shows an item's errors once the field is left (touched on blur), and every visible item's errors after a submit attempt | 8b |
 | New | Execution persistence lives in `src/db/execution`, mirroring the definition side | 3 |
 | New | Icons come only from lucide, through `@qp/ui/icons` | 11 |
