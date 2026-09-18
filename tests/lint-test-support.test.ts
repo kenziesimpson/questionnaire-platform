@@ -72,7 +72,7 @@ describe("L11: a _tests file imports no other directory's harness", () => {
   });
 
   it.each([
-    ["apps/admin/_tests/screens/question-editor/question-editor-dialog.test.tsx", "./harness"],
+    ["apps/admin/_tests/features/question-editor/question-editor-dialog.test.tsx", "./harness"],
     ["apps/admin/_tests/screens/draft-editor.test.tsx", "./draft-editor/harness"],
     [BACKEND_DB_TEST, "../harness.js"],
     ["apps/backend/_tests/modules/definition/routes/drafts.test.ts", "../harness.js"],

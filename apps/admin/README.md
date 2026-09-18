@@ -38,20 +38,25 @@ error ([`docs/10-frontend.md`](../../docs/10-frontend.md) §5.2, Decisions Log #
 | `src/api/problem-error.ts` | `ProblemError` (the shared `Problem` for its slug), `UnexpectedResponseError`, `isProblem` |
 | `src/api/query-client.ts` | The `QueryClient`: queries retry server and network failures, never a `4xx` problem |
 | `src/api/query-keys.ts`, `src/api/queries.ts` | The query keys, and a `queryOptions` factory for every read |
-| `src/api/use-draft-mutation.ts` | `useDraftMutation(questionnaireId)`: the only way to write or publish a draft |
-| `src/api/use-open-draft.ts` | `useOpenDraft()`: open or continue a draft and navigate to it |
-| `src/components/` | Admin-only shared pieces: `icons`, `Pill`, `Panel` (a centred loading, empty or error state), `Notice`, `InfoTip`, `BackToQuestionnaires`, `QuestionnaireNotFound`, the `counts` labels, and `generateUnusedId` for option and item ids |
+| `src/api/draft-types.ts` | `VersionedDraft`, `DraftContent` and the draft mutation's public types (`DraftChange`, `DraftRejection`, `PublishOutcome`, `DraftMutation`) |
+| `src/api/draft-write-ledger.ts` | The pure ETag-chasing ledger `useDraftMutation` builds on: `etagToSend`, `recordSuccess`, `bumpGeneration`, `SupersededDraftWrite` |
+| `src/api/mutations/` | Every mutation hook: `useDraftMutation`, `useOpenDraft`, `useSaveQuestion`, `useArchiveQuestion`, `useSetClosesAt`, `useCreateQuestionnaire`. `useMutation` is importable only here |
+| `src/lib/` | Shared admin vocabulary: `dates` (`lastEditedLabel`, `fullTimestamp`, the app's one locale — `toLocaleString` and `Intl.DateTimeFormat` are importable only here), `question` (`RESPONSE_TYPE_LABELS`, `isArchived`, `sortByLatestEdit`), `input-patterns`, `counts`, `generated-id` |
+| `src/components/` | Admin-only shared pieces: `icons`, `Pill`, `Panel`, `Notice`, `InfoTip`, `BackToQuestionnaires`, `QuestionnaireNotFound`, `field` (`InputField` and friends), `segmented-control`, `sortable-list` (`useSortableList`, `SortableRow`, used by the draft items list and the option list), `screen-header`, `query-state` (`LoadingLine`, `RetryNotice`) |
+| `src/features/question-editor/` | `QuestionEditorDialog`, the create-and-edit dialog the bank and the draft editor embed, `useQuestionEditor` to host it, and the form state it edits |
 | `src/screens/not-found.tsx` | The not-found screen |
 | `src/screens/questionnaire-list.tsx`, `questionnaire-list/` | The list, the create dialog, the closing-date dialog, and the status and date labels |
 | `src/screens/draft-editor.tsx`, `draft-editor/` | The item list and reorder, the bank picker, the predicate editor, the publish-checks panel, the author-facing `DraftItemCode` catalogue and the refused-write notice |
 | `src/screens/question-bank.tsx`, `question-bank/` | The bank, its usage column and the archive confirmation |
-| `src/screens/question-editor/` | `QuestionEditorDialog`, the create-and-edit dialog the bank and the draft editor embed, and `useQuestionEditor` to host it |
 | `src/screens/version-history.tsx` | Published versions newest first, with the open draft above them |
-| `src/screens/version-preview.tsx`, `version-preview/` | One snapshot through the `@qp/ui` renderer in `readonly` mode, and the sample-answers panel |
+| `src/screens/version-preview.tsx`, `version-preview/` | One snapshot through the `@qp/ui` renderer in `readonly` mode (`preview-body.tsx`), and the sample-answers panel |
+
+Each screen's own subdirectory (`screens/<name>/**`) is private: ESLint rejects an import of it from
+anywhere but `screens/<name>.tsx` and that subdirectory's own files.
 
 ## The question editor dialog
 
-`QuestionEditorDialog` from `src/screens/question-editor/question-editor-dialog.tsx` is the one way to
+`QuestionEditorDialog` from `src/features/question-editor/question-editor-dialog.tsx` is the one way to
 create a question or save a new version of one ([`docs/10-frontend.md`](../../docs/10-frontend.md) §5.3).
 It is controlled: the host owns whether it is open.
 
@@ -99,9 +104,8 @@ A save invalidates every `questions` query. Focus returns to whatever held it wh
   blank behind nginx. Served at `/admin/` with SPA fallback to `/admin/index.html`
   ([`deploy/frontend/nginx.conf`](../../deploy/frontend/nginx.conf)).
 - Shared components and the preview renderer come from [`@qp/ui`](../../packages/ui/README.md).
-  `components.json` here is the entry point for the shadcn CLI: `npx shadcn add <name> -c apps/admin`
-  writes shared components into `packages/ui/src/primitives/` and admin-only ones into
-  `src/components/` (the `@/` alias).
+  `components.json` here is an entry point for the shadcn CLI: `npx shadcn add <name> -c apps/admin`
+  writes into `packages/ui/src/primitives/`, the same target `packages/ui`'s own `components.json` uses.
 - `/api` is proxied to the backend: by nginx in production, by the Vite dev server in development
   (`VITE_API_PROXY_TARGET`, default `http://localhost:3000`).
 
@@ -131,8 +135,8 @@ history and a stubbed `fetch`, so each one also exercises the route, the shell a
     questionnaires, drafts with real `ETag` checks, validation through `@qp/shared`'s `validateDraft`,
     publish, versions, questions and usage, and checks every body it accepts or returns against the
     route's schema. `_tests/authoring-flow.test.tsx` drives the full flow across every screen against it.
-- `_tests/screens/draft-editor/harness.tsx` and `_tests/screens/question-editor/harness.tsx` render
-  one screen each and serve only that screen's tests; ESLint rejects importing another directory's
-  harness.
+- `_tests/screens/draft-editor/harness.tsx` and `_tests/features/question-editor/harness.tsx` render
+  one screen or feature each and serve only its own tests; ESLint rejects importing another
+  directory's harness.
 - Each screen has an axe check in its populated, empty and error states through `axeViolations`, with
   `color-contrast` off because jsdom cannot compute it.
