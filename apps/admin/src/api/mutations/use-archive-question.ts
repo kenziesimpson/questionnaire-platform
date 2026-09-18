@@ -15,12 +15,12 @@ export function useArchiveQuestion() {
     mutationFn: (questionId: string) => callDefinition(definitionApi.archiveQuestion, { params: { questionId } }),
     onSuccess: (archived) => {
       queryClient.setQueryData(questionQueries.list(true).queryKey, (questions) => replaceQuestion(questions, archived));
-      void queryClient.invalidateQueries({ queryKey: questionQueries.list(false).queryKey });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.questions.list(false) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.questions.one(archived.questionId), exact: true });
     },
     onError: (error) => {
       if (isProblem(error, "resource/not-found")) {
-        void queryClient.invalidateQueries({ queryKey: questionQueries.list(true).queryKey });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.questions.list(true) });
       }
     },
   });

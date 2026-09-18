@@ -6,7 +6,7 @@ import { questionnaireQueries } from "../api/queries";
 import { ArrowLeftIcon } from "../components/icons";
 import { LoadingLine } from "../components/query-state";
 import { ScreenHeader } from "../components/screen-header";
-import { fullTimestamp } from "../lib/dates";
+import { calendarDateLabel } from "../lib/dates";
 import { PreviewBody } from "./version-preview/preview-body";
 
 const route = getRouteApi("/questionnaires/$questionnaireId/versions/$version");
@@ -42,7 +42,7 @@ function BackToVersionHistory({ questionnaireId }: { questionnaireId: string }) 
 
 function PreviewHeader({ questionnaireId, version, title }: VersionAddress & { title: string | undefined }) {
   const publishedAt = usePublishedAt({ questionnaireId, version });
-  const facts = [title, publishedAt && `published ${fullTimestamp(publishedAt)}`].filter(Boolean);
+  const facts = [title, publishedAt && `published ${calendarDateLabel(publishedAt)}`].filter(Boolean);
   return (
     <ScreenHeader
       back={<BackToVersionHistory questionnaireId={questionnaireId} />}

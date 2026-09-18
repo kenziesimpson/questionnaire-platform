@@ -40,7 +40,7 @@ describe("L3: a private screen directory is imported only by its own screen", ()
     ).toEqual([]);
   });
 
-  it("leaves lib, components, api and features free to import each other and unrelated screens' top-level files", async () => {
+  it("leaves lib, components, api and features free to import each other", async () => {
     expect(await restrictedImports(LIB_FILE, `import { x } from "../components/pill";`)).toEqual([]);
     expect(await restrictedImports(COMPONENT_FILE, `import { x } from "../lib/dates";`)).toEqual([]);
     expect(await restrictedImports(FEATURE_FILE, `import { x } from "../../api/queries";`)).toEqual([]);
@@ -57,5 +57,26 @@ describe("L3: a private screen directory is imported only by its own screen", ()
 
   it("does not trip on unrelated paths that merely contain a screen's name", async () => {
     expect(await restrictedImports(LIB_FILE, `import { x } from "./question-bank-summary";`)).toEqual([]);
+  });
+});
+
+const MUTATIONS_FILE = "apps/admin/src/api/mutations/use-save-question.ts";
+
+describe("L3: lib, components, api and features never import screens/, not even a screen's own top-level file", () => {
+  it.each([
+    ["../screens/draft-editor", LIB_FILE],
+    ["../../screens/question-bank", COMPONENT_FILE],
+    ["../screens/questionnaire-list", API_FILE],
+    ["../../screens/version-preview", FEATURE_FILE],
+    ["../../screens/draft-editor", MUTATIONS_FILE],
+  ])("rejects the bare top-level screen file %s from %s", async (source, filePath) => {
+    expect(await restrictedImports(filePath, `import { x } from "${source}";`)).toHaveLength(1);
+  });
+
+  it.each([
+    ["../screens/draft-editor/draft-changes", LIB_FILE],
+    ["../../screens/question-bank/bank-display", API_FILE],
+  ])("rejects a private screen subdirectory %s from %s too", async (source, filePath) => {
+    expect(await restrictedImports(filePath, `import { x } from "${source}";`)).toHaveLength(1);
   });
 });

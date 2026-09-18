@@ -28,3 +28,7 @@ export function lastEditedLabel(updatedAt: string, now: number): string {
 export function fullTimestamp(iso: string): string {
   return calendarDateTime.format(Date.parse(iso));
 }
+
+export function calendarDateLabel(iso: string): string {
+  return calendarDate.format(Date.parse(iso));
+}

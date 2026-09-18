@@ -215,7 +215,13 @@ export function QuestionnaireListScreen() {
 
       {summaries === undefined && list.isError ? (
         <Panel role="alert">
-          <RetryNotice message="The questionnaires could not be loaded." onRetry={() => void list.refetch()} retrying={list.isFetching} size="default" />
+          <RetryNotice
+            message="The questionnaires could not be loaded."
+            onRetry={() => void list.refetch()}
+            retrying={list.isFetching}
+            retryingLabel="Try again"
+            size="default"
+          />
         </Panel>
       ) : summaries === undefined ? (
         <Panel role="status">

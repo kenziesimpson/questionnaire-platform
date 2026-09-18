@@ -40,6 +40,12 @@ const screenOwnPaths = (name) => [`apps/admin/src/screens/${name}.tsx`, `apps/ad
 
 const allPrivateScreenPaths = privateAdminScreens.flatMap(screenOwnPaths);
 
+const screensAreDownstream = {
+  regex: `(^|/)screens(/|$)`,
+  message:
+    "screens/ is imported by lib, components, api and features, never the reverse ([[11-structural-refactor]] L3).",
+};
+
 const mutationsSeamMessage =
   "useMutation is imported only in src/api/mutations, so a mutation, its cache invalidation and its optimistic-update logic live in one place ([[11-structural-refactor]] L4).";
 
@@ -487,14 +493,24 @@ export default tseslint.config(
     },
   })),
   {
-    name: "L4: mutations stay allowed inside src/api/mutations, which is not a private screen",
+    name: "L4: mutations stay allowed inside src/api/mutations, which never imports screens/ either",
     files: ["apps/admin/src/api/mutations/**"],
-    rules: { "no-restricted-imports": restrictOutside("apps/admin", ...privateAdminScreens.map(screenIsPrivate)) },
+    rules: { "no-restricted-imports": restrictOutside("apps/admin", screensAreDownstream) },
   },
   {
-    name: "L3 and L4: screen directories are private, and mutations live in src/api/mutations",
+    name: "L3: lib, components, api and features never import screens/, whether a private subdirectory or a screen's own top-level file",
+    files: ["apps/admin/src/{lib,components,api,features}/**"],
+    ignores: ["apps/admin/src/api/mutations/**"],
+    rules: { "no-restricted-imports": restrictOutside("apps/admin", mutationsOutsideTheirHome, screensAreDownstream) },
+  },
+  {
+    name: "L3 and L4: a screen with no private subdirectory of its own still keeps the other screens' out, and mutations live in src/api/mutations",
     files: ["apps/admin/**"],
-    ignores: [...allPrivateScreenPaths, "apps/admin/src/api/mutations/**", "apps/admin/_tests/**"],
+    ignores: [
+      ...allPrivateScreenPaths,
+      "apps/admin/src/{lib,components,api,features}/**",
+      "apps/admin/_tests/**",
+    ],
     rules: {
       "no-restricted-imports": restrictOutside(
         "apps/admin",

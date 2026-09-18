@@ -51,8 +51,8 @@ export function useDraftMutation(questionnaireId: string): DraftMutation {
     const next = rejectionOf(error);
     setRejection(next);
     if (next.kind === "stale") {
-      void queryClient.invalidateQueries({ queryKey: draftKey, exact: true });
-      void queryClient.invalidateQueries({ queryKey: validationKey, exact: true });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.questionnaires.draft(questionnaireId), exact: true });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.questionnaires.draftValidation(questionnaireId), exact: true });
     }
     return next;
   };
@@ -86,7 +86,7 @@ export function useDraftMutation(questionnaireId: string): DraftMutation {
     mutationFn: (write: QueuedWrite) =>
       draftApi.publish(questionnaireId, etagToSend(ledgerFor(queryClient, questionnaireId), write)),
     onSuccess: () => {
-      queryClient.removeQueries({ queryKey: draftKey });
+      queryClient.removeQueries({ queryKey: queryKeys.questionnaires.draft(questionnaireId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.questionnaires.versions(questionnaireId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.questionnaires.list() });
     },
@@ -96,7 +96,7 @@ export function useDraftMutation(questionnaireId: string): DraftMutation {
       if (refused.kind === "invalid") {
         queryClient.setQueryData(validationKey, { valid: false, items: refused.problem.items });
       }
-      void queryClient.invalidateQueries({ queryKey: validationKey, exact: true });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.questionnaires.draftValidation(questionnaireId), exact: true });
     },
   });
 
@@ -107,7 +107,7 @@ export function useDraftMutation(questionnaireId: string): DraftMutation {
   };
 
   const change = (apply: DraftChange) => {
-    void queryClient.cancelQueries({ queryKey: draftKey, exact: true });
+    void queryClient.cancelQueries({ queryKey: queryKeys.questionnaires.draft(questionnaireId), exact: true });
     const previous = loadedDraft();
     const next = apply(previous.draft);
     queryClient.setQueryData(draftKey, { draft: next, etag: previous.etag });

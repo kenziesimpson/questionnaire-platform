@@ -27,17 +27,18 @@ function missingEntries(fields: NewQuestionnaire): FieldErrors {
 export function CreateQuestionnaireDialog() {
   const [open, setOpen] = useState(false);
   const [fields, setFields] = useState<NewQuestionnaire>({ name: "", title: "" });
-  const [errors, setErrors] = useState<FieldErrors>(NO_ERRORS);
+  const [showErrors, setShowErrors] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
 
   const create = useCreateQuestionnaire();
+  const errors = showErrors ? missingEntries(fields) : NO_ERRORS;
 
   const changeOpen = (next: boolean) => {
     setOpen(next);
     if (next) return;
     setFields({ name: "", title: "" });
-    setErrors(NO_ERRORS);
+    setShowErrors(false);
     create.reset();
   };
 
@@ -45,7 +46,7 @@ export function CreateQuestionnaireDialog() {
     event.preventDefault();
     const missing = missingEntries(fields);
     if (Object.keys(missing).length > 0) {
-      setErrors(missing);
+      setShowErrors(true);
       (missing["/name"] !== undefined ? nameRef : titleRef).current?.focus();
       return;
     }

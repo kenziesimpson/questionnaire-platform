@@ -28,14 +28,16 @@ function closingActionOf(summary: QuestionnaireSummary, closed: boolean): Closin
 export function ClosesAtDialog({ summary, closed }: { summary: QuestionnaireSummary; closed: boolean }) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
-  const [errors, setErrors] = useState<FieldErrors>(NO_ERRORS);
+  const [showMissing, setShowMissing] = useState(false);
   const action = closingActionOf(summary, closed);
 
   const save = useSetClosesAt(summary.questionnaireId);
+  const errors: FieldErrors =
+    showMissing && fromLocalDateTimeInput(value) === null ? { "/closesAt": ["Enter a date and time."] } : NO_ERRORS;
 
   const changeOpen = (next: boolean) => {
     setOpen(next);
-    setErrors(NO_ERRORS);
+    setShowMissing(false);
     save.reset();
     if (next) setValue(toLocalDateTimeInput(summary.closesAt === null ? Date.now() : Date.parse(summary.closesAt)));
   };
@@ -44,7 +46,7 @@ export function ClosesAtDialog({ summary, closed }: { summary: QuestionnaireSumm
     event.preventDefault();
     const closesAt = fromLocalDateTimeInput(value);
     if (closesAt === null) {
-      setErrors({ "/closesAt": ["Enter a date and time."] });
+      setShowMissing(true);
       return;
     }
     save.mutate(closesAt, { onSuccess: () => setOpen(false) });

@@ -136,7 +136,13 @@ export function QuestionBankScreen() {
 
       {questions === undefined && list.isError ? (
         <Panel role="alert">
-          <RetryNotice message="The question bank could not be loaded." onRetry={() => void list.refetch()} retrying={list.isFetching} size="default" />
+          <RetryNotice
+            message="The question bank could not be loaded."
+            onRetry={() => void list.refetch()}
+            retrying={list.isFetching}
+            retryingLabel="Try again"
+            size="default"
+          />
         </Panel>
       ) : questions === undefined ? (
         <Panel role="status">
