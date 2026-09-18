@@ -20,7 +20,7 @@ function multipleChoiceAnswer(
     : { type: "multiple_choice", optionIds: [first, ...rest] };
 }
 
-export function MultipleChoiceControl({ item, answer, error, mode, onChange }: ControlProps<"multiple_choice">) {
+export function MultipleChoiceControl({ item, answer, error, mode, onChange, label }: ControlProps<"multiple_choice">) {
   const ids = useFieldIds();
   const { question } = item;
   const readOnly = mode === "readonly";
@@ -41,7 +41,7 @@ export function MultipleChoiceControl({ item, answer, error, mode, onChange }: C
   }
 
   return (
-    <ChoiceFieldset ids={ids} prompt={question.prompt} required={item.required} error={error} className="gap-1">
+    <ChoiceFieldset ids={ids} prompt={label ?? question.prompt} required={item.required} error={error} className="gap-1">
       {question.options.map((option) => {
         const id = `${ids.base}-${option.optionId}`;
         return (

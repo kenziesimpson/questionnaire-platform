@@ -27,4 +27,5 @@ export interface ControlProps<T extends ResponseType> {
   error: string | undefined;
   mode: RendererMode;
   onChange: AnswerChangeHandler;
+  label?: string;
 }

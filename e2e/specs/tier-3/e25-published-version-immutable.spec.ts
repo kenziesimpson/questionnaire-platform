@@ -14,6 +14,14 @@ const ITEM_IDS = { gate: "itm_gate", followUp: "itm_follow_up" } as const;
 
 const EDITING_CONTROL_NAMES = /^(Publish|Add question|Edit|Remove question|Drag to reorder|Rules for question|Re-pin question|Save as version|Open the next draft|New question)/;
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function leadingLabel(label: string): RegExp {
+  return new RegExp(`^${escapeRegExp(label)}`);
+}
+
 interface PublishedFixture {
   readonly questionnaireId: string;
   readonly name: string;
@@ -76,7 +84,7 @@ test.describe("E25 a published version is not editable", () => {
     }
     await expect(snapshot.getByRole("textbox")).toHaveCount(0);
 
-    const sampleGate = sampleAnswers.getByRole("group", { name: `1. ${promptOf(published.gate)}`, exact: true });
+    const sampleGate = sampleAnswers.getByRole("radiogroup", { name: leadingLabel(`1. ${promptOf(published.gate)}`) });
     await sampleGate.getByRole("radio", { name: "Yes", exact: true }).check();
     const revealedFollowUp = snapshot.getByRole("textbox", { name: promptOf(published.followUp) });
     await expect(revealedFollowUp).toBeVisible();

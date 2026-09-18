@@ -47,4 +47,16 @@ describe("axe on the renderer", () => {
     rerender(<QuestionnaireItems visibleItems={answeredYes} {...props} />);
     expect(await axeViolations(container)).toEqual([]);
   });
+
+  it("finds no violations with a per-item label override and a Clear button on every item", async () => {
+    const { container } = render(
+      <QuestionnaireItems
+        visibleItems={everyType}
+        labelFor={(item, index) => `${index + 1}. ${item.question.prompt}`}
+        onClear={() => undefined}
+        {...rendererProps({ answers: everyTypeAnswered })}
+      />,
+    );
+    expect(await axeViolations(container)).toEqual([]);
+  });
 });

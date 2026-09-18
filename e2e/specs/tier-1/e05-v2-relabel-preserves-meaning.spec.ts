@@ -17,6 +17,14 @@ const YES = DEMO_V1.optionLabel(DEMO_OPTION_IDS.yes);
 const V1_HYPERTENSION = DEMO_V1.optionLabel(DEMO_OPTION_IDS.hypertension);
 const V2_HYPERTENSION = DEMO_V2.optionLabel(DEMO_OPTION_IDS.hypertension);
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function leadingLabel(label: string): RegExp {
+  return new RegExp(`^${escapeRegExp(label)}`);
+}
+
 async function submitHypertension(respondent: RespondentPage, hypertensionLabel: string, pharmacy: string): Promise<string> {
   await respondent.choose(prompts.hasCondition, YES);
   await respondent.choose(prompts.whichCondition, hypertensionLabel);
@@ -81,7 +89,7 @@ test.describe("E5 — a v2 relabel preserves collected meaning", () => {
 
     await page.getByRole("link", { name: "Preview version 1", exact: true }).click();
     await expect(admin.heading("Preview of version 1")).toBeVisible();
-    await page.getByRole("group", { name: `1. ${prompts.hasCondition}`, exact: true }).getByRole("radio", { name: YES, exact: true }).check();
+    await page.getByRole("radiogroup", { name: leadingLabel(`1. ${prompts.hasCondition}`) }).getByRole("radio", { name: YES, exact: true }).check();
     const preview = page.getByRole("region", { name: DEMO_V1.title, exact: true });
     const previewedWhichCondition = preview.getByRole("radiogroup", { name: prompts.whichCondition });
     await expect(previewedWhichCondition.getByRole("radio", { name: V1_HYPERTENSION, exact: true })).toBeVisible();
