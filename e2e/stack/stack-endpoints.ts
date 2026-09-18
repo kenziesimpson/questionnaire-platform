@@ -35,7 +35,7 @@ export function requireStackEndpoints(): StackEndpoints {
   const endpoints = stackEndpointsFromEnvironment();
   if (endpoints === undefined) {
     throw new Error(
-      `No stack to test against. Run the suite with \`npm run test -w e2e\` so global setup starts one, or set ${STACK_ENV.baseUrl} and ${STACK_ENV.databaseUrl}.`,
+      `No stack to test against. Run the suite with \`npm run test:e2e -w e2e\` so global setup starts one, or set ${STACK_ENV.baseUrl} and ${STACK_ENV.databaseUrl}.`,
     );
   }
   return endpoints;
