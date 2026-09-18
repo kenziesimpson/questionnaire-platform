@@ -77,9 +77,51 @@ describe("L10 — problem bodies are parsed only by problemFromWire", () => {
     expect(await restrictedSyntax(newPool, "apps/backend/src/db/client.ts")).toEqual([]);
   });
 
-  it("leaves the six inline `resource/not-found` builders in apps/backend/src to PR 4b", async () => {
-    expect(await restrictedSyntax(notFound, "apps/backend/src/modules/definition/routes/example.ts")).toEqual([]);
-    expect(await restrictedSyntax(notFound, "apps/backend/src/http/problems.ts")).toEqual([]);
+  it("warns on building resource/not-found anywhere in apps/backend/src, naming notFoundProblem", async () => {
+    for (const filePath of [
+      "apps/backend/src/modules/definition/routes/example.ts",
+      "apps/backend/src/modules/execution/plugin.ts",
+      "apps/backend/src/app.ts",
+    ]) {
+      const messages = await restrictedSyntax(notFound, filePath);
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0]?.severity).toBe(1);
+      expect(messages[0]?.message).toContain("notFoundProblem");
+    }
+  });
+
+  it("allows resource/not-found only inside notFoundProblem, even in its own module", async () => {
+    const builder =
+      'import { problem } from "@qp/shared";\nexport function notFoundProblem(instance: string) {\n  return problem("resource/not-found", { instance });\n}';
+    const secondBuilder =
+      'import { problem } from "@qp/shared";\nexport function replyGone(instance: string) {\n  return problem("resource/not-found", { instance });\n}';
+
+    expect(await restrictedSyntax(builder, "apps/backend/src/http/problems.ts")).toEqual([]);
+    expect(await restrictedSyntax(secondBuilder, "apps/backend/src/http/problems.ts")).toHaveLength(1);
+    expect(await restrictedSyntax(builder.replace("notFoundProblem", "notFound"), "apps/backend/src/modules/definition/routes/example.ts")).toHaveLength(1);
+  });
+
+  it("keeps the backend's raw SQL, connection and problem-parsing restrictions beside the resource/not-found rule", async () => {
+    const backend = "apps/backend/src/modules/definition/routes/example.ts";
+
+    expect(await restrictedSyntax(valueCheck, backend)).toHaveLength(1);
+    expect(await restrictedSyntax('import { sql } from "drizzle-orm";\nexport const q = sql`SELECT 1`;', backend)).toHaveLength(1);
+    expect(await restrictedSyntax('import { Pool } from "pg";\nexport const p = new Pool();', backend)).toHaveLength(1);
+    expect(await restrictedSyntax("export default 1;", backend)).toHaveLength(1);
+  });
+
+  it("reaches the schema declaration and the connection constructor, which keep their own exemptions", async () => {
+    const rawSql = 'import { sql } from "drizzle-orm";\nexport const q = sql`version >= 1`;';
+    const newPool = 'import { Pool } from "pg";\nexport const p = new Pool();';
+
+    expect(await restrictedSyntax(notFound, "apps/backend/src/db/schema.ts")).toHaveLength(1);
+    expect(await restrictedSyntax(valueCheck, "apps/backend/src/db/schema.ts")).toHaveLength(1);
+    expect(await restrictedSyntax(rawSql, "apps/backend/src/db/schema.ts")).toEqual([]);
+    expect(await restrictedSyntax(notFound, "apps/backend/src/db/client.ts")).toHaveLength(1);
+    expect(await restrictedSyntax(valueCheck, "apps/backend/src/db/client.ts")).toHaveLength(1);
+    expect(await restrictedSyntax(rawSql, "apps/backend/src/db/client.ts")).toHaveLength(1);
+    expect(await restrictedSyntax(newPool, "apps/backend/src/db/client.ts")).toEqual([]);
   });
 
   it("reaches e2e, whose three hand-parses this PR converted", async () => {
