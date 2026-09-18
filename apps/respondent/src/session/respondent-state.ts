@@ -64,11 +64,11 @@ export type RespondentEvent =
 
 export const INITIAL_STATE: RespondentState = { name: "entering" };
 
-export function hasAnyAnswer(answers: ClientAnswers): boolean {
+function hasAnyAnswer(answers: ClientAnswers): boolean {
   return Object.values(answers).some((answer) => answer !== null);
 }
 
-export function isRetryable(reason: FailureReason): boolean {
+function isRetryable(reason: FailureReason): boolean {
   return reason.kind !== "problem" || reason.slug === "internal";
 }
 
