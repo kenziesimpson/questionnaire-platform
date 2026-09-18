@@ -89,7 +89,7 @@ describe("a submission meeting 409 session/already-submitted", () => {
     ["a network failure", networkFailure()],
     ["an in-progress session", jsonReply(200, { session: inProgressSession, definition: intakeV1 })],
     ["an internal problem", problemReply(problem("internal", { detail: "correlation" }))],
-  ])("offers a focused retry when the session fetch meets %s, keeping the stored answers until the receipt arrives", async (caseName, reply) => {
+  ] as const)("offers a focused retry when the session fetch meets %s, keeping the stored answers until the receipt arrives", async (caseName, reply) => {
     const user = userEvent.setup();
     await submitFromFreshForm(user);
     const heldSession = heldReply();

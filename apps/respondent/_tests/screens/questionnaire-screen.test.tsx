@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/app.tsx";
-import { readPartials, writePartials } from "../../src/storage/partials.ts";
+import { partialsKey, readPartials, writePartials } from "../../src/storage/partials.ts";
 import { ANSWER_SENTINEL, inProgressSession, intakeV1, receipt, SESSION_ID, submittedSession } from "../fixtures.ts";
 
 const intakePath = `/q/${INTAKE_QUESTIONNAIRE_ID}`;
@@ -162,7 +162,7 @@ describe("submitting", () => {
   it.each([
     ["a network failure", networkFailure()],
     ["an unexpected response", jsonReply(500, "oops")],
-  ])("keeps the form and its stored answers after %s on submit", async (caseName, reply) => {
+  ] as const)("keeps the form and its stored answers after %s on submit", async (caseName, reply) => {
     const user = userEvent.setup();
     await startFresh();
     await user.click(within(hasCondition()).getByRole("radio", { name: "No" }));
@@ -405,6 +405,7 @@ describe("retrying a submit that failed", () => {
       expect(more).toHaveLength(0);
       expect(retried?.body).toEqual(first?.body);
       expect(retried?.body).toEqual({ answers: { itm_01: { type: "single_choice", optionId: "no" }, itm_04: { type: "text", text: "Corner pharmacy" } } });
+      expect(localStorage.getItem(partialsKey(INTAKE_QUESTIONNAIRE_ID))).not.toContain("Corner pharmacy");
       expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers: {} });
     },
   );

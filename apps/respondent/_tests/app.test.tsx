@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/app.tsx";
-import { readPartials } from "../src/storage/partials.ts";
+import { partialsKey, readPartials } from "../src/storage/partials.ts";
 import { inProgressSession, intakeV1, receipt, SESSION_ID } from "./fixtures.ts";
 
 const intakePath = `/q/${INTAKE_QUESTIONNAIRE_ID}`;
@@ -66,6 +66,7 @@ describe("the happy path", () => {
     expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers: {} });
     expect(screen.queryByText(/We restored the answers/)).not.toBeInTheDocument();
     expect(submitButton()).toBeEnabled();
+    expect(screen.queryByRole("radiogroup", { name: /Which condition\?/ })).not.toBeInTheDocument();
 
     await user.click(within(hasCondition()).getByRole("radio", { name: "Yes" }));
     await user.click(within(whichCondition()).getByRole("radio", { name: "Diabetes" }));
@@ -88,6 +89,7 @@ describe("the happy path", () => {
     expect(screen.getByText("Patient Intake · version 1")).toBeInTheDocument();
     expect(screen.getByText((_content, element) => element?.tagName === "TIME")).toHaveAttribute("datetime", receipt.submittedAt);
     expect(server.sent("POST", submitUrl)[0]?.body).toEqual({ answers: submittedAnswers });
+    expect(localStorage.getItem(partialsKey(INTAKE_QUESTIONNAIRE_ID))).not.toContain("Corner pharmacy");
     expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers: {} });
   });
 });

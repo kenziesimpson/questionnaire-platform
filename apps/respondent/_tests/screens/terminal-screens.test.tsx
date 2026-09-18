@@ -163,17 +163,23 @@ describe("retrying a resume that failed", () => {
     const user = userEvent.setup();
     const saved: ClientAnswers = { itm_01: { type: "single_choice", optionId: "no" }, itm_04: { type: "text", text: "Corner pharmacy" } };
     storeSession(SESSION_ID, saved);
-    server.on("GET", sessionUrl, failure(), jsonReply(200, { session: inProgressSession, definition: intakeV1 }));
+    const isNetworkFailureCase = caseName === "a network failure";
+    const held = isNetworkFailureCase ? heldReply() : undefined;
+    server.on("GET", sessionUrl, failure(), held?.reply ?? jsonReply(200, { session: inProgressSession, definition: intakeV1 }));
     renderApp();
 
     expect(await screen.findByRole("heading", loadFailedHeading)).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("The answers you started are still saved on this device.");
     expect(readPartials(INTAKE_QUESTIONNAIRE_ID)?.answers).toEqual(saved);
     expect(server.sent("POST", sessionsUrl)).toHaveLength(0);
-    if (caseName === "a network failure") expect(await axeViolations()).toEqual([]);
+    if (isNetworkFailureCase) expect(await axeViolations()).toEqual([]);
 
     await user.click(tryAgain());
-    if (caseName === "a network failure") expect(await axeViolations()).toEqual([]);
+    if (isNetworkFailureCase) {
+      expect(tryAgain()).toHaveAttribute("aria-disabled", "true");
+      expect(await axeViolations()).toEqual([]);
+      await held!.release(jsonReply(200, { session: inProgressSession, definition: intakeV1 }));
+    }
 
     expect(await screen.findByText("We restored the answers you started on this device.")).toBeInTheDocument();
     expect(screen.getByLabelText("Preferred pharmacy", { exact: false })).toHaveValue("Corner pharmacy");
