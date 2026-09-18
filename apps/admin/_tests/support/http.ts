@@ -1,5 +1,6 @@
 import {
   definitionApi,
+  draftItemOf,
   formatDraftEtag,
   validateDraft,
   type DraftItem,
@@ -177,11 +178,7 @@ export function fakeDefinitionApi({ bank = [] }: { bank?: Question[] } = {}) {
           versionId: crypto.randomUUID(),
           revision: 1,
           title: latest.snapshot.title,
-          items: latest.snapshot.items.map(({ question, ...item }) => ({
-            ...item,
-            questionId: question.questionId,
-            questionVersion: question.questionVersion,
-          })),
+          items: latest.snapshot.items.map(draftItemOf),
           updatedAt,
         };
         stored.summary = { ...stored.summary, hasDraft: true, updatedAt };

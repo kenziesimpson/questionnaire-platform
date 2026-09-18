@@ -169,7 +169,7 @@ Owns: `packages/shared/src/{index.ts,primitives.ts,domain,engine,demo}`, `packag
 
 **Amended:** one Owns line per half.
 - **Owns (2a):** `packages/shared/src/**`, `packages/shared/package.json` (the `./demo` export), `apps/backend/src/db/seed/**`, the local copies of the vocabulary wherever they sit, and every import of the demo names.
-- **Owns (2b):** `packages/ui/src/testing/**`, the `./testing` export in `packages/ui/package.json`, and `**/_tests/{setup,support,axe,fixtures,harness}*`.
+- **Owns (2b):** `packages/ui/src/testing/**` and its tests in `packages/ui/_tests/testing/**`; the `./testing` export and test-only dependencies in `packages/ui/package.json`, and `axe-core` in the admin and respondent manifests; `**/_tests/{setup,support,axe,fixtures,harness}*`; the tests whose imports change as a result; and `tests/lint-test-support.test.ts`.
 - The halves share test files, `eslint.config.mjs` and `docs/8-testing.md`. **PR 2a merges first; PR 2b rebases onto it** and keeps 2a's `@qp/shared/demo` imports and vocabulary imports in the shared test files.
 
 ### Phase B — Backend
