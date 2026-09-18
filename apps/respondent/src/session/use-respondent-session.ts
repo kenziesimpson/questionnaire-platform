@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { createRespondentSession, type RespondentSession } from "./respondent-session.ts";
-import type { RespondentState } from "./respondent-state.ts";
+import { createRespondentSession, type RespondentSession } from "./respondent-session";
+import type { RespondentState } from "./respondent-state";
 
 export function useRespondentSession(questionnaireId: string): { state: RespondentState; session: RespondentSession } {
   const [session] = useState(() => createRespondentSession(questionnaireId));

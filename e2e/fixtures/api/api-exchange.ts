@@ -2,7 +2,7 @@ import type { APIRequestContext } from "@playwright/test";
 import { routePath, routeSearch, type HttpMethod, type PathParams, type Problem, type ProblemSlug, type QueryParams, type RouteDefinition } from "@qp/shared";
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
-import { problemReplyOf } from "./problem-reply.ts";
+import { problemReplyOf } from "./problem-reply";
 
 export type { PathParams, QueryParams } from "@qp/shared";
 

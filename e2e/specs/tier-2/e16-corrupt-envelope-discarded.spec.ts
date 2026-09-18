@@ -7,9 +7,9 @@ import {
   RESPONDENT_STORAGE_FORMAT_VERSION,
   test,
   type ExecutionApi,
-} from "../../fixtures/index.ts";
-import { answerNoPath, RESTORED_ANSWERS_NOTICE } from "./support/demo-answers.ts";
-import { recordSubmitRequests, submitBodyOf } from "./support/submit-traffic.ts";
+} from "../../fixtures/index";
+import { answerNoPath, RESTORED_ANSWERS_NOTICE } from "./support/demo-answers";
+import { recordSubmitRequests, submitBodyOf } from "./support/submit-traffic";
 
 const PLANTED_PHARMACY = "planted-pharmacy-5c21e0";
 

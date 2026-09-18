@@ -1,8 +1,8 @@
 import type { ClientAnswers, PublishedDefinition, Receipt, Session } from "@qp/shared";
-import { withoutItemError, type SubmissionRejection } from "../answers/submission-rejection.ts";
-import type { ExecutionProblemSlug } from "../api/problems.ts";
-import type { StoredPartials } from "../storage/partials.ts";
-import { hasAnyAnswer, isRetryable } from "./failure.ts";
+import { withoutItemError, type SubmissionRejection } from "../answers/submission-rejection";
+import type { ExecutionProblemSlug } from "../api/problems";
+import type { StoredPartials } from "../storage/partials";
+import { hasAnyAnswer, isRetryable } from "./failure";
 
 export interface FormContext {
   readonly session: Session;

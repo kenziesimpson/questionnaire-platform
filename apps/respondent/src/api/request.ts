@@ -1,7 +1,7 @@
 import { executionApi, PROBLEM_CONTENT_TYPE, problemFromWire, type HttpMethod, type WireProblem } from "@qp/shared";
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
-import type { ExecutionProblem, ExecutionProblemSlug } from "./problems.ts";
+import type { ExecutionProblem, ExecutionProblemSlug } from "./problems";
 
 export type ExecutionOutcome<Body, S extends ExecutionProblemSlug> =
   | { readonly kind: "ok"; readonly body: Body }

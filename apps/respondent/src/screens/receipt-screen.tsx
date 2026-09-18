@@ -1,7 +1,7 @@
 import type { PublishedDefinition, Receipt } from "@qp/shared";
 import { CheckIcon } from "@qp/ui/icons";
 import type { ReactNode } from "react";
-import { Aside, ScreenHeading, ScreenLayout, StatusBadge } from "./screen-layout.tsx";
+import { Aside, ScreenHeading, ScreenLayout, StatusBadge } from "./screen-layout";
 
 const submittedAtFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "long", timeStyle: "short" });
 

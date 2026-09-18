@@ -1,11 +1,11 @@
 import { problem, type ClientAnswers } from "@qp/shared";
 import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { describe, expect, it, vi, type Mock } from "vitest";
-import type { createSession, getSession, submitSession } from "../../src/api/execution-client.ts";
-import { createRespondentSession, type ExecutionClient, type PartialsStorage } from "../../src/session/respondent-session.ts";
-import type { clearPartialAnswers, readPartials, removePartials, writePartials } from "../../src/storage/partials.ts";
-import { PARTIALS_FORMAT_VERSION, type StoredPartials } from "../../src/storage/partials.ts";
-import { inProgressSession, intakeV1, receipt, SESSION_ID, STALE_SESSION_ID, submittedSession } from "../fixtures.ts";
+import type { createSession, getSession, submitSession } from "../../src/api/execution-client";
+import { createRespondentSession, type ExecutionClient, type PartialsStorage } from "../../src/session/respondent-session";
+import type { clearPartialAnswers, readPartials, removePartials, writePartials } from "../../src/storage/partials";
+import { PARTIALS_FORMAT_VERSION, type StoredPartials } from "../../src/storage/partials";
+import { inProgressSession, intakeV1, receipt, SESSION_ID, STALE_SESSION_ID, submittedSession } from "../fixtures";
 
 const NOW = "2026-09-14T09:00:00.000Z";
 

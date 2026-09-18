@@ -601,7 +601,7 @@ These are agreed. R1–R5 live as tests under `tests/`, next to `text-files.test
 | New | A problem body is read off the wire whole or not at all; `problemFromWire` takes no unknown-code policy, because both consumers already rejected | 1 |
 | Several | Rationale extracted from comments in `packages/shared` and `packages/telemetry`; the rows cited include #13, #15, #18, #20, #25, #31, #34, #36 and #37 and #40–#44 | 18 |
 
-New rows are numbered from #79 in the order they merge. PR 1 took #81, PR 2a #82, PR 2c #83, PR 8b #84 and PR 11 #85; a PR that merges before one of them renumbers.
+New rows are numbered from #79 in the order they merge. PR 1 took #81, PR 2a #82, PR 2c #83, PR 8b #84, PR 11 #85 and PR 14 #86; a PR that merges before one of them renumbers.
 
 ## 6. Out of scope
 

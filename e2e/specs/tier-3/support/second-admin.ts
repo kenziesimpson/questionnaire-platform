@@ -1,4 +1,4 @@
-import { AdminPage, test } from "../../../fixtures/index.ts";
+import { AdminPage, test } from "../../../fixtures/index";
 
 export interface SecondAdminFixtures {
   readonly secondAdmin: AdminPage;

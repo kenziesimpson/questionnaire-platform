@@ -14,7 +14,7 @@
     "stack:list": "node stack/stack-cli.ts list",
     "stack:down": "node stack/stack-cli.ts down",
     "browsers:install": "playwright install chromium",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.stack.json --noEmit"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

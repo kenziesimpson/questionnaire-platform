@@ -1,5 +1,5 @@
 import type { ClientAnswers } from "@qp/shared";
-import type { FailureReason } from "./respondent-state.ts";
+import type { FailureReason } from "./respondent-state";
 
 export function isRetryable(reason: FailureReason): boolean {
   return reason.kind !== "problem" || reason.slug === "internal";

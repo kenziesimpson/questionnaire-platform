@@ -8,8 +8,8 @@ import {
   waitForDefinitionResponse,
   type DefinitionApi,
   type PublishedQuestionnaire,
-} from "../../fixtures/index.ts";
-import { textQuestionInput } from "./support/question-input.ts";
+} from "../../fixtures/index";
+import { textQuestionInput } from "./support/question-input";
 
 async function publishedWithoutDraft(api: DefinitionApi, label: string): Promise<PublishedQuestionnaire> {
   const question = await api.createQuestion(textQuestionInput(`${label} question`));

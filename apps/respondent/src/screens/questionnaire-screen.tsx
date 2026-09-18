@@ -16,14 +16,14 @@ import { Button } from "@qp/ui/primitives/button";
 import { focusItem, QuestionnaireForm, type ItemErrors } from "@qp/ui/questionnaire";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useEffect, useEffectEvent, useId, useMemo, useRef, useState, type FocusEvent } from "react";
-import { browserTimeZone } from "../answers/precheck.ts";
-import type { SubmissionRejection } from "../answers/submission-rejection.ts";
-import type { FormContext } from "../session/respondent-state.ts";
-import type { SubmitFailureView } from "../session/respondent-view.ts";
-import { ErrorSummary, errorSummaryEntries, errorSummaryTitle } from "./error-summary.tsx";
-import { RetryButton, type RetryControl } from "./retry-button.tsx";
-import { Lead, ScreenHeading, ScreenLayout } from "./screen-layout.tsx";
-import { TRANSIENT_FAILURE_EXPLANATION } from "./terminal-screens.tsx";
+import { browserTimeZone } from "../answers/precheck";
+import type { SubmissionRejection } from "../answers/submission-rejection";
+import type { FormContext } from "../session/respondent-state";
+import type { SubmitFailureView } from "../session/respondent-view";
+import { ErrorSummary, errorSummaryEntries, errorSummaryTitle } from "./error-summary";
+import { RetryButton, type RetryControl } from "./retry-button";
+import { Lead, ScreenHeading, ScreenLayout } from "./screen-layout";
+import { TRANSIENT_FAILURE_EXPLANATION } from "./terminal-screens";
 
 export interface QuestionnaireScreenProps {
   readonly form: FormContext;

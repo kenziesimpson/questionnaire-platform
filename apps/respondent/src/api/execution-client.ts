@@ -1,6 +1,6 @@
 import { executionApi, routePath, type BodyOf, type ClientAnswers, type ParamsOf, type ReplyOf, type Sensitive } from "@qp/shared";
-import type { ExecutionProblemSlug } from "./problems.ts";
-import { sendExecutionRequest, type ExecutionOutcome } from "./request.ts";
+import type { ExecutionProblemSlug } from "./problems";
+import { sendExecutionRequest, type ExecutionOutcome } from "./request";
 
 const { createSession: createRoute, getSession: getRoute, submitSession: submitRoute } = executionApi;
 

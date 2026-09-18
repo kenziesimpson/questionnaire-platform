@@ -1,6 +1,6 @@
 import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { describe, expect, it } from "vitest";
-import { questionnaireIdFromPath } from "../../src/entry/questionnaire-path.ts";
+import { questionnaireIdFromPath } from "../../src/entry/questionnaire-path";
 
 describe("questionnaireIdFromPath", () => {
   it.each([`/q/${INTAKE_QUESTIONNAIRE_ID}`, `/q/${INTAKE_QUESTIONNAIRE_ID}/`])("reads the questionnaire id from %s", (pathname) => {

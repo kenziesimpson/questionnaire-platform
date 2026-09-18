@@ -288,6 +288,30 @@ const rawSql = [
   { selector: 'CallExpression[callee.type="MemberExpression"][callee.object.name="sql"]', message: rawSqlMessage },
 ];
 
+const relativeImportHasExtensionMessage =
+  "Vite and Playwright resolve a relative import themselves, so this workspace's specifiers carry no extension ([[11-structural-refactor]] L13).";
+
+const relativeImportHasExtension = ["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].map((node) => ({
+  selector: `${node}[source.value=/^\\.{1,2}\\/.*\\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/]`,
+  message: relativeImportHasExtensionMessage,
+}));
+
+const relativeImportMissingJsExtensionMessage =
+  "This workspace compiles for Node with tsc, which requires the compiled .js extension on a relative import even though the source is .ts ([[11-structural-refactor]] L13).";
+
+const relativeImportMissingJsExtension = ["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].map((node) => ({
+  selector: `${node}[source.value=/^\\.{1,2}\\/(?!.*\\.js$).*$/]`,
+  message: relativeImportMissingJsExtensionMessage,
+}));
+
+const stackRelativeImportHasJsExtensionMessage =
+  "e2e/stack's scripts run directly under node, which never compiles them: a relative import here names the .ts file that actually exists, not the .js name a build would have produced ([[11-structural-refactor]] L13).";
+
+const stackRelativeImportHasJsExtension = ["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].map((node) => ({
+  selector: `${node}[source.value=/^\\.{1,2}\\/.*\\.js$/]`,
+  message: stackRelativeImportHasJsExtensionMessage,
+}));
+
 const connectionConstructionMessage =
   "Connections come from one constructor: `openDatabase` in apps/backend/src/db/client.ts, which is where pool sizing lands ([[2-design-doc#17. Decisions Log]] #77). Constructing a pg client or pool directly bypasses it. Where a raw connection is genuinely needed — connecting to another database in order to create one — disable it with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>";
 
@@ -759,5 +783,136 @@ export default tseslint.config(
     ignores: theToolConfigFiles,
     plugins: { local: noProseComments },
     rules: { "local/no-prose-comments": "error" },
+  },
+  {
+    name: "L13: backend sources require the compiled .js extension",
+    files: ["apps/backend/src/**/*.ts"],
+    ignores: ["apps/backend/src/db/schema.ts", "apps/backend/src/db/client.ts", theNotFoundBuilder],
+    rules: {
+      "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction, ...problemParsing, notFoundInTheBackend, ...relativeImportMissingJsExtension),
+    },
+  },
+  {
+    name: "L13: the schema declaration requires the compiled .js extension",
+    files: ["apps/backend/src/db/schema.ts"],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundInTheBackend, ...relativeImportMissingJsExtension) },
+  },
+  {
+    name: "L13: the connection constructor requires the compiled .js extension",
+    files: ["apps/backend/src/db/client.ts"],
+    rules: { "no-restricted-syntax": syntax(...rawSql, ...problemParsing, notFoundInTheBackend, ...relativeImportMissingJsExtension) },
+  },
+  {
+    name: "L13: notFoundProblem's own file requires the compiled .js extension",
+    files: [theNotFoundBuilder],
+    rules: {
+      "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction, ...problemParsing, notFoundOutsideNotFoundProblem, ...relativeImportMissingJsExtension),
+    },
+  },
+  {
+    name: "L13: backend tests require the compiled .js extension",
+    files: ["apps/backend/_tests/**/*.ts"],
+    ignores: ["apps/backend/_tests/db/harness.ts", "apps/backend/_tests/db/global-setup.ts"],
+    rules: { "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction, ...relativeImportMissingJsExtension) },
+  },
+  {
+    name: "L13: the test harness that constructs connections requires the compiled .js extension",
+    files: ["apps/backend/_tests/db/harness.ts"],
+    rules: { "no-restricted-syntax": syntax(...rawSql, ...relativeImportMissingJsExtension) },
+  },
+  {
+    name: "L13: the test harness's globalSetup requires the compiled .js extension, alongside its default export",
+    files: ["apps/backend/_tests/db/global-setup.ts"],
+    rules: { "no-restricted-syntax": syntaxAllowingDefaultExport(...rawSql, ...relativeImportMissingJsExtension) },
+  },
+  {
+    name: "L13: packages/shared sources require the compiled .js extension",
+    files: ["packages/shared/src/**/*.ts"],
+    ignores: [theRoutePathHelper, theProblemParser, "packages/shared/src/primitives.ts", "packages/shared/src/domain/**"],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, noSvgJsx, ...relativeImportMissingJsExtension) },
+  },
+  {
+    name: "L13: the problem parser's own file requires the compiled .js extension, exempt from L10 like every other selector it inherits",
+    files: [theProblemParser],
+    rules: { "no-restricted-syntax": syntax(...relativeImportMissingJsExtension) },
+  },
+  {
+    name: "L13: the route path helper requires the compiled .js extension",
+    files: [theRoutePathHelper],
+    rules: { "no-restricted-syntax": syntaxInsideTheRoutePathHelper(...problemParsing, notFoundProblem, ...relativeImportMissingJsExtension) },
+  },
+  {
+    name: "L13: the shared vocabulary's own declarations require the compiled .js extension",
+    files: ["packages/shared/src/primitives.ts", "packages/shared/src/domain/**"],
+    rules: { "no-restricted-syntax": syntaxDeclaringTheSharedVocabulary(...problemParsing, notFoundProblem, ...relativeImportMissingJsExtension) },
+  },
+  {
+    name: "L13: packages/shared tests require the compiled .js extension",
+    files: ["packages/shared/_tests/**/*.ts"],
+    rules: { "no-restricted-syntax": syntax(...relativeImportMissingJsExtension) },
+  },
+  {
+    name: "L13: packages/telemetry sources require the compiled .js extension",
+    files: ["packages/telemetry/src/**/*.ts"],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, noSvgJsx, ...relativeImportMissingJsExtension) },
+  },
+  {
+    name: "L13: packages/telemetry tests require the compiled .js extension",
+    files: ["packages/telemetry/_tests/**/*.ts"],
+    rules: { "no-restricted-syntax": syntax(...relativeImportMissingJsExtension) },
+  },
+  {
+    name: "L13: admin sources carry no extension, Vite resolves them",
+    files: ["apps/admin/src/**/*.{ts,tsx}"],
+    ignores: [adminDatesHome],
+    rules: {
+      "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, noSvgJsx, ...dateFormatting, ...relativeImportHasExtension),
+    },
+  },
+  {
+    name: "L13: admin's own date formatter carries no extension, Vite resolves it",
+    files: [adminDatesHome],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, noSvgJsx, ...relativeImportHasExtension) },
+  },
+  {
+    name: "L13: admin tests carry no extension, Vite resolves them",
+    files: ["apps/admin/_tests/**/*.{ts,tsx}"],
+    rules: { "no-restricted-syntax": syntax(...relativeImportHasExtension) },
+  },
+  {
+    name: "L13: respondent sources carry no extension, Vite resolves them",
+    files: ["apps/respondent/src/**/*.{ts,tsx}"],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, noSvgJsx, ...relativeImportHasExtension) },
+  },
+  {
+    name: "L13: respondent tests carry no extension, Vite resolves them",
+    files: ["apps/respondent/_tests/**/*.{ts,tsx}"],
+    rules: { "no-restricted-syntax": syntax(...relativeImportHasExtension) },
+  },
+  {
+    name: "L13: packages/ui sources carry no extension, Vite resolves them, alongside L2 and L10",
+    files: ["packages/ui/src/**/*.{ts,tsx}"],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, ...relativeImportHasExtension) },
+  },
+  {
+    name: "L13: packages/ui tests carry no extension, Vite resolves them",
+    files: ["packages/ui/_tests/**/*.{ts,tsx}"],
+    rules: { "no-restricted-syntax": syntax(...relativeImportHasExtension) },
+  },
+  {
+    name: "L13: e2e fixtures and specs carry no extension, Playwright resolves them; e2e/stack is a plain Node CLI and keeps its extensions",
+    files: ["e2e/fixtures/**/*.ts", "e2e/specs/**/*.ts"],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, noSvgJsx, ...relativeImportHasExtension) },
+  },
+  {
+    name: "L13: e2e/stack forbids the .js extension its scripts have no compiled output to answer to",
+    files: ["e2e/stack/**/*.ts"],
+    ignores: ["e2e/stack/global-setup.ts", "e2e/stack/global-teardown.ts"],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, noSvgJsx, ...stackRelativeImportHasJsExtension) },
+  },
+  {
+    name: "L13: e2e/stack's globalSetup and globalTeardown forbid the .js extension too, alongside their default export",
+    files: ["e2e/stack/global-setup.ts", "e2e/stack/global-teardown.ts"],
+    rules: { "no-restricted-syntax": syntaxAllowingDefaultExport(...problemParsing, notFoundProblem, ...stackRelativeImportHasJsExtension) },
   },
 );

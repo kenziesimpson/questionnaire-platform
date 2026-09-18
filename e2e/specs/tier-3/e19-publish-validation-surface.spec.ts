@@ -10,8 +10,8 @@ import {
   waitForDefinitionResponse,
   type DefinitionApi,
   type Placement,
-} from "../../fixtures/index.ts";
-import { createTextQuestions, promptOf, YES_NO_OPTION_IDS, yesNoQuestionInput } from "./support/question-input.ts";
+} from "../../fixtures/index";
+import { createTextQuestions, promptOf, YES_NO_OPTION_IDS, yesNoQuestionInput } from "./support/question-input";
 
 const ITEM_IDS = { gate: "itm_gate", forwardReference: "itm_forward", unsatisfiable: "itm_never" } as const;
 

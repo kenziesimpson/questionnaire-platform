@@ -1,6 +1,6 @@
-import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, DEMO_V1, expect, test } from "../../fixtures/index.ts";
-import { ITEM_ERROR_MESSAGES } from "./support/respondent-messages.ts";
-import { recordSubmitRequests, submitBodyOf, waitForSubmitResponse } from "./support/submit-traffic.ts";
+import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, DEMO_V1, expect, test } from "../../fixtures/index";
+import { ITEM_ERROR_MESSAGES } from "./support/respondent-messages";
+import { recordSubmitRequests, submitBodyOf, waitForSubmitResponse } from "./support/submit-traffic";
 
 const { hasCondition, whichCondition, diagnosedOn, pharmacy } = DEMO_V1.prompts;
 const OTHER_LABEL = DEMO_V1.optionLabel(DEMO_OPTION_IDS.other);

@@ -10,8 +10,8 @@ import {
   publishDemoHypertensionRelabel,
   recordRequests,
   test,
-} from "../../fixtures/index.ts";
-import { MainFrameNavigations } from "./support/respondent-browser.ts";
+} from "../../fixtures/index";
+import { MainFrameNavigations } from "./support/respondent-browser";
 
 const prompts = DEMO_V1.prompts;
 const YES = DEMO_V1.optionLabel(DEMO_OPTION_IDS.yes);

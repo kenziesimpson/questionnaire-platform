@@ -1,8 +1,8 @@
 import type { APIResponse } from "@playwright/test";
 import { definitionApi } from "@qp/shared";
-import { Deferred, definitionUrlPattern, expect, problemReplyOfResponse, uniqueName, waitForDefinitionResponse } from "../../fixtures/index.ts";
-import { createTextQuestions, promptOf } from "./support/question-input.ts";
-import { testWithSecondAdmin as test } from "./support/second-admin.ts";
+import { Deferred, definitionUrlPattern, expect, problemReplyOfResponse, uniqueName, waitForDefinitionResponse } from "../../fixtures/index";
+import { createTextQuestions, promptOf } from "./support/question-input";
+import { testWithSecondAdmin as test } from "./support/second-admin";
 
 test.describe("E20 two admins on one draft", () => {
   test("a reorder on a stale ETag gets 409 draft-stale, rolls back, says someone else changed it, and reloads the other admin's draft", async ({

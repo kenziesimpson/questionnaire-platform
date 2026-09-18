@@ -1,7 +1,7 @@
 import { AlertCircleIcon, CircleXIcon, SearchIcon } from "@qp/ui/icons";
 import { useId } from "react";
-import { NewSessionButton, RetryButton, type NewSessionControl, type RetryControl } from "./retry-button.tsx";
-import { Aside, Lead, ScreenHeading, ScreenLayout, StatusBadge } from "./screen-layout.tsx";
+import { NewSessionButton, RetryButton, type NewSessionControl, type RetryControl } from "./retry-button";
+import { Aside, Lead, ScreenHeading, ScreenLayout, StatusBadge } from "./screen-layout";
 
 export const TRANSIENT_FAILURE_EXPLANATION = "The connection may have dropped, or the service may be briefly unavailable.";
 

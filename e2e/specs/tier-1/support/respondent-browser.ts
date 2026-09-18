@@ -1,5 +1,5 @@
 import type { BrowserContext, Page } from "@playwright/test";
-import { RespondentPage, type OpenSecondContext, type SecondContextOptions } from "../../../fixtures/index.ts";
+import { RespondentPage, type OpenSecondContext, type SecondContextOptions } from "../../../fixtures/index";
 
 export interface RespondentBrowser {
   readonly context: BrowserContext;

@@ -5,9 +5,9 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { App } from "../../src/app.tsx";
-import { partialsKey, readPartials, writePartials } from "../../src/storage/partials.ts";
-import { ANSWER_SENTINEL, inProgressSession, intakeV1, receipt, SESSION_ID, submittedSession } from "../fixtures.ts";
+import { App } from "../../src/app";
+import { partialsKey, readPartials, writePartials } from "../../src/storage/partials";
+import { ANSWER_SENTINEL, inProgressSession, intakeV1, receipt, SESSION_ID, submittedSession } from "../fixtures";
 
 const intakePath = `/q/${INTAKE_QUESTIONNAIRE_ID}`;
 const sessionsUrl = urlOf(executionApi.EXECUTION_PREFIX, executionApi.createSession);

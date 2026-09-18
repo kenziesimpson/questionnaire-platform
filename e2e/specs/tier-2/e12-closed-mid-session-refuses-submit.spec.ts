@@ -1,6 +1,6 @@
-import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, expect, RESPONDENT_HEADINGS, test } from "../../fixtures/index.ts";
-import { answerNoPath } from "./support/demo-answers.ts";
-import { problemReplyOf, waitForSubmitResponse } from "./support/submit-traffic.ts";
+import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, expect, RESPONDENT_HEADINGS, test } from "../../fixtures/index";
+import { answerNoPath } from "./support/demo-answers";
+import { problemReplyOf, waitForSubmitResponse } from "./support/submit-traffic";
 
 test.describe("E12 — a questionnaire that closes mid-session refuses the submit", () => {
   test("a submit after closes_at passes gets 409 questionnaire/closed, writes nothing and keeps the stored answers", async ({

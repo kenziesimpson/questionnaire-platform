@@ -1,8 +1,8 @@
 import { PROBLEM_CONTENT_TYPE, problem, sensitive, type ClientAnswers } from "@qp/shared";
 import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { createSession, getSession, submitSession } from "../../src/api/execution-client.ts";
-import { ANSWER_SENTINEL, inProgressSession, intakeV1, receipt, SESSION_ID, submittedSession } from "../fixtures.ts";
+import { createSession, getSession, submitSession } from "../../src/api/execution-client";
+import { ANSWER_SENTINEL, inProgressSession, intakeV1, receipt, SESSION_ID, submittedSession } from "../fixtures";
 
 type FetchMock = Mock<typeof fetch>;
 
