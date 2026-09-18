@@ -7,6 +7,7 @@ import { Input } from "@qp/ui/primitives/input";
 import { useId, useState, type ReactNode } from "react";
 import { describedByFor, errorIdFor, FieldMessages } from "../../components/field";
 import { GripIcon, LockIcon, PlusIcon, RemoveIcon } from "../../components/icons";
+import { Pill } from "../../components/pill";
 import { SortableList, SortableRow, useSortableList } from "../../components/sortable-list";
 import { optionPointer, type FieldErrors } from "./field-errors";
 import { addOption, edits, type EditableOption, type QuestionForm } from "./question-form";
@@ -211,11 +212,7 @@ function EditableOptions({ form, errors, onChange, onDraggingChange }: OptionsEd
             canRemove={!onlyOneOption}
             autoFocus={false}
             handle={<span className="inline-flex size-7 shrink-0" />}
-            badge={
-              <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-border px-2 text-[11px] font-medium text-muted-foreground">
-                Freeform
-              </span>
-            }
+            badge={<Pill className="text-muted-foreground">Freeform</Pill>}
           />
         </div>
       )}

@@ -12,6 +12,7 @@ import { questionQueries, questionnaireQueries } from "../api/queries";
 import { BackToQuestionnaires } from "../components/back-to-questionnaires";
 import { PlusIcon } from "../components/icons";
 import { Notice } from "../components/notice";
+import { Pill } from "../components/pill";
 import { QuestionnaireNotFound } from "../components/questionnaire-not-found";
 import { LoadingLine, RetryNotice } from "../components/query-state";
 import { QuestionEditorDialog } from "../features/question-editor/question-editor-dialog";
@@ -159,9 +160,7 @@ function DraftEditor({
           <div className="flex min-w-0 items-center gap-2.5">
             <BackToQuestionnaires />
             <DraftHeading summary={summary} summaryPending={summaryPending} />
-            <span className="inline-flex h-5 items-center rounded-full border border-border bg-muted px-2 text-[11px] font-medium">
-              Draft
-            </span>
+            <Pill className="bg-muted">Draft</Pill>
             {publishFacts(summary) !== null && <span className="text-xs text-muted-foreground">{publishFacts(summary)}</span>}
           </div>
           <div className="flex items-center gap-2">

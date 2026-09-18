@@ -16,11 +16,12 @@ import { isProblem } from "../api/problem-error";
 import { questionnaireQueries } from "../api/queries";
 import { BackToQuestionnaires } from "../components/back-to-questionnaires";
 import { Notice } from "../components/notice";
+import { Pill } from "../components/pill";
 import { QuestionnaireNotFound } from "../components/questionnaire-not-found";
 import { LoadingLine, RetryNotice } from "../components/query-state";
 import { ScreenHeader } from "../components/screen-header";
-import { fullTimestamp } from "../lib/dates";
 import { questionCount } from "../lib/counts";
+import { fullTimestamp } from "../lib/dates";
 
 const route = getRouteApi("/questionnaires/$questionnaireId/versions");
 
@@ -65,9 +66,7 @@ function DraftRow({ questionnaireId, updatedAt }: { questionnaireId: string; upd
   return (
     <TableRow>
       <TableCell>
-        <span className="inline-flex h-5 items-center rounded-full border border-border bg-muted px-2 text-xs font-medium">
-          Draft
-        </span>
+        <Pill className="bg-muted">Draft</Pill>
       </TableCell>
       <TableCell className="text-muted-foreground">{ABSENT}</TableCell>
       <TableCell className="text-muted-foreground">

@@ -26,9 +26,9 @@ type DraftEtagRoute =
   | typeof definitionApi.replaceDraft
   | typeof definitionApi.publishDraft;
 
-export type PlainDefinitionRoute = Exclude<DefinitionRoute, DraftEtagRoute>;
+type PlainDefinitionRoute = Exclude<DefinitionRoute, DraftEtagRoute>;
 
-export type RequestParts<R extends RouteDefinition> = RouteRequestParts<R> & { signal?: AbortSignal };
+type RequestParts<R extends RouteDefinition> = RouteRequestParts<R> & { signal?: AbortSignal };
 
 interface LooseParts {
   params?: PathParams;
@@ -44,7 +44,7 @@ interface Exchange<Body> {
   headers: Headers;
 }
 
-export function definitionUrl(route: RouteDefinition, parts: Pick<LooseParts, "params" | "query"> = {}): string {
+function definitionUrl(route: RouteDefinition, parts: Pick<LooseParts, "params" | "query"> = {}): string {
   return `${definitionApi.DEFINITION_PREFIX}${routePath(route.url, parts.params)}${routeSearch(parts.query)}`;
 }
 

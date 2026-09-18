@@ -10,11 +10,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@qp/ui/primitives/dialog";
-import { Input } from "@qp/ui/primitives/input";
-import { Label } from "@qp/ui/primitives/label";
-import { useId, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useSetClosesAt } from "../../api/mutations/use-set-closes-at";
+import { InputField } from "../../components/field";
+import type { FieldErrors } from "../../features/question-editor/field-errors";
 import { fromLocalDateTimeInput, toLocalDateTimeInput } from "./summary-display";
+
+const NO_ERRORS: FieldErrors = {};
 
 type ClosingAction = "Retire" | "Reopen" | "Reschedule";
 
@@ -24,17 +26,16 @@ function closingActionOf(summary: QuestionnaireSummary, closed: boolean): Closin
 }
 
 export function ClosesAtDialog({ summary, closed }: { summary: QuestionnaireSummary; closed: boolean }) {
-  const inputId = useId();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
-  const [showMissing, setShowMissing] = useState(false);
+  const [errors, setErrors] = useState<FieldErrors>(NO_ERRORS);
   const action = closingActionOf(summary, closed);
 
   const save = useSetClosesAt(summary.questionnaireId);
 
   const changeOpen = (next: boolean) => {
     setOpen(next);
-    setShowMissing(false);
+    setErrors(NO_ERRORS);
     save.reset();
     if (next) setValue(toLocalDateTimeInput(summary.closesAt === null ? Date.now() : Date.parse(summary.closesAt)));
   };
@@ -43,13 +44,11 @@ export function ClosesAtDialog({ summary, closed }: { summary: QuestionnaireSumm
     event.preventDefault();
     const closesAt = fromLocalDateTimeInput(value);
     if (closesAt === null) {
-      setShowMissing(true);
+      setErrors({ "/closesAt": ["Enter a date and time."] });
       return;
     }
     save.mutate(closesAt, { onSuccess: () => setOpen(false) });
   };
-
-  const missing = showMissing && fromLocalDateTimeInput(value) === null;
 
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
@@ -68,25 +67,16 @@ export function ClosesAtDialog({ summary, closed }: { summary: QuestionnaireSumm
               Respondents cannot start or submit it once the closing date passes. Clearing the date reopens it.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={inputId}>Closes at</Label>
-            <Input
-              id={inputId}
-              type="datetime-local"
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              aria-invalid={missing || undefined}
-              aria-describedby={missing ? `${inputId}-hint ${inputId}-error` : `${inputId}-hint`}
-            />
-            <p id={`${inputId}-hint`} className="text-xs text-muted-foreground">
-              Your local time. A time that has already passed closes it straight away.
-            </p>
-            {missing ? (
-              <p id={`${inputId}-error`} className="text-xs text-destructive">
-                Enter a date and time.
-              </p>
-            ) : null}
-          </div>
+          <InputField
+            label="Closes at"
+            pointer="/closesAt"
+            errors={errors}
+            width="w-full"
+            type="datetime-local"
+            hint="Your local time. A time that has already passed closes it straight away."
+            value={value}
+            onValue={setValue}
+          />
           {save.isError ? (
             <p role="alert" className="text-sm text-destructive">
               The closing date was not saved. Try again.
