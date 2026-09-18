@@ -25,6 +25,46 @@ function otherModule(name) {
   };
 }
 
+const privateAdminScreens = ["draft-editor", "question-bank", "questionnaire-list", "version-preview"];
+
+const relativeSiblingOrSelf = (name) => `^(\\.{1,2}/+)*${name}/`;
+
+function screenIsPrivate(name) {
+  return {
+    regex: `(^|/)screens${pathGap}${name}/|${relativeSiblingOrSelf(name)}`,
+    message: `screens/${name}'s own directory is private: only screens/${name}.tsx and screens/${name}'s own files import it ([[11-structural-refactor]] L3).`,
+  };
+}
+
+const screenOwnPaths = (name) => [`apps/admin/src/screens/${name}.tsx`, `apps/admin/src/screens/${name}/**`];
+
+const allPrivateScreenPaths = privateAdminScreens.flatMap(screenOwnPaths);
+
+const mutationsSeamMessage =
+  "useMutation is imported only in src/api/mutations, so a mutation, its cache invalidation and its optimistic-update logic live in one place ([[11-structural-refactor]] L4).";
+
+const mutationsOutsideTheirHome = {
+  group: ["@tanstack/react-query"],
+  importNames: ["useMutation"],
+  message: mutationsSeamMessage,
+};
+
+const dateFormattingMessage =
+  "Dates are formatted only in this app's src/lib/dates.ts, so one locale policy governs every date shown ([[11-structural-refactor]] L21).";
+
+const dateFormatting = [
+  {
+    selector: "MemberExpression[property.name=/^toLocale(Date|Time)?String$/]",
+    message: dateFormattingMessage,
+  },
+  {
+    selector: 'NewExpression[callee.type="MemberExpression"][callee.object.name="Intl"][callee.property.name="DateTimeFormat"]',
+    message: dateFormattingMessage,
+  },
+];
+
+const adminDatesHome = "apps/admin/src/lib/dates.ts";
+
 const definitionSideOfTheDbLayer = `(^|/)db${pathGap}(definition|seed)(/|$)|(^|/)db${pathGap}audit(\\.[cm]?[jt]s)?$`;
 
 const definitionDbLayerMessage =
@@ -435,6 +475,34 @@ export default tseslint.config(
     files: ["packages/ui/src/primitives/**"],
     rules: { "no-restricted-imports": restrictOutside("packages/ui/src/primitives") },
   },
+  ...privateAdminScreens.map((name) => ({
+    name: `L3: screens/${name}'s own files, which may reach the other private screens but stay outside them`,
+    files: screenOwnPaths(name),
+    rules: {
+      "no-restricted-imports": restrictOutside(
+        "apps/admin",
+        mutationsOutsideTheirHome,
+        ...privateAdminScreens.filter((other) => other !== name).map(screenIsPrivate),
+      ),
+    },
+  })),
+  {
+    name: "L4: mutations stay allowed inside src/api/mutations, which is not a private screen",
+    files: ["apps/admin/src/api/mutations/**"],
+    rules: { "no-restricted-imports": restrictOutside("apps/admin", ...privateAdminScreens.map(screenIsPrivate)) },
+  },
+  {
+    name: "L3 and L4: screen directories are private, and mutations live in src/api/mutations",
+    files: ["apps/admin/**"],
+    ignores: [...allPrivateScreenPaths, "apps/admin/src/api/mutations/**", "apps/admin/_tests/**"],
+    rules: {
+      "no-restricted-imports": restrictOutside(
+        "apps/admin",
+        mutationsOutsideTheirHome,
+        ...privateAdminScreens.map(screenIsPrivate),
+      ),
+    },
+  },
   {
     name: "L16: fetch outside the API clients, the e2e fixtures and the e2e stack",
     files: everyFile,
@@ -507,6 +575,12 @@ export default tseslint.config(
     files: sourcesOutsideTheBackend,
     ignores: ["apps/backend/src/**", theProblemParser],
     rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem) },
+  },
+  {
+    name: "L21: dates are formatted only in admin's src/lib/dates.ts",
+    files: ["apps/admin/src/**/*.{ts,tsx}"],
+    ignores: [adminDatesHome],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, ...dateFormatting) },
   },
   {
     name: "L10: problem bodies in the e2e entry points, which must default-export",
