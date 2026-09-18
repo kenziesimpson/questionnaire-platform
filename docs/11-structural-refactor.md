@@ -224,8 +224,8 @@ Owns: `apps/backend/src/db/**` except `schema.ts`, `client.ts` and the migration
 
 This is its own PR, separate from the database cleanup in PR 4.
 
-- Add `notFoundProblem` in `src/http/problems.ts`; the same problem is built 6 times today. Make `registerRoute` fill in `instance` from `request.url` by default.
-- Add a `definitionProblem(refusal, instance)` mapper in `src/modules/definition/problems.ts`, replacing four switches that have already drifted from each other.
+- Add `notFoundProblem` in `src/http/problems.ts`; the same problem is built 6 times today. Make `registerRoute` fill in `instance` from `request.url` by default. **Amended:** the default changes behaviour, which this bullet did not say. A problem a handler builds without an `instance` now carries the request URL; today that is the question-rule `400` and the malformed-`If-Match` `400`. Problems from the error and not-found handlers do not pass through `registerRoute` and are unchanged, so a missing `If-Match` still carries no `instance`.
+- Add a `definitionProblem(refusal, instance)` mapper in `src/modules/definition/problems.ts`, replacing four switches that have already drifted from each other. **Amended:** the four were three `switch`es (`PUT /draft`, `POST /draft`, `POST /publish`) and the `if` chain in `POST /questions/:questionId/versions`. They had drifted in one place: `PUT /draft`'s `422 questionnaire/draft-invalid` left out the `instance` that `POST /publish`'s carried, which was a bug. The type-lock `400` from the `if` chain carried none either, and now does, like every problem the mapper builds. The mapper also takes the not-found refusals of `setClosesAt` and `archiveQuestion`, so no definition route maps an outcome by hand.
 - Make `draftPreconditionOf` return `DraftPrecondition | Problem`, and delete the exception class that is thrown and caught by `instanceof`.
 - Move the publish route into `routes/drafts.ts`, and turn the route files into plain `register*Routes(scope, database)` functions.
 - Split `http/problems.ts` into `problems.ts` and `validation.ts`, and add an `applyHttpDefaults(scope, errorHandler)` helper used by the root app and both modules.
