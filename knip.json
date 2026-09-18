@@ -2,17 +2,17 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignoreWorkspaces": ["packages/telemetry"],
   "ignoreIssues": {
-    "packages/ui/src/primitives/**": ["files", "exports", "types"],
-    "packages/ui/src/questionnaire/**": ["files", "exports", "types"],
-    "apps/admin/src/**": ["files", "exports", "types"],
-    "apps/backend/src/db/**": ["files", "exports", "types"],
+    "packages/ui/src/primitives/**": ["exports", "types"],
+    "packages/ui/src/questionnaire/**": ["exports", "types"],
+    "apps/admin/src/**": ["exports", "types"],
+    "apps/backend/src/db/**": ["exports", "types"],
     "apps/backend/src/http/**": ["types"],
     "apps/backend/src/config.ts": ["exports"],
     "packages/shared/src/domain/condition.ts": ["exports"],
     "packages/shared/src/problems.ts": ["exports", "types"],
-    "apps/respondent/src/**": ["files", "exports", "types"],
-    "e2e/**": ["files", "exports", "types"],
-    "**/_tests/**": ["files", "exports", "types"]
+    "apps/respondent/src/**": ["exports", "types"],
+    "e2e/**": ["exports", "types"],
+    "**/_tests/**": ["exports", "types"]
   },
   "workspaces": {
     "packages/shared": {

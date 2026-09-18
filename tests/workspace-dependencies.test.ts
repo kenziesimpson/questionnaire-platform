@@ -7,17 +7,21 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
-const WORKSPACE_DIRS = [
-  "packages/shared",
-  "packages/telemetry",
-  "packages/ui",
-  "apps/admin",
-  "apps/backend",
-  "apps/respondent",
-  "e2e",
-];
-
 const JS_EXTENSIONS = ["ts", "tsx", "mts", "cts", "js", "mjs", "cjs"];
+
+function discoverWorkspaceDirs(): string[] {
+  const rootPackageJson = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8"));
+  const patterns = (rootPackageJson.workspaces as string[]).map((pattern) => `${pattern}/package.json`);
+  const output = execFileSync("git", ["ls-files", "-z", "--", ...patterns], { cwd: repoRoot });
+  return output
+    .toString("utf8")
+    .split("\0")
+    .filter((path) => path.length > 0)
+    .map((path) => path.slice(0, -"/package.json".length))
+    .sort();
+}
+
+const WORKSPACE_DIRS = discoverWorkspaceDirs();
 
 const GROUND_RULE_UNUSED_DEPENDENCIES: Record<string, readonly string[]> = {
   "apps/backend": ["pino", "pino-pretty", "@fastify/otel"],
@@ -120,6 +124,12 @@ function readPackageJson(dir: string): {
 }
 
 describe("R5 — workspace dependencies match what the workspace imports", () => {
+  it("discovers every workspace from the root package.json, not a hardcoded list", () => {
+    expect(WORKSPACE_DIRS).toEqual(
+      ["packages/shared", "packages/telemetry", "packages/ui", "apps/admin", "apps/backend", "apps/respondent", "e2e"].sort(),
+    );
+  });
+
   it("finds the workspaces to check", () => {
     for (const dir of WORKSPACE_DIRS) {
       expect(trackedFiles(dir, JS_EXTENSIONS).length, `${dir} has no tracked source files`).toBeGreaterThan(0);
