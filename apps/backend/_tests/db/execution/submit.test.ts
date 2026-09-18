@@ -8,7 +8,7 @@ import {
 } from "@qp/shared";
 import { v4 as uuidv4 } from "uuid";
 import { describe, expect, it } from "vitest";
-import { useTestDatabase } from "../../db/harness.js";
+import { useTestDatabase } from "../harness.js";
 import {
   answersNo,
   answersYes,

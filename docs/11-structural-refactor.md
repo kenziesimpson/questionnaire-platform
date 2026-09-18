@@ -489,7 +489,7 @@ All rules below are agreed. The "today" column counts violations measured on 202
 
 | # | Rule | Enforces | Mechanism | PR | Today |
 | --- | --- | --- | --- | --- | --- |
-| L1 | Execution database boundary | `src/db/execution` imports nothing under `src/modules`. The definition side (`src/modules/definition`, `src/db/definition`) may not import `src/db/execution`. `src/modules/execution` still may not import `src/db/definition`, `seed` or `audit` | `no-restricted-imports` | 3 | 0 once moved |
+| L1 | Execution database boundary | `src/db/execution` imports nothing under `src/modules`. The definition side (`src/modules/definition`, `src/db/definition`) may not import `src/db/execution`. Neither `src/modules/execution` nor `src/db/execution` may import `src/db/definition`, `seed` or `audit` | `no-restricted-imports` | 3 | 0 once moved |
 | L2 | Icons only through `@qp/ui/icons` | `lucide-react` may be imported only in `packages/ui/src/{icons.ts,primitives/**}`. No `<svg>` JSX outside `packages/ui` | `no-restricted-imports` plus `no-restricted-syntax` on `JSXOpeningElement[name.name="svg"]` | 11 | 5 files with inline SVG |
 | L3 | Admin screen directories are private | `screens/<name>/**` is imported only by `screens/<name>.tsx` and its own files. `lib/`, `components/`, `api/` and `features/` never import `screens/` | `no-restricted-imports`, with one block per screen generated from the directory listing | 5 | 5 imports across screens |
 | L4 | Mutations live in `src/api/mutations` | Importing `useMutation` is allowed only there | `no-restricted-imports` with `importNames` | 5 | 4 files outside |

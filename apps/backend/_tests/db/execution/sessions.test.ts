@@ -2,7 +2,7 @@ import { INTAKE_QUESTIONNAIRE_ID, intakeDefinition, problemType, PROBLEM_CONTENT
 import { v4 as uuidv4 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { createQuestionnaire } from "../../../src/db/definition/questionnaires.js";
-import { useTestDatabase } from "../../db/harness.js";
+import { useTestDatabase } from "../harness.js";
 import {
   answersNo,
   getSession,
