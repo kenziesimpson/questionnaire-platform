@@ -2,8 +2,9 @@ import { PROBLEM_CONTENT_TYPE, PositiveInt, Uuid, defineRoute, problem, problemT
 import Fastify, { type FastifyInstance } from "fastify";
 import Type from "typebox";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { replyWithProblem, requestValidatorCompiler } from "../../src/http/problems.js";
+import { notFoundProblem, replyWithProblem } from "../../src/http/problems.js";
 import { registerRoute, type RouteHandler } from "../../src/http/routes.js";
+import { requestValidatorCompiler } from "../../src/http/validation.js";
 
 const Widget = Type.Object({ widgetId: Uuid, size: PositiveInt }, strict);
 
@@ -39,7 +40,7 @@ beforeAll(async () => {
 
   registerRoute(app, getWidget, async (request) =>
     request.params.widgetId === MISSING_WIDGET
-      ? problem("resource/not-found", { instance: request.url })
+      ? notFoundProblem()
       : { status: 200, body: { widgetId: request.params.widgetId, size: request.query.size ?? 1 } },
   );
 
@@ -84,12 +85,12 @@ describe("registerRoute", () => {
     expect(response.json()).toEqual({ widgetId: NEW_WIDGET, size: 2 });
   });
 
-  it("sends a returned problem as application/problem+json with its status", async () => {
-    const response = await app.inject({ method: "GET", url: `/widgets/${MISSING_WIDGET}` });
+  it("sends a returned problem as application/problem+json with its status, at the request URL", async () => {
+    const response = await app.inject({ method: "GET", url: `/widgets/${MISSING_WIDGET}?size=2` });
 
     expect(response.statusCode).toBe(404);
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
-    expect(response.json()).toMatchObject({ type: problemType("resource/not-found"), instance: `/widgets/${MISSING_WIDGET}` });
+    expect(response.json()).toMatchObject({ type: problemType("resource/not-found"), instance: `/widgets/${MISSING_WIDGET}?size=2` });
   });
 
   it("serializes through the response schema, dropping fields it does not declare", async () => {
@@ -134,7 +135,7 @@ describe("RouteHandler types", () => {
     };
 
     const problemOnAnyRoute: RouteHandler<typeof createWidget> = async () =>
-      problem("questionnaire/draft-stale", { instance: "/widgets" });
+      problem("questionnaire/draft-stale");
 
     expect([wrongStatus, wrongBody, undeclaredParam, bodyOnGet, problemOnAnyRoute]).toHaveLength(5);
   });

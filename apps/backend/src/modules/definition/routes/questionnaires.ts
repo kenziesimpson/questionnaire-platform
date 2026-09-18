@@ -1,15 +1,12 @@
-import { definitionApi, problem, type Problem } from "@qp/shared";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import { definitionApi } from "@qp/shared";
+import type { FastifyInstance } from "fastify";
+import type { Database } from "../../../db/client.js";
 import { createQuestionnaire, listQuestionnaireSummaries, setClosesAt } from "../../../db/definition/questionnaires.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
-import type { DefinitionModuleOptions } from "../plugin.js";
+import { definitionProblem } from "../problems.js";
 
-function notFound(request: FastifyRequest): Problem {
-  return problem("resource/not-found", { instance: request.url });
-}
-
-export async function questionnaireRoutes(scope: FastifyInstance, { database }: DefinitionModuleOptions): Promise<void> {
+export function registerQuestionnaireRoutes(scope: FastifyInstance, database: Database): void {
   registerRoute(scope, definitionApi.listQuestionnaires, async () => ({
     status: 200,
     body: await listQuestionnaireSummaries(database),
@@ -34,8 +31,8 @@ export async function questionnaireRoutes(scope: FastifyInstance, { database }: 
       actorId: authorOf(request),
       traceId: null,
     });
-    if (updated.outcome === "questionnaire-not-found") {
-      return notFound(request);
+    if (updated.outcome !== "updated") {
+      return definitionProblem(updated);
     }
     return { status: 200, body: updated.questionnaire };
   });

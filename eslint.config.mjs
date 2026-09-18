@@ -182,6 +182,22 @@ const notFoundProblem = {
     "The `resource/not-found` body is built in one place. Call that builder instead, and read one off the wire with problemFromWire.",
 };
 
+const backendNotFoundMessage =
+  "The `resource/not-found` body is built only by notFoundProblem in apps/backend/src/http/problems.ts, so every 404 carries the same members. Call it instead.";
+
+const notFoundInTheBackend = {
+  selector: 'CallExpression[callee.name="problem"][arguments.0.value="resource/not-found"]',
+  message: backendNotFoundMessage,
+};
+
+const notFoundOutsideNotFoundProblem = {
+  selector:
+    'CallExpression[callee.name="problem"][arguments.0.value="resource/not-found"]:not(FunctionDeclaration[id.name="notFoundProblem"] *)',
+  message: backendNotFoundMessage,
+};
+
+const theNotFoundBuilder = "apps/backend/src/http/problems.ts";
+
 const sourcesOutsideTheBackend = ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}", "e2e/**/*.{ts,tsx}"];
 
 const theProblemParser = "packages/shared/src/problems.ts";
@@ -407,22 +423,6 @@ export default tseslint.config(
     rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem) },
   },
   {
-    name: "L10: problem bodies in the backend, alongside its raw SQL and connection restrictions",
-    files: ["apps/backend/src/**/*.ts"],
-    ignores: ["apps/backend/src/db/schema.ts", "apps/backend/src/db/client.ts"],
-    rules: { "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction, ...problemParsing) },
-  },
-  {
-    name: "L10: problem bodies in the schema declaration, whose checks and defaults are SQL expressions",
-    files: ["apps/backend/src/db/schema.ts"],
-    rules: { "no-restricted-syntax": syntax(...problemParsing) },
-  },
-  {
-    name: "L10: problem bodies in the connection constructor, which constructs connections",
-    files: ["apps/backend/src/db/client.ts"],
-    rules: { "no-restricted-syntax": syntax(...rawSql, ...problemParsing) },
-  },
-  {
     name: "L10: problem bodies in the e2e entry points, which must default-export",
     files: e2eFilesThatMustDefaultExport,
     rules: { "no-restricted-syntax": syntaxAllowingDefaultExport(...problemParsing, notFoundProblem) },
@@ -442,5 +442,30 @@ export default tseslint.config(
     files: everyFile,
     plugins: { "@typescript-eslint": tseslint.plugin },
     rules: { "@typescript-eslint/no-explicit-any": "error" },
+  },
+  {
+    name: "L10: resource/not-found in the backend, built only by notFoundProblem, alongside its raw SQL and connection restrictions",
+    files: ["apps/backend/src/**/*.ts"],
+    ignores: ["apps/backend/src/db/schema.ts", "apps/backend/src/db/client.ts", theNotFoundBuilder],
+    rules: {
+      "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction, ...problemParsing, notFoundInTheBackend),
+    },
+  },
+  {
+    name: "L10: resource/not-found in the schema declaration, whose checks and defaults are SQL expressions",
+    files: ["apps/backend/src/db/schema.ts"],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundInTheBackend) },
+  },
+  {
+    name: "L10: resource/not-found in the connection constructor, which constructs connections",
+    files: ["apps/backend/src/db/client.ts"],
+    rules: { "no-restricted-syntax": syntax(...rawSql, ...problemParsing, notFoundInTheBackend) },
+  },
+  {
+    name: "L10: resource/not-found inside notFoundProblem, its one builder",
+    files: [theNotFoundBuilder],
+    rules: {
+      "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction, ...problemParsing, notFoundOutsideNotFoundProblem),
+    },
   },
 );

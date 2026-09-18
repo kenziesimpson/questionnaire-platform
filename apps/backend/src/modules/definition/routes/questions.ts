@@ -1,5 +1,6 @@
 import { definitionApi, problem, validateQuestionRules, type Problem, type QuestionInput } from "@qp/shared";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
+import type { Database } from "../../../db/client.js";
 import {
   appendQuestionVersion,
   archiveQuestion,
@@ -10,13 +11,10 @@ import {
   listQuestionUsage,
   listQuestionVersionSummaries,
 } from "../../../db/definition/questions.js";
+import { notFoundProblem } from "../../../http/problems.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
-import type { DefinitionModuleOptions } from "../plugin.js";
-
-function notFound(request: FastifyRequest): Problem {
-  return problem("resource/not-found", { instance: request.url });
-}
+import { definitionProblem } from "../problems.js";
 
 function questionRuleProblem(content: QuestionInput): Problem | undefined {
   const failures = validateQuestionRules(content);
@@ -28,7 +26,7 @@ function questionRuleProblem(content: QuestionInput): Problem | undefined {
   });
 }
 
-export async function questionRoutes(scope: FastifyInstance, { database }: DefinitionModuleOptions): Promise<void> {
+export function registerQuestionRoutes(scope: FastifyInstance, database: Database): void {
   registerRoute(scope, definitionApi.listQuestions, async (request) => ({
     status: 200,
     body: await listQuestions(database, { includeArchived: request.query.includeArchived ?? false }),
@@ -50,17 +48,17 @@ export async function questionRoutes(scope: FastifyInstance, { database }: Defin
 
   registerRoute(scope, definitionApi.getQuestion, async (request) => {
     const found = await readQuestion(database, request.params.questionId);
-    return found === undefined ? notFound(request) : { status: 200, body: found };
+    return found === undefined ? notFoundProblem() : { status: 200, body: found };
   });
 
   registerRoute(scope, definitionApi.listQuestionVersions, async (request) => {
     const versions = await listQuestionVersionSummaries(database, request.params.questionId);
-    return versions === undefined ? notFound(request) : { status: 200, body: versions };
+    return versions === undefined ? notFoundProblem() : { status: 200, body: versions };
   });
 
   registerRoute(scope, definitionApi.getQuestionVersion, async (request) => {
     const found = await readQuestionVersion(database, request.params.questionId, request.params.v);
-    return found === undefined ? notFound(request) : { status: 200, body: found };
+    return found === undefined ? notFoundProblem() : { status: 200, body: found };
   });
 
   registerRoute(scope, definitionApi.createQuestionVersion, async (request) => {
@@ -74,11 +72,8 @@ export async function questionRoutes(scope: FastifyInstance, { database }: Defin
       createdBy: authorOf(request),
       traceId: null,
     });
-    if (appended.outcome === "question-not-found") {
-      return notFound(request);
-    }
-    if (appended.outcome === "type-changed") {
-      return problem("request/invalid", { errors: [{ pointer: "/body/question/type", code: "question/type-changed" }] });
+    if (appended.outcome !== "saved") {
+      return definitionProblem(appended);
     }
     return { status: 201, body: appended.question.latest };
   });
@@ -89,11 +84,14 @@ export async function questionRoutes(scope: FastifyInstance, { database }: Defin
       actorId: authorOf(request),
       traceId: null,
     });
-    return archived.outcome === "question-not-found" ? notFound(request) : { status: 200, body: archived.question };
+    if (archived.outcome === "question-not-found") {
+      return definitionProblem(archived);
+    }
+    return { status: 200, body: archived.question };
   });
 
   registerRoute(scope, definitionApi.getQuestionUsage, async (request) => {
     const usage = await listQuestionUsage(database, request.params.questionId);
-    return usage === undefined ? notFound(request) : { status: 200, body: usage };
+    return usage === undefined ? notFoundProblem() : { status: 200, body: usage };
   });
 }

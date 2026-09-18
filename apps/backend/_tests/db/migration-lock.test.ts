@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { MIGRATIONS_FOLDER } from "../../src/db/migrator.js";
+import { MIGRATIONS_FOLDER } from "../../src/db/migrations.js";
 
 const LOCK_FILE = path.join(MIGRATIONS_FOLDER, "migrations.lock.json");
 

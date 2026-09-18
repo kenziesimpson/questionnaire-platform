@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
-import { MIGRATIONS_FOLDER } from "../../src/db/migrator.js";
+import { MIGRATIONS_FOLDER } from "../../src/db/migrations.js";
 
 const BACKEND_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const DRIZZLE_KIT_BIN = path.join(path.dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.cjs");

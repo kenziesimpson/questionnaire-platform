@@ -45,12 +45,21 @@ describe("buildApp", () => {
     });
   });
 
-  it("answers an unknown path inside the execution module with a problem body", async () => {
-    const response = await app.inject({ method: "GET", url: "/api/run/questionnaires/current" });
+  it("answers an unknown path inside the execution module with a no-store problem body at the prefixed URL", async () => {
+    const response = await app.inject({ method: "GET", url: "/api/run/questionnaires/current?q=1" });
 
     expect(response.statusCode).toBe(404);
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
-    expect(response.json()).toMatchObject({ type: problemType("resource/not-found") });
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.json()).toMatchObject({ type: problemType("resource/not-found"), instance: "/api/run/questionnaires/current?q=1" });
+  });
+
+  it("answers an unknown path inside the definition module with a problem body at the prefixed URL", async () => {
+    const response = await app.inject({ method: "GET", url: "/api/definition/nowhere" });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
+    expect(response.json()).toMatchObject({ type: problemType("resource/not-found"), instance: "/api/definition/nowhere" });
   });
 
   it("answers an unknown path outside any module with a problem body", async () => {
@@ -58,6 +67,23 @@ describe("buildApp", () => {
 
     expect(response.statusCode).toBe(404);
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
-    expect(response.json()).toMatchObject({ type: problemType("resource/not-found") });
+    expect(response.json()).toMatchObject({ type: problemType("resource/not-found"), instance: "/api/nowhere" });
   });
+
+  it.each(["/api/run/sessions/%zz", "/api/definition/questions/%zz?q=1", "/%zz"])(
+    "answers the malformed URL %s with request/invalid at that URL, echoing nothing else",
+    async (url) => {
+      const response = await app.inject({ method: "GET", url });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
+      expect(response.json()).toEqual({
+        type: problemType("request/invalid"),
+        title: expect.any(String),
+        status: 400,
+        instance: url,
+        errors: [],
+      });
+    },
+  );
 });

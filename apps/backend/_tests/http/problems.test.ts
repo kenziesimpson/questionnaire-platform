@@ -1,26 +1,18 @@
-import { PROBLEM_CONTENT_TYPE, PositiveInt, problemType, strict } from "@qp/shared";
+import { PROBLEM_CONTENT_TYPE, problem, problemType, strict } from "@qp/shared";
 import Fastify, { type FastifyInstance } from "fastify";
 import Type from "typebox";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { replyNotFound, replyWithProblem, requestValidatorCompiler } from "../../src/http/problems.js";
+import { applyHttpDefaults, notFoundProblem, replyWithProblem, sendProblem } from "../../src/http/problems.js";
 
 let app: FastifyInstance;
 
 beforeAll(async () => {
   app = Fastify();
-  app.setValidatorCompiler(requestValidatorCompiler());
-  app.setErrorHandler(replyWithProblem);
-  app.setNotFoundHandler(replyNotFound);
-  app.post<{ Params: { v: number }; Querystring: { flag?: boolean }; Body: { count: number } }>(
-    "/things/:v",
-    {
-      schema: {
-        params: Type.Object({ v: PositiveInt }, strict),
-        querystring: Type.Object({ flag: Type.Optional(Type.Boolean()) }, strict),
-        body: Type.Object({ count: Type.Integer() }, strict),
-      },
-    },
-    async (request) => ({ v: request.params.v, flag: request.query.flag, count: request.body.count }),
+  applyHttpDefaults(app, replyWithProblem);
+  app.post<{ Body: { count: number } }>(
+    "/things",
+    { schema: { body: Type.Object({ count: Type.Integer() }, strict) } },
+    async (request) => ({ count: request.body.count }),
   );
   app.get("/explode", async () => {
     throw new Error("boom");
@@ -32,78 +24,92 @@ afterAll(async () => {
   await app.close();
 });
 
-function postThing(url: string, payload: unknown) {
-  return app.inject({ method: "POST", url, payload: payload as Record<string, unknown> });
-}
-
-describe("requestValidatorCompiler", () => {
-  it("coerces path and query strings to their schema types", async () => {
-    const response = await postThing("/things/2?flag=true", { count: 1 });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ v: 2, flag: true, count: 1 });
-  });
-
-  it("does not coerce the body: a numeric string is a type failure", async () => {
-    const response = await postThing("/things/2", { count: "1" });
-
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toMatchObject({
-      type: problemType("request/invalid"),
-      errors: [{ pointer: "/body/count", code: "schema/type" }],
-    });
-  });
-
-  it("rejects an additional body property rather than stripping it", async () => {
-    const response = await postThing("/things/2", { count: 1, extra: true });
-
-    expect(response.statusCode).toBe(400);
-    expect(response.json().errors).toEqual([{ pointer: "/body/extra", code: "schema/additionalProperties" }]);
-  });
-
-  it("names a missing property in the pointer", async () => {
-    const response = await postThing("/things/2", {});
-
-    expect(response.json().errors).toEqual([{ pointer: "/body/count", code: "schema/required" }]);
-  });
-
-  it("points into params for a path segment out of range", async () => {
-    const response = await postThing("/things/0", { count: 1 });
-
-    expect(response.statusCode).toBe(400);
-    expect(response.json().errors).toEqual([{ pointer: "/params/v", code: "schema/minimum" }]);
-  });
-});
-
 describe("replyWithProblem", () => {
-  it("answers unparseable JSON as request/invalid", async () => {
+  it("answers unparseable JSON as request/invalid at the requested URL", async () => {
     const response = await app.inject({
       method: "POST",
-      url: "/things/2",
+      url: "/things?draft=1",
       headers: { "content-type": "application/json" },
       payload: "{",
     });
 
     expect(response.statusCode).toBe(400);
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
-    expect(response.json()).toMatchObject({ type: problemType("request/invalid"), errors: [] });
+    expect(response.json()).toMatchObject({ type: problemType("request/invalid"), instance: "/things?draft=1", errors: [] });
   });
 
-  it("answers an unhandled error as internal, with the request id as detail and no message", async () => {
+  it("answers a schema failure as request/invalid at the requested URL", async () => {
+    const response = await app.inject({ method: "POST", url: "/things", payload: {} });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      type: problemType("request/invalid"),
+      instance: "/things",
+      errors: [{ pointer: "/body/count", code: "schema/required" }],
+    });
+  });
+
+  it("answers an unhandled error as internal at the requested URL, with the request id as detail and no message", async () => {
     const response = await app.inject({ method: "GET", url: "/explode" });
 
     expect(response.statusCode).toBe(500);
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
     const body = response.json();
-    expect(body).toMatchObject({ type: problemType("internal"), status: 500 });
+    expect(body).toMatchObject({ type: problemType("internal"), status: 500, instance: "/explode" });
     expect(body.detail).toEqual(expect.any(String));
     expect(response.body).not.toContain("boom");
   });
 
-  it("answers an unknown route as resource/not-found", async () => {
-    const response = await app.inject({ method: "GET", url: "/nowhere" });
+  it("answers an unknown route as resource/not-found at the requested URL", async () => {
+    const response = await app.inject({ method: "GET", url: "/nowhere?x=1" });
 
     expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({ type: problemType("resource/not-found"), instance: "/nowhere" });
+    expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
+    expect(response.json()).toEqual({ ...notFoundProblem(), instance: "/nowhere?x=1" });
+  });
+});
+
+describe("sendProblem", () => {
+  it("sets instance to the request URL, replacing any instance the body carried", async () => {
+    const scoped = Fastify();
+    scoped.get("/here", async (_request, reply) => sendProblem(reply, problem("questionnaire/closed", { instance: "/elsewhere" })));
+
+    const response = await scoped.inject({ method: "GET", url: "/here?x=1" });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ type: problemType("questionnaire/closed"), instance: "/here?x=1" });
+    await scoped.close();
+  });
+});
+
+describe("notFoundProblem", () => {
+  it("builds the one resource/not-found body, leaving the instance to sendProblem", () => {
+    const body = notFoundProblem();
+
+    expect(body).toMatchObject({ type: problemType("resource/not-found"), status: 404 });
+    expect(body).not.toHaveProperty("instance");
+  });
+});
+
+describe("applyHttpDefaults", () => {
+  it("installs the exact request validator, so a body is not coerced", async () => {
+    const response = await app.inject({ method: "POST", url: "/things", payload: { count: "1" } });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ errors: [{ pointer: "/body/count", code: "schema/type" }] });
+  });
+
+  it("installs the error handler it is given", async () => {
+    const scoped = Fastify();
+    applyHttpDefaults(scoped, (_error, _request, reply) => reply.code(418).send({ handled: true }));
+    scoped.get("/explode", async () => {
+      throw new Error("boom");
+    });
+
+    const response = await scoped.inject({ method: "GET", url: "/explode" });
+
+    expect(response.statusCode).toBe(418);
+    expect(response.json()).toEqual({ handled: true });
+    await scoped.close();
   });
 });
