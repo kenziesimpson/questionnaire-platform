@@ -47,6 +47,7 @@ export function SampleAnswersPanel({ shownItems, answers, onChange, onReset }: S
         onChange={onChange}
         labelFor={(item) => labels.get(item.itemId) ?? item.question.prompt}
         onClear={(itemId) => onChange(itemId, null)}
+        announceVisibility={false}
       />
       <p className="text-xs text-muted-foreground">
         These never leave the browser. They drive the rules so an author can walk every branch.

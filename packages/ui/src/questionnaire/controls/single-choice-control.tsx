@@ -8,7 +8,7 @@ function singleChoiceAnswer(optionId: string, otherText?: string): ClientAnswerV
   return otherText ? { type: "single_choice", optionId, otherText } : { type: "single_choice", optionId };
 }
 
-export function SingleChoiceControl({ item, answer, error, mode, onChange }: ControlProps<"single_choice">) {
+export function SingleChoiceControl({ item, answer, error, mode, onChange, label }: ControlProps<"single_choice">) {
   const ids = useFieldIds();
   const { question } = item;
   const readOnly = mode === "readonly";
@@ -17,7 +17,7 @@ export function SingleChoiceControl({ item, answer, error, mode, onChange }: Con
   const otherText = useRetainedOtherText(otherSelected, answer?.otherText);
   const view: SingleChoiceViewProps = {
     ids,
-    prompt: question.prompt,
+    prompt: label ?? question.prompt,
     required: item.required,
     error,
     options: question.options,

@@ -8,9 +8,16 @@ export interface QuestionnaireItemsProps extends RendererProps {
   visibleItems: readonly Item[];
   labelFor?: (item: Item, index: number) => string;
   onClear?: (itemId: string) => void;
+  announceVisibility?: boolean;
 }
 
-export function QuestionnaireItems({ visibleItems, labelFor, onClear, ...renderer }: QuestionnaireItemsProps) {
+export function QuestionnaireItems({
+  visibleItems,
+  labelFor,
+  onClear,
+  announceVisibility = true,
+  ...renderer
+}: QuestionnaireItemsProps) {
   return (
     <div className="flex flex-col gap-6">
       {visibleItems.map((item, index) => (
@@ -23,7 +30,7 @@ export function QuestionnaireItems({ visibleItems, labelFor, onClear, ...rendere
           />
         </div>
       ))}
-      <VisibilityAnnouncer items={visibleItems} />
+      {announceVisibility && <VisibilityAnnouncer items={visibleItems} />}
     </div>
   );
 }

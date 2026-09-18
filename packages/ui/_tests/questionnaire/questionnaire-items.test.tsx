@@ -57,4 +57,18 @@ describe("QuestionnaireItems", () => {
 
     expect(onClear).toHaveBeenCalledExactlyOnceWith("itm_04");
   });
+
+  it("renders no Clear button in readonly mode even when onClear is given", () => {
+    render(<QuestionnaireItems visibleItems={[pharmacy]} onClear={vi.fn()} {...rendererProps({ mode: "readonly" })} />);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("renders the visibility-change live region by default, and can suppress it with announceVisibility={false}", () => {
+    const props = rendererProps();
+    const suppressed = render(<QuestionnaireItems visibleItems={answeredNo} announceVisibility={false} {...props} />);
+    expect(suppressed.queryByRole("status")).not.toBeInTheDocument();
+
+    const announced = render(<QuestionnaireItems visibleItems={answeredNo} {...props} />);
+    expect(announced.getByRole("status")).toBeInTheDocument();
+  });
 });

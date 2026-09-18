@@ -193,6 +193,15 @@ describe("the version preview screen", () => {
     expect(reset).toBeDisabled();
   });
 
+  it("announces visibility changes exactly once, from the readonly snapshot, not the sample-answers panel", async () => {
+    await renderLoadedIntake();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+
+    await chooseSample("1. Do you have a medical condition?", "Yes");
+
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+  });
+
   it("never calls the execution API: every request goes to /api/definition and none to /api/run", async () => {
     const { requests } = await renderLoadedIntake();
 

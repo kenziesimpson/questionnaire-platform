@@ -2,14 +2,14 @@ import { Input } from "@qp/ui/primitives/input";
 import { errorAria, FieldError, FieldLabel, useFieldIds } from "../field";
 import type { ControlProps } from "../types";
 
-export function NumberControl({ item, answer, error, mode, onChange }: ControlProps<"number">) {
+export function NumberControl({ item, answer, error, mode, onChange, label }: ControlProps<"number">) {
   const ids = useFieldIds();
   const { question } = item;
   const readOnly = mode === "readonly";
   return (
     <div className="grid gap-2">
       <FieldLabel htmlFor={ids.control} required={item.required}>
-        {question.prompt}
+        {label ?? question.prompt}
       </FieldLabel>
       <div className="flex items-center gap-2">
         <Input
