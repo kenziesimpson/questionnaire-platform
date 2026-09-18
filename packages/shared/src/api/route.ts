@@ -13,15 +13,10 @@ export interface RouteSchema {
 
 export interface RouteDefinition<S extends RouteSchema = RouteSchema> {
   method: HttpMethod;
-  /** Relative to the module's mount point: `/api/definition` or `/api/run`. */
   url: string;
   schema: S;
 }
 
-/**
- * One route's contract: Fastify registers `schema` as-is, and clients derive their types from it.
- * Every route declares the problem body for `4xx` and `5xx`, so error serialization is contractual too.
- */
 export function defineRoute<const M extends HttpMethod, const U extends string, S extends RouteSchema>(route: {
   method: M;
   url: U;

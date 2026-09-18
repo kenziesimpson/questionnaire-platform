@@ -12,11 +12,6 @@ import {
 } from "../domain/question.js";
 import { defineRoute } from "./route.js";
 
-/**
- * The definition API, mounted at `/api/definition` — eighteen routes ([[7-application-boundary]] §4.1).
- * Every route sits behind the author `preHandler`. List order is fixed server-side (#40) and no
- * route paginates.
- */
 export const DEFINITION_PREFIX = "/api/definition";
 
 const QuestionParams = Type.Object({ questionId: Uuid }, strict);
@@ -24,12 +19,8 @@ const QuestionVersionParams = Type.Object({ questionId: Uuid, v: PositiveInt }, 
 const QuestionnaireParams = Type.Object({ id: Uuid }, strict);
 const QuestionnaireVersionParams = Type.Object({ id: Uuid, v: PositiveInt }, strict);
 
-/** Headers are open objects: only the named header is constrained. A missing `If-Match` is a `400` (#43). */
 const IfMatch = Type.Object({ "if-match": Type.String({ minLength: 1 }) });
 
-// ── Question bank ────────────────────────────────────────────────────────────
-
-/** Latest version of each question, `ORDER BY id DESC`. */
 export const listQuestions = defineRoute({
   method: "GET",
   url: "/questions",
@@ -39,7 +30,6 @@ export const listQuestions = defineRoute({
   },
 });
 
-/** Creates the question and writes version 1. */
 export const createQuestion = defineRoute({
   method: "POST",
   url: "/questions",
@@ -55,7 +45,6 @@ export const getQuestion = defineRoute({
   schema: { params: QuestionParams, response: { 200: Question } },
 });
 
-/** Metadata only, `ORDER BY version DESC`. */
 export const listQuestionVersions = defineRoute({
   method: "GET",
   url: "/questions/:questionId/versions",
@@ -68,7 +57,6 @@ export const getQuestionVersion = defineRoute({
   schema: { params: QuestionVersionParams, response: { 200: QuestionVersion } },
 });
 
-/** Append-only: saving is publishing (#13). Serialized by a row lock; `409 question/version-conflict` is the safety net. */
 export const createQuestionVersion = defineRoute({
   method: "POST",
   url: "/questions/:questionId/versions",
@@ -79,30 +67,24 @@ export const createQuestionVersion = defineRoute({
   },
 });
 
-/** Hides the question from new placements; existing placements are unaffected. */
 export const archiveQuestion = defineRoute({
   method: "POST",
   url: "/questions/:questionId/archive",
   schema: { params: QuestionParams, response: { 200: Question } },
 });
 
-/** Published versions embedding this question, `ORDER BY questionnaire_id, version DESC`. */
 export const getQuestionUsage = defineRoute({
   method: "GET",
   url: "/questions/:questionId/usage",
   schema: { params: QuestionParams, response: { 200: Type.Array(QuestionUsage) } },
 });
 
-// ── Questionnaires ───────────────────────────────────────────────────────────
-
-/** `ORDER BY id DESC`. */
 export const listQuestionnaires = defineRoute({
   method: "GET",
   url: "/questionnaires",
   schema: { response: { 200: Type.Array(QuestionnaireSummary) } },
 });
 
-/** Creates the questionnaire and opens draft version 1 with `title`. */
 export const createQuestionnaire = defineRoute({
   method: "POST",
   url: "/questionnaires",
@@ -115,18 +97,12 @@ export const createQuestionnaire = defineRoute({
   },
 });
 
-/** Responds with `ETag`; `Cache-Control: no-store`. */
 export const getDraft = defineRoute({
   method: "GET",
   url: "/questionnaires/:id/draft",
   schema: { params: QuestionnaireParams, response: { 200: QuestionnaireDraft } },
 });
 
-/**
- * Replaces the whole draft — title, items, order, predicates — atomically. A stale `If-Match` is
- * `409 questionnaire/draft-stale`; an archived or unknown question version is `422 questionnaire/draft-invalid`.
- * Responds with the new `ETag`.
- */
 export const replaceDraft = defineRoute({
   method: "PUT",
   url: "/questionnaires/:id/draft",
@@ -138,7 +114,6 @@ export const replaceDraft = defineRoute({
   },
 });
 
-/** A dry run of publish validation through the same function publish calls. No writes. */
 export const validateDraft = defineRoute({
   method: "POST",
   url: "/questionnaires/:id/draft/validate",
@@ -156,38 +131,30 @@ export const validateDraft = defineRoute({
   },
 });
 
-/**
- * Promotes the draft to version N in one transaction. Requires `If-Match`, so an author cannot
- * publish a draft another tab changed after they last read it.
- */
 export const publishDraft = defineRoute({
   method: "POST",
   url: "/questionnaires/:id/publish",
   schema: { params: QuestionnaireParams, headers: IfMatch, response: { 201: VersionSummary } },
 });
 
-/** Opens the next draft as a copy of the latest published version. Responds with `ETag`. */
 export const openDraft = defineRoute({
   method: "POST",
   url: "/questionnaires/:id/draft",
   schema: { params: QuestionnaireParams, response: { 201: QuestionnaireDraft } },
 });
 
-/** Version history, metadata only, `ORDER BY version DESC`. */
 export const listVersions = defineRoute({
   method: "GET",
   url: "/questionnaires/:id/versions",
   schema: { params: QuestionnaireParams, response: { 200: Type.Array(VersionSummary) } },
 });
 
-/** One published snapshot, verbatim. `ETag` and `Cache-Control: private, max-age=31536000, immutable` (#44). */
 export const getVersion = defineRoute({
   method: "GET",
   url: "/questionnaires/:id/versions/:v",
   schema: { params: QuestionnaireVersionParams, response: { 200: PublishedDefinition } },
 });
 
-/** Sets, reschedules or clears `closesAt`. Clearing undoes a premature retirement. */
 export const setClosesAt = defineRoute({
   method: "PUT",
   url: "/questionnaires/:id/closes-at",
