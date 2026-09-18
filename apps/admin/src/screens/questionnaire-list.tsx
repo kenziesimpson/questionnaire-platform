@@ -81,8 +81,8 @@ function QuestionnaireRow({ summary, now, drafts }: { summary: QuestionnaireSumm
   return (
     <TableRow>
       <TableCell className="py-3 pl-4 whitespace-normal">
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5">
+          <div className="flex flex-col gap-0.5">
             {closed ? (
               <span className="font-medium text-muted-foreground">{summary.name}</span>
             ) : (
@@ -90,19 +90,19 @@ function QuestionnaireRow({ summary, now, drafts }: { summary: QuestionnaireSumm
                 href={respondentLink(summary.questionnaireId)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hover:underline"
+                className="w-fit hover:underline"
               >
                 <span className="font-medium">{summary.name}</span>
               </a>
             )}
-            {closed ? (
-              <ArchivedMark name={summary.name} />
-            ) : (
-              <CopyLinkButton questionnaireId={summary.questionnaireId} name={summary.name} />
+            {summary.key === null ? null : (
+              <span className="font-mono text-xs text-muted-foreground">{summary.key}</span>
             )}
           </div>
-          {summary.key === null ? null : (
-            <span className="font-mono text-xs text-muted-foreground">{summary.key}</span>
+          {closed ? (
+            <ArchivedMark name={summary.name} />
+          ) : (
+            <CopyLinkButton questionnaireId={summary.questionnaireId} name={summary.name} />
           )}
         </div>
       </TableCell>
