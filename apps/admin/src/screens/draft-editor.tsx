@@ -1,4 +1,5 @@
 import type { QuestionnaireDraft, QuestionnaireSummary } from "@qp/shared";
+import { PlusIcon } from "@qp/ui/icons";
 import { Button } from "@qp/ui/primitives/button";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
@@ -7,7 +8,6 @@ import { isProblem } from "../api/problem-error";
 import { questionnaireQueries } from "../api/queries";
 import { useQuestionnaireSummary } from "../api/use-questionnaire-summary";
 import { BackToQuestionnaires } from "../components/back-to-questionnaires";
-import { PlusIcon } from "../components/icons";
 import { Notice } from "../components/notice";
 import { QuestionEditorDialog } from "../features/question-editor/question-editor-dialog";
 import { questionCount } from "../lib/counts";
@@ -98,7 +98,7 @@ function DraftEditor({
           )}
           <div className="flex items-center gap-2">
             <Button type="button" variant="outline" disabled={editor.publishing} onClick={() => editor.setAdding(true)}>
-              <PlusIcon />
+              <PlusIcon size={13} aria-hidden="true" />
               Add question
             </Button>
           </div>

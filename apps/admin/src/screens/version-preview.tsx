@@ -1,9 +1,10 @@
+import { ArrowLeftIcon } from "@qp/ui/icons";
+import { Alert, AlertDescription } from "@qp/ui/primitives/alert";
 import { Button } from "@qp/ui/primitives/button";
 import { useQuery } from "@tanstack/react-query";
 import { Link, getRouteApi } from "@tanstack/react-router";
 import { isProblem } from "../api/problem-error";
 import { questionnaireQueries } from "../api/queries";
-import { ArrowLeftIcon } from "../components/icons";
 import { LoadingLine } from "../components/query-state";
 import { ScreenHeader } from "../components/screen-header";
 import { calendarDateLabel } from "../lib/dates";
@@ -34,7 +35,7 @@ function BackToVersionHistory({ questionnaireId }: { questionnaireId: string }) 
         aria-label="Back to version history"
         title="Back to version history"
       >
-        <ArrowLeftIcon />
+        <ArrowLeftIcon size={18} aria-hidden="true" />
       </Link>
     </Button>
   );
@@ -66,13 +67,13 @@ function VersionNotFound({ version }: { version: number }) {
 
 function LoadFailed({ version, retrying, onRetry }: { version: number; retrying: boolean; onRetry: () => void }) {
   return (
-    <div role="alert" className="flex flex-col items-start gap-3 rounded-xl border border-destructive/40 p-6">
+    <Alert variant="destructive" className="flex-col items-start gap-3 rounded-xl p-6">
       <h2 className="text-base font-semibold">Version {version} could not be loaded</h2>
-      <p className="text-sm text-muted-foreground">Something went wrong reaching the server. Try again.</p>
+      <AlertDescription className="text-sm">Something went wrong reaching the server. Try again.</AlertDescription>
       <Button variant="outline" onClick={onRetry} disabled={retrying}>
         {retrying ? "Retrying…" : "Retry"}
       </Button>
-    </div>
+    </Alert>
   );
 }
 

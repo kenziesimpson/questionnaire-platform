@@ -1,12 +1,12 @@
 import type { UniqueIdentifier } from "@dnd-kit/core";
 import { arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { OTHER_OPTION_ID } from "@qp/shared";
+import { GripVerticalIcon, LockIcon, PlusIcon, XIcon } from "@qp/ui/icons";
 import { Button } from "@qp/ui/primitives/button";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { Input } from "@qp/ui/primitives/input";
 import { useId, useState, type ReactNode } from "react";
 import { describedByFor, errorIdFor, FieldMessages } from "../../components/field";
-import { GripIcon, LockIcon, PlusIcon, RemoveIcon } from "../../components/icons";
 import { Pill } from "../../components/pill";
 import { SortableList, SortableRow, useSortableList } from "../../components/sortable-list";
 import { optionPointer, type FieldErrors } from "./field-errors";
@@ -26,7 +26,7 @@ function OptionIdChip({ optionId, id }: { optionId: string; id: string }) {
       id={id}
       className="inline-flex h-6 min-w-30 shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted px-2 font-mono text-[11px] text-muted-foreground"
     >
-      <LockIcon size={10} />
+      <LockIcon size={10} aria-hidden="true" />
       <span className="sr-only">Option id </span>
       {optionId}
     </span>
@@ -75,7 +75,7 @@ function OptionRowContent({ option, errors, pointer, onLabel, onRemove, canRemov
             disabled={!canRemove}
             onClick={onRemove}
           >
-            <RemoveIcon />
+            <XIcon size={13} aria-hidden="true" />
           </Button>
         )}
       </div>
@@ -105,7 +105,7 @@ function SortableOptionRow(props: Omit<RowProps, "handle">) {
                 {...attributes}
                 {...listeners}
               >
-                <GripIcon />
+                <GripVerticalIcon size={14} fill="currentColor" aria-hidden="true" />
               </button>
             }
           />
@@ -229,7 +229,7 @@ function EditableOptions({ form, errors, onChange, onDraggingChange }: OptionsEd
             onChange(next);
           }}
         >
-          <PlusIcon />
+          <PlusIcon size={13} aria-hidden="true" />
           Add option
         </Button>
         <span className="text-right text-xs leading-normal text-muted-foreground">

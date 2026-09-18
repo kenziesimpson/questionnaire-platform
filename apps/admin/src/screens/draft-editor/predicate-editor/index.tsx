@@ -1,8 +1,8 @@
 import { conditionsOf, type Condition, type DraftItem, type Predicate, type QuestionnaireDraft } from "@qp/shared";
+import { PlusIcon } from "@qp/ui/icons";
 import { Button } from "@qp/ui/primitives/button";
 import { NativeSelect } from "@qp/ui/primitives/native-select";
 import { useId, useState } from "react";
-import { PlusIcon } from "../../../components/icons";
 import { defaultConditionFor, isComplete } from "../conditions";
 import { earlierItemsThan } from "../draft-selectors";
 import { ConditionRow } from "./condition-row";
@@ -107,7 +107,7 @@ export function PredicateEditor({ draft, item, position, disabled, onChange }: P
       )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button type="button" variant="outline" size="sm" disabled={nearest === undefined || unsaved !== null} onClick={addCondition}>
-          <PlusIcon />
+          <PlusIcon size={13} aria-hidden="true" />
           Add condition
         </Button>
         <span id={hintId} className="text-xs text-muted-foreground">

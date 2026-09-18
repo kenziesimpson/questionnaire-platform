@@ -1,10 +1,10 @@
 import type { Question, QuestionVersion, QuestionnaireDraft } from "@qp/shared";
+import { PlusIcon } from "@qp/ui/icons";
 import { Button } from "@qp/ui/primitives/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@qp/ui/primitives/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useRef } from "react";
 import { questionQueries } from "../../api/queries";
-import { PlusIcon } from "../../components/icons";
 import { Pill } from "../../components/pill";
 import { lastEditedLabel } from "../../lib/dates";
 import { RESPONSE_TYPE_LABELS, sortByLatestEdit } from "../../lib/question";
@@ -57,7 +57,7 @@ function BankRow({
 function NewQuestionButton({ onClick, variant }: { onClick: () => void; variant: "default" | "outline" }) {
   return (
     <Button type="button" variant={variant} onClick={onClick}>
-      <PlusIcon />
+      <PlusIcon size={13} aria-hidden="true" />
       New question
     </Button>
   );

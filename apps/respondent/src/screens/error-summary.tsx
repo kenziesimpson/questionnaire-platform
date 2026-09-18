@@ -1,4 +1,7 @@
 import { visibleItems, type ClientAnswers, type PublishedDefinition } from "@qp/shared";
+import { AlertCircleIcon } from "@qp/ui/icons";
+import { cn } from "@qp/ui/lib/utils";
+import { alertVariants } from "@qp/ui/primitives/alert";
 import { itemErrorMessage, type ItemErrors } from "@qp/ui/questionnaire";
 import { useId, type Ref } from "react";
 
@@ -38,25 +41,10 @@ export function ErrorSummary({ ref, entries, unplacedErrors, onJump }: ErrorSumm
       tabIndex={-1}
       aria-labelledby={titleId}
       aria-describedby={unplacedErrors ? unplacedId : undefined}
-      className="flex flex-col gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-4 text-sm outline-none focus-visible:ring-3 focus-visible:ring-destructive/25"
+      className={cn(alertVariants({ variant: "destructive" }), "flex-col items-stretch gap-3 outline-none focus-visible:ring-3 focus-visible:ring-destructive/25")}
     >
       <h2 id={titleId} className="flex items-center gap-2 text-base font-semibold text-destructive">
-        <svg
-          aria-hidden="true"
-          className="shrink-0"
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="12" cy="12" r="10" />
-          <path d="M12 8v5" />
-          <path d="M12 16h.01" />
-        </svg>
+        <AlertCircleIcon aria-hidden="true" className="shrink-0" size={18} />
         {errorSummaryTitle(entries.length)}
       </h2>
       {entries.length > 0 && (

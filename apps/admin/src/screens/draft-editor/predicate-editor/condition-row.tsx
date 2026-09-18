@@ -6,10 +6,10 @@ import {
   type QuestionVersion,
   type QuestionnaireDraft,
 } from "@qp/shared";
-import { NativeSelect } from "@qp/ui/primitives/native-select";
+import { XIcon } from "@qp/ui/icons";
 import { Button } from "@qp/ui/primitives/button";
+import { NativeSelect } from "@qp/ui/primitives/native-select";
 import { useId, useState } from "react";
-import { RemoveIcon } from "../../../components/icons";
 import { defaultConditionFor, isComplete, OPERATOR_LABELS, sameCondition, withOperator, type Operator } from "../conditions";
 import { earlierItemsThan, referenceOf } from "../draft-selectors";
 import { ChoiceOperand } from "./choice-operand";
@@ -43,7 +43,7 @@ interface ConditionRowProps {
 function RemoveConditionButton({ number, onRemove }: { number: number; onRemove: () => void }) {
   return (
     <Button type="button" variant="outline" size="icon-sm" aria-label={`Remove condition ${number}`} onClick={onRemove}>
-      <RemoveIcon />
+      <XIcon size={13} aria-hidden="true" />
     </Button>
   );
 }
