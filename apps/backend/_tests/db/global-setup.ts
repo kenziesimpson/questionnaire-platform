@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 import type { TestProject } from "vitest/node";
-import { applyMigrations } from "../../src/db/migrator.js";
+import { applyMigrations } from "../../src/db/migrations.js";
 import { TEMPLATE_DATABASE, withDatabase, withRole, type RolePasswords, type TestDatabaseServer } from "./server.js";
 
 const ROLES_SCRIPT = fileURLToPath(new URL("../../../../db/init/01-roles.sh", import.meta.url));
