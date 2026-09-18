@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fullTimestamp, lastEditedLabel } from "../../src/lib/dates";
+import { calendarDateLabel, fullTimestamp, lastEditedLabel } from "../../src/lib/dates";
 
 const NOW = Date.parse("2026-09-14T12:00:00.000Z");
 
@@ -22,5 +22,11 @@ describe("the last-edited label", () => {
 describe("fullTimestamp", () => {
   it("formats a calendar date and time in one locale", () => {
     expect(fullTimestamp("2026-09-14T12:00:00.000Z")).toMatch(/^14 Sept? 2026, \d{2}:\d{2}$/);
+  });
+});
+
+describe("calendarDateLabel", () => {
+  it("formats a calendar date alone, with no time of day, in the same locale as fullTimestamp", () => {
+    expect(calendarDateLabel("2026-09-14T12:00:00.000Z")).toMatch(/^14 Sept? 2026$/);
   });
 });

@@ -10,7 +10,6 @@ export const queryKeys = {
   questions: {
     all: ["questions"] as const,
     list: (includeArchived: boolean) => ["questions", "list", { includeArchived }] as const,
-    one: (questionId: string) => ["questions", questionId] as const,
     usage: (questionId: string) => ["questions", questionId, "usage"] as const,
   },
 };
