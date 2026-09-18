@@ -1,5 +1,5 @@
 import type { Locator } from "@playwright/test";
-import { definitionApi, type DraftItem, type Item, type Question } from "@qp/shared";
+import { definitionApi, draftItemOf, type Question } from "@qp/shared";
 import { expect, test, uniqueName, type DefinitionApi } from "../../fixtures/index.ts";
 import {
   draftItemList,
@@ -51,10 +51,6 @@ function formControlsIn(scope: Locator): Locator {
     .or(scope.getByRole("checkbox"))
     .or(scope.getByRole("spinbutton"))
     .or(scope.getByRole("combobox"));
-}
-
-function asDraftItem({ itemId, required, visibleWhen, question }: Item): DraftItem {
-  return { itemId, required, visibleWhen, questionId: question.questionId, questionVersion: question.questionVersion };
 }
 
 test.describe("E25 a published version is not editable", () => {
@@ -110,7 +106,7 @@ test.describe("E25 a published version is not editable", () => {
     const snapshot = await api.getVersion(published.questionnaireId, 1);
     const { draft } = await api.getDraft(published.questionnaireId);
     expect(draft.title).toBe(snapshot.title);
-    expect(draft.items).toEqual(snapshot.items.map(asDraftItem));
+    expect(draft.items).toEqual(snapshot.items.map(draftItemOf));
     expect(draft.items.map((item) => item.questionVersion)).toEqual([1, 1]);
   });
 

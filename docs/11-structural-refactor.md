@@ -149,6 +149,7 @@ This is items 3 and 4 of the audit's first tier. It branches after PR 1 merges, 
 **Shared package surface**
 - Move `strict` into `primitives.ts` and delete `domain/utils.ts`. Remove the 7 re-declarations of `strict`.
 - Convert `packages/shared/src/index.ts` from `export *` to named exports, and stop exporting the roughly 30 names nothing imports.
+- **Amended (PR 2a):** that includes the code guards (`is*Code`) and `ItemErrorOf`, which PR 1 exported; nothing outside the package imports them, and L10 bans hand-built guards anyway.
 - Move the demo data to a `./demo` subpath export, including the seed's question keys and bank history, and the item and option ids that e2e re-types by hand.
 - **Amended (PR 2a):** the e2e fixtures keep their `DEMO_*` names as aliases of the shared `INTAKE_*` constants, so no spec changes; folding the aliases away is PR 16's.
 - Add an execution-route completeness test to match the existing definition-route one.
@@ -165,6 +166,11 @@ This is items 3 and 4 of the audit's first tier. It branches after PR 1 merges, 
 Lint rules: L8, L9 and L11. **Amended:** L15 too, which §4.1 assigns to PR 2; PR 2a lands L8, L9 and L15, and PR 2b lands L11.
 
 Owns: `packages/shared/src/{index.ts,primitives.ts,domain,engine,demo}`, `packages/ui/src/testing/**`, `**/_tests/{setup,support,axe,fixtures,harness}*`, `apps/backend/src/db/seed/**`.
+
+**Amended:** one Owns line per half.
+- **Owns (2a):** `packages/shared/src/**`, `packages/shared/package.json` (the `./demo` export), `apps/backend/src/db/seed/**`, the local copies of the vocabulary wherever they sit, and every import of the demo names.
+- **Owns (2b):** `packages/ui/src/testing/**`, the `./testing` export in `packages/ui/package.json`, and `**/_tests/{setup,support,axe,fixtures,harness}*`.
+- The halves share test files, `eslint.config.mjs` and `docs/8-testing.md`. **PR 2a merges first; PR 2b rebases onto it** and keeps 2a's `@qp/shared/demo` imports and vocabulary imports in the shared test files.
 
 ### Phase B — Backend
 

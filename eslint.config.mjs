@@ -146,15 +146,21 @@ const sharedVocabulary = ["TSTypeAliasDeclaration", "VariableDeclarator", "Funct
     "This name is shared vocabulary, declared once in packages/shared/src/domain or packages/shared/src/primitives.ts. Import it from @qp/shared; a local copy drifts, as the three definitions of the \"other\" option did ([[2-design-doc#17. Decisions Log]] #82).",
 }));
 
-const sharedPackageSurface = [unnamedReExport, ...sharedVocabulary];
+const syntaxOutsideTheRoutePathHelper = [...doubleAssertions, routePathLiteral, unnamedReExport];
 
-const syntaxDeclaringTheSharedVocabulary = (...selectors) => ["warn", ...doubleAssertions, routePathLiteral, noDefaultExport, unnamedReExport, ...selectors];
+const syntaxDeclaringTheSharedVocabulary = (...selectors) => ["warn", ...syntaxOutsideTheRoutePathHelper, noDefaultExport, ...selectors];
 
-const syntaxAllowingDefaultExport = (...selectors) => ["warn", ...doubleAssertions, routePathLiteral, ...sharedPackageSurface, ...selectors];
+const syntaxAllowingDefaultExport = (...selectors) => ["warn", ...syntaxOutsideTheRoutePathHelper, ...sharedVocabulary, ...selectors];
 
 const syntax = (...selectors) => syntaxAllowingDefaultExport(noDefaultExport, ...selectors);
 
-const syntaxInsideTheRoutePathHelper = (...selectors) => ["warn", ...doubleAssertions, noDefaultExport, ...sharedPackageSurface, ...selectors];
+const syntaxInsideTheRoutePathHelper = (...selectors) => [
+  "warn",
+  ...syntaxOutsideTheRoutePathHelper.filter((selector) => selector !== routePathLiteral),
+  noDefaultExport,
+  ...sharedVocabulary,
+  ...selectors,
+];
 
 const problemParsingMessage =
   "Problem bodies are read off the wire by problemFromWire in packages/shared/src/problems.ts, which owns the code guards and the unknown-code policy. Parse through it and keep only this consumer's policy here.";
