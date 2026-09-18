@@ -3,7 +3,7 @@ import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from
 import { databaseErrorOf } from "./database-errors.js";
 import { pointerErrors, requestValidatorCompiler } from "./validation.js";
 
-export type ProblemErrorHandler = (error: FastifyError, request: FastifyRequest, reply: FastifyReply) => FastifyReply;
+type ProblemErrorHandler = (error: FastifyError, request: FastifyRequest, reply: FastifyReply) => FastifyReply;
 
 export function sendProblem(reply: FastifyReply, body: Problem): FastifyReply {
   return reply.code(body.status).type(PROBLEM_CONTENT_TYPE).send(body);
@@ -24,7 +24,7 @@ export function replyWithProblem(error: FastifyError, request: FastifyRequest, r
   return sendProblem(reply, problem("internal", { detail: String(request.id) }));
 }
 
-export function replyNotFound(request: FastifyRequest, reply: FastifyReply): FastifyReply {
+function replyNotFound(request: FastifyRequest, reply: FastifyReply): FastifyReply {
   return sendProblem(reply, notFoundProblem(request.url));
 }
 
