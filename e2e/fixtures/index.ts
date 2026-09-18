@@ -5,6 +5,7 @@ export {
   type ApiExchange,
   type ApiRequestParts,
 } from "./api/api-exchange.ts";
+export { problemOf, problemReplyOf, type ProblemReply } from "./api/problem-reply.ts";
 export {
   DefinitionApi,
   draftItem,

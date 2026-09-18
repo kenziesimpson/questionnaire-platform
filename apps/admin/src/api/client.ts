@@ -1,15 +1,20 @@
 import {
   PROBLEM_CONTENT_TYPE,
   definitionApi,
-  parseDraftEtag,
-  type BodyOf,
-  type ParamsOf,
-  type QueryOf,
+  isDraftEtagFor,
+  routePath,
+  routeSearch,
+  successSchemaOf,
+  type PathParams,
+  type QueryParams,
   type QuestionnaireDraft,
+  type RequestParts as RouteRequestParts,
   type RouteDefinition,
+  type RouteWith,
+  type SuccessBody,
   type VersionSummary,
+  type BodyOf,
 } from "@qp/shared";
-import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
 import { UnexpectedResponseError, problemErrorFrom } from "./problem-error";
 
@@ -23,24 +28,11 @@ type DraftEtagRoute =
 
 export type PlainDefinitionRoute = Exclude<DefinitionRoute, DraftEtagRoute>;
 
-type RouteWith<Status extends number> = RouteDefinition & { schema: { response: Record<Status, TSchema> } };
-type SuccessBody<R extends RouteWith<Status>, Status extends number> = Static<R["schema"]["response"][Status]>;
-
-type Declares<R extends RouteDefinition, K extends "params" | "querystring" | "body" | "headers"> =
-  R["schema"] extends Record<K, TSchema> ? true : false;
-
-export type RequestParts<R extends RouteDefinition> = (Declares<R, "params"> extends true
-  ? { params: ParamsOf<R> }
-  : { params?: never }) &
-  (Declares<R, "querystring"> extends true ? { query?: QueryOf<R> } : { query?: never }) &
-  (Declares<R, "body"> extends true ? { body: BodyOf<R> } : { body?: never }) &
-  (Declares<R, "headers"> extends true ? { ifMatch: string } : { ifMatch?: never }) & { signal?: AbortSignal };
-
-type Scalar = string | number | boolean;
+export type RequestParts<R extends RouteDefinition> = RouteRequestParts<R> & { signal?: AbortSignal };
 
 interface LooseParts {
-  params?: Record<string, Scalar>;
-  query?: Record<string, Scalar | undefined>;
+  params?: PathParams;
+  query?: QueryParams;
   body?: unknown;
   ifMatch?: string;
   signal?: AbortSignal;
@@ -52,25 +44,8 @@ interface Exchange<Body> {
   headers: Headers;
 }
 
-function pathOf(url: string, params: Record<string, Scalar> | undefined): string {
-  return url.replace(/:([A-Za-z]+)/g, (_, name: string) => {
-    const value = params?.[name];
-    if (value === undefined) throw new Error(`Missing path parameter "${name}" for ${url}`);
-    return encodeURIComponent(String(value));
-  });
-}
-
-function searchOf(query: Record<string, Scalar | undefined> | undefined): string {
-  const search = new URLSearchParams();
-  for (const [name, value] of Object.entries(query ?? {})) {
-    if (value !== undefined) search.set(name, String(value));
-  }
-  const encoded = search.toString();
-  return encoded === "" ? "" : `?${encoded}`;
-}
-
 export function definitionUrl(route: RouteDefinition, parts: Pick<LooseParts, "params" | "query"> = {}): string {
-  return `${definitionApi.DEFINITION_PREFIX}${pathOf(route.url, parts.params)}${searchOf(parts.query)}`;
+  return `${definitionApi.DEFINITION_PREFIX}${routePath(route.url, parts.params)}${routeSearch(parts.query)}`;
 }
 
 async function jsonOf(response: Response): Promise<unknown> {
@@ -81,11 +56,6 @@ async function jsonOf(response: Response): Promise<unknown> {
   } catch {
     throw new UnexpectedResponseError(response.status, "the body is not JSON");
   }
-}
-
-function successSchemaOf(route: RouteDefinition, status: number): TSchema | undefined {
-  const code = String(status);
-  return code.endsWith("xx") ? undefined : route.schema.response[code];
 }
 
 async function checkedExchange(route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {
@@ -141,8 +111,7 @@ export type DraftContent = BodyOf<typeof definitionApi.replaceDraft>;
 
 function versionedDraft({ status, body, headers }: Exchange<QuestionnaireDraft>): VersionedDraft {
   const etag = headers.get("etag");
-  const parsed = etag === null ? undefined : parseDraftEtag(etag);
-  if (etag === null || parsed?.versionId !== body.versionId.toLowerCase()) {
+  if (etag === null || !isDraftEtagFor(etag, body.versionId)) {
     throw new UnexpectedResponseError(status, "a draft response must carry that draft's ETag");
   }
   return { draft: body, etag };

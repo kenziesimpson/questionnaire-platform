@@ -119,8 +119,8 @@ Owns: the four blocks it appends to `eslint.config.mjs`, `tests/lint-{library-sp
 This is items 1 and 2 of the audit's first tier.
 
 - **Request helpers.** Add `packages/shared/src/api/request.ts` with `routePath`, `routeSearch`, `successSchemaOf` and `RequestParts<R>`. It must be transport-free: shared builds with `types: []`, so `fetch`, `Headers` and `URLSearchParams` are not available there.
-- **Route types and ETag check.** Move the `SuccessStatus`/`SuccessOf` helpers from `apps/backend/src/http/routes.ts` into `packages/shared/src/api/route.ts`. Add `isDraftEtagFor` to `packages/shared/src/api/etag.ts`.
-- **Problem parser.** Add `problemFromWire(wire, { unknownCodes: "drop" | "reject" })` to `packages/shared/src/problems.ts`, driven by a value-level extension table. Export the code guards and one item-error schema factory. Admin passes `"drop"` and respondent passes `"reject"`, so today's behaviour is kept on both sides.
+- **Route types and ETag check.** Move the route-success helpers into `packages/shared/src/api/route.ts`: `SuccessStatus` comes from `apps/backend/src/http/routes.ts`, the only one of them that lived there, and `RouteWith`/`SuccessBody` come from admin's `src/api/client.ts`. Add `isDraftEtagFor` to `packages/shared/src/api/etag.ts`.
+- **Problem parser.** Add `problemFromWire(wire)` to `packages/shared/src/problems.ts`, driven by a value-level extension table, reading against a permissive envelope so an unknown code is distinguishable from a malformed body. Export the code guards and one item-error schema factory. **Amended:** the plan called for an `{ unknownCodes: "drop" | "reject" }` policy, on the premise that admin drops unknown codes today. It does not — `apps/admin/src/api/problem-error.ts` and `apps/respondent/src/api/request.ts` both opened with the same `Value.Check(ProblemDetails, body)` and both rejected. The parser therefore has one behaviour, refusing a body it does not fully understand, which is what both consumers already did ([[2-design-doc#17. Decisions Log]] #81).
 - **Consumers.** Admin (`src/api/client.ts`, `src/api/problem-error.ts`), respondent (`src/api/request.ts`, `src/api/problems.ts`) and e2e (`fixtures/api/api-exchange.ts`, `specs/tier-3/support/authoring.ts`) switch to the shared helpers. Each consumer keeps only its policy: admin throws `ProblemError` and checks the ETag, respondent returns an outcome union, e2e sends through Playwright.
 - **Admin cleanup.** Delete admin's builders for the execution-only slugs.
 - **Admin type tests.** The `@ts-expect-error` type tests in admin must still fail to compile without the directive; they are the regression net.
@@ -419,11 +419,11 @@ Lint rule: L13. This PR touches many files, so it runs after Phase C and D.
   - the draft-list locators, as methods on `AdminPage`;
   - a `secondContext` fixture;
   - one `Deferred` helper.
-- Split up `tier-3/support/authoring.ts`.
+- Split up `tier-3/support/authoring.ts`. Note that `tier-2/support/submit-traffic.ts` is not owned by any PR in this pass; PR 16 takes it.
 - Delete the three `.gitkeep` files.
 - Do not rename spec files or tier directories.
 
-Lint rule: L10, which PR 1 introduced, extends to e2e.
+Lint rule: L10 already covers e2e — PR 1 extended it there and converted all three hand-parses (`fixtures/api/api-exchange.ts`, `tier-3/support/authoring.ts`, `tier-2/support/submit-traffic.ts`) onto `problemFromWire`, promoting one `ProblemReply` and a `problemOf(reply, slug)` accessor into `e2e/fixtures/api/problem-reply.ts`. What is left for PR 16 is the route matcher and request recorder, the draft-list locators, `secondContext`, `Deferred`, and splitting `authoring.ts`.
 
 #### PR 17 — Compose redundancy · S
 
@@ -550,9 +550,10 @@ These are agreed. R1–R5 live as tests under `tests/`, next to `text-files.test
 | New | The import extension convention depends on how a workspace is resolved | 14 |
 | New | Comment content moves to the docs, and a lint rule enforces the no-comments rule | 18 |
 | New | The track file-ownership table is deprecated | 20 |
+| New | A problem body is read off the wire whole or not at all; `problemFromWire` takes no unknown-code policy, because both consumers already rejected | 1 |
 | Several | Rationale extracted from comments in `packages/shared` and `packages/telemetry`; the rows cited include #13, #15, #18, #20, #25, #31, #34, #36 and #37 and #40–#44 | 18 |
 
-New rows are numbered from #79 in the order they merge.
+New rows are numbered from #79 in the order they merge. PR 1 took #81; a PR that merges before it renumbers.
 
 ## 6. Out of scope
 

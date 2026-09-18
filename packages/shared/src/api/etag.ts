@@ -14,3 +14,8 @@ export function parseDraftEtag(etag: string): { versionId: string; draftRevision
   if (!match) return undefined;
   return { versionId: match[1]!.toLowerCase(), draftRevision: Number(match[2]) };
 }
+
+export function isDraftEtagFor(etag: string | null | undefined, versionId: string): boolean {
+  if (etag === null || etag === undefined) return false;
+  return parseDraftEtag(etag)?.versionId === versionId.toLowerCase();
+}

@@ -1,10 +1,8 @@
-import type { BodyOf, HeadersOf, ParamsOf, Problem, QueryOf, ReplyOf, RouteDefinition } from "@qp/shared";
+import type { BodyOf, HeadersOf, ParamsOf, Problem, QueryOf, ReplyOf, RouteDefinition, SuccessStatus } from "@qp/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { sendProblem } from "./problems.js";
 
 type Declared<T> = [T] extends [never] ? unknown : T;
-
-type SuccessStatus<R extends RouteDefinition> = Exclude<keyof R["schema"]["response"], "4xx" | "5xx">;
 
 export type RouteRequest<R extends RouteDefinition> = FastifyRequest<{
   Params: Declared<ParamsOf<R>>;

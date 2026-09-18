@@ -1,5 +1,5 @@
 import Type from "typebox";
-import { DRAFT_ITEM_CODES } from "../problems.js";
+import { DRAFT_ITEM_CODES, ItemErrorOf } from "../problems.js";
 import { IsoDateTime, PositiveInt, Slug, Uuid } from "../primitives.js";
 import { PublishedDefinition, VersionSummary } from "../domain/definition.js";
 import { DraftItem, QuestionnaireDraft, QuestionnaireSummary } from "../domain/draft.js";
@@ -149,9 +149,7 @@ export const validateDraft = defineRoute({
       200: Type.Object(
         {
           valid: Type.Boolean(),
-          items: Type.Array(
-            Type.Object({ itemId: Slug, code: Type.Enum(DRAFT_ITEM_CODES) }, strict),
-          ),
+          items: Type.Array(ItemErrorOf(DRAFT_ITEM_CODES)),
         },
         strict,
       ),

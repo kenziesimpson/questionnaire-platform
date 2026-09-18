@@ -1,6 +1,6 @@
-import { executionApi, type BodyOf, type ClientAnswers, type ParamsOf, type ReplyOf, type Sensitive } from "@qp/shared";
+import { executionApi, routePath, type BodyOf, type ClientAnswers, type ParamsOf, type ReplyOf, type Sensitive } from "@qp/shared";
 import type { ExecutionProblemSlug } from "./problems.ts";
-import { pathOf, sendExecutionRequest, type ExecutionOutcome } from "./request.ts";
+import { sendExecutionRequest, type ExecutionOutcome } from "./request.ts";
 
 const { createSession: createRoute, getSession: getRoute, submitSession: submitRoute } = executionApi;
 
@@ -54,7 +54,7 @@ export function getSession(sessionId: string): Promise<GetSessionOutcome> {
   const params: ParamsOf<typeof getRoute> = { sessionId };
   return sendExecutionRequest({
     method: getRoute.method,
-    path: pathOf(getRoute.url, params),
+    path: routePath(getRoute.url, params),
     success: { status: 200, schema: getRoute.schema.response[200] },
     problems: GET_SESSION_PROBLEMS,
   });
@@ -65,7 +65,7 @@ export function submitSession(sessionId: string, answers: Sensitive<ClientAnswer
   const body: BodyOf<typeof submitRoute> = { answers: answers.unwrap() };
   return sendExecutionRequest({
     method: submitRoute.method,
-    path: pathOf(submitRoute.url, params),
+    path: routePath(submitRoute.url, params),
     body: JSON.stringify(body),
     success: { status: 200, schema: submitRoute.schema.response[200] },
     problems: SUBMIT_SESSION_PROBLEMS,

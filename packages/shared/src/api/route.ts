@@ -44,3 +44,9 @@ export type HeadersOf<R extends RouteDefinition> = Field<R, "headers">;
 export type BodyOf<R extends RouteDefinition> = Field<R, "body">;
 export type ReplyOf<R extends RouteDefinition, Code extends keyof R["schema"]["response"]> =
   R["schema"]["response"][Code] extends TSchema ? Static<R["schema"]["response"][Code]> : never;
+
+export type SuccessStatus<R extends RouteDefinition> = Exclude<keyof R["schema"]["response"], "4xx" | "5xx">;
+
+export type RouteWith<Status extends number> = RouteDefinition & { schema: { response: Record<Status, TSchema> } };
+
+export type SuccessBody<R extends RouteWith<Status>, Status extends number> = Static<R["schema"]["response"][Status]>;

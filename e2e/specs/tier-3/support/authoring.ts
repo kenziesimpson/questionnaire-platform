@@ -1,16 +1,6 @@
 import { expect, type Locator, type Page, type Request, type Response } from "@playwright/test";
-import {
-  definitionApi,
-  ProblemDetails,
-  problemSlug,
-  type ProblemDetailsWire,
-  type ProblemSlug,
-  type Question,
-  type QuestionInput,
-  type RouteDefinition,
-} from "@qp/shared";
-import { Value } from "typebox/value";
-import { uniqueName, type ApiExchange, type DefinitionApi } from "../../../fixtures/index.ts";
+import { definitionApi, routePath, type Question, type QuestionInput, type RouteDefinition } from "@qp/shared";
+import { problemReplyOf, uniqueName, type ApiExchange, type DefinitionApi, type ProblemReply } from "../../../fixtures/index.ts";
 
 const DRAFT_ITEM_LIST_NAME = "Questions, in the order respondents see them";
 
@@ -39,17 +29,6 @@ export function promptOf(question: Question): string {
   return question.latest.prompt;
 }
 
-export interface ProblemReply {
-  readonly status: number;
-  readonly slug: ProblemSlug | undefined;
-  readonly problem: ProblemDetailsWire | undefined;
-}
-
-export function problemReplyOf(status: number, body: unknown): ProblemReply {
-  const problem = Value.Check(ProblemDetails, body) ? body : undefined;
-  return { status, slug: problem === undefined ? undefined : problemSlug(problem.type), problem };
-}
-
 export function problemReplyOfExchange(exchange: ApiExchange): ProblemReply {
   return problemReplyOf(exchange.status, exchange.body);
 }
@@ -61,12 +40,7 @@ export async function problemReplyOfResponse(response: Response): Promise<Proble
 export type RouteParams = Readonly<Record<string, string | number>>;
 
 function definitionPath(route: RouteDefinition, params: RouteParams): string {
-  const path = route.url.replace(/:([A-Za-z]+)/g, (_segment, name: string) => {
-    const value = params[name];
-    if (value === undefined) throw new Error(`Missing path parameter "${name}" for ${route.url}`);
-    return encodeURIComponent(String(value));
-  });
-  return `${definitionApi.DEFINITION_PREFIX}${path}`;
+  return `${definitionApi.DEFINITION_PREFIX}${routePath(route.url, params)}`;
 }
 
 function isDefinitionCall(message: Request, route: RouteDefinition, params: RouteParams): boolean {

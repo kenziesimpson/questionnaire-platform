@@ -1,5 +1,5 @@
 import { definitionApi } from "@qp/shared";
-import { draftItem, expect, test, uniqueName } from "../../fixtures/index.ts";
+import { draftItem, expect, problemOf, test, uniqueName } from "../../fixtures/index.ts";
 import { problemReplyOfExchange, promptOf, textQuestionInput } from "./support/authoring.ts";
 
 const PUBLISHED_ITEM_ID = "itm_archived_later";
@@ -41,7 +41,7 @@ test.describe("E23 an archived question cannot be placed", () => {
     const refusal = problemReplyOfExchange(directAdd);
     expect(refusal.status).toBe(422);
     expect(refusal.slug).toBe("questionnaire/draft-invalid");
-    expect(refusal.problem?.items).toEqual([{ itemId: DIRECT_ADD_ITEM_ID, code: "draft/question-archived" }]);
+    expect(problemOf(refusal, "questionnaire/draft-invalid").items).toEqual([{ itemId: DIRECT_ADD_ITEM_ID, code: "draft/question-archived" }]);
 
     const unchanged = await api.getDraft(draftId);
     expect(unchanged.etag).toBe(etag);

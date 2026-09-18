@@ -113,9 +113,43 @@ const noDefaultExport = {
     "Exports are named, so an import reads the same everywhere. Tool config files and the vitest and Playwright globalSetup and globalTeardown entry points are the exception, because those tools load a default export.",
 };
 
-const syntaxAllowingDefaultExport = (...selectors) => ["warn", ...doubleAssertions, ...selectors];
+const routePathLiteral = {
+  selector: "Literal[regex.pattern=/(^|\\/):\\(/]",
+  message:
+    "Route paths are filled in by routePath in packages/shared/src/api/request.ts, which is the one place that knows the `:param` syntax. Import it instead of matching `:param` with a regex.",
+};
+
+const syntaxAllowingDefaultExport = (...selectors) => ["warn", ...doubleAssertions, routePathLiteral, ...selectors];
 
 const syntax = (...selectors) => syntaxAllowingDefaultExport(noDefaultExport, ...selectors);
+
+const syntaxInsideTheRoutePathHelper = (...selectors) => ["warn", ...doubleAssertions, noDefaultExport, ...selectors];
+
+const problemParsingMessage =
+  "Problem bodies are read off the wire by problemFromWire in packages/shared/src/problems.ts, which owns the code guards and the unknown-code policy. Parse through it and keep only this consumer's policy here.";
+
+const problemParsing = [
+  {
+    selector: 'CallExpression[callee.object.name="Value"][callee.property.name="Check"][arguments.0.name="ProblemDetails"]',
+    message: problemParsingMessage,
+  },
+  {
+    selector: "TSTypePredicate[typeAnnotation.typeAnnotation.typeName.name=/^(PointerError|RequestErrorCode|DraftItemCode|SubmissionItemCode|ItemError)$/]",
+    message: problemParsingMessage,
+  },
+];
+
+const notFoundProblem = {
+  selector: 'CallExpression[callee.name="problem"][arguments.0.value="resource/not-found"]',
+  message:
+    "The `resource/not-found` body is built in one place. Call that builder instead, and read one off the wire with problemFromWire.",
+};
+
+const sourcesOutsideTheBackend = ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}", "e2e/**/*.{ts,tsx}"];
+
+const theProblemParser = "packages/shared/src/problems.ts";
+
+const theRoutePathHelper = "packages/shared/src/api/request.ts";
 
 const rawSqlMessage =
   "Raw SQL through drizzle's `sql` bypasses the query builder's types. Use the builder (eq, and, exists, notExists, max, inArray, …); if Postgres needs something the builder cannot express, such as calling a database function or DDL, disable it with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>";
@@ -150,6 +184,19 @@ const filesThatMayConstructConnections = [
   "apps/backend/_tests/db/global-setup.ts",
 ];
 
+const confine = (...globals) => ["error", ...globals];
+
+const apiClients = ["apps/*/src/api/**/*.{ts,tsx,mts,cts,js,mjs,cjs}"];
+
+const fetchOwners = [...apiClients, "e2e/fixtures/**", "e2e/stack/**"];
+
+const transportSeamMessage =
+  "fetch belongs to an app's API client (apps/*/src/api/**) or to the e2e fixtures and stack, so one module per app owns the transport that trace headers and client spans will attach to.";
+
+const fetchAwayFromTheTransport = { name: "fetch", message: transportSeamMessage };
+
+const fetchThroughAnObject = ["window", "globalThis"].map((object) => ({ object, property: "fetch", message: transportSeamMessage }));
+
 const persistenceSeamMessage =
   "The respondent reads and writes partial answers through apps/respondent/src/storage, so the envelope format, the quota and failure handling, and later the telemetry around them live in one seam.";
 
@@ -177,6 +224,12 @@ const filesThatMustDefaultExport = [
 ];
 
 const backendFilesThatMustDefaultExport = ["apps/backend/**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}"];
+
+const e2eFilesThatMustDefaultExport = [
+  "e2e/**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}",
+  "e2e/stack/global-setup.ts",
+  "e2e/stack/global-teardown.ts",
+];
 
 export default tseslint.config(
   {
@@ -260,11 +313,28 @@ export default tseslint.config(
     rules: { "no-restricted-imports": restrictOutside("packages/ui/src/primitives") },
   },
   {
-    name: "localStorage outside the respondent's persistence seam",
-    files: everySourceFile,
-    ignores: ["apps/respondent/src/storage/**"],
+    name: "L16: fetch outside the API clients, the e2e fixtures and the e2e stack",
+    files: everyFile,
+    ignores: fetchOwners,
     rules: {
-      "no-restricted-globals": ["error", localStorageAwayFromTheSeam],
+      "no-restricted-globals": confine(fetchAwayFromTheTransport),
+      "no-restricted-properties": ["error", ...fetchThroughAnObject],
+    },
+  },
+  {
+    name: "L16 and L17: fetch and localStorage in the sources that own neither",
+    files: everySourceFile,
+    ignores: [...apiClients, "apps/respondent/src/storage/**"],
+    rules: {
+      "no-restricted-globals": confine(fetchAwayFromTheTransport, localStorageAwayFromTheSeam),
+      "no-restricted-properties": ["error", ...fetchThroughAnObject, ...localStorageThroughAnObject],
+    },
+  },
+  {
+    name: "L17: localStorage inside the API clients, which own the transport but not the persistence seam",
+    files: apiClients,
+    rules: {
+      "no-restricted-globals": confine(localStorageAwayFromTheSeam),
       "no-restricted-properties": ["error", ...localStorageThroughAnObject],
     },
   },
@@ -292,5 +362,37 @@ export default tseslint.config(
     name: "default exports in the backend harness's globalSetup, which constructs connections",
     files: ["apps/backend/_tests/db/global-setup.ts"],
     rules: { "no-restricted-syntax": syntaxAllowingDefaultExport(...rawSql) },
+  },
+  {
+    name: "L10: problem bodies in the frontends, the shared packages and e2e",
+    files: sourcesOutsideTheBackend,
+    ignores: ["apps/backend/src/**", theProblemParser],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem) },
+  },
+  {
+    name: "L10: problem bodies in the backend, alongside its raw SQL and connection restrictions",
+    files: ["apps/backend/src/**/*.ts"],
+    ignores: ["apps/backend/src/db/schema.ts", "apps/backend/src/db/client.ts"],
+    rules: { "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction, ...problemParsing) },
+  },
+  {
+    name: "L10: problem bodies in the schema declaration, whose checks and defaults are SQL expressions",
+    files: ["apps/backend/src/db/schema.ts"],
+    rules: { "no-restricted-syntax": syntax(...problemParsing) },
+  },
+  {
+    name: "L10: problem bodies in the connection constructor, which constructs connections",
+    files: ["apps/backend/src/db/client.ts"],
+    rules: { "no-restricted-syntax": syntax(...rawSql, ...problemParsing) },
+  },
+  {
+    name: "L10: problem bodies in the e2e entry points, which must default-export",
+    files: e2eFilesThatMustDefaultExport,
+    rules: { "no-restricted-syntax": syntaxAllowingDefaultExport(...problemParsing, notFoundProblem) },
+  },
+  {
+    name: "L6: routePath owns the :param syntax",
+    files: [theRoutePathHelper],
+    rules: { "no-restricted-syntax": syntaxInsideTheRoutePathHelper(...problemParsing, notFoundProblem) },
   },
 );
