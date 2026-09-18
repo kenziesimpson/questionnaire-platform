@@ -18,6 +18,9 @@ test.describe("E17 — freeform other round trip", () => {
     await respondent.choose(whichCondition, OTHER_LABEL);
     await expect(conditionGroup).not.toHaveAttribute("aria-invalid", "true");
 
+    await respondent.otherText(whichCondition).click();
+    await expect(conditionGroup).not.toHaveAttribute("aria-invalid", "true");
+
     await respondent.fillDate(diagnosedOn, "2020-02-29");
     await expect(conditionGroup).toHaveAttribute("aria-invalid", "true");
     await expect(conditionGroup).toHaveAccessibleDescription(ITEM_ERROR_MESSAGES.otherTextRequired(OTHER_LABEL));

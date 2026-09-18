@@ -192,7 +192,7 @@ export function QuestionnaireScreen({
       return;
     }
     if (announcerRef.current !== null) {
-      announcerRef.current.textContent = `Your answers were not submitted. ${errorSummaryTitle(entries.length)}.${request % 2 === 0 ? "" : " "}`;
+      announcerRef.current.textContent = `Your answers were not submitted. ${errorSummaryTitle(entries.length)}.${request % 2 === 0 ? "" : "\u00a0"}`;
     }
   });
 
