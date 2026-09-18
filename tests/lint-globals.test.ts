@@ -37,4 +37,30 @@ describe("L16 — fetch only in API client modules", () => {
 
     expect(await restrictedGlobals("apps/respondent/_tests/api/example.test.ts", code)).toEqual([]);
   });
+
+  it("rejects fetch inside the respondent's persistence seam, which owns storage and not the transport", async () => {
+    expect(await restrictedGlobals("apps/respondent/src/storage/partials.ts")).toHaveLength(1);
+  });
+});
+
+describe("L16 and L17 share no-restricted-globals without switching each other off", () => {
+  const reads = (filePath: string, code: string) => lintAs(filePath, code).then((m) => m.filter((x) => x.ruleId === "no-restricted-globals"));
+
+  const FETCH = 'export const load = () => fetch("/api/definition/questionnaires");';
+  const STORE = 'export const raw = localStorage.getItem("qp");';
+
+  it("confines both in a source file that owns neither seam", async () => {
+    expect(await reads("apps/admin/src/screens/example.tsx", FETCH)).toHaveLength(1);
+    expect(await reads("apps/admin/src/screens/example.tsx", STORE)).toHaveLength(1);
+  });
+
+  it("lets the API clients keep fetch while still confining localStorage", async () => {
+    expect(await reads("apps/admin/src/api/client.ts", FETCH)).toEqual([]);
+    expect(await reads("apps/admin/src/api/client.ts", STORE)).toHaveLength(1);
+  });
+
+  it("lets the persistence seam keep localStorage while still confining fetch", async () => {
+    expect(await reads("apps/respondent/src/storage/partials.ts", STORE)).toEqual([]);
+    expect(await reads("apps/respondent/src/storage/partials.ts", FETCH)).toHaveLength(1);
+  });
 });

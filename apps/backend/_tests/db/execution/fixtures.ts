@@ -14,8 +14,8 @@ import { afterEach, beforeEach, vi } from "vitest";
 import { appendQuestionVersion, createQuestion } from "../../../src/db/definition/questions.js";
 import { seedDemoQuestionnaire } from "../../../src/db/seed/demo-questionnaire.js";
 import { executionModule } from "../../../src/modules/execution/plugin.js";
-import { aPublishedQuestionnaireOf, publishNextVersion } from "../../db/fixtures.js";
-import type { TestDatabase } from "../../db/harness.js";
+import { aPublishedQuestionnaireOf, publishNextVersion } from "../fixtures.js";
+import type { TestDatabase } from "../harness.js";
 
 export const NOW = new Date("2026-09-14T10:00:00.000Z");
 

@@ -202,19 +202,39 @@ describe("problemFromWire", () => {
     expect(problemFromWire(body, reject)).toBeUndefined();
   });
 
-  it("drops codes this build does not know under `drop`, and refuses the body under `reject`", () => {
-    const body = {
-      ...problem("submission/invalid", { items: [{ itemId: "itm_01", code: "answer/required" }] }),
-      items: [
-        { itemId: "itm_01", code: "answer/required" },
-        { itemId: "itm_02", code: "predicate/unsatisfiable" },
-      ],
-    };
+  const oneKnownItem = problem("submission/invalid", { items: [{ itemId: "itm_01", code: "answer/required" }] });
 
-    expect(problemFromWire(body, drop)?.problem).toEqual(
-      problem("submission/invalid", { items: [{ itemId: "itm_01", code: "answer/required" }] }),
-    );
+  it.each([
+    ["a code this build has never heard of, as a newer server would send", "answer/invented-tomorrow"],
+    ["a code the contract knows but this slug cannot carry", "predicate/unsatisfiable"],
+  ])("drops %s under `drop`, keeping the items it does know, and refuses the body under `reject`", (_, unknown) => {
+    const body = { ...oneKnownItem, items: [{ itemId: "itm_01", code: "answer/required" }, { itemId: "itm_02", code: unknown }] };
+
+    expect(problemFromWire(body, drop)?.problem).toEqual(oneKnownItem);
     expect(problemFromWire(body, reject)).toBeUndefined();
+  });
+
+  it("drops a pointer code this build has never heard of under `drop`, and refuses the body under `reject`", () => {
+    const known = { pointer: "/body/question/max", code: "question/min-exceeds-max" } as const;
+    const body = { ...problem("request/invalid", { errors: [known] }), errors: [known, { pointer: "/body/x", code: "invented/tomorrow" }] };
+
+    expect(problemFromWire(body, drop)?.problem).toEqual(problem("request/invalid", { errors: [known] }));
+    expect(problemFromWire(body, reject)).toBeUndefined();
+  });
+
+  it("still refuses a body whose envelope is wrong, however lenient the code policy is", () => {
+    const badItemId = { ...oneKnownItem, items: [{ itemId: "NOT A SLUG", code: "answer/required" }] };
+    const badStatus = { ...problem("resource/not-found"), status: 200 };
+    const extraMember = { ...problem("resource/not-found"), hints: [] };
+
+    for (const body of [badItemId, badStatus, extraMember]) expect(problemFromWire(body, drop)).toBeUndefined();
+  });
+
+  it("leaves the closed contract schema closed, so a route still refuses to serialize an unknown code", () => {
+    const body = { ...oneKnownItem, items: [{ itemId: "itm_02", code: "answer/invented-tomorrow" }] };
+
+    expect(Value.Check(ProblemDetails, body)).toBe(false);
+    expect(problemFromWire(body, drop)?.problem).toEqual(problem("submission/invalid", { items: [] }));
   });
 
   it("fills a missing extension with an empty one under `drop`, and refuses the body under `reject`", () => {

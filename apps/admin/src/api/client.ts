@@ -11,7 +11,7 @@ import {
   type RequestParts as RouteRequestParts,
   type RouteDefinition,
   type RouteWith,
-  type SuccessOf,
+  type SuccessBody,
   type VersionSummary,
   type BodyOf,
 } from "@qp/shared";
@@ -84,8 +84,8 @@ async function checkedExchange(route: RouteDefinition, parts: LooseParts): Promi
   return { status: response.status, body, headers: response.headers };
 }
 
-function exchange<R extends RouteWith<200>>(route: R, parts: RequestParts<R>): Promise<Exchange<SuccessOf<R, 200>>>;
-function exchange<R extends RouteWith<201>>(route: R, parts: RequestParts<R>): Promise<Exchange<SuccessOf<R, 201>>>;
+function exchange<R extends RouteWith<200>>(route: R, parts: RequestParts<R>): Promise<Exchange<SuccessBody<R, 200>>>;
+function exchange<R extends RouteWith<201>>(route: R, parts: RequestParts<R>): Promise<Exchange<SuccessBody<R, 201>>>;
 function exchange(route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {
   return checkedExchange(route, parts);
 }
@@ -93,11 +93,11 @@ function exchange(route: RouteDefinition, parts: LooseParts): Promise<Exchange<u
 export function callDefinition<R extends PlainDefinitionRoute & RouteWith<200>>(
   route: R,
   parts: RequestParts<R>,
-): Promise<SuccessOf<R, 200>>;
+): Promise<SuccessBody<R, 200>>;
 export function callDefinition<R extends PlainDefinitionRoute & RouteWith<201>>(
   route: R,
   parts: RequestParts<R>,
-): Promise<SuccessOf<R, 201>>;
+): Promise<SuccessBody<R, 201>>;
 export async function callDefinition(route: RouteDefinition, parts: LooseParts): Promise<unknown> {
   return (await checkedExchange(route, parts)).body;
 }

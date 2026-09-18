@@ -49,4 +49,4 @@ export type SuccessStatus<R extends RouteDefinition> = Exclude<keyof R["schema"]
 
 export type RouteWith<Status extends number> = RouteDefinition & { schema: { response: Record<Status, TSchema> } };
 
-export type SuccessOf<R extends RouteWith<Status>, Status extends number> = Static<R["schema"]["response"][Status]>;
+export type SuccessBody<R extends RouteWith<Status>, Status extends number> = Static<R["schema"]["response"][Status]>;

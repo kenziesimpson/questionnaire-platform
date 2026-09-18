@@ -50,7 +50,7 @@ describe("L10 — problem bodies are parsed only by problemFromWire", () => {
     const messages = await restrictedSyntax(notFound);
 
     expect(messages).toHaveLength(1);
-    expect(messages[0]?.message).toContain("notFoundProblem");
+    expect(messages[0]?.message).toContain("built in one place");
   });
 
   it("allows building any other slug", async () => {
@@ -59,17 +59,37 @@ describe("L10 — problem bodies are parsed only by problemFromWire", () => {
     expect(await restrictedSyntax(code)).toEqual([]);
   });
 
-  it("does not yet reach apps/backend/src, whose six inline builders PR 4b replaces with notFoundProblem", async () => {
+  it("reaches apps/backend/src, keeping the raw SQL and connection restrictions that already apply there", async () => {
+    const backend = "apps/backend/src/modules/definition/routes/example.ts";
+
+    expect(await restrictedSyntax(valueCheck, backend)).toHaveLength(1);
+    expect(await restrictedSyntax('import { sql } from "drizzle-orm";\nexport const q = sql`SELECT 1`;', backend)).toHaveLength(1);
+    expect(await restrictedSyntax('import { Pool } from "pg";\nexport const p = new Pool();', backend)).toHaveLength(1);
+  });
+
+  it("reaches the schema declaration and the connection constructor without taking away their own exemptions", async () => {
+    const rawSql = 'import { sql } from "drizzle-orm";\nexport const q = sql`version >= 1`;';
+    const newPool = 'import { Pool } from "pg";\nexport const p = new Pool();';
+
+    expect(await restrictedSyntax(valueCheck, "apps/backend/src/db/schema.ts")).toHaveLength(1);
+    expect(await restrictedSyntax(rawSql, "apps/backend/src/db/schema.ts")).toEqual([]);
+    expect(await restrictedSyntax(valueCheck, "apps/backend/src/db/client.ts")).toHaveLength(1);
+    expect(await restrictedSyntax(newPool, "apps/backend/src/db/client.ts")).toEqual([]);
+  });
+
+  it("leaves the six inline `resource/not-found` builders in apps/backend/src to PR 4b", async () => {
     expect(await restrictedSyntax(notFound, "apps/backend/src/modules/definition/routes/example.ts")).toEqual([]);
+    expect(await restrictedSyntax(notFound, "apps/backend/src/http/problems.ts")).toEqual([]);
   });
 
   it("does not yet reach e2e, which PR 16 folds into the shared parser", async () => {
     expect(await restrictedSyntax(valueCheck, "e2e/fixtures/api/example.ts")).toEqual([]);
   });
 
-  it("still warns on a double assertion and a `:param` regex, which this block inherits", async () => {
-    const code = 'declare const a: string;\nexport const b = a as unknown as number;\nexport const p = "/:id".replace(/:(\\w+)/g, () => "x");';
+  it("still warns on a double assertion, a `:param` regex and a default export, which this block inherits", async () => {
+    const code =
+      'declare const a: string;\nexport const b = a as unknown as number;\nexport const p = "/:id".replace(/:(\\w+)/g, () => "x");\nexport default p;';
 
-    expect(await restrictedSyntax(code)).toHaveLength(2);
+    expect(await restrictedSyntax(code)).toHaveLength(3);
   });
 });

@@ -1,11 +1,11 @@
 import { executionApi, problem, sensitive, type Problem } from "@qp/shared";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "../../db/client.js";
+import { PublishedDefinitions } from "../../db/execution/published-definitions.js";
+import { resumeSession, sessionView, startSession, type SessionWithDefinitionOutcome } from "../../db/execution/sessions.js";
+import { submitSession, type SubmitOutcome } from "../../db/execution/submit.js";
 import { replyNotFound, replyWithProblem, requestValidatorCompiler } from "../../http/problems.js";
 import { registerRoute } from "../../http/routes.js";
-import { PublishedDefinitions } from "./published-definitions.js";
-import { resumeSession, sessionView, startSession, type SessionWithDefinitionOutcome } from "./sessions.js";
-import { submitSession, type SubmitOutcome } from "./submit.js";
 
 export interface ExecutionModuleOptions {
   readonly database: Database;

@@ -15,20 +15,37 @@ import {
   questionVersionOption,
 } from "../../../src/db/schema.js";
 import { executionModule } from "../../../src/modules/execution/plugin.js";
+import { answersYes, executionUrl, seedIntakeV1, startedSessionId, submit, useExecutionApp } from "../../db/execution/fixtures.js";
 import { expectSqlState, SQLSTATE, useTestDatabase } from "../../db/harness.js";
-import { answersYes, executionUrl, seedIntakeV1, startedSessionId, submit, useExecutionApp } from "./fixtures.js";
 
 const testDatabase = useTestDatabase();
 const executionApp = useExecutionApp(testDatabase);
 
-const EXECUTION_MODULE = fileURLToPath(new URL("../../../src/modules/execution/", import.meta.url));
+const EXECUTION_SOURCE_DIRECTORIES = ["modules", "db"].map((layer) =>
+  fileURLToPath(new URL(`../../../src/${layer}/execution/`, import.meta.url)),
+);
 
-async function executionModuleSources(): Promise<string> {
-  const files = await readdir(EXECUTION_MODULE, { recursive: true });
-  const sources = await Promise.all(
-    files.filter((file) => file.endsWith(".ts")).map((file) => readFile(`${EXECUTION_MODULE}${file}`, "utf8")),
+const DEFINITION_SIDE_IMPORT = /from\s*"[./]*(?:db\/)?(?:(?:definition|seed)\/|audit(?:\.[cm]?[jt]s)?")/;
+
+const DEFINITION_SIDE_IMPORT_SPELLINGS = [
+  `import { publishDraft } from "../../db/definition/publish.js";`,
+  `import { publishDraft } from "../definition/publish.js";`,
+  `import { seedDemoQuestionnaire } from "../../db/seed/demo-questionnaire.js";`,
+  `import { seedDemoQuestionnaire } from "../seed/demo-questionnaire.js";`,
+  `import { recordAudit } from "../../db/audit.js";`,
+  `import { recordAudit } from "../audit.js";`,
+  `import { recordAudit } from "../audit";`,
+  `export { recordAudit } from "../audit.js";`,
+];
+
+async function executionSources(): Promise<string> {
+  const perDirectory = await Promise.all(
+    EXECUTION_SOURCE_DIRECTORIES.map(async (directory) => {
+      const files = await readdir(directory, { recursive: true });
+      return Promise.all(files.filter((file) => file.endsWith(".ts")).map((file) => readFile(`${directory}${file}`, "utf8")));
+    }),
   );
-  return sources.join("\n");
+  return perDirectory.flat().join("\n");
 }
 
 describe("the execution module on its own", () => {
@@ -59,15 +76,16 @@ describe("the execution module on its own", () => {
   });
 
   it("imports from the schema only the execution tables, the questionnaire row it is granted, and the definition schema for the published view", async () => {
-    const source = await executionModuleSources();
-    const schemaImports = [...source.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*"[./]*db\/schema\.js"/g)]
+    const source = await executionSources();
+    const schemaImports = [...source.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*"[./]*(?:db\/)?schema\.js"/g)]
       .flatMap((match) => match[1]!.split(","))
       .map((name) => name.trim())
       .filter((name) => name !== "");
 
     expect(new Set(schemaImports)).toEqual(new Set(["definitionSchema", "questionnaire", "response", "session"]));
     expect(source).toContain('.view("published_questionnaire_version"');
-    expect(source).not.toMatch(/from\s*"[./]*db\/(definition|seed)\//);
+    expect(DEFINITION_SIDE_IMPORT_SPELLINGS.filter((line) => !DEFINITION_SIDE_IMPORT.test(line))).toEqual([]);
+    expect(source).not.toMatch(DEFINITION_SIDE_IMPORT);
   });
 });
 

@@ -28,7 +28,14 @@ describe("routeSearch", () => {
   });
 
   it("encodes the declared values and drops the undefined ones", () => {
-    expect(routeSearch({ includeArchived: true, after: undefined, q: "a b&c" })).toBe("?includeArchived=true&q=a%20b%26c");
+    expect(routeSearch({ includeArchived: true, after: undefined, q: "a b&c" })).toBe("?includeArchived=true&q=a+b%26c");
+  });
+
+  it("encodes exactly as URLSearchParams does, so replacing it changed no request on the wire", () => {
+    const values = [...Array.from({ length: 0x80 }, (_, code) => String.fromCharCode(code)), "é", "日", "🙂", "a b", "a+b", "a&b=c", ""];
+
+    for (const value of values) expect(routeSearch({ k: value })).toBe(`?${new URLSearchParams({ k: value }).toString()}`);
+    for (const name of ["a b", "a&b", "é"]) expect(routeSearch({ [name]: "v" })).toBe(`?${new URLSearchParams([[name, "v"]]).toString()}`);
   });
 });
 

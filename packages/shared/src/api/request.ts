@@ -14,9 +14,17 @@ export function routePath(url: string, params: PathParams = {}): string {
   });
 }
 
+const NOT_FORM_URL_ENCODED = /[!'()~]|%20/g;
+
+function formUrlEncoded(value: string): string {
+  return encodeURIComponent(value).replace(NOT_FORM_URL_ENCODED, (character) =>
+    character === "%20" ? "+" : `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
 export function routeSearch(query: QueryParams = {}): string {
   const pairs = Object.entries(query).flatMap(([name, value]) =>
-    value === undefined ? [] : [`${encodeURIComponent(name)}=${encodeURIComponent(String(value))}`],
+    value === undefined ? [] : [`${formUrlEncoded(name)}=${formUrlEncoded(String(value))}`],
   );
   return pairs.length === 0 ? "" : `?${pairs.join("&")}`;
 }

@@ -29,9 +29,14 @@ describe("L6 — route paths are built only by the shared helper", () => {
     expect(await restrictedSyntax(code, ROUTE_PATH_HELPER)).toEqual([]);
   });
 
-  it("still warns on a double assertion inside that module, so the exemption is only L6's", async () => {
-    const code = "declare const a: string;\nexport const b = a as unknown as number;";
-
+  it.each([
+    ["a double assertion", "declare const a: string;\nexport const b = a as unknown as number;"],
+    ["a default export", "export default { url: \"/q/:id\" };"],
+    [
+      "a hand-built problem guard",
+      'import { ProblemDetails } from "@qp/shared";\nimport { Value } from "typebox/value";\nexport const ok = (b: unknown) => Value.Check(ProblemDetails, b);',
+    ],
+  ])("still warns on %s inside that module, so the exemption is only L6's", async (_, code) => {
     expect(await restrictedSyntax(code, ROUTE_PATH_HELPER)).toHaveLength(1);
   });
 

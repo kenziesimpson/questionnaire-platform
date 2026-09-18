@@ -11,8 +11,8 @@ import {
 } from "@qp/shared";
 import { and, eq } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
-import type { Database, Transaction } from "../../db/client.js";
-import { questionnaire, response, session } from "../../db/schema.js";
+import type { Database, Transaction } from "../client.js";
+import { questionnaire, response, session } from "../schema.js";
 import type { PublishedDefinitions } from "./published-definitions.js";
 import { isClosed, receiptFor, sessionColumns, type SessionRow } from "./sessions.js";
 

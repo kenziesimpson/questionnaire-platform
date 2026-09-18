@@ -5,10 +5,13 @@ async function restrictedImports(filePath: string, code: string): Promise<string
   return (await lintAs(filePath, code)).filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message);
 }
 
-const EXECUTION = "apps/backend/src/modules/execution/submit.ts";
+const EXECUTION = "apps/backend/src/modules/execution/plugin.ts";
 const NESTED_EXECUTION = "apps/backend/src/modules/execution/routes/sessions.ts";
+const DEFINITION = "apps/backend/src/modules/definition/routes/publish.ts";
 const DB_DEFINITION = "apps/backend/src/db/definition/publish.ts";
 const NESTED_DB_DEFINITION = "apps/backend/src/db/definition/drafts/contents.ts";
+const DB_EXECUTION = "apps/backend/src/db/execution/submit.ts";
+const NESTED_DB_EXECUTION = "apps/backend/src/db/execution/sessions/lock.ts";
 
 describe("execution never imports the definition side of the db layer", () => {
   it.each([
@@ -88,5 +91,69 @@ describe("db/definition never imports a backend module", () => {
     const code = `import { routes } from "./modules/execution/routes.js";`;
 
     expect(await restrictedImports("apps/backend/src/app.ts", code)).toEqual([]);
+  });
+});
+
+describe("db/execution never imports a backend module", () => {
+  it.each([
+    ["the execution module it serves", DB_EXECUTION, `import { executionModule } from "../../modules/execution/plugin.js";`],
+    ["the definition module", DB_EXECUTION, `import { x } from "../../modules/definition/author.js";`],
+    ["a module from a nested file", NESTED_DB_EXECUTION, `import { x } from "../../../modules/execution/plugin.js";`],
+    ["the modules directory itself", DB_EXECUTION, `import * as modules from "../../modules";`],
+    ["a type-only import", DB_EXECUTION, `import type { ExecutionModuleOptions } from "../../modules/execution/plugin.js";`],
+    ["a module through ./ segments", DB_EXECUTION, `import { x } from "../.././modules/./execution/plugin.js";`],
+  ])("rejects %s", async (_, filePath, code) => {
+    const messages = await restrictedImports(filePath, code);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("imports none of them");
+  });
+
+  it("allows db/client, db/schema, its own files and @qp/shared", async () => {
+    const code = [
+      `import { openDatabase } from "../client.js";`,
+      `import { session, response } from "../schema.js";`,
+      `import { sessionColumns } from "./sessions.js";`,
+      `import { validateSubmission } from "@qp/shared";`,
+    ].join("\n");
+
+    expect(await restrictedImports(DB_EXECUTION, code)).toEqual([]);
+  });
+
+  it("still rejects the definition side of the db layer and telemetry, which this rule inherits", async () => {
+    expect(await restrictedImports(DB_EXECUTION, `import { publish } from "../definition/publish.js";`)).toHaveLength(1);
+    expect(await restrictedImports(DB_EXECUTION, `import { seed } from "../seed/seed.js";`)).toHaveLength(1);
+    expect(await restrictedImports(DB_EXECUTION, `import { withAudit } from "../audit.js";`)).toHaveLength(1);
+    expect(await restrictedImports(NESTED_DB_EXECUTION, `import { trace } from "@opentelemetry/api";`)).toHaveLength(1);
+  });
+});
+
+describe("the definition side never imports db/execution", () => {
+  it.each([
+    ["the definition module reaching db/execution", DEFINITION, `import { submitSession } from "../../../db/execution/submit.js";`],
+    ["the definition module reaching the directory itself", DEFINITION, `import * as execution from "../../../db/execution";`],
+    ["db/definition reaching its sibling", DB_DEFINITION, `import { lockSession } from "../execution/sessions.js";`],
+    ["db/definition reaching it through db/", DB_DEFINITION, `import { lockSession } from "../../db/execution/sessions.js";`],
+    ["db/definition from a nested file", NESTED_DB_DEFINITION, `import { lockSession } from "../../execution/sessions.js";`],
+    ["a type-only import", DB_DEFINITION, `import type { SessionRow } from "../execution/sessions.js";`],
+    ["a re-export", DB_DEFINITION, `export { receiptFor } from "../execution/sessions.js";`],
+    ["a path through ./ segments", DB_DEFINITION, `import { x } from "../.././db/./execution/submit.js";`],
+    ["a doubled slash", DB_DEFINITION, `import { x } from "..//execution/submit.js";`],
+  ])("rejects %s", async (_, filePath, code) => {
+    const messages = await restrictedImports(filePath, code);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("db/execution belongs to the execution side");
+  });
+
+  it("does not trip on paths that merely start with the word", async () => {
+    expect(await restrictedImports(DB_DEFINITION, `import { x } from "../execution-order.js";`)).toEqual([]);
+    expect(await restrictedImports(DEFINITION, `import { x } from "../../../db/execution-order.js";`)).toEqual([]);
+  });
+
+  it("allows the execution side to reach its own persistence", async () => {
+    expect(await restrictedImports(EXECUTION, `import { submitSession } from "../../db/execution/submit.js";`)).toEqual([]);
+    expect(await restrictedImports(NESTED_EXECUTION, `import { lockSession } from "../../../db/execution/sessions.js";`)).toEqual([]);
+    expect(await restrictedImports(DB_EXECUTION, `import { sessionColumns } from "./sessions.js";`)).toEqual([]);
   });
 });

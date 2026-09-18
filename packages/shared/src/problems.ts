@@ -169,6 +169,8 @@ export function ItemErrorOf<Codes extends string[]>(codes: readonly [...Codes]) 
   return Type.Object({ itemId: Slug, code: Type.Enum(codes) }, strict);
 }
 
+const PointerErrorWire = Type.Object({ pointer: Type.String(), code: Type.String() }, strict);
+
 /** The wire schema, for `4xx` / `5xx` responses on every route. */
 export const ProblemDetails = Type.Object(
   {
@@ -177,7 +179,7 @@ export const ProblemDetails = Type.Object(
     status: Type.Integer({ minimum: 400, maximum: 599 }),
     detail: Type.Optional(Type.String()),
     instance: Type.Optional(Type.String()),
-    errors: Type.Optional(Type.Array(Type.Object({ pointer: Type.String(), code: Type.String() }, strict))),
+    errors: Type.Optional(Type.Array(PointerErrorWire)),
     items: Type.Optional(Type.Array(ItemErrorOf([...DRAFT_ITEM_CODES, ...SUBMISSION_ITEM_CODES]))),
   },
   strict,
@@ -185,6 +187,26 @@ export const ProblemDetails = Type.Object(
 export type ProblemDetailsWire = Static<typeof ProblemDetails>;
 
 export const PROBLEM_CONTENT_TYPE = "application/problem+json";
+
+/**
+ * What a client accepts off the wire. The members are the closed schema's, but `type` and the item
+ * codes are open, because a client built against an older `@qp/shared` than the server it is talking
+ * to must still be able to read the codes it does know. Narrowing back to the closed contract is
+ * `problemFromWire`'s job, under the caller's `unknownCodes` policy.
+ */
+const ProblemEnvelope = Type.Object(
+  {
+    type: Type.String(),
+    title: Type.String(),
+    status: Type.Integer({ minimum: 400, maximum: 599 }),
+    detail: Type.Optional(Type.String()),
+    instance: Type.Optional(Type.String()),
+    errors: Type.Optional(Type.Array(PointerErrorWire)),
+    items: Type.Optional(Type.Array(Type.Object({ itemId: Slug, code: Type.String() }, strict))),
+  },
+  strict,
+);
+type ProblemEnvelopeWire = Static<typeof ProblemEnvelope>;
 
 export type UnknownCodes = "drop" | "reject";
 
@@ -197,7 +219,7 @@ export type WireProblem<S extends ProblemSlug = ProblemSlug> = S extends Problem
   : never;
 
 type ExtensionReaders = {
-  [S in keyof ProblemExtensions]: (wire: ProblemDetailsWire, unknownCodes: UnknownCodes) => ProblemExtensions[S] | undefined;
+  [S in keyof ProblemExtensions]: (wire: ProblemEnvelopeWire, unknownCodes: UnknownCodes) => ProblemExtensions[S] | undefined;
 };
 
 function keptCodes<Wire, Known extends Wire>(
@@ -212,7 +234,7 @@ function keptCodes<Wire, Known extends Wire>(
 
 function itemsOf<C extends string>(isCode: (code: string) => code is C) {
   const isItemError = (item: { itemId: string; code: string }): item is ItemError<C> => isCode(item.code);
-  return (wire: ProblemDetailsWire, unknownCodes: UnknownCodes) => {
+  return (wire: ProblemEnvelopeWire, unknownCodes: UnknownCodes) => {
     const items = keptCodes(wire.items, isItemError, unknownCodes);
     return items === undefined ? undefined : { items };
   };
@@ -235,7 +257,7 @@ function carriesExtensions(slug: ProblemSlug): slug is keyof ProblemExtensions {
   return slug in PROBLEM_EXTENSIONS;
 }
 
-function locationOf({ detail, instance }: ProblemDetailsWire): { detail?: string; instance?: string } {
+function locationOf({ detail, instance }: ProblemEnvelopeWire): { detail?: string; instance?: string } {
   return { ...(detail === undefined ? {} : { detail }), ...(instance === undefined ? {} : { instance }) };
 }
 
@@ -245,7 +267,7 @@ function locationOf({ detail, instance }: ProblemDetailsWire): { detail?: string
  * `"reject"` answers `undefined` unless every code and every required extension is known.
  */
 export function problemFromWire(wire: unknown, { unknownCodes }: ProblemFromWireOptions): WireProblem | undefined {
-  if (!Value.Check(ProblemDetails, wire)) return undefined;
+  if (!Value.Check(ProblemEnvelope, wire)) return undefined;
   const slug = problemSlug(wire.type);
   if (slug === undefined) return undefined;
   const extensions = carriesExtensions(slug) ? PROBLEM_EXTENSIONS[slug](wire, unknownCodes) : {};

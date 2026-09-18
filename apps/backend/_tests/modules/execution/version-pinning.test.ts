@@ -1,6 +1,5 @@
 import { INTAKE_QUESTION_IDS, intakeDefinition, problemType, type PublishedDefinition } from "@qp/shared";
 import { describe, expect, it } from "vitest";
-import { useTestDatabase } from "../../db/harness.js";
 import {
   answersYes,
   getSession,
@@ -13,7 +12,8 @@ import {
   startSession,
   submit,
   useExecutionApp,
-} from "./fixtures.js";
+} from "../../db/execution/fixtures.js";
+import { useTestDatabase } from "../../db/harness.js";
 
 const testDatabase = useTestDatabase();
 const executionApp = useExecutionApp(testDatabase);

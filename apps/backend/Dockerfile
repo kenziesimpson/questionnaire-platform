@@ -4,7 +4,7 @@ FROM node:24-slim AS base
 WORKDIR /app
 
 FROM base AS deps
-COPY package.json package-lock.json tsconfig.base.json ./
+COPY package.json package-lock.json tsconfig.base.json tsconfig.node.json ./
 COPY packages/shared/package.json packages/shared/package.json
 COPY apps/backend/package.json apps/backend/package.json
 RUN npm ci

@@ -1,8 +1,8 @@
 import { readStoredDefinition, type PublishedDefinition } from "@qp/shared";
 import { eq } from "drizzle-orm";
 import { integer, jsonb, uuid } from "drizzle-orm/pg-core";
-import type { Executor } from "../../db/client.js";
-import { definitionSchema } from "../../db/schema.js";
+import type { Executor } from "../client.js";
+import { definitionSchema } from "../schema.js";
 
 export const publishedQuestionnaireVersion = definitionSchema
   .view("published_questionnaire_version", {
