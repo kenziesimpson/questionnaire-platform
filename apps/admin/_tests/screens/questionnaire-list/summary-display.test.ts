@@ -1,4 +1,5 @@
 import type { QuestionnaireSummary } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { describe, expect, it } from "vitest";
 import {
   fromLocalDateTimeInput,
@@ -11,7 +12,7 @@ import {
 const NOW = Date.parse("2026-09-14T12:00:00.000Z");
 
 const summary = (overrides: Partial<QuestionnaireSummary>): QuestionnaireSummary => ({
-  questionnaireId: "01a0950e-56a0-73d6-b936-4a1e10eff8c0",
+  questionnaireId: INTAKE_QUESTIONNAIRE_ID,
   key: null,
   name: "Patient Intake",
   currentVersion: 2,

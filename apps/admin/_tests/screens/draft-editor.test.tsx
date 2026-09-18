@@ -1,5 +1,5 @@
 import type { VersionSummary } from "@qp/shared";
-import { componentAxeViolations, jsonResponse, problemResponse } from "@qp/ui/testing";
+import { axeViolations, jsonResponse, problemResponse } from "@qp/ui/testing";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -387,7 +387,7 @@ describe("the draft editor", () => {
     expect(screen.getByRole("tooltip")).toBeVisible();
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-    expect(await componentAxeViolations()).toEqual([]);
+    expect(await axeViolations()).toEqual([]);
 
     await userEvent.click(within(confirmation).getByRole("button", { name: "Remove question" }));
     expect((await lastPutItems(requests)).map(({ itemId }) => itemId)).toEqual(["itm_smoke", "itm_per_day", "itm_started"]);
@@ -611,10 +611,10 @@ describe("the draft editor", () => {
     await userEvent.click(screen.getByRole("button", { name: "Rules for question 2" }));
     await userEvent.click(within(rowOf("itm_smoke")).getByRole("checkbox", { name: "Required" }));
     await screen.findByRole("alert");
-    expect(await componentAxeViolations()).toEqual([]);
+    expect(await axeViolations()).toEqual([]);
 
     await userEvent.click(screen.getByRole("button", { name: "Add question" }));
     await within(await screen.findByRole("dialog")).findByRole("list", { name: "Active questions in the bank" });
-    expect(await componentAxeViolations()).toEqual([]);
+    expect(await axeViolations()).toEqual([]);
   });
 });

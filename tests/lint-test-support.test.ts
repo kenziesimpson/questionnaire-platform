@@ -90,6 +90,42 @@ describe("L11: a _tests file imports no other directory's harness", () => {
   });
 });
 
+async function testSupportImports(filePath: string, code: string): Promise<string[]> {
+  return (await lintAs(filePath, code)).filter((m) => m.ruleId === "@typescript-eslint/no-restricted-imports").map((m) => m.message);
+}
+
+describe("L11: production code does not import @qp/ui/testing", () => {
+  it.each([
+    "apps/admin/src/app.tsx",
+    "apps/respondent/src/api/request.ts",
+    "packages/ui/src/questionnaire/questionnaire-form.tsx",
+    "packages/ui/src/primitives/dialog.tsx",
+    "packages/shared/src/index.ts",
+    "apps/backend/src/app.ts",
+  ])("rejects @qp/ui/testing and its subpaths in %s", async (filePath) => {
+    expect(await testSupportImports(filePath, `import { stubFetch } from "@qp/ui/testing";`)).toHaveLength(1);
+    expect(await testSupportImports(filePath, `import { axeViolations } from "@qp/ui/testing/axe";`)).toHaveLength(1);
+  });
+
+  it.each([
+    ["packages/ui/src/questionnaire/questionnaire-form.tsx", "../testing"],
+    ["packages/ui/src/questionnaire/controls/date-control.tsx", "../../testing/fake-server"],
+    ["packages/ui/src/index.ts", "./testing"],
+  ])("rejects %s reaching the testing directory as %s", async (filePath, source) => {
+    expect(await testSupportImports(filePath, `import { stubFetch } from "${source}";`)).toHaveLength(1);
+  });
+
+  it("allows the testing module's own files, every _tests directory and look-alike paths", async () => {
+    expect(await testSupportImports("packages/ui/src/testing/index.ts", `export { axeViolations } from "./axe";`)).toEqual([]);
+    expect(await testSupportImports("packages/ui/src/testing/axe.ts", `import { x } from "../testing/jsdom";`)).toEqual([]);
+    expect(await testSupportImports(ADMIN_TEST, `import { stubFetch } from "@qp/ui/testing";`)).toEqual([]);
+    expect(await testSupportImports(RESPONDENT_TEST, `import { FakeServer } from "@qp/ui/testing";`)).toEqual([]);
+    expect(await testSupportImports(UI_TEST, `import { axeViolations } from "../../src/testing";`)).toEqual([]);
+    expect(await testSupportImports("packages/ui/src/questionnaire/types.ts", `import { x } from "./testing-notes";`)).toEqual([]);
+    expect(await testSupportImports("apps/admin/src/app.tsx", `import { Button } from "@qp/ui/primitives/button";`)).toEqual([]);
+  });
+});
+
 describe("L11 restates what each _tests block inherits, because flat config replaces rule options", () => {
   it("keeps admin's and the respondent's library split in their tests", async () => {
     const query = `import { useQuery } from "@tanstack/react-query";`;

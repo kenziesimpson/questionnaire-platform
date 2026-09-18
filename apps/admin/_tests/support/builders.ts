@@ -1,6 +1,7 @@
 import { formatDraftEtag, type DraftItem, type Question, type QuestionVersion, type QuestionnaireDraft } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID, intakeDefinition } from "@qp/shared/demo";
 
-export const QUESTIONNAIRE_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8c0";
+export const QUESTIONNAIRE_ID = INTAKE_QUESTIONNAIRE_ID;
 export const VERSION_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8c1";
 export const QUESTION_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8c2";
 
@@ -18,7 +19,7 @@ export function aDraft(itemIds: string[] = ["itm_01", "itm_02"]): QuestionnaireD
   return {
     questionnaireId: QUESTIONNAIRE_ID,
     versionId: VERSION_ID,
-    title: "Patient Intake",
+    title: intakeDefinition(1).title,
     updatedAt: "2026-09-14T09:00:00.000Z",
     items: itemIds.map(anItem),
     questions: [],

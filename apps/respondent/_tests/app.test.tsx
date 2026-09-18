@@ -72,7 +72,7 @@ describe("entering at /q/:questionnaireId with nothing stored", () => {
   it("starts one session, even under StrictMode, and persists the envelope before any answer", async () => {
     await startFresh();
 
-    expect(server.sent("POST", sessionsUrl)).toMatchObject([
+    expect(server.sent("POST", sessionsUrl).map(({ method, url, body }) => ({ method, url, body }))).toEqual([
       { method: "POST", url: sessionsUrl, body: { questionnaireId: INTAKE_QUESTIONNAIRE_ID } },
     ]);
     expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers: {} });

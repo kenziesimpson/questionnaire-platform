@@ -1,4 +1,5 @@
 import type { Question, QuestionUsage, QuestionnaireSummary } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { axeViolations, jsonResponse, problemResponse, stubFetch, type RecordedRequest } from "@qp/ui/testing";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -8,7 +9,6 @@ import { deferred, routed, type Routes } from "../support/http";
 import { renderAppAt } from "../support/render-app";
 import { BANK_URL, LIST_URL, usageUrl } from "../support/routes";
 
-const INTAKE_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8c0";
 const REVIEW_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8d0";
 const CONDITION_ID = "01a0950e-56a0-73d6-b936-4a1e10eff9a1";
 const PHARMACY_ID = "01a0950e-56a0-73d6-b936-4a1e10eff9a2";
@@ -62,8 +62,8 @@ function aSummary(questionnaireId: string, name: string): QuestionnaireSummary {
 }
 
 const conditionUsage: QuestionUsage[] = [
-  { questionnaireId: INTAKE_ID, version: 2, questionVersion: 4 },
-  { questionnaireId: INTAKE_ID, version: 1, questionVersion: 3 },
+  { questionnaireId: INTAKE_QUESTIONNAIRE_ID, version: 2, questionVersion: 4 },
+  { questionnaireId: INTAKE_QUESTIONNAIRE_ID, version: 1, questionVersion: 3 },
   { questionnaireId: REVIEW_ID, version: 1, questionVersion: 4 },
 ];
 
@@ -71,7 +71,7 @@ function bankRoutes(overrides: Routes = {}): Routes {
   return {
     [`GET ${BANK_URL}`]: () => jsonResponse(200, [smoker, condition, pharmacy]),
     [`GET ${LIST_URL}`]: () =>
-      jsonResponse(200, [aSummary(INTAKE_ID, "Patient Intake"), aSummary(REVIEW_ID, "Medication Review")]),
+      jsonResponse(200, [aSummary(INTAKE_QUESTIONNAIRE_ID, "Patient Intake"), aSummary(REVIEW_ID, "Medication Review")]),
     [`GET ${usageUrl(CONDITION_ID)}`]: () => jsonResponse(200, conditionUsage),
     ...overrides,
   };
@@ -188,7 +188,7 @@ describe("the question bank's usage column", () => {
     expect(within(lines[0] ?? usage).getByText("Patient Intake")).toHaveAttribute("title", "Patient Intake");
     expect(within(usage).getByRole("link", { name: "Preview Patient Intake v2, which uses question v4" })).toHaveAttribute(
       "href",
-      `/admin/questionnaires/${INTAKE_ID}/versions/2`,
+      `/admin/questionnaires/${INTAKE_QUESTIONNAIRE_ID}/versions/2`,
     );
     expect(within(usage).getByRole("link", { name: "Preview Medication Review v1, which uses question v4" })).toHaveAttribute(
       "href",

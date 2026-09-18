@@ -298,6 +298,13 @@ const anotherDirectorysHarness = {
 
 const testSupportLibrariesAway = testSupportLibraries.map(({ group, message }) => ({ group, message }));
 
+const testSupportMessage =
+  "@qp/ui/testing is test support: it stubs fetch with vitest and runs axe-core. Production code never imports it; tests do, from _tests/.";
+
+const theTestSupportPackage = { group: ["@qp/ui/testing", "@qp/ui/testing/*"], message: testSupportMessage };
+
+const theTestSupportDirectory = { regex: "^(\\.{1,2}/+)+([^/]+/+)*testing(/|$)", message: testSupportMessage };
+
 const e2eFilesThatMustDefaultExport = [
   "e2e/**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}",
   "e2e/stack/global-setup.ts",
@@ -320,11 +327,6 @@ export default tseslint.config(
     rules: { "no-restricted-imports": restrict() },
   },
   {
-    name: "telemetry imports inside packages/telemetry",
-    files: ["packages/telemetry/**"],
-    rules: { "no-restricted-imports": "off" },
-  },
-  {
     name: "double type assertions",
     files: everyFile,
     rules: { "no-restricted-syntax": syntax() },
@@ -339,12 +341,6 @@ export default tseslint.config(
     name: "connection construction inside the connection constructors",
     files: filesThatMayConstructConnections,
     rules: { "no-restricted-syntax": syntax(...rawSql) },
-  },
-  {
-    name: "openDatabase imports in backend tests",
-    files: ["apps/backend/_tests/**/*.ts"],
-    ignores: ["apps/backend/_tests/db/harness.ts"],
-    rules: { "no-restricted-imports": restrict(openDatabaseOutsideTheHarness) },
   },
   {
     name: "module boundary: definition",
@@ -523,5 +519,18 @@ export default tseslint.config(
     name: "L11: axe and harness imports in the telemetry tests",
     files: ["packages/telemetry/_tests/**"],
     rules: { "no-restricted-imports": ["error", { patterns: [...testSupportLibrariesAway, anotherDirectorysHarness] }] },
+  },
+  {
+    name: "L11: @qp/ui/testing stays out of production code",
+    files: everySourceFile,
+    ignores: ["packages/ui/src/testing/**"],
+    plugins: { "@typescript-eslint": tseslint.plugin },
+    rules: { "@typescript-eslint/no-restricted-imports": ["error", { patterns: [theTestSupportPackage] }] },
+  },
+  {
+    name: "L11: packages/ui/src reaches its testing directory by neither name",
+    files: ["packages/ui/src/**"],
+    ignores: ["packages/ui/src/testing/**"],
+    rules: { "@typescript-eslint/no-restricted-imports": ["error", { patterns: [theTestSupportPackage, theTestSupportDirectory] }] },
   },
 );

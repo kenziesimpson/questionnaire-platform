@@ -22,7 +22,7 @@ describe("FakeServer", () => {
 
     expect(await first.json()).toEqual({ first: true });
     expect(await second.json()).toEqual({ second: true });
-    expect(server.sent("POST", "/api/run/sessions")).toMatchObject([
+    expect(server.sent("POST", "/api/run/sessions").map(({ method, url, body }) => ({ method, url, body }))).toEqual([
       { method: "POST", url: "/api/run/sessions", body: { a: 1 } },
       { method: "POST", url: "/api/run/sessions", body: undefined },
     ]);
