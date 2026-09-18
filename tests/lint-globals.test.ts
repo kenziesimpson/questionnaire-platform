@@ -3,8 +3,10 @@ import { lintAs } from "./lint-harness.js";
 
 const CALLS_FETCH = 'export const load = () => fetch("/api/definition/questionnaires");';
 
+const TRANSPORT_RULES = ["no-restricted-globals", "no-restricted-properties"];
+
 async function restrictedGlobals(filePath: string, code = CALLS_FETCH) {
-  return (await lintAs(filePath, code)).filter((m) => m.ruleId === "no-restricted-globals");
+  return (await lintAs(filePath, code)).filter((m) => m.ruleId !== null && TRANSPORT_RULES.includes(m.ruleId));
 }
 
 describe("L16 — fetch only in API client modules", () => {
@@ -40,6 +42,23 @@ describe("L16 — fetch only in API client modules", () => {
 
   it("rejects fetch inside the respondent's persistence seam, which owns storage and not the transport", async () => {
     expect(await restrictedGlobals("apps/respondent/src/storage/partials.ts")).toHaveLength(1);
+  });
+
+  it.each([
+    ["globalThis.fetch", 'export const load = () => globalThis.fetch("/api");'],
+    ["window.fetch", 'export const load = () => window.fetch("/api");'],
+  ])("rejects %s, which reaches the same transport around a bare reference", async (_, code) => {
+    expect(await restrictedGlobals("apps/admin/src/screens/example.tsx", code)).toHaveLength(1);
+    expect(await restrictedGlobals("apps/respondent/src/storage/partials.ts", code)).toHaveLength(1);
+    expect(await restrictedGlobals("apps/admin/_tests/example.test.ts", code)).toHaveLength(1);
+  });
+
+  it.each([
+    ["globalThis.fetch", 'export const load = () => globalThis.fetch("/api");'],
+    ["window.fetch", 'export const load = () => window.fetch("/api");'],
+  ])("allows %s in the modules that own the transport", async (_, code) => {
+    expect(await restrictedGlobals("apps/admin/src/api/client.ts", code)).toEqual([]);
+    expect(await restrictedGlobals("e2e/stack/example.ts", code)).toEqual([]);
   });
 });
 

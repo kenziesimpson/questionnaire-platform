@@ -1,18 +1,8 @@
 import type { APIRequestContext } from "@playwright/test";
-import {
-  ProblemDetails,
-  problemSlug,
-  routePath,
-  routeSearch,
-  type HttpMethod,
-  type PathParams,
-  type ProblemDetailsWire,
-  type ProblemSlug,
-  type QueryParams,
-  type RouteDefinition,
-} from "@qp/shared";
+import { routePath, routeSearch, type HttpMethod, type PathParams, type Problem, type ProblemSlug, type QueryParams, type RouteDefinition } from "@qp/shared";
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
+import { problemReplyOf } from "./problem-reply.ts";
 
 export type { PathParams, QueryParams } from "@qp/shared";
 
@@ -35,12 +25,11 @@ export interface ApiExchange {
 export class ApiProblemError extends Error {
   readonly exchange: ApiExchange;
   readonly status: number;
-  readonly problem: ProblemDetailsWire | undefined;
+  readonly problem: Problem | undefined;
   readonly slug: ProblemSlug | undefined;
 
   constructor(exchange: ApiExchange, expectedStatus: number) {
-    const problem = Value.Check(ProblemDetails, exchange.body) ? exchange.body : undefined;
-    const slug = problem === undefined ? undefined : problemSlug(problem.type);
+    const { slug, problem } = problemReplyOf(exchange.status, exchange.body);
     super(
       `${exchange.method} ${exchange.path} answered ${exchange.status}${slug === undefined ? "" : ` ${slug}`}, expected ${expectedStatus}: ${JSON.stringify(exchange.body)}`,
     );

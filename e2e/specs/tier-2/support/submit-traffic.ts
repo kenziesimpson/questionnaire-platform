@@ -1,7 +1,8 @@
 import type { Page, Request, Response } from "@playwright/test";
-import { executionApi, ProblemDetails, problemSlug, type ProblemDetailsWire, type ProblemSlug } from "@qp/shared";
+import { executionApi } from "@qp/shared";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
+import { problemReplyOf as replyOf, type ProblemReply } from "../../../fixtures/index.ts";
 
 const SESSIONS_PATH = `${executionApi.EXECUTION_PREFIX}/sessions`;
 const SUBMIT_PATH = new RegExp(`^${SESSIONS_PATH}/[^/]+/submit$`);
@@ -67,15 +68,13 @@ export async function receiptBodyOf(response: Response): Promise<SubmitReceiptBo
   return body;
 }
 
-export interface ProblemReply {
+export interface SubmitProblemReply extends ProblemReply {
   readonly raw: string;
-  readonly problem: ProblemDetailsWire;
-  readonly slug: ProblemSlug | undefined;
 }
 
-export async function problemReplyOf(response: Response): Promise<ProblemReply> {
+export async function problemReplyOf(response: Response): Promise<SubmitProblemReply> {
   const raw = await response.text();
-  const problem = parsedJson(raw);
-  if (!Value.Check(ProblemDetails, problem)) throw new Error(`Expected a problem details body, got ${raw}`);
-  return { raw, problem, slug: problemSlug(problem.type) };
+  const reply = replyOf(response.status(), parsedJson(raw));
+  if (reply.problem === undefined) throw new Error(`Expected a problem details body, got ${raw}`);
+  return { ...reply, raw };
 }

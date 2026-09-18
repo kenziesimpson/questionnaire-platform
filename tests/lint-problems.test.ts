@@ -82,8 +82,19 @@ describe("L10 — problem bodies are parsed only by problemFromWire", () => {
     expect(await restrictedSyntax(notFound, "apps/backend/src/http/problems.ts")).toEqual([]);
   });
 
-  it("does not yet reach e2e, which PR 16 folds into the shared parser", async () => {
-    expect(await restrictedSyntax(valueCheck, "e2e/fixtures/api/example.ts")).toEqual([]);
+  it("reaches e2e, whose three hand-parses this PR converted", async () => {
+    expect(await restrictedSyntax(valueCheck, "e2e/fixtures/api/example.ts")).toHaveLength(1);
+    expect(await restrictedSyntax(valueCheck, "e2e/specs/tier-2/support/example.ts")).toHaveLength(1);
+    expect(await restrictedSyntax(valueCheck, "e2e/specs/tier-3/support/example.ts")).toHaveLength(1);
+  });
+
+  it("still lets the e2e entry points default-export, which extending the rule over e2e could have taken away", async () => {
+    const defaultExport = "export default { use: {} };";
+
+    for (const entryPoint of ["e2e/playwright.config.ts", "e2e/stack/global-setup.ts", "e2e/stack/global-teardown.ts"]) {
+      expect(await restrictedSyntax(defaultExport, entryPoint)).toEqual([]);
+      expect(await restrictedSyntax(valueCheck, entryPoint)).toHaveLength(1);
+    }
   });
 
   it("still warns on a double assertion, a `:param` regex and a default export, which this block inherits", async () => {

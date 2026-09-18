@@ -191,8 +191,8 @@ export const PROBLEM_CONTENT_TYPE = "application/problem+json";
 /**
  * What a client accepts off the wire. The members are the closed schema's, but `type` and the item
  * codes are open, because a client built against an older `@qp/shared` than the server it is talking
- * to must still be able to read the codes it does know. Narrowing back to the closed contract is
- * `problemFromWire`'s job, under the caller's `unknownCodes` policy.
+ * to must still be able to read the codes it does know well enough to tell an unknown code apart
+ * from a malformed body. Narrowing back to the closed contract is `problemFromWire`'s job.
  */
 const ProblemEnvelope = Type.Object(
   {
@@ -208,34 +208,34 @@ const ProblemEnvelope = Type.Object(
 );
 type ProblemEnvelopeWire = Static<typeof ProblemEnvelope>;
 
-export type UnknownCodes = "drop" | "reject";
-
-export interface ProblemFromWireOptions {
-  unknownCodes: UnknownCodes;
-}
-
 export type WireProblem<S extends ProblemSlug = ProblemSlug> = S extends ProblemSlug
   ? { readonly slug: S; readonly problem: Problem<S> }
   : never;
 
+export const PROBLEM_EXTENSION_MEMBERS = {
+  "request/invalid": ["errors"],
+  "questionnaire/draft-invalid": ["items"],
+  "submission/invalid": ["items"],
+  internal: ["detail"],
+} as const satisfies { [S in keyof ProblemExtensions]: readonly (keyof ProblemExtensions[S])[] };
+
 type ExtensionReaders = {
-  [S in keyof ProblemExtensions]: (wire: ProblemEnvelopeWire, unknownCodes: UnknownCodes) => ProblemExtensions[S] | undefined;
+  [S in keyof ProblemExtensions]: (wire: ProblemEnvelopeWire) => ProblemExtensions[S] | undefined;
 };
 
-function keptCodes<Wire, Known extends Wire>(
+function allKnown<Wire, Known extends Wire>(
   declared: readonly Wire[] | undefined,
   isKnown: (candidate: Wire) => candidate is Known,
-  unknownCodes: UnknownCodes,
 ): Known[] | undefined {
-  if (declared === undefined) return unknownCodes === "drop" ? [] : undefined;
-  const kept = declared.filter(isKnown);
-  return unknownCodes === "drop" || kept.length === declared.length ? kept : undefined;
+  if (declared === undefined) return undefined;
+  const known = declared.filter(isKnown);
+  return known.length === declared.length ? known : undefined;
 }
 
 function itemsOf<C extends string>(isCode: (code: string) => code is C) {
   const isItemError = (item: { itemId: string; code: string }): item is ItemError<C> => isCode(item.code);
-  return (wire: ProblemEnvelopeWire, unknownCodes: UnknownCodes) => {
-    const items = keptCodes(wire.items, isItemError, unknownCodes);
+  return (wire: ProblemEnvelopeWire) => {
+    const items = allKnown(wire.items, isItemError);
     return items === undefined ? undefined : { items };
   };
 }
@@ -243,15 +243,15 @@ function itemsOf<C extends string>(isCode: (code: string) => code is C) {
 const isPointerError = (error: { pointer: string; code: string }): error is PointerError => isRequestErrorCode(error.code);
 
 const PROBLEM_EXTENSIONS: ExtensionReaders = {
-  "request/invalid": (wire, unknownCodes) => {
-    const errors = keptCodes(wire.errors, isPointerError, unknownCodes);
+  "request/invalid": (wire) => {
+    const errors = allKnown(wire.errors, isPointerError);
     return errors === undefined ? undefined : { errors };
   },
   "questionnaire/draft-invalid": itemsOf(isDraftItemCode),
   "submission/invalid": itemsOf(isSubmissionItemCode),
-  internal: ({ detail }, unknownCodes) =>
-    detail === undefined ? (unknownCodes === "drop" ? { detail: "" } : undefined) : { detail },
+  internal: ({ detail }) => (detail === undefined ? undefined : { detail }),
 };
+
 
 function carriesExtensions(slug: ProblemSlug): slug is keyof ProblemExtensions {
   return slug in PROBLEM_EXTENSIONS;
@@ -262,15 +262,16 @@ function locationOf({ detail, instance }: ProblemEnvelopeWire): { detail?: strin
 }
 
 /**
- * The only way to read a problem body off the wire ([[11-structural-refactor]] §3, PR 1). `"drop"`
- * keeps a known slug whose extension carries codes this build does not know, dropping those codes;
- * `"reject"` answers `undefined` unless every code and every required extension is known.
+ * The only way to read a problem body off the wire ([[11-structural-refactor]] §3, PR 1). A body is
+ * refused outright unless its slug and every code in its extensions are ones this build knows
+ * ([[2-design-doc#17. Decisions Log]] #81): a partly-understood rejection would under-report, and
+ * an incomplete error list is worse than a generic failure.
  */
-export function problemFromWire(wire: unknown, { unknownCodes }: ProblemFromWireOptions): WireProblem | undefined {
+export function problemFromWire(wire: unknown): WireProblem | undefined {
   if (!Value.Check(ProblemEnvelope, wire)) return undefined;
   const slug = problemSlug(wire.type);
   if (slug === undefined) return undefined;
-  const extensions = carriesExtensions(slug) ? PROBLEM_EXTENSIONS[slug](wire, unknownCodes) : {};
+  const extensions = carriesExtensions(slug) ? PROBLEM_EXTENSIONS[slug](wire) : {};
   if (extensions === undefined) return undefined;
   return { slug, problem: problemBody(slug, { ...locationOf(wire), ...extensions }) } as WireProblem;
 }

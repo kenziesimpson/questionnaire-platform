@@ -19,6 +19,33 @@ describe("routePath", () => {
   it("returns a path with no parameters unchanged", () => {
     expect(routePath(definition.listQuestionnaires.url)).toBe("/questionnaires");
   });
+
+  it("accepts a name of letters, digits and inner underscores, and refuses one ending in an underscore", () => {
+    expect(routePath("/u/:user_id/v/:v2", { user_id: "7", v2: "3" })).toBe("/u/7/v/3");
+    expect(() => routePath("/u/:user_", { user_: "7" })).toThrow('Path parameter ":user_" in /u/:user_ ends in an underscore');
+  });
+
+  it.each([
+    ["an empty value", ""],
+    ["a single dot", "."],
+    ["a double dot", ".."],
+  ])("refuses %s, which is not a path segment", (_, value) => {
+    expect(() => routePath("/sessions/:sessionId/submit", { sessionId: value })).toThrow("empty or a relative segment");
+  });
+
+  it("cannot be made to climb out of its segment", () => {
+    const climbers = ["..", ".", "", "../..", "%2e%2e", "../admin", "a/../..", "\\u002e\\u002e"];
+
+    for (const sessionId of climbers) {
+      let path: string;
+      try {
+        path = routePath("/sessions/:sessionId/submit", { sessionId });
+      } catch {
+        continue;
+      }
+      expect(new URL(`https://qp.example/api/run${path}`).pathname).toBe(`/api/run/sessions/${encodeURIComponent(sessionId)}/submit`);
+    }
+  });
 });
 
 describe("routeSearch", () => {
@@ -45,9 +72,20 @@ describe("successSchemaOf", () => {
     expect(successSchemaOf(execution.createSession, 201)).toBe(execution.createSession.schema.response[201]);
   });
 
-  it("answers undefined for a status the route does not declare, so a problem schema can never stand in for a success one", () => {
+  it("answers undefined for a success status the route does not declare", () => {
     expect(successSchemaOf(definition.listQuestionnaires, 201)).toBeUndefined();
-    expect(successSchemaOf(definition.listQuestionnaires, 404)).toBeUndefined();
-    expect(successSchemaOf(definition.listQuestionnaires, 500)).toBeUndefined();
+    expect(successSchemaOf(execution.createSession, 200)).toBeUndefined();
+  });
+
+  it("cannot be asked for the problem schemas, which are the only response keys that are not statuses", () => {
+    expect(Object.keys(definition.listQuestionnaires.schema.response)).toEqual(["200", "4xx", "5xx"]);
+
+    const _typeChecks = () => {
+      // @ts-expect-error — "4xx" is not a status, so the problem schema cannot be asked for by name
+      successSchemaOf(definition.listQuestionnaires, "4xx");
+      // @ts-expect-error — nor can the 5xx one
+      successSchemaOf(definition.listQuestionnaires, "5xx");
+    };
+    expect(_typeChecks).toBeTypeOf("function");
   });
 });

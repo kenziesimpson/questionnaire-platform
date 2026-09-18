@@ -40,11 +40,21 @@ describe("L6 — route paths are built only by the shared helper", () => {
     expect(await restrictedSyntax(code, ROUTE_PATH_HELPER)).toHaveLength(1);
   });
 
+  it("catches the parameter regex however it is spelled, anchored or behind a path separator", async () => {
+    expect(await restrictedSyntax('export const p = "/q/:id".replace(/:([A-Za-z]+)/g, () => "x");')).toHaveLength(1);
+    expect(await restrictedSyntax('export const p = "/q/:id".replace(/\\/:(\\w+)/g, () => "x");')).toHaveLength(1);
+  });
+
   it.each([
-    ["a regex that does not start with a parameter", 'export const p = "a:b".replace(/x:(\\w+)/g, () => "y");'],
     ["a colon outside a capture group", 'export const p = "a:b".replace(/:\\w+/g, () => "y");'],
     ["a string holding a route path", 'export const url = "/questionnaires/:id/draft";'],
+    ["a non-capturing group, whose `?:(` is not a parameter", "export const p = /(?:(a|b))/;"],
+    ["the draft ETag pattern, whose `:(` follows a length quantifier", 'export const E = /^W\\/"([0-9a-f-]{36}):(0|[1-9][0-9]*)"$/i;'],
   ])("allows %s", async (_, code) => {
     expect(await restrictedSyntax(code)).toEqual([]);
+  });
+
+  it("does not see a pattern built from a string, which no-restricted-syntax cannot reach", async () => {
+    expect(await restrictedSyntax('export const p = "x".replace(new RegExp("/:(\\\\w+)", "g"), "y");')).toEqual([]);
   });
 });

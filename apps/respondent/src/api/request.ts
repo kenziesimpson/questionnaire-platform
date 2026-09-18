@@ -57,7 +57,7 @@ export async function sendExecutionRequest<Success extends TSchema, S extends Ex
     return Value.Check(request.success.schema, body) ? { kind: "ok", body } : { kind: "unexpected-response", status };
   }
 
-  const parsed = problemFromWire(body, { unknownCodes: "reject" });
+  const parsed = problemFromWire(body);
   if (parsed !== undefined && parsed.problem.status === status && isRouteProblem(request.problems, parsed)) {
     return { kind: "problem", ...parsed };
   }

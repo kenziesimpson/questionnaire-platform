@@ -29,6 +29,6 @@ export function isProblem<S extends ProblemSlug>(error: unknown, slug: S): error
 }
 
 export function problemErrorFrom(status: number, body: unknown): ProblemError | undefined {
-  const parsed = problemFromWire(body, { unknownCodes: "drop" });
+  const parsed = problemFromWire(body);
   return parsed === undefined ? undefined : new ProblemError(parsed.slug, status, parsed.problem);
 }

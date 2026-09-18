@@ -4,13 +4,18 @@ import type { BodyOf, ParamsOf, QueryOf, RouteDefinition, RouteSchema } from "./
 export type PathParams = Readonly<Record<string, string | number | boolean>>;
 export type QueryParams = Readonly<Record<string, string | number | boolean | undefined>>;
 
-const PATH_PARAMETER = /:([A-Za-z][A-Za-z0-9]*)/g;
+const PATH_PARAMETER = /:([A-Za-z][A-Za-z0-9_]*)/g;
+
+const NOT_A_PATH_SEGMENT: readonly string[] = ["", ".", ".."];
 
 export function routePath(url: string, params: PathParams = {}): string {
   return url.replace(PATH_PARAMETER, (_segment, name: string) => {
+    if (name.endsWith("_")) throw new Error(`Path parameter ":${name}" in ${url} ends in an underscore`);
     const value = params[name];
     if (value === undefined) throw new Error(`Missing path parameter "${name}" for ${url}`);
-    return encodeURIComponent(String(value));
+    const encoded = encodeURIComponent(String(value));
+    if (NOT_A_PATH_SEGMENT.includes(encoded)) throw new Error(`Path parameter "${name}" for ${url} is empty or a relative segment`);
+    return encoded;
   });
 }
 

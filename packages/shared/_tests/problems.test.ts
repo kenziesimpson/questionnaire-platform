@@ -8,6 +8,7 @@ import {
   ProblemDetails,
   QUESTION_RULE_CODES,
   SUBMISSION_ITEM_CODES,
+  PROBLEM_EXTENSION_MEMBERS,
   problem,
   problemFromWire,
   problemSlug,
@@ -164,18 +165,13 @@ describe("ProblemDetails closed unions", () => {
 });
 
 describe("problemFromWire", () => {
-  const drop = { unknownCodes: "drop" } as const;
-  const reject = { unknownCodes: "reject" } as const;
-
   const wire = (body: object) => ({ title: "t", status: 400, ...body });
 
   it("reads a slug with no extensions, keeping detail and instance and omitting the ones the body left out", () => {
     const body = { ...problem("resource/not-found", { instance: "/api/run/sessions/x" }) };
 
-    for (const options of [drop, reject]) {
-      expect(problemFromWire(body, options)).toEqual({ slug: "resource/not-found", problem: body });
-    }
-    expect(problemFromWire(problem("questionnaire/draft-stale"), drop)).toEqual({
+    expect(problemFromWire(body)).toEqual({ slug: "resource/not-found", problem: body });
+    expect(problemFromWire(problem("questionnaire/draft-stale"))).toEqual({
       slug: "questionnaire/draft-stale",
       problem: problem("questionnaire/draft-stale"),
     });
@@ -188,8 +184,7 @@ describe("problemFromWire", () => {
     const internal = problem("internal", { detail: "4bf92f3577b34da6a3ce929d0e0e4736" });
 
     for (const body of [requestInvalid, draftInvalid, submissionInvalid, internal]) {
-      expect(problemFromWire(body, drop)?.problem).toEqual(body);
-      expect(problemFromWire(body, reject)?.problem).toEqual(body);
+      expect(problemFromWire(body)?.problem).toEqual(body);
     }
   });
 
@@ -197,9 +192,8 @@ describe("problemFromWire", () => {
     ["a body that is not problem+json", { title: "t", status: 404 }],
     ["a body carrying an answer value", { ...problem("resource/not-found"), value: "2027-01-01" }],
     ["a type outside the closed slug union", wire({ type: "https://example.com/other" })],
-  ])("answers undefined for %s under either policy", (_, body) => {
-    expect(problemFromWire(body, drop)).toBeUndefined();
-    expect(problemFromWire(body, reject)).toBeUndefined();
+  ])("answers undefined for %s", (_, body) => {
+    expect(problemFromWire(body)).toBeUndefined();
   });
 
   const oneKnownItem = problem("submission/invalid", { items: [{ itemId: "itm_01", code: "answer/required" }] });
@@ -207,56 +201,66 @@ describe("problemFromWire", () => {
   it.each([
     ["a code this build has never heard of, as a newer server would send", "answer/invented-tomorrow"],
     ["a code the contract knows but this slug cannot carry", "predicate/unsatisfiable"],
-  ])("drops %s under `drop`, keeping the items it does know, and refuses the body under `reject`", (_, unknown) => {
+  ])("refuses the whole body over %s, rather than rendering a partial list (#81)", (_, unknown) => {
     const body = { ...oneKnownItem, items: [{ itemId: "itm_01", code: "answer/required" }, { itemId: "itm_02", code: unknown }] };
 
-    expect(problemFromWire(body, drop)?.problem).toEqual(oneKnownItem);
-    expect(problemFromWire(body, reject)).toBeUndefined();
+    expect(problemFromWire(body)).toBeUndefined();
   });
 
-  it("drops a pointer code this build has never heard of under `drop`, and refuses the body under `reject`", () => {
+  it("refuses the whole body over a pointer code this build has never heard of", () => {
     const known = { pointer: "/body/question/max", code: "question/min-exceeds-max" } as const;
     const body = { ...problem("request/invalid", { errors: [known] }), errors: [known, { pointer: "/body/x", code: "invented/tomorrow" }] };
 
-    expect(problemFromWire(body, drop)?.problem).toEqual(problem("request/invalid", { errors: [known] }));
-    expect(problemFromWire(body, reject)).toBeUndefined();
+    expect(problemFromWire(body)).toBeUndefined();
   });
 
-  it("still refuses a body whose envelope is wrong, however lenient the code policy is", () => {
+  it("refuses a slug whose required extension the body left out", () => {
+    const noItems = wire({ type: problemType("submission/invalid"), status: 422 });
+    const noErrors = wire({ type: problemType("request/invalid") });
+    const noDetail = wire({ type: problemType("internal"), status: 500 });
+
+    for (const body of [noItems, noErrors, noDetail]) expect(problemFromWire(body)).toBeUndefined();
+  });
+
+  it("refuses a body whose envelope is wrong, which is a different failure from an unknown code", () => {
     const badItemId = { ...oneKnownItem, items: [{ itemId: "NOT A SLUG", code: "answer/required" }] };
     const badStatus = { ...problem("resource/not-found"), status: 200 };
     const extraMember = { ...problem("resource/not-found"), hints: [] };
 
-    for (const body of [badItemId, badStatus, extraMember]) expect(problemFromWire(body, drop)).toBeUndefined();
+    for (const body of [badItemId, badStatus, extraMember]) expect(problemFromWire(body)).toBeUndefined();
+  });
+
+  it("takes the title and status from the slug, never from the body", () => {
+    const lying = { ...problem("questionnaire/closed"), title: "Gone", status: 410 };
+
+    expect(problemFromWire(lying)?.problem).toEqual(problem("questionnaire/closed"));
+  });
+
+  it("keeps the slug and its body correlated, so a consumer can switch on one and read the other", () => {
+    const parsed = problemFromWire(problem("submission/invalid", { items: [{ itemId: "itm_01", code: "choice/too-many" }] }));
+
+    expect(parsed?.slug === "submission/invalid" && parsed.problem.items).toEqual([{ itemId: "itm_01", code: "choice/too-many" }]);
   });
 
   it("leaves the closed contract schema closed, so a route still refuses to serialize an unknown code", () => {
     const body = { ...oneKnownItem, items: [{ itemId: "itm_02", code: "answer/invented-tomorrow" }] };
 
     expect(Value.Check(ProblemDetails, body)).toBe(false);
-    expect(problemFromWire(body, drop)?.problem).toEqual(problem("submission/invalid", { items: [] }));
+  });
+});
+
+describe("the wire schema and the parser stay in step", () => {
+  const BASE_MEMBERS = ["type", "title", "status", "detail", "instance"];
+
+  it("reads every member ProblemDetails declares beyond the base ones", () => {
+    const declared = Object.keys(ProblemDetails.properties).filter((member) => !BASE_MEMBERS.includes(member));
+    const read = new Set<string>(Object.values(PROBLEM_EXTENSION_MEMBERS).flat());
+
+    expect(declared).not.toEqual([]);
+    expect(declared.filter((member) => !read.has(member))).toEqual([]);
   });
 
-  it("fills a missing extension with an empty one under `drop`, and refuses the body under `reject`", () => {
-    const noItems = wire({ type: problemType("submission/invalid"), status: 422 });
-    const noErrors = wire({ type: problemType("request/invalid") });
-    const noDetail = wire({ type: problemType("internal"), status: 500 });
-
-    expect(problemFromWire(noItems, drop)?.problem).toEqual(problem("submission/invalid", { items: [] }));
-    expect(problemFromWire(noErrors, drop)?.problem).toEqual(problem("request/invalid", { errors: [] }));
-    expect(problemFromWire(noDetail, drop)?.problem).toEqual(problem("internal", { detail: "" }));
-    for (const body of [noItems, noErrors, noDetail]) expect(problemFromWire(body, reject)).toBeUndefined();
-  });
-
-  it("takes the title and status from the slug, never from the body", () => {
-    const lying = { ...problem("questionnaire/closed"), title: "Gone", status: 410 };
-
-    expect(problemFromWire(lying, drop)?.problem).toEqual(problem("questionnaire/closed"));
-  });
-
-  it("keeps the slug and its body correlated, so a consumer can switch on one and read the other", () => {
-    const parsed = problemFromWire(problem("submission/invalid", { items: [{ itemId: "itm_01", code: "choice/too-many" }] }), reject);
-
-    expect(parsed?.slug === "submission/invalid" && parsed.problem.items).toEqual([{ itemId: "itm_01", code: "choice/too-many" }]);
+  it("names a reader for every slug that carries extensions", () => {
+    expect(Object.keys(PROBLEM_EXTENSION_MEMBERS).every((slug) => PROBLEM_SLUGS.some((known) => known === slug))).toBe(true);
   });
 });

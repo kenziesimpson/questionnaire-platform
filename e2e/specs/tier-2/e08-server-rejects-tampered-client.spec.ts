@@ -1,4 +1,4 @@
-import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, expect, test } from "../../fixtures/index.ts";
+import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, expect, problemOf, test } from "../../fixtures/index.ts";
 import { answerNoPath } from "./support/demo-answers.ts";
 import { ERROR_SUMMARY_TITLES, UNPLACED_ERRORS_MESSAGE } from "./support/respondent-messages.ts";
 import { problemReplyOf, SUBMIT_URL_GLOB, submitBodyOf, waitForSubmitResponse } from "./support/submit-traffic.ts";
@@ -36,7 +36,7 @@ test.describe("E8 — the server is the authority over a tampered client", () =>
     expect(response.status()).toBe(422);
     const reply = await problemReplyOf(response);
     expect(reply.slug).toBe("submission/invalid");
-    expect(reply.problem.items).toEqual([{ itemId: DEMO_ITEM_IDS.whichCondition, code: "answer/not-visible" }]);
+    expect(problemOf(reply, "submission/invalid").items).toEqual([{ itemId: DEMO_ITEM_IDS.whichCondition, code: "answer/not-visible" }]);
     expect(reply.raw).not.toContain(INJECTED_OTHER_TEXT);
 
     const summary = respondent.errorSummary();

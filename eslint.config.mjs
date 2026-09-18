@@ -114,7 +114,7 @@ const noDefaultExport = {
 };
 
 const routePathLiteral = {
-  selector: "Literal[regex.pattern=/^:\\(/]",
+  selector: "Literal[regex.pattern=/(^|\\/):\\(/]",
   message:
     "Route paths are filled in by routePath in packages/shared/src/api/request.ts, which is the one place that knows the `:param` syntax. Import it instead of matching `:param` with a regex.",
 };
@@ -145,7 +145,7 @@ const notFoundProblem = {
     "The `resource/not-found` body is built in one place. Call that builder instead, and read one off the wire with problemFromWire.",
 };
 
-const frontendAndSharedSources = ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}"];
+const sourcesOutsideTheBackend = ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}", "e2e/**/*.{ts,tsx}"];
 
 const theProblemParser = "packages/shared/src/problems.ts";
 
@@ -190,11 +190,12 @@ const apiClients = ["apps/*/src/api/**/*.{ts,tsx,mts,cts,js,mjs,cjs}"];
 
 const fetchOwners = [...apiClients, "e2e/fixtures/**", "e2e/stack/**"];
 
-const fetchAwayFromTheTransport = {
-  name: "fetch",
-  message:
-    "fetch belongs to an app's API client (apps/*/src/api/**) or to the e2e fixtures and stack, so one module per app owns the transport that trace headers and client spans will attach to.",
-};
+const transportSeamMessage =
+  "fetch belongs to an app's API client (apps/*/src/api/**) or to the e2e fixtures and stack, so one module per app owns the transport that trace headers and client spans will attach to.";
+
+const fetchAwayFromTheTransport = { name: "fetch", message: transportSeamMessage };
+
+const fetchThroughAnObject = ["window", "globalThis"].map((object) => ({ object, property: "fetch", message: transportSeamMessage }));
 
 const persistenceSeamMessage =
   "The respondent reads and writes partial answers through apps/respondent/src/storage, so the envelope format, the quota and failure handling, and later the telemetry around them live in one seam.";
@@ -223,6 +224,12 @@ const filesThatMustDefaultExport = [
 ];
 
 const backendFilesThatMustDefaultExport = ["apps/backend/**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}"];
+
+const e2eFilesThatMustDefaultExport = [
+  "e2e/**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}",
+  "e2e/stack/global-setup.ts",
+  "e2e/stack/global-teardown.ts",
+];
 
 export default tseslint.config(
   {
@@ -309,7 +316,10 @@ export default tseslint.config(
     name: "L16: fetch outside the API clients, the e2e fixtures and the e2e stack",
     files: everyFile,
     ignores: fetchOwners,
-    rules: { "no-restricted-globals": confine(fetchAwayFromTheTransport) },
+    rules: {
+      "no-restricted-globals": confine(fetchAwayFromTheTransport),
+      "no-restricted-properties": ["error", ...fetchThroughAnObject],
+    },
   },
   {
     name: "L16 and L17: fetch and localStorage in the sources that own neither",
@@ -317,7 +327,7 @@ export default tseslint.config(
     ignores: [...apiClients, "apps/respondent/src/storage/**"],
     rules: {
       "no-restricted-globals": confine(fetchAwayFromTheTransport, localStorageAwayFromTheSeam),
-      "no-restricted-properties": ["error", ...localStorageThroughAnObject],
+      "no-restricted-properties": ["error", ...fetchThroughAnObject, ...localStorageThroughAnObject],
     },
   },
   {
@@ -354,8 +364,8 @@ export default tseslint.config(
     rules: { "no-restricted-syntax": syntaxAllowingDefaultExport(...rawSql) },
   },
   {
-    name: "L10: problem bodies in the frontends and the shared packages",
-    files: frontendAndSharedSources,
+    name: "L10: problem bodies in the frontends, the shared packages and e2e",
+    files: sourcesOutsideTheBackend,
     ignores: ["apps/backend/src/**", theProblemParser],
     rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem) },
   },
@@ -374,6 +384,11 @@ export default tseslint.config(
     name: "L10: problem bodies in the connection constructor, which constructs connections",
     files: ["apps/backend/src/db/client.ts"],
     rules: { "no-restricted-syntax": syntax(...rawSql, ...problemParsing) },
+  },
+  {
+    name: "L10: problem bodies in the e2e entry points, which must default-export",
+    files: e2eFilesThatMustDefaultExport,
+    rules: { "no-restricted-syntax": syntaxAllowingDefaultExport(...problemParsing, notFoundProblem) },
   },
   {
     name: "L6: routePath owns the :param syntax",

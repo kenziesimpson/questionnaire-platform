@@ -1,5 +1,5 @@
 import { definitionApi, type Question } from "@qp/shared";
-import { expect, test, uniqueName, type DefinitionApi, type Placement } from "../../fixtures/index.ts";
+import { expect, problemOf, test, uniqueName, type DefinitionApi, type Placement } from "../../fixtures/index.ts";
 import {
   createTextQuestions,
   draftItemRow,
@@ -111,7 +111,7 @@ test.describe("E19 publish-time validation has a usable surface", () => {
     const refusal = await problemReplyOfResponse(await publishReply);
     expect(refusal.status).toBe(422);
     expect(refusal.slug).toBe("questionnaire/draft-invalid");
-    expect(refusal.problem?.items).toEqual(EXPECTED_PROBLEMS);
+    expect(problemOf(refusal, "questionnaire/draft-invalid").items).toEqual(EXPECTED_PROBLEMS);
 
     const notice = page.getByRole("alert").filter({ hasText: "The draft was not published" });
     await expect(notice).toContainText("Publishing found 2 problems. They are listed under Publish checks.");
