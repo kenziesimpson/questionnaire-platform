@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { SampleAnswerInput } from "../../../src/screens/version-preview/sample-answer-input";
-import { QUESTION_ID } from "../../fixtures";
+import { QUESTION_ID } from "../../support/builders";
 
 function anItemAsking(question: QuestionInput): Item {
   return {

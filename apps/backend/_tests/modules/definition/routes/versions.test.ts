@@ -9,10 +9,9 @@ import Type from "typebox";
 import { Value } from "typebox/value";
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
-import { aDraftWithOneItem, aPublishedQuestionnaire, aQuestionnairePublishedAs } from "../../../db/fixtures.js";
-import { useTestDatabase } from "../../../db/harness.js";
-import { aSecondItem, createNextDraftDirectly, publish, saveDraft, storedSnapshotText } from "../fixtures.js";
-import { definitionUrl, useDefinitionApp } from "../harness.js";
+import { aDraftWithOneItem, aPublishedQuestionnaire, aQuestionnairePublishedAs, useTestDatabase } from "../../../db/fixtures.js";
+import { aSecondItem, createNextDraftDirectly, definitionUrl, publish, saveDraft, storedSnapshotText } from "../fixtures.js";
+import { useDefinitionApp } from "../harness.js";
 
 const testDatabase = useTestDatabase();
 const app = useDefinitionApp(testDatabase);

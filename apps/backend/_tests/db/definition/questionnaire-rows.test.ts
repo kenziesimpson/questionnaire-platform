@@ -8,11 +8,16 @@ import {
   readOpenDraft,
   withLockedQuestionnaire,
 } from "../../../src/db/definition/questionnaire-rows.js";
-import { aPublishedQuestionnaire, QUESTIONNAIRE_LOCK_STATEMENT, theStatementWaitingOnALock, whileHoldingALock } from "../fixtures.js";
+import {
+  actor,
+  aPublishedQuestionnaire,
+  QUESTIONNAIRE_LOCK_STATEMENT,
+  theStatementWaitingOnALock,
+  whileHoldingALock,
+} from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 
 const testDatabase = useTestDatabase();
-const actor = { createdBy: "test", traceId: null };
 
 describe("withLockedQuestionnaire", () => {
   it("hands the work the locked row with its closing time and returns the work's result", async () => {

@@ -1,26 +1,13 @@
-import { type VersionSummary } from "@qp/shared";
+import type { VersionSummary } from "@qp/shared";
 import { intakeDefinition } from "@qp/shared/demo";
-import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { axeViolations, jsonResponse, problemResponse, stubFetch, type Reply } from "@qp/ui/testing";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import axe from "axe-core";
 import { describe, expect, it } from "vitest";
-import { App } from "../../src/app";
-import { createAppRouter } from "../../src/router";
-import {
-  QUESTIONNAIRE_ID,
-  deferred,
-  jsonResponse,
-  problemResponse,
-  stubFetch,
-  testQueryClient,
-  type FetchHandler,
-} from "../fixtures";
-
-const JSDOM_CANNOT_EVALUATE = { "color-contrast": { enabled: false } };
-
-const VERSIONS_URL = `/api/definition/questionnaires/${QUESTIONNAIRE_ID}/versions`;
-const snapshotUrl = (version: number) => `${VERSIONS_URL}/${version}`;
+import { QUESTIONNAIRE_ID } from "../support/builders";
+import { deferred } from "../support/http";
+import { renderAppAt } from "../support/render-app";
+import { VERSIONS_URL, versionUrl } from "../support/routes";
 
 const intakeV2 = intakeDefinition(2);
 
@@ -33,20 +20,15 @@ const versionSummaries: VersionSummary[] = [2, 1].map((version) => ({
   formatVersion: 1,
 }));
 
-const serveIntake: FetchHandler = ({ url }) => {
+const serveIntake: Reply = ({ url }) => {
   if (url === VERSIONS_URL) return jsonResponse(200, versionSummaries);
-  if (url === snapshotUrl(2)) return jsonResponse(200, intakeV2);
+  if (url === versionUrl(2)) return jsonResponse(200, intakeV2);
   return problemResponse("resource/not-found");
 };
 
-function renderPreview(handler: FetchHandler, version = 2) {
+function renderPreview(handler: Reply, version = 2) {
   const requests = stubFetch(handler);
-  const queryClient = testQueryClient();
-  const router = createAppRouter({
-    queryClient,
-    history: createMemoryHistory({ initialEntries: [`/admin/questionnaires/${QUESTIONNAIRE_ID}/versions/${version}`] }),
-  });
-  const { container } = render(<App queryClient={queryClient} router={router} />);
+  const { container } = renderAppAt(`/questionnaires/${QUESTIONNAIRE_ID}/versions/${version}`);
   return { requests, container };
 }
 
@@ -175,14 +157,14 @@ describe("the version preview screen", () => {
 
     expect(requests.map(({ method, url }) => `${method} ${url}`).sort()).toEqual([
       `GET ${VERSIONS_URL}`,
-      `GET ${snapshotUrl(2)}`,
+      `GET ${versionUrl(2)}`,
     ]);
     expect(requests.some(({ url }) => url.includes("/api/run"))).toBe(false);
   });
 
   it("shows a loading state until the snapshot arrives", async () => {
     const snapshot = deferred<Response>();
-    renderPreview(({ url }) => (url === snapshotUrl(2) ? snapshot.promise : jsonResponse(200, versionSummaries)));
+    renderPreview(({ url }) => (url === versionUrl(2) ? snapshot.promise : jsonResponse(200, versionSummaries)));
 
     expect(await screen.findByText("Loading version 2…")).toHaveAttribute("role", "status");
 
@@ -209,7 +191,7 @@ describe("the version preview screen", () => {
   it("shows an error state with a retry for any other failure, and recovers when the retry succeeds", async () => {
     const snapshots = [problemResponse("internal", { detail: "trace-1" }), jsonResponse(200, intakeV2)];
     const { requests } = renderPreview(({ url }) =>
-      url === snapshotUrl(2) ? (snapshots.shift() ?? problemResponse("internal", { detail: "extra" })) : jsonResponse(200, versionSummaries),
+      url === versionUrl(2) ? (snapshots.shift() ?? problemResponse("internal", { detail: "extra" })) : jsonResponse(200, versionSummaries),
     );
 
     const alert = await screen.findByRole("alert");
@@ -219,12 +201,12 @@ describe("the version preview screen", () => {
     await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
 
     expect(await screen.findByRole("heading", { level: 2, name: "Patient Intake" })).toBeInTheDocument();
-    expect(requests.filter(({ url }) => url === snapshotUrl(2))).toHaveLength(2);
+    expect(requests.filter(({ url }) => url === versionUrl(2))).toHaveLength(2);
   });
 
   it("treats a snapshot that fails the shared PublishedDefinition schema as an error, not a preview", async () => {
     renderPreview(({ url }) =>
-      url === snapshotUrl(2) ? jsonResponse(200, { ...intakeV2, formatVersion: 99 }) : jsonResponse(200, versionSummaries),
+      url === versionUrl(2) ? jsonResponse(200, { ...intakeV2, formatVersion: 99 }) : jsonResponse(200, versionSummaries),
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Version 2 could not be loaded");
@@ -238,9 +220,7 @@ describe("the version preview screen", () => {
     const { container } = await renderLoadedIntake();
     await act();
 
-    const results = await axe.run(container, { rules: JSDOM_CANNOT_EVALUATE });
-
-    expect(results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 
   it.each([
@@ -256,8 +236,6 @@ describe("the version preview screen", () => {
     await settled();
     await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
 
-    const results = await axe.run(container, { rules: JSDOM_CANNOT_EVALUATE });
-
-    expect(results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 });

@@ -2,7 +2,7 @@ import type pg from "pg";
 import { describe, expect, it } from "vitest";
 import { replaceDraft } from "../../src/db/definition/drafts.js";
 import { createQuestion } from "../../src/db/definition/questions.js";
-import { aDraftWithOneItem, aTextQuestion } from "./fixtures.js";
+import { actor, aDraftWithOneItem, aTextQuestion } from "./fixtures.js";
 import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
 
 const testDatabase = useTestDatabase();
@@ -10,7 +10,7 @@ const testDatabase = useTestDatabase();
 async function aDraftWithTwoItems(): Promise<string> {
   const definitionDb = testDatabase.database("definition");
   const draft = await aDraftWithOneItem(definitionDb);
-  const second = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
+  const second = await createQuestion(definitionDb, { key: null, content: aTextQuestion, ...actor });
   const saved = await replaceDraft(definitionDb, {
     questionnaireId: draft.questionnaireId,
     precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },

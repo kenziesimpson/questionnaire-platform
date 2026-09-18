@@ -11,7 +11,6 @@ import {
 import type { LightMyRequestResponse } from "fastify";
 import Type from "typebox";
 import { Value } from "typebox/value";
-import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../../../../src/db/client.js";
 import { publishDraft } from "../../../../src/db/definition/publish.js";
@@ -19,14 +18,12 @@ import { replaceDraft } from "../../../../src/db/definition/drafts.js";
 import { createQuestionnaire } from "../../../../src/db/definition/questionnaires.js";
 import { appendQuestionVersion, createQuestion } from "../../../../src/db/definition/questions.js";
 import { AUTHOR_PLACEHOLDER } from "../../../../src/modules/definition/author.js";
-import { aTextQuestion } from "../../../db/fixtures.js";
-import { useTestDatabase } from "../../../db/harness.js";
-import { definitionUrl, useDefinitionApp } from "../harness.js";
+import { actor, aTextQuestion, useTestDatabase } from "../../../db/fixtures.js";
+import { createNextDraftDirectly, definitionUrl, type OpenDraft } from "../fixtures.js";
+import { useDefinitionApp } from "../harness.js";
 
 const testDatabase = useTestDatabase();
 const app = useDefinitionApp(testDatabase);
-
-const actor = { createdBy: "test", traceId: null };
 
 const aChoiceQuestion: QuestionInput = {
   type: "single_choice",
@@ -55,11 +52,6 @@ function placement(itemId: string, questionId: string, questionVersion: number):
   return { itemId, required: false, visibleWhen: null, questionId, questionVersion };
 }
 
-interface OpenDraft {
-  readonly draftVersionId: string;
-  readonly draftRevision: number;
-}
-
 async function saveDraft(db: Database, questionnaireId: string, draft: OpenDraft, items: DraftItem[]) {
   const saved = await replaceDraft(db, {
     questionnaireId,
@@ -86,16 +78,6 @@ async function publish(db: Database, questionnaireId: string, draft: OpenDraft, 
   if (published.outcome !== "published") {
     throw new Error(`draft was not published: ${published.outcome}`);
   }
-}
-
-async function createNextDraftDirectly(questionnaireId: string): Promise<OpenDraft> {
-  const draftVersionId = uuidv7();
-  const definition = await testDatabase.connect("definition");
-  await definition.query(
-    `INSERT INTO definition.questionnaire_version (id, questionnaire_id, status, title) VALUES ($1, $2, 'draft', 'Next')`,
-    [draftVersionId, questionnaireId],
-  );
-  return { draftVersionId, draftRevision: 0 };
 }
 
 describe("POST /questions", () => {
@@ -376,12 +358,12 @@ describe("GET /questions/:questionId/usage", () => {
 
     const early = await createQuestionnaire(db, { key: null, name: "Early", title: "Early", ...actor });
     await publish(db, early.questionnaireId, early, [placement("itm_01", questionId, 1), placement("itm_02", unrelated, 1)]);
-    const earlyNext = await createNextDraftDirectly(early.questionnaireId);
+    const earlyNext = await createNextDraftDirectly(testDatabase, early.questionnaireId);
     await publish(db, early.questionnaireId, earlyNext, [placement("itm_01", questionId, 2)]);
 
     const late = await createQuestionnaire(db, { key: null, name: "Late", title: "Late", ...actor });
     await publish(db, late.questionnaireId, late, [placement("itm_01", questionId, 2)]);
-    const lateNext = await createNextDraftDirectly(late.questionnaireId);
+    const lateNext = await createNextDraftDirectly(testDatabase, late.questionnaireId);
     await saveDraft(db, late.questionnaireId, lateNext, [placement("itm_01", questionId, 1)]);
 
     const draftOnly = await createQuestionnaire(db, { key: null, name: "Draft only", title: "Draft only", ...actor });

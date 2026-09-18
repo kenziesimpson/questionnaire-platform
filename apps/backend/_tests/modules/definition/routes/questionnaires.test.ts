@@ -5,14 +5,12 @@ import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { createQuestionnaire } from "../../../../src/db/definition/questionnaires.js";
 import { AUTHOR_PLACEHOLDER } from "../../../../src/modules/definition/author.js";
-import { aDraftWithOneItem, aPublishedQuestionnaire } from "../../../db/fixtures.js";
-import { useTestDatabase } from "../../../db/harness.js";
-import { definitionUrl, useDefinitionApp } from "../harness.js";
+import { actor, aDraftWithOneItem, aPublishedQuestionnaire, useTestDatabase } from "../../../db/fixtures.js";
+import { definitionUrl } from "../fixtures.js";
+import { useDefinitionApp } from "../harness.js";
 
 const testDatabase = useTestDatabase();
 const app = useDefinitionApp(testDatabase);
-
-const actor = { createdBy: "test", traceId: null };
 
 function setClosesAt(questionnaireId: string, closesAt: string | null) {
   return app().inject({

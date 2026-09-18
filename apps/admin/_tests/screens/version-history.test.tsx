@@ -1,25 +1,12 @@
 import type { QuestionnaireSummary, VersionSummary } from "@qp/shared";
-import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { axeViolations, jsonResponse, problemResponse, stubFetch, type Reply } from "@qp/ui/testing";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import axe from "axe-core";
 import { describe, expect, it } from "vitest";
-import { App } from "../../src/app";
-import { createAppRouter } from "../../src/router";
-import {
-  QUESTIONNAIRE_ID,
-  aDraft,
-  draftResponse,
-  jsonResponse,
-  problemResponse,
-  stubFetch,
-  testQueryClient,
-  type FetchHandler,
-} from "../fixtures";
-
-const JSDOM_CANNOT_EVALUATE = { "color-contrast": { enabled: false } };
-
-const DEFINITION = "/api/definition/questionnaires";
+import { QUESTIONNAIRE_ID, aDraft } from "../support/builders";
+import { draftResponse } from "../support/http";
+import { renderAppAt } from "../support/render-app";
+import { DRAFT_URL, LIST_URL, VALIDATE_URL, VERSIONS_URL } from "../support/routes";
 
 function aVersion(version: number, itemCount: number, publishedAt: string): VersionSummary {
   return { questionnaireId: QUESTIONNAIRE_ID, version, publishedAt, publishedBy: null, itemCount, formatVersion: 1 };
@@ -47,22 +34,17 @@ function serve({
 }: {
   versions?: () => Response;
   summaries?: QuestionnaireSummary[];
-}): FetchHandler {
+}): Reply {
   return ({ url }) => {
-    if (url === DEFINITION) return jsonResponse(200, summaries);
-    if (url === `${DEFINITION}/${QUESTIONNAIRE_ID}/versions`) return versions();
+    if (url === LIST_URL) return jsonResponse(200, summaries);
+    if (url === VERSIONS_URL) return versions();
     throw new Error(`unexpected request to ${url}`);
   };
 }
 
-function renderHistory(handler: FetchHandler) {
+function renderHistory(handler: Reply) {
   const requests = stubFetch(handler);
-  const queryClient = testQueryClient();
-  const router = createAppRouter({
-    queryClient,
-    history: createMemoryHistory({ initialEntries: [`/admin/questionnaires/${QUESTIONNAIRE_ID}/versions`] }),
-  });
-  const { container } = render(<App queryClient={queryClient} router={router} />);
+  const { container, router } = renderAppAt(`/questionnaires/${QUESTIONNAIRE_ID}/versions`);
   return { container, router, requests };
 }
 
@@ -186,11 +168,10 @@ describe("the version history screen", () => {
   });
 
   it("offers Open the next draft beside the title when a published questionnaire has no draft, and opens it", async () => {
-    const draftUrl = `${DEFINITION}/${QUESTIONNAIRE_ID}/draft`;
     const opened = aDraft();
     const { router, requests } = renderHistory((request) => {
-      if (request.method === "POST" && request.url === draftUrl) return draftResponse(opened, 1, 201);
-      if (request.url === `${DEFINITION}/${QUESTIONNAIRE_ID}/draft/validate`) return jsonResponse(200, { valid: true, items: [] });
+      if (request.method === "POST" && request.url === DRAFT_URL) return draftResponse(opened, 1, 201);
+      if (request.url === VALIDATE_URL) return jsonResponse(200, { valid: true, items: [] });
       if (request.url.startsWith("/api/definition/questions")) return jsonResponse(200, []);
       return serve({})(request);
     });
@@ -200,17 +181,16 @@ describe("the version history screen", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: aSummary().name })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe(`/questionnaires/${QUESTIONNAIRE_ID}/draft`);
-    expect(requests.filter(({ method, url }) => method === "POST" && url === draftUrl)).toHaveLength(1);
+    expect(requests.filter(({ method, url }) => method === "POST" && url === DRAFT_URL)).toHaveLength(1);
   });
 
   it("on 409 questionnaire/draft-exists from Open the next draft goes to the draft that exists, with no error", async () => {
-    const draftUrl = `${DEFINITION}/${QUESTIONNAIRE_ID}/draft`;
     const theirs = aDraft(["itm_09"]);
     const { router } = renderHistory((request) => {
-      if (request.url === draftUrl) {
+      if (request.url === DRAFT_URL) {
         return request.method === "POST" ? problemResponse("questionnaire/draft-exists") : draftResponse(theirs, 4);
       }
-      if (request.url === `${DEFINITION}/${QUESTIONNAIRE_ID}/draft/validate`) return jsonResponse(200, { valid: true, items: [] });
+      if (request.url === VALIDATE_URL) return jsonResponse(200, { valid: true, items: [] });
       if (request.url.startsWith("/api/definition/questions")) return jsonResponse(200, []);
       return serve({})(request);
     });
@@ -266,7 +246,7 @@ describe("the version history screen", () => {
     const pending = new Promise<Response>((settle) => {
       answer = settle;
     });
-    renderHistory(({ url }) => (url === DEFINITION ? jsonResponse(200, [aSummary()]) : pending));
+    renderHistory(({ url }) => (url === LIST_URL ? jsonResponse(200, [aSummary()]) : pending));
 
     expect(await screen.findByRole("status")).toHaveTextContent("Loading versions");
 
@@ -329,8 +309,6 @@ describe("the version history screen", () => {
     const { container } = renderHistory(handler);
     await settled();
 
-    const results = await axe.run(container, { rules: JSDOM_CANNOT_EVALUATE });
-
-    expect(results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 });

@@ -1,14 +1,12 @@
 import type { VersionSummary } from "@qp/shared";
+import { axeViolations, jsonResponse, problemResponse } from "@qp/ui/testing";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { QUESTIONNAIRE_ID, deferred, draftResponse, etagAt, jsonResponse, problemResponse } from "../fixtures";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { QUESTIONNAIRE_ID, aBankQuestion, aQuestionVersion, etagAt, smoke, uuid } from "../support/builders";
+import { deferred, draftResponse } from "../support/http";
+import { DRAFT_URL, LIST_URL, PUBLISH_URL, QUESTIONS_URL, VALIDATE_URL, VERSIONS_URL, questionUrl, questionVersionsUrl } from "../support/routes";
 import {
-  DEFINITION,
-  DRAFT_URL,
-  VALIDATE_URL,
-  LIST_URL,
-  PUBLISH_URL,
   aDraftOf,
   alcohol,
   isYes,
@@ -22,15 +20,11 @@ import {
   puts,
   renderEditor,
   rowOf,
-  smoke,
   standardDraft,
   started,
   summary,
-  uuid,
 } from "./draft-editor/harness";
-import { aBankQuestion, aQuestionVersion, axeViolations, fillJsdomLayoutGaps } from "./question-editor/harness";
 
-beforeAll(fillJsdomLayoutGaps);
 afterEach(() => vi.restoreAllMocks());
 
 describe("the draft editor", () => {
@@ -95,7 +89,7 @@ describe("the draft editor", () => {
   it("creates a question from inside the picker, adds it pinned to the version just written, and closes the picker", async () => {
     const created = aQuestionVersion({ type: "text", questionId: uuid(106), questionVersion: 1, prompt: "Any allergies?" });
     const { requests } = renderEditor({
-      overrides: { [`POST ${DEFINITION}/questions`]: () => jsonResponse(201, aBankQuestion(created)) },
+      overrides: { [`POST ${QUESTIONS_URL}`]: () => jsonResponse(201, aBankQuestion(created)) },
     });
     await itemList();
 
@@ -116,7 +110,7 @@ describe("the draft editor", () => {
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(await promptsInOrder()).toHaveLength(5);
-    expect(requests.filter(({ method, url }) => method === "POST" && url === `${DEFINITION}/questions`)).toHaveLength(1);
+    expect(requests.filter(({ method, url }) => method === "POST" && url === QUESTIONS_URL)).toHaveLength(1);
   });
 
   it("offers New question in the picker's empty state", async () => {
@@ -283,7 +277,7 @@ describe("the draft editor", () => {
     const { requests } = renderEditor({
       bank: [aBankQuestion(smoke), aBankQuestion(perDay), aBankQuestion(started), aBankQuestion(latest)],
       overrides: {
-        [`POST ${DEFINITION}/questions/${notes.questionId}/versions`]: () => jsonResponse(201, saved),
+        [`POST ${questionVersionsUrl(notes.questionId)}`]: () => jsonResponse(201, saved),
       },
     });
     await itemList();
@@ -298,7 +292,7 @@ describe("the draft editor", () => {
     const items = await lastPutItems(requests);
     expect(items[3]).toEqual({ ...placed("itm_notes", notes), questionVersion: 4 });
     expect(items.slice(0, 3).map(({ questionVersion }) => questionVersion)).toEqual([1, 2, 1]);
-    expect(requests.some(({ method, url }) => method === "GET" && url === `${DEFINITION}/questions/${notes.questionId}`)).toBe(false);
+    expect(requests.some(({ method, url }) => method === "GET" && url === questionUrl(notes.questionId))).toBe(false);
   });
 
   it("marks a pin the bank has moved past as Newer version available in a right-aligned group, and re-pins on request", async () => {
@@ -471,7 +465,7 @@ describe("the draft editor", () => {
     const { requests, router } = renderEditor({
       overrides: {
         [`POST ${PUBLISH_URL}`]: () => jsonResponse(201, published),
-        [`GET ${DEFINITION}/questionnaires/${QUESTIONNAIRE_ID}/versions`]: () => jsonResponse(200, [published]),
+        [`GET ${VERSIONS_URL}`]: () => jsonResponse(200, [published]),
       },
     });
     await itemList();

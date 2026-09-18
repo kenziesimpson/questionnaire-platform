@@ -8,11 +8,16 @@ import {
   readQuestionnaireSummary,
   setClosesAt,
 } from "../../../src/db/definition/questionnaires.js";
-import { aPublishedQuestionnaire, QUESTIONNAIRE_LOCK_STATEMENT, theStatementWaitingOnALock, whileHoldingALock } from "../fixtures.js";
+import {
+  actor,
+  aPublishedQuestionnaire,
+  QUESTIONNAIRE_LOCK_STATEMENT,
+  theStatementWaitingOnALock,
+  whileHoldingALock,
+} from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 
 const testDatabase = useTestDatabase();
-const actor = { createdBy: "test", traceId: null };
 
 describe("readQuestionnaireSummary", () => {
   it("reports hasDraft for a draft-only, a published-only and a republished-with-draft questionnaire, equal to the list entry", async () => {

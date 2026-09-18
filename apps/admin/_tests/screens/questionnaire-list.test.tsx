@@ -1,30 +1,16 @@
 import type { QuestionnaireSummary } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
+import { axeViolations, jsonResponse, problemResponse, stubFetch, type RecordedRequest } from "@qp/ui/testing";
 import type { QueryClient } from "@tanstack/react-query";
-import { createMemoryHistory } from "@tanstack/react-router";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { questionnaireQueries } from "../../src/api/queries";
-import { App } from "../../src/app";
-import { createAppRouter } from "../../src/router";
-import {
-  aDraft,
-  deferred,
-  draftResponse,
-  etagAt,
-  jsonResponse,
-  problemResponse,
-  stubFetch,
-  testQueryClient,
-  type FetchHandler,
-  type RecordedRequest,
-} from "../fixtures";
+import { aDraft, etagAt } from "../support/builders";
+import { deferred, draftResponse, routed, type Routes } from "../support/http";
+import { renderAppAt, testQueryClient } from "../support/render-app";
+import { LIST_URL } from "../support/routes";
 
-const JSDOM_CANNOT_EVALUATE = { "color-contrast": { enabled: false } };
-const LIST_URL = "/api/definition/questionnaires";
-
-const INTAKE_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8c0";
 const FOLLOW_UP_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8d0";
 const FLU_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8e0";
 
@@ -41,7 +27,7 @@ function aSummary(overrides: Partial<QuestionnaireSummary> & Pick<QuestionnaireS
 }
 
 const intake = aSummary({
-  questionnaireId: INTAKE_ID,
+  questionnaireId: INTAKE_QUESTIONNAIRE_ID,
   name: "Patient Intake",
   key: "qnr_intake",
   hasDraft: true,
@@ -62,25 +48,11 @@ const flu = aSummary({
   updatedAt: "2020-01-14T10:00:00.000Z",
 });
 
-type Routes = Record<string, (request: RecordedRequest) => Response | Promise<Response>>;
-
-function routed(routes: Routes): FetchHandler {
-  return (request) => {
-    const respond = routes[`${request.method} ${request.url}`];
-    return respond ? respond(request) : problemResponse("resource/not-found");
-  };
-}
-
 function renderList(routes: Routes, prepare: (queryClient: QueryClient) => void = () => undefined) {
-  const requests = stubFetch(routed(routes));
+  const requests = stubFetch(routed(routes, () => problemResponse("resource/not-found")));
   const queryClient = testQueryClient();
   prepare(queryClient);
-  const router = createAppRouter({
-    queryClient,
-    history: createMemoryHistory({ initialEntries: ["/admin/questionnaires"] }),
-  });
-  const { container } = render(<App queryClient={queryClient} router={router} />);
-  return { requests, queryClient, router, container };
+  return { requests, ...renderAppAt("/questionnaires", queryClient) };
 }
 
 function namesInOrder(): string[] {
@@ -96,11 +68,6 @@ function rowOf(name: string): HTMLElement {
 
 function callsTo(requests: RecordedRequest[]) {
   return requests.map(({ method, url }) => `${method} ${url}`);
-}
-
-async function violationsIn(element: Element) {
-  const results = await axe.run(element, { rules: JSDOM_CANNOT_EVALUATE });
-  return results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }));
 }
 
 describe("the questionnaire list", () => {
@@ -131,7 +98,7 @@ describe("the questionnaire list", () => {
     expect(within(rowOf("Flu Season Screening")).getByRole("button", { name: "Reopen Flu Season Screening" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "History of Patient Intake" })).toHaveAttribute(
       "href",
-      `/admin/questionnaires/${INTAKE_ID}/versions`,
+      `/admin/questionnaires/${INTAKE_QUESTIONNAIRE_ID}/versions`,
     );
   });
 
@@ -143,12 +110,12 @@ describe("the questionnaire list", () => {
     await screen.findByRole("table");
 
     const nameLink = within(rowOf("Patient Intake")).getByRole("link", { name: "Patient Intake" });
-    expect(nameLink).toHaveAttribute("href", `${window.location.origin}/q/${INTAKE_ID}`);
+    expect(nameLink).toHaveAttribute("href", `${window.location.origin}/q/${INTAKE_QUESTIONNAIRE_ID}`);
     expect(nameLink).toHaveAttribute("target", "_blank");
 
     await userEvent.click(within(rowOf("Patient Intake")).getByRole("button", { name: "Copy link to Patient Intake" }));
 
-    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/q/${INTAKE_ID}`);
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/q/${INTAKE_QUESTIONNAIRE_ID}`);
   });
 
   it("doesn't link the name or offer a copy-link button once a questionnaire is closed, showing an archived mark instead", async () => {
@@ -166,7 +133,7 @@ describe("the questionnaire list", () => {
   it("reads closed and last edited as of when the list was loaded, and again when a refetch lands", async () => {
     const loadedAt = Date.parse("2026-01-14T12:00:00.000Z");
     const closingSoon = aSummary({
-      questionnaireId: INTAKE_ID,
+      questionnaireId: INTAKE_QUESTIONNAIRE_ID,
       name: "Patient Intake",
       closesAt: "2026-01-14T12:05:00.000Z",
       updatedAt: "2026-01-14T11:58:00.000Z",
@@ -195,7 +162,7 @@ describe("the questionnaire list", () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(Date.parse("2026-01-14T12:04:30.000Z"));
       const closingSoon = aSummary({
-        questionnaireId: INTAKE_ID,
+        questionnaireId: INTAKE_QUESTIONNAIRE_ID,
         name: "Patient Intake",
         closesAt: "2026-01-14T12:05:00.000Z",
       });
@@ -303,8 +270,8 @@ describe("creating a questionnaire", () => {
 });
 
 describe("opening a draft", () => {
-  const published = aSummary({ questionnaireId: INTAKE_ID, name: "Patient Intake", hasDraft: false });
-  const DRAFT_URL = `${LIST_URL}/${INTAKE_ID}/draft`;
+  const published = aSummary({ questionnaireId: INTAKE_QUESTIONNAIRE_ID, name: "Patient Intake", hasDraft: false });
+  const DRAFT_URL = `${LIST_URL}/${INTAKE_QUESTIONNAIRE_ID}/draft`;
 
   it("navigates straight to the draft when one is open, without writing anything", async () => {
     const { requests, router } = renderList({ [`GET ${LIST_URL}`]: () => jsonResponse(200, [intake]) });
@@ -312,7 +279,7 @@ describe("opening a draft", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Open draft of Patient Intake" }));
 
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/questionnaires/${INTAKE_ID}/draft`));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/questionnaires/${INTAKE_QUESTIONNAIRE_ID}/draft`));
     expect(requests.filter(({ method }) => method !== "GET")).toEqual([]);
   });
 
@@ -325,9 +292,9 @@ describe("opening a draft", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Open draft of Patient Intake" }));
 
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/questionnaires/${INTAKE_ID}/draft`));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/questionnaires/${INTAKE_QUESTIONNAIRE_ID}/draft`));
     expect(callsTo(requests)).toContain(`POST ${DRAFT_URL}`);
-    expect(queryClient.getQueryData(questionnaireQueries.draft(INTAKE_ID).queryKey)).toEqual({
+    expect(queryClient.getQueryData(questionnaireQueries.draft(INTAKE_QUESTIONNAIRE_ID).queryKey)).toEqual({
       draft: aDraft(),
       etag: etagAt(3),
     });
@@ -344,11 +311,11 @@ describe("opening a draft", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Open draft of Patient Intake" }));
 
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/questionnaires/${INTAKE_ID}/draft`));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/questionnaires/${INTAKE_QUESTIONNAIRE_ID}/draft`));
     const calls = callsTo(requests);
     expect(calls.indexOf(`GET ${DRAFT_URL}`)).toBeGreaterThan(calls.indexOf(`POST ${DRAFT_URL}`));
     expect(calls.filter((call) => call === `GET ${LIST_URL}`).length).toBeGreaterThanOrEqual(2);
-    expect(queryClient.getQueryData(questionnaireQueries.draft(INTAKE_ID).queryKey)).toEqual({
+    expect(queryClient.getQueryData(questionnaireQueries.draft(INTAKE_QUESTIONNAIRE_ID).queryKey)).toEqual({
       draft: theirs,
       etag: etagAt(5),
     });
@@ -370,8 +337,8 @@ describe("opening a draft", () => {
 });
 
 describe("retiring and reopening", () => {
-  const CLOSES_AT_URL = `${LIST_URL}/${INTAKE_ID}/closes-at`;
-  const open = aSummary({ questionnaireId: INTAKE_ID, name: "Patient Intake" });
+  const CLOSES_AT_URL = `${LIST_URL}/${INTAKE_QUESTIONNAIRE_ID}/closes-at`;
+  const open = aSummary({ questionnaireId: INTAKE_QUESTIONNAIRE_ID, name: "Patient Intake" });
 
   it("sets closesAt through PUT /closes-at, updates the row from the response, then clears it again", async () => {
     const closesAt = new Date("2020-06-01T09:30").toISOString();
@@ -407,7 +374,7 @@ describe("retiring and reopening", () => {
   });
 
   it("schedules a future close as a reschedulable open row", async () => {
-    const future = aSummary({ questionnaireId: INTAKE_ID, name: "Patient Intake", closesAt: "2999-01-01T00:00:00.000Z" });
+    const future = aSummary({ questionnaireId: INTAKE_QUESTIONNAIRE_ID, name: "Patient Intake", closesAt: "2999-01-01T00:00:00.000Z" });
     renderList({ [`GET ${LIST_URL}`]: () => jsonResponse(200, [future]) });
     await screen.findByRole("table");
 
@@ -438,21 +405,21 @@ describe("the questionnaire list's accessibility", () => {
     const { container } = renderList({ [`GET ${LIST_URL}`]: () => jsonResponse(200, [flu, intake, followUp]) });
     await screen.findByRole("table");
 
-    expect(await violationsIn(container)).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
 
     await userEvent.click(screen.getByRole("button", { name: "New questionnaire" }));
-    expect(await violationsIn(await screen.findByRole("dialog"))).toEqual([]);
+    expect(await axeViolations(await screen.findByRole("dialog"))).toEqual([]);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: "Reopen Flu Season Screening" }));
-    expect(await violationsIn(await screen.findByRole("dialog"))).toEqual([]);
+    expect(await axeViolations(await screen.findByRole("dialog"))).toEqual([]);
   });
 
   it("has no axe violations in the empty state", async () => {
     const { container } = renderList({ [`GET ${LIST_URL}`]: () => jsonResponse(200, []) });
     await screen.findByText("No questionnaires yet");
 
-    expect(await violationsIn(container)).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 });

@@ -14,7 +14,7 @@ import {
   submit,
   useExecutionApp,
 } from "../../db/execution/fixtures.js";
-import { useTestDatabase } from "../../db/harness.js";
+import { useTestDatabase } from "../../db/fixtures.js";
 
 const testDatabase = useTestDatabase();
 const executionApp = useExecutionApp(testDatabase);

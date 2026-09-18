@@ -17,15 +17,19 @@ import { createNextDraft, replaceDraft } from "../../../../src/db/definition/dra
 import { createQuestionnaire } from "../../../../src/db/definition/questionnaires.js";
 import { appendQuestionVersion, createQuestion } from "../../../../src/db/definition/questions.js";
 import { AUTHOR_PLACEHOLDER } from "../../../../src/modules/definition/author.js";
-import { aDraftWithOneItem, aPublishedQuestionnaire, aTextQuestion, type DraftFixture } from "../../../db/fixtures.js";
-import { useTestDatabase } from "../../../db/harness.js";
-import { aSecondItem, createNextDraftDirectly, publish, saveDraft, storedSnapshotText } from "../fixtures.js";
-import { definitionUrl, useDefinitionApp } from "../harness.js";
+import {
+  actor,
+  aDraftWithOneItem,
+  aPublishedQuestionnaire,
+  aTextQuestion,
+  type DraftFixture,
+  useTestDatabase,
+} from "../../../db/fixtures.js";
+import { aSecondItem, createNextDraftDirectly, definitionUrl, publish, saveDraft, storedSnapshotText } from "../fixtures.js";
+import { useDefinitionApp } from "../harness.js";
 
 const testDatabase = useTestDatabase();
 const app = useDefinitionApp(testDatabase);
-
-const actor = { createdBy: "test", traceId: null };
 
 const yesNo: QuestionInput = {
   type: "single_choice",
@@ -700,10 +704,10 @@ describe("POST /questionnaires/:id/publish", () => {
 
   it.each(invalidPlacements)("refuses %s with 422 naming the item", async (_label, predicates, expectedItem) => {
     const db = testDatabase.database("definition");
-    const created = await createQuestionnaire(db, { key: null, name: "Invalid", title: "Invalid", createdBy: "test", traceId: null });
+    const created = await createQuestionnaire(db, { key: null, name: "Invalid", title: "Invalid", ...actor });
     const items: DraftItem[] = [];
     for (const [index, visibleWhen] of predicates.entries()) {
-      const saved = await createQuestion(db, { key: null, content: yesNo, createdBy: "test", traceId: null });
+      const saved = await createQuestion(db, { key: null, content: yesNo, ...actor });
       items.push({ itemId: `itm_0${index + 1}`, required: false, visibleWhen, questionId: saved.questionId, questionVersion: 1 });
     }
     const draft = await saveDraft(db, created.questionnaireId, created, items);

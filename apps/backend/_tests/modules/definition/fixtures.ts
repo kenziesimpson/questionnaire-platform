@@ -1,12 +1,14 @@
-import { formatDraftEtag, type DraftItem } from "@qp/shared";
+import { definitionApi, formatDraftEtag, type DraftItem } from "@qp/shared";
 import type { FastifyInstance } from "fastify";
 import { v7 as uuidv7 } from "uuid";
 import type { Database } from "../../../src/db/client.js";
 import { replaceDraft } from "../../../src/db/definition/drafts.js";
 import { createQuestion } from "../../../src/db/definition/questions.js";
-import { aTextQuestion } from "../../db/fixtures.js";
-import type { TestDatabase } from "../../db/harness.js";
-import { definitionUrl } from "./harness.js";
+import { actor, aTextQuestion, type TestDatabase } from "../../db/fixtures.js";
+
+export function definitionUrl(path: string): string {
+  return `${definitionApi.DEFINITION_PREFIX}${path}`;
+}
 
 export interface OpenDraft {
   readonly draftVersionId: string;
@@ -48,7 +50,7 @@ export async function saveDraft(db: Database, questionnaireId: string, draft: Op
 }
 
 export async function aSecondItem(db: Database): Promise<DraftItem> {
-  const saved = await createQuestion(db, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
+  const saved = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
   return { itemId: "itm_02", required: false, visibleWhen: null, questionId: saved.questionId, questionVersion: 1 };
 }
 

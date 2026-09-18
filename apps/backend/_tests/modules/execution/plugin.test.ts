@@ -3,7 +3,7 @@ import Fastify, { type RouteOptions } from "fastify";
 import { describe, expect, it } from "vitest";
 import { executionModule } from "../../../src/modules/execution/plugin.js";
 import { executionUrl, useExecutionApp } from "../../db/execution/fixtures.js";
-import { useTestDatabase } from "../../db/harness.js";
+import { useTestDatabase } from "../../db/fixtures.js";
 
 const testDatabase = useTestDatabase();
 const app = useExecutionApp(testDatabase);

@@ -2,7 +2,7 @@ import { PROBLEM_CONTENT_TYPE, problemType } from "@qp/shared";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { useTestDatabase } from "./db/harness.js";
+import { useTestDatabase } from "./db/fixtures.js";
 
 const testDatabase = useTestDatabase();
 

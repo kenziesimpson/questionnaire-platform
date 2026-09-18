@@ -1,27 +1,18 @@
 import type { QuestionnaireDraft, VersionSummary } from "@qp/shared";
+import { jsonResponse, problemResponse, respondInOrder, stubFetch, type Reply } from "@qp/ui/testing";
 import { QueryClientProvider, useQuery, type QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { questionnaireQueries } from "../../src/api/queries";
 import { useDraftMutation, type PublishOutcome } from "../../src/api/use-draft-mutation";
-import {
-  QUESTIONNAIRE_ID,
-  aDraft,
-  deferred,
-  draftResponse,
-  etagAt,
-  jsonResponse,
-  problemResponse,
-  respondInOrder,
-  stubFetch,
-  testQueryClient,
-  type FetchHandler,
-} from "../fixtures";
+import { QUESTIONNAIRE_ID, aDraft, etagAt } from "../support/builders";
+import { deferred, draftResponse } from "../support/http";
+import { testQueryClient } from "../support/render-app";
+import { DRAFT_URL } from "../support/routes";
 
 const draftQuery = questionnaireQueries.draft(QUESTIONNAIRE_ID);
 const validationQuery = questionnaireQueries.draftValidation(QUESTIONNAIRE_ID);
-const DRAFT_URL = `/api/definition/questionnaires/${QUESTIONNAIRE_ID}/draft`;
 
 const swapFirstTwo = (draft: QuestionnaireDraft): QuestionnaireDraft => {
   const [first, second, ...rest] = draft.items;
@@ -34,7 +25,7 @@ function itemIdsIn(queryClient: QueryClient) {
   return queryClient.getQueryData(draftQuery.queryKey)?.draft.items.map(({ itemId }) => itemId);
 }
 
-function renderDraftMutation(handler: FetchHandler, loaded = aDraft(["itm_01", "itm_02", "itm_03"]), revision = 1) {
+function renderDraftMutation(handler: Reply, loaded = aDraft(["itm_01", "itm_02", "itm_03"]), revision = 1) {
   const requests = stubFetch(handler);
   const queryClient = testQueryClient();
   queryClient.setQueryData(draftQuery.queryKey, { draft: loaded, etag: etagAt(revision) });

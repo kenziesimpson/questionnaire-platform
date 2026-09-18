@@ -11,11 +11,10 @@ import {
   readOptionsInPosition,
   readQuestionVersions,
 } from "../../../src/db/definition/question-versions.js";
-import { aTextQuestion } from "../fixtures.js";
+import { actor, aTextQuestion } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 
 const testDatabase = useTestDatabase();
-const actor = { createdBy: "test", traceId: null };
 
 const colours: QuestionInput = {
   type: "single_choice",

@@ -1,14 +1,12 @@
 import { draftItemOf, executionApi, questionInputOf, type ClientAnswers, type Item } from "@qp/shared";
 import { INTAKE_QUESTION_IDS, INTAKE_QUESTIONNAIRE_ID, intakeDefinition } from "@qp/shared/demo";
-import Fastify, { type FastifyInstance, type LightMyRequestResponse } from "fastify";
-import { afterEach, beforeEach, vi } from "vitest";
+import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { appendQuestionVersion, createQuestion } from "../../../src/db/definition/questions.js";
 import { seedDemoQuestionnaire } from "../../../src/db/seed/demo-questionnaire.js";
-import { executionModule } from "../../../src/modules/execution/plugin.js";
-import { aPublishedQuestionnaireOf, publishNextVersion } from "../fixtures.js";
+import { actor, aPublishedQuestionnaireOf, publishNextVersion } from "../fixtures.js";
 import type { TestDatabase } from "../harness.js";
 
-export const NOW = new Date("2026-09-14T10:00:00.000Z");
+export { useExecutionApp } from "./harness.js";
 
 export const SENTINEL_TEXT = "SENTINEL-ANSWER-7f3a";
 export const SENTINEL_DATE = "1999-12-31";
@@ -16,39 +14,6 @@ export const SENTINEL_DATE = "1999-12-31";
 export function executionUrl(path: string): string {
   return `${executionApi.EXECUTION_PREFIX}${path}`;
 }
-
-export function freezeTimeAt(instant: Date): void {
-  vi.setSystemTime(instant);
-}
-
-export function useExecutionApp(testDatabase: TestDatabase): () => FastifyInstance {
-  let app: FastifyInstance | undefined;
-
-  beforeEach(async () => {
-    freezeTimeAt(NOW);
-    app = Fastify();
-    await app.register(executionModule, {
-      database: testDatabase.database("execution"),
-      prefix: executionApi.EXECUTION_PREFIX,
-    });
-    await app.ready();
-  });
-
-  afterEach(async () => {
-    vi.useRealTimers();
-    await app?.close();
-    app = undefined;
-  });
-
-  return () => {
-    if (app === undefined) {
-      throw new Error("the execution app is built in beforeEach; read it inside a test");
-    }
-    return app;
-  };
-}
-
-const actor = { createdBy: "test", traceId: null };
 
 export async function seedIntakeV1(testDatabase: TestDatabase): Promise<void> {
   const outcome = await seedDemoQuestionnaire(testDatabase.database("definition"));

@@ -117,15 +117,22 @@ A save invalidates every `questions` query. Focus returns to whatever held it wh
 
 ## Tests
 
-`_tests/` mirrors `src/`. Screen tests render the whole app through `createAppRouter` with a memory
+`_tests/` mirrors `src/`. Screen tests render the whole app through `renderAppAt` with a memory
 history and a stubbed `fetch`, so each one also exercises the route, the shell and the query client.
 
-- `_tests/fixtures.ts` has `stubFetch`, `problemResponse`, `draftResponse` and a retry-free `testQueryClient`.
-- `_tests/fake-definition-api.ts` is an in-memory definition API behind `stubFetch`: questionnaires,
-  drafts with real `ETag` checks, validation through `@qp/shared`'s `validateDraft`, publish, versions,
-  questions and usage. Every body it accepts or returns is checked against the route's schema.
-  `_tests/authoring-flow.test.tsx` drives the full flow across every screen against it.
-- `_tests/screens/draft-editor/harness.tsx` and `_tests/screens/question-editor/harness.tsx` hold the
-  draft editor's and question editor's fixtures, and `fillJsdomLayoutGaps` for dialogs and dnd-kit.
-- Each screen has an axe check in its populated, empty and error states, with `color-contrast` off
-  because jsdom cannot compute it.
+- `@qp/ui/testing` supplies the fake `fetch` (`stubFetch`, `FakeServer`, `jsonResponse`,
+  `problemResponse`), the axe runner and the jsdom polyfills. `_tests/setup.ts` installs the polyfills
+  once, for dialogs and dnd-kit.
+- `_tests/support/` holds what more than one directory shares:
+  - `builders.ts`: ids, drafts and question versions;
+  - `routes.ts`: every definition URL a test stubs, built from the shared route table;
+  - `render-app.tsx`: `renderAppAt` and a retry-free `testQueryClient`;
+  - `http.ts`: `draftResponse`, `routed`, and an in-memory definition API. The API covers
+    questionnaires, drafts with real `ETag` checks, validation through `@qp/shared`'s `validateDraft`,
+    publish, versions, questions and usage, and checks every body it accepts or returns against the
+    route's schema. `_tests/authoring-flow.test.tsx` drives the full flow across every screen against it.
+- `_tests/screens/draft-editor/harness.tsx` and `_tests/screens/question-editor/harness.tsx` render
+  one screen each and serve only that screen's tests; ESLint rejects importing another directory's
+  harness.
+- Each screen has an axe check in its populated, empty and error states through `axeViolations`, with
+  `color-contrast` off because jsdom cannot compute it.

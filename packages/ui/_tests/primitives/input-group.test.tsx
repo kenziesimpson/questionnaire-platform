@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "../../src/primitives/input-group";
-import { violationsIn } from "../axe";
+import { axeViolations } from "../../src/testing";
 
 function UnitInput() {
   return (
@@ -35,6 +35,6 @@ describe("InputGroup", () => {
   it("finds no axe violations", async () => {
     const { container } = render(<UnitInput />);
 
-    expect(await violationsIn(container)).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 });

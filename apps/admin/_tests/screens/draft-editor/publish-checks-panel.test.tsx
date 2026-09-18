@@ -1,12 +1,11 @@
+import { axeViolations, jsonResponse, problemResponse } from "@qp/ui/testing";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { deferred, jsonResponse, problemResponse } from "../../fixtures";
-import { axeViolations, fillJsdomLayoutGaps } from "../question-editor/harness";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { smoke } from "../../support/builders";
+import { deferred } from "../../support/http";
+import { DRAFT_URL, PUBLISH_URL, VALIDATE_URL } from "../../support/routes";
 import {
-  DRAFT_URL,
-  PUBLISH_URL,
-  VALIDATE_URL,
   aDraftOf,
   itemList,
   notes,
@@ -15,13 +14,11 @@ import {
   puts,
   renderEditor,
   rowOf,
-  smoke,
   started,
   validations,
   type Validation,
 } from "./harness";
 
-beforeAll(fillJsdomLayoutGaps);
 afterEach(() => vi.restoreAllMocks());
 
 const panel = () => screen.getByRole("region", { name: "Publish checks" });

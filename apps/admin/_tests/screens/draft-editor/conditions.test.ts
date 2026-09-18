@@ -9,10 +9,7 @@ import {
   referenceOf,
   withOperator,
 } from "../../../src/screens/draft-editor/conditions";
-import { VERSION_ID, QUESTIONNAIRE_ID } from "../../fixtures";
-import { aQuestionVersion } from "../question-editor/harness";
-
-const uuid = (n: number) => `01a0950e-56a0-73d6-b936-4a1e10eff${String(n).padStart(3, "0")}`;
+import { QUESTIONNAIRE_ID, VERSION_ID, aQuestionVersion, uuid } from "../../support/builders";
 
 const questions: Record<QuestionVersion["type"], QuestionVersion> = {
   text: aQuestionVersion({ type: "text", questionId: uuid(1), questionVersion: 1 }),

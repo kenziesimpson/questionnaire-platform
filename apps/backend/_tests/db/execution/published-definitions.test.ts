@@ -2,7 +2,8 @@ import { FORMAT_VERSION, PROBLEM_CONTENT_TYPE, problemType } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import { aQuestionnairePublishedAs } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
-import { problemOf, startSession, useExecutionApp } from "./fixtures.js";
+import { problemOf, startSession } from "./fixtures.js";
+import { useExecutionApp } from "./harness.js";
 
 const testDatabase = useTestDatabase();
 const executionApp = useExecutionApp(testDatabase);

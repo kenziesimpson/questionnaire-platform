@@ -1,18 +1,10 @@
 import { definitionApi, problemType, type QuestionUsage, type VersionSummary } from "@qp/shared";
+import { jsonResponse, problemResponse, respondInOrder, stubFetch } from "@qp/ui/testing";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { callDefinition, draftApi } from "../../src/api/client";
 import { ProblemError, UnexpectedResponseError, isProblem } from "../../src/api/problem-error";
-import {
-  QUESTIONNAIRE_ID,
-  QUESTION_ID,
-  aDraft,
-  draftResponse,
-  etagAt,
-  jsonResponse,
-  problemResponse,
-  respondInOrder,
-  stubFetch,
-} from "../fixtures";
+import { QUESTIONNAIRE_ID, QUESTION_ID, aDraft, etagAt } from "../support/builders";
+import { draftResponse } from "../support/http";
 
 const aVersionSummary: VersionSummary = {
   questionnaireId: QUESTIONNAIRE_ID,

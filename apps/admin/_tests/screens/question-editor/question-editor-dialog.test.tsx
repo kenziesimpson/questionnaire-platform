@@ -1,25 +1,11 @@
+import { componentAxeViolations, jsonResponse, problemResponse, respondInOrder, stubFetch } from "@qp/ui/testing";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import {
-  QUESTION_ID,
-  deferred,
-  jsonResponse,
-  problemResponse,
-  respondInOrder,
-  stubFetch,
-} from "../../fixtures";
-import {
-  aBankQuestion,
-  aQuestionVersion,
-  axeViolations,
-  fillJsdomLayoutGaps,
-  inDialog,
-  optionIdsShown,
-  renderEditor,
-} from "./harness";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { QUESTION_ID, aBankQuestion, aQuestionVersion } from "../../support/builders";
+import { deferred } from "../../support/http";
+import { inDialog, optionIdsShown, renderEditor } from "./harness";
 
-beforeAll(fillJsdomLayoutGaps);
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -576,6 +562,6 @@ describe("QuestionEditorDialog — accessibility", () => {
   ])("has no axe violations while %s", async (_, props) => {
     renderEditor(props);
 
-    expect(await axeViolations()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
   });
 });

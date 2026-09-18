@@ -9,7 +9,9 @@ import { createQuestionnaire } from "../../src/db/definition/questionnaires.js";
 import { createQuestion } from "../../src/db/definition/questions.js";
 import type { TestDatabase } from "./harness.js";
 
-const actor = { createdBy: "test", traceId: null };
+export { SQLSTATE, expectSqlState, useTestDatabase, type TestDatabase } from "./harness.js";
+
+export const actor = { createdBy: "test", traceId: null };
 
 export const aTextQuestion: QuestionInput = { type: "text", prompt: "Anything else?" };
 

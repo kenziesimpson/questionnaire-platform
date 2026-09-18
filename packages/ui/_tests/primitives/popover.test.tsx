@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { Button } from "../../src/primitives/button";
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "../../src/primitives/popover";
-import { violationsInDocumentIncludingPortals } from "../axe";
+import { componentAxeViolations } from "../../src/testing";
 
 function StalenessPopover() {
   return (
@@ -49,10 +49,10 @@ describe("Popover", () => {
 
   it("finds no axe violations closed or open", async () => {
     render(<StalenessPopover />);
-    expect(await violationsInDocumentIncludingPortals()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
 
     await userEvent.click(screen.getByRole("button", { name: "Pinned version" }));
 
-    expect(await violationsInDocumentIncludingPortals()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
   });
 });

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Label } from "../../src/primitives/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../../src/primitives/select";
-import { violationsInDocumentIncludingPortals } from "../axe";
+import { componentAxeViolations } from "../../src/testing";
 
 function OperatorSelect({ onValueChange = () => undefined }: { onValueChange?: (value: string) => void }) {
   const [value, setValue] = useState<string | undefined>(undefined);
@@ -62,11 +62,11 @@ describe("Select", () => {
 
   it("finds no axe violations closed or open", async () => {
     render(<OperatorSelect />);
-    expect(await violationsInDocumentIncludingPortals()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
 
     screen.getByRole("combobox", { name: "Operator" }).focus();
     await userEvent.keyboard("{Enter}");
 
-    expect(await violationsInDocumentIncludingPortals()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
   });
 });
