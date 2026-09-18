@@ -10,7 +10,8 @@ import {
   type SubmissionItemCode,
 } from "@qp/shared";
 import { AlertCircleIcon, RotateCcwIcon } from "@qp/ui/icons";
-import { Alert, AlertDescription, AlertTitle } from "@qp/ui/primitives/alert";
+import { cn } from "@qp/ui/lib/utils";
+import { alertVariants, AlertDescription, AlertTitle } from "@qp/ui/primitives/alert";
 import { Button } from "@qp/ui/primitives/button";
 import { focusItem, QuestionnaireForm, type ItemErrors } from "@qp/ui/questionnaire";
 import { useForm, useStore } from "@tanstack/react-form";
@@ -80,17 +81,17 @@ function RestoreStrip() {
 function SubmitFailedAlert({ retry }: { retry: RetryControl | null }) {
   const messageId = useId();
   return (
-    <div className="flex flex-col gap-4">
-      <Alert id={messageId} variant="destructive" className="gap-2">
+    <div className={cn(alertVariants({ variant: "destructive" }), "flex-col gap-4 py-4")}>
+      <div id={messageId} role="alert" className="flex gap-2">
         <AlertCircleIcon aria-hidden="true" className="mt-0.5 shrink-0 text-destructive" size={16} />
         <div className="flex flex-col gap-1 leading-relaxed">
           <AlertTitle className="text-destructive">Your answers were not submitted.</AlertTitle>
-          <AlertDescription className="text-foreground">
+          <AlertDescription className="text-sm leading-relaxed text-foreground">
             They are still saved on this device.
             {retry !== null && ` ${TRANSIENT_FAILURE_EXPLANATION}`}
           </AlertDescription>
         </div>
-      </Alert>
+      </div>
       {retry !== null && (
         <div className="flex flex-col sm:flex-row sm:pl-6">
           <RetryButton retry={retry} describedBy={messageId} focusOnMount />

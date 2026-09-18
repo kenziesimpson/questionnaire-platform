@@ -1,5 +1,5 @@
 import { ArrowLeftIcon } from "@qp/ui/icons";
-import { Alert, AlertDescription, AlertTitle } from "@qp/ui/primitives/alert";
+import { Alert, AlertDescription } from "@qp/ui/primitives/alert";
 import { Button } from "@qp/ui/primitives/button";
 import { useQuery } from "@tanstack/react-query";
 import { Link, getRouteApi } from "@tanstack/react-router";
@@ -68,8 +68,8 @@ function VersionNotFound({ version }: { version: number }) {
 function LoadFailed({ version, retrying, onRetry }: { version: number; retrying: boolean; onRetry: () => void }) {
   return (
     <Alert variant="destructive" className="flex-col items-start gap-3 rounded-xl p-6">
-      <AlertTitle className="text-base">Version {version} could not be loaded</AlertTitle>
-      <AlertDescription>Something went wrong reaching the server. Try again.</AlertDescription>
+      <h2 className="text-base font-semibold">Version {version} could not be loaded</h2>
+      <AlertDescription className="text-sm">Something went wrong reaching the server. Try again.</AlertDescription>
       <Button variant="outline" onClick={onRetry} disabled={retrying}>
         {retrying ? "Retrying…" : "Retry"}
       </Button>

@@ -173,8 +173,8 @@ function OpenQuestionEditor({ onOpenChange, question, onSaved }: Omit<QuestionEd
         >
           <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
             {(failure !== null || errors.unplaced.length > 0) && (
-              <Alert variant="destructive">
-                <AlertDescription className="text-destructive">
+              <Alert variant="destructive" className="px-3 py-2.5">
+                <AlertDescription className="text-sm text-destructive">
                   {[...(failure === null ? [] : [failure]), ...errors.unplaced].map((message) => (
                     <p key={message}>{message}</p>
                   ))}
