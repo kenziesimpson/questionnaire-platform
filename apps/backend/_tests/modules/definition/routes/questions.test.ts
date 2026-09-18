@@ -138,6 +138,7 @@ describe("POST /questions", () => {
       type: problemType("request/invalid"),
       title: expect.any(String),
       status: 400,
+      instance: definitionUrl("/questions"),
       errors: [{ pointer: "/body/question/options/1/optionId", code: "question/other-not-freeform" }],
     });
     expect((await get("/questions?includeArchived=true")).json()).toEqual([]);
@@ -256,6 +257,7 @@ describe("POST /questions/:questionId/versions", () => {
       type: problemType("request/invalid"),
       title: expect.any(String),
       status: 400,
+      instance: definitionUrl(`/questions/${questionId}/versions`),
       errors: [{ pointer: "/body/question/options/1/optionId", code: "question/other-not-freeform" }],
     });
     expect((await get(`/questions/${questionId}/versions`)).json()).toHaveLength(1);

@@ -8,7 +8,7 @@ import { describe, expect, inject, it } from "vitest";
 // eslint-disable-next-line no-restricted-imports -- this test migrates a scratch database of its own, which the harness does not hand out
 import { openDatabase } from "../../src/db/client.js";
 import { createQuestion, listQuestionVersionSummaries } from "../../src/db/definition/questions.js";
-import { MIGRATIONS_FOLDER } from "../../src/db/migrator.js";
+import { MIGRATIONS_FOLDER } from "../../src/db/migrations.js";
 import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
 import { ROLE_NAMES, withDatabase, withRole, type ApplicationRole } from "./server.js";
 
