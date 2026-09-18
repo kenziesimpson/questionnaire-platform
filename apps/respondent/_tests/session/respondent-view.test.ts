@@ -1,11 +1,11 @@
 import { type ClientAnswers } from "@qp/shared";
 import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { describe, expect, it } from "vitest";
-import { viewOf, type RespondentView } from "../../src/session/respondent-view.ts";
-import type { Failure, FailureReason, FormContext, RespondentState } from "../../src/session/respondent-state.ts";
-import type { SubmissionRejection } from "../../src/answers/submission-rejection.ts";
-import type { StoredPartials } from "../../src/storage/partials.ts";
-import { inProgressSession, intakeV1, receipt, SESSION_ID } from "../fixtures.ts";
+import { viewOf, type RespondentView } from "../../src/session/respondent-view";
+import type { Failure, FailureReason, FormContext, RespondentState } from "../../src/session/respondent-state";
+import type { SubmissionRejection } from "../../src/answers/submission-rejection";
+import type { StoredPartials } from "../../src/storage/partials";
+import { inProgressSession, intakeV1, receipt, SESSION_ID } from "../fixtures";
 
 function stored(answers: ClientAnswers): StoredPartials {
   return { formatVersion: 1, sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers, updatedAt: "2026-09-14T09:05:00.000Z" };

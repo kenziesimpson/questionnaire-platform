@@ -1,8 +1,8 @@
 import type { ReactElement } from "react";
-import { questionnaireIdFromPath } from "./entry/questionnaire-path.ts";
-import { QuestionnaireScreen } from "./screens/questionnaire-screen.tsx";
-import { ReceiptScreen } from "./screens/receipt-screen.tsx";
-import type { RetryControl } from "./screens/retry-button.tsx";
+import { questionnaireIdFromPath } from "./entry/questionnaire-path";
+import { QuestionnaireScreen } from "./screens/questionnaire-screen";
+import { ReceiptScreen } from "./screens/receipt-screen";
+import type { RetryControl } from "./screens/retry-button";
 import {
   ClosedScreen,
   EntryFailedScreen,
@@ -11,10 +11,10 @@ import {
   NotFoundScreen,
   RecordedReceiptFailedScreen,
   SavedAnswersResumeFailedScreen,
-} from "./screens/terminal-screens.tsx";
-import type { RespondentSession } from "./session/respondent-session.ts";
-import { viewOf, type RespondentView } from "./session/respondent-view.ts";
-import { useRespondentSession } from "./session/use-respondent-session.ts";
+} from "./screens/terminal-screens";
+import type { RespondentSession } from "./session/respondent-session";
+import { viewOf, type RespondentView } from "./session/respondent-view";
+import { useRespondentSession } from "./session/use-respondent-session";
 
 function retryControlFor(session: RespondentSession, attempt: number, retrying: boolean): RetryControl {
   return { attempt, retrying, onRetry: () => void session.retry() };

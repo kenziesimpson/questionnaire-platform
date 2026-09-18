@@ -1,4 +1,4 @@
-import { DEMO_OPTION_IDS, DEMO_V1, type DemoOptionId, type RespondentPage } from "../../../fixtures/index.ts";
+import { DEMO_OPTION_IDS, DEMO_V1, type DemoOptionId, type RespondentPage } from "../../../fixtures/index";
 
 export const RESTORED_ANSWERS_NOTICE = "We restored the answers you started on this device.";
 

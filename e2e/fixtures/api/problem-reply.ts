@@ -1,6 +1,6 @@
 import { problemFromWire, type Problem, type ProblemSlug } from "@qp/shared";
 import type { Response } from "@playwright/test";
-import type { ApiExchange } from "./api-exchange.ts";
+import type { ApiExchange } from "./api-exchange";
 
 export interface ProblemReply {
   readonly status: number;

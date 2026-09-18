@@ -1,7 +1,7 @@
-import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, expect, problemOf, test } from "../../fixtures/index.ts";
-import { answerNoPath } from "./support/demo-answers.ts";
-import { ERROR_SUMMARY_TITLES, UNPLACED_ERRORS_MESSAGE } from "./support/respondent-messages.ts";
-import { problemReplyOf, SUBMIT_URL_GLOB, submitBodyOf, waitForSubmitResponse } from "./support/submit-traffic.ts";
+import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, expect, problemOf, test } from "../../fixtures/index";
+import { answerNoPath } from "./support/demo-answers";
+import { ERROR_SUMMARY_TITLES, UNPLACED_ERRORS_MESSAGE } from "./support/respondent-messages";
+import { problemReplyOf, SUBMIT_URL_GLOB, submitBodyOf, waitForSubmitResponse } from "./support/submit-traffic";
 
 const INJECTED_OTHER_TEXT = "tampered-secret-7f3a91";
 

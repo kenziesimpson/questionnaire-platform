@@ -1,8 +1,8 @@
 import type { PublishedDefinition, Receipt } from "@qp/shared";
-import type { SubmissionRejection } from "../answers/submission-rejection.ts";
-import type { StoredPartials } from "../storage/partials.ts";
-import { hasAnyAnswer, isRetryable } from "./failure.ts";
-import type { FailedState, Failure, FormContext, RespondentState } from "./respondent-state.ts";
+import type { SubmissionRejection } from "../answers/submission-rejection";
+import type { StoredPartials } from "../storage/partials";
+import { hasAnyAnswer, isRetryable } from "./failure";
+import type { FailedState, Failure, FormContext, RespondentState } from "./respondent-state";
 
 export interface SubmitFailureView {
   readonly attempt: number;

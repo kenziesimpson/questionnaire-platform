@@ -1,6 +1,6 @@
 import type { APIRequestContext } from "@playwright/test";
 import { executionApi, type ClientAnswers, type ReplyOf, type RouteDefinition } from "@qp/shared";
-import { expectBody, sendRouteRequest, type ApiExchange, type ApiRequestParts } from "./api-exchange.ts";
+import { expectBody, sendRouteRequest, type ApiExchange, type ApiRequestParts } from "./api-exchange";
 
 export type StartedSession = ReplyOf<typeof executionApi.createSession, 201>;
 export type ResumedSession = ReplyOf<typeof executionApi.getSession, 200>;

@@ -1,6 +1,6 @@
-import { DEMO_OPTION_IDS, DEMO_QUESTIONNAIRE_ID, DEMO_V1, expect, RESPONDENT_HEADINGS, test } from "../../fixtures/index.ts";
-import { ERROR_SUMMARY_TITLES, ITEM_ERROR_MESSAGES } from "./support/respondent-messages.ts";
-import { recordSubmitRequests } from "./support/submit-traffic.ts";
+import { DEMO_OPTION_IDS, DEMO_QUESTIONNAIRE_ID, DEMO_V1, expect, RESPONDENT_HEADINGS, test } from "../../fixtures/index";
+import { ERROR_SUMMARY_TITLES, ITEM_ERROR_MESSAGES } from "./support/respondent-messages";
+import { recordSubmitRequests } from "./support/submit-traffic";
 
 test.describe("E7 — a required answer blocks submit, and focus lands on it", () => {
   test("unanswered required items stop the submit in the browser, are summarised with jump controls, and take focus", async ({

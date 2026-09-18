@@ -3,7 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { ErrorSummary, type ErrorSummaryEntry } from "../../src/screens/error-summary.tsx";
+import { ErrorSummary, type ErrorSummaryEntry } from "../../src/screens/error-summary";
 
 const entries: ErrorSummaryEntry[] = [
   { itemId: "itm_02", prompt: "Which condition?", message: "Answer this question." },

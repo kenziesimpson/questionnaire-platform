@@ -1,10 +1,10 @@
 import { sensitive, visibleAnswers, type ClientAnswers, type Receipt, type Session } from "@qp/shared";
-import { submissionRejectionOf } from "../answers/submission-rejection.ts";
-import { createSession, getSession, submitSession } from "../api/execution-client.ts";
-import type { ExecutionOutcome } from "../api/request.ts";
-import type { ExecutionProblemSlug } from "../api/problems.ts";
-import { clearPartialAnswers, readPartials, removePartials, writePartials, type StoredPartials } from "../storage/partials.ts";
-import { formContextOf, INITIAL_STATE, transition, type FailureReason, type RespondentEvent, type RespondentState } from "./respondent-state.ts";
+import { submissionRejectionOf } from "../answers/submission-rejection";
+import { createSession, getSession, submitSession } from "../api/execution-client";
+import type { ExecutionOutcome } from "../api/request";
+import type { ExecutionProblemSlug } from "../api/problems";
+import { clearPartialAnswers, readPartials, removePartials, writePartials, type StoredPartials } from "../storage/partials";
+import { formContextOf, INITIAL_STATE, transition, type FailureReason, type RespondentEvent, type RespondentState } from "./respondent-state";
 
 export interface ExecutionClient {
   readonly createSession: typeof createSession;

@@ -1,11 +1,11 @@
-export { expect, test, type OpenSecondContext, type SecondContextOptions, type StackTestFixtures, type StackWorkerFixtures } from "./test.ts";
+export { expect, test, type OpenSecondContext, type SecondContextOptions, type StackTestFixtures, type StackWorkerFixtures } from "./test";
 export {
   ApiContractError,
   ApiProblemError,
   type ApiExchange,
   type ApiRequestParts,
-} from "./api/api-exchange.ts";
-export { problemOf, problemReplyOf, problemReplyOfExchange, problemReplyOfResponse, type ProblemReply } from "./api/problem-reply.ts";
+} from "./api/api-exchange";
+export { problemOf, problemReplyOf, problemReplyOfExchange, problemReplyOfResponse, type ProblemReply } from "./api/problem-reply";
 export {
   definitionUrlPattern,
   isDefinitionRequest,
@@ -14,8 +14,8 @@ export {
   recordRequests,
   waitForDefinitionResponse,
   waitForExecutionResponse,
-} from "./api/route-traffic.ts";
-export { Deferred } from "./deferred.ts";
+} from "./api/route-traffic";
+export { Deferred } from "./deferred";
 export {
   DefinitionApi,
   draftItem,
@@ -26,9 +26,9 @@ export {
   type Placement,
   type PublishedQuestionnaire,
   type VersionedDraft,
-} from "./api/definition-api.ts";
-export { ExecutionApi, type ResumedSession, type StartedSession, type SubmitReply } from "./api/execution-api.ts";
-export { BrowserErrors, type ConsoleError } from "./browser-errors.ts";
+} from "./api/definition-api";
+export { ExecutionApi, type ResumedSession, type StartedSession, type SubmitReply } from "./api/execution-api";
+export { BrowserErrors, type ConsoleError } from "./browser-errors";
 export {
   StackDatabase,
   type AuditEventRecord,
@@ -36,7 +36,7 @@ export {
   type QuestionnaireVersionRecord,
   type ResponseRecord,
   type SessionRecord,
-} from "./db/stack-database.ts";
+} from "./db/stack-database";
 export {
   createDemoShapedQuestionnaire,
   DEMO_ITEM_IDS,
@@ -53,7 +53,7 @@ export {
   type DemoQuestionRole,
   type DemoShapedOptions,
   type DemoShapedQuestionnaire,
-} from "./demo/demo-questionnaire.ts";
-export { ADMIN_HEADINGS, ADMIN_PATHS, AdminPage, type KeyboardMove } from "./pages/admin-page.ts";
-export { RESPONDENT_BUTTONS, RESPONDENT_HEADINGS, RespondentPage, type RespondentReceipt, type StoredValue } from "./pages/respondent-page.ts";
-export { RESPONDENT_STORAGE_FORMAT_VERSION, RespondentStorageEnvelope, respondentStorageKey } from "./pages/respondent-storage.ts";
+} from "./demo/demo-questionnaire";
+export { ADMIN_HEADINGS, ADMIN_PATHS, AdminPage, type KeyboardMove } from "./pages/admin-page";
+export { RESPONDENT_BUTTONS, RESPONDENT_HEADINGS, RespondentPage, type RespondentReceipt, type StoredValue } from "./pages/respondent-page";
+export { RESPONDENT_STORAGE_FORMAT_VERSION, RespondentStorageEnvelope, respondentStorageKey } from "./pages/respondent-storage";

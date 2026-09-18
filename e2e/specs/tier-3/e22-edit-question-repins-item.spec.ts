@@ -1,6 +1,6 @@
 import { definitionApi } from "@qp/shared";
-import { expect, test, uniqueName, waitForDefinitionResponse } from "../../fixtures/index.ts";
-import { promptOf, textQuestionInput } from "./support/question-input.ts";
+import { expect, test, uniqueName, waitForDefinitionResponse } from "../../fixtures/index";
+import { promptOf, textQuestionInput } from "./support/question-input";
 
 const SHARED_ITEM_ID = "itm_shared";
 

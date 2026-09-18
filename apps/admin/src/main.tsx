@@ -1,8 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createQueryClient } from "./api/query-client";
-import { App } from "./app.tsx";
-import { createAppRouter } from "./router.tsx";
+import { App } from "./app";
+import { createAppRouter } from "./router";
 import "./index.css";
 
 const root = document.getElementById("root");

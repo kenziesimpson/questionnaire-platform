@@ -8,7 +8,7 @@ import {
   recordRequests,
   waitForExecutionResponse,
   type ProblemReply,
-} from "../../../fixtures/index.ts";
+} from "../../../fixtures/index";
 
 export const SUBMIT_URL_GLOB = `**${executionApi.EXECUTION_PREFIX}${executionApi.submitSession.url.replace(":sessionId", "*")}`;
 

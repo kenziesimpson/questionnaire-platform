@@ -1,5 +1,5 @@
 import { type Question, type QuestionInput } from "@qp/shared";
-import { uniqueName, type DefinitionApi } from "../../../fixtures/index.ts";
+import { uniqueName, type DefinitionApi } from "../../../fixtures/index";
 
 export const YES_NO_OPTION_IDS = { yes: "yes", no: "no" } as const;
 

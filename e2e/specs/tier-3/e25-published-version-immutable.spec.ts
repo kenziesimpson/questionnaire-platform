@@ -7,8 +7,8 @@ import {
   uniqueName,
   waitForDefinitionResponse,
   type DefinitionApi,
-} from "../../fixtures/index.ts";
-import { promptOf, textQuestionInput, YES_NO_OPTION_IDS, yesNoQuestionInput } from "./support/question-input.ts";
+} from "../../fixtures/index";
+import { promptOf, textQuestionInput, YES_NO_OPTION_IDS, yesNoQuestionInput } from "./support/question-input";
 
 const ITEM_IDS = { gate: "itm_gate", followUp: "itm_follow_up" } as const;
 

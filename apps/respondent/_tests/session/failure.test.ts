@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { hasAnyAnswer, isRetryable } from "../../src/session/failure.ts";
-import type { FailureReason } from "../../src/session/respondent-state.ts";
+import { hasAnyAnswer, isRetryable } from "../../src/session/failure";
+import type { FailureReason } from "../../src/session/respondent-state";
 
 describe("isRetryable", () => {
   it.each<[string, FailureReason, boolean]>([

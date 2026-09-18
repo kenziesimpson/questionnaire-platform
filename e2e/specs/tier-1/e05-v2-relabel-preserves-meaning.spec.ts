@@ -8,9 +8,9 @@ import {
   expect,
   test,
   type RespondentPage,
-} from "../../fixtures/index.ts";
-import { DraftAuthoring } from "./support/draft-authoring.ts";
-import { openRespondentBrowser } from "./support/respondent-browser.ts";
+} from "../../fixtures/index";
+import { DraftAuthoring } from "./support/draft-authoring";
+import { openRespondentBrowser } from "./support/respondent-browser";
 
 const prompts = DEMO_V1.prompts;
 const YES = DEMO_V1.optionLabel(DEMO_OPTION_IDS.yes);

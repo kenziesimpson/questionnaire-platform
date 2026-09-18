@@ -1,5 +1,5 @@
 import { executionApi } from "@qp/shared";
-import { DEMO_ITEM_IDS, DEMO_OPTION_IDS, DEMO_QUESTIONNAIRE_ID, DEMO_V1, expect, test } from "../../fixtures/index.ts";
+import { DEMO_ITEM_IDS, DEMO_OPTION_IDS, DEMO_QUESTIONNAIRE_ID, DEMO_V1, expect, test } from "../../fixtures/index";
 
 const prompts = DEMO_V1.prompts;
 const YES = DEMO_V1.optionLabel(DEMO_OPTION_IDS.yes);

@@ -1,7 +1,7 @@
 import type { QuestionInput } from "@qp/shared";
-import { expect, test, uniqueName, type DefinitionApi } from "../../fixtures/index.ts";
-import { ERROR_SUMMARY_TITLES, ITEM_ERROR_MESSAGES } from "./support/respondent-messages.ts";
-import { recordSubmitRequests, submitBodyOf, waitForSubmitResponse } from "./support/submit-traffic.ts";
+import { expect, test, uniqueName, type DefinitionApi } from "../../fixtures/index";
+import { ERROR_SUMMARY_TITLES, ITEM_ERROR_MESSAGES } from "./support/respondent-messages";
+import { recordSubmitRequests, submitBodyOf, waitForSubmitResponse } from "./support/submit-traffic";
 
 const NOTES = {
   itemId: "itm_notes",

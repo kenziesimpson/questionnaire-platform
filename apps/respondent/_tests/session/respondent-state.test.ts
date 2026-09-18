@@ -9,10 +9,10 @@ import {
   type FormContext,
   type RespondentEvent,
   type RespondentState,
-} from "../../src/session/respondent-state.ts";
-import type { SubmissionRejection } from "../../src/answers/submission-rejection.ts";
-import type { StoredPartials } from "../../src/storage/partials.ts";
-import { inProgressSession, intakeV1, receipt, SESSION_ID } from "../fixtures.ts";
+} from "../../src/session/respondent-state";
+import type { SubmissionRejection } from "../../src/answers/submission-rejection";
+import type { StoredPartials } from "../../src/storage/partials";
+import { inProgressSession, intakeV1, receipt, SESSION_ID } from "../fixtures";
 
 function stored(answers: ClientAnswers): StoredPartials {
   return { formatVersion: 1, sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers, updatedAt: "2026-09-14T09:05:00.000Z" };

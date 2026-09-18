@@ -10,7 +10,7 @@ import {
   type IntakeQuestionRole,
   type IntakeVersion,
 } from "@qp/shared/demo";
-import { uniqueName, type DefinitionApi, type Placement, type PublishedQuestionnaire } from "../api/definition-api.ts";
+import { uniqueName, type DefinitionApi, type Placement, type PublishedQuestionnaire } from "../api/definition-api";
 
 export const DEMO_QUESTIONNAIRE_ID = INTAKE_QUESTIONNAIRE_ID;
 

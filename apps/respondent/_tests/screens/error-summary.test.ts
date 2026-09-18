@@ -1,7 +1,7 @@
 import type { ClientAnswers } from "@qp/shared";
 import { describe, expect, it } from "vitest";
-import { errorSummaryEntries, errorSummaryTitle } from "../../src/screens/error-summary.tsx";
-import { intakeV1 } from "../fixtures.ts";
+import { errorSummaryEntries, errorSummaryTitle } from "../../src/screens/error-summary";
+import { intakeV1 } from "../fixtures";
 
 const yesBranch: ClientAnswers = { itm_01: { type: "single_choice", optionId: "yes" } };
 
