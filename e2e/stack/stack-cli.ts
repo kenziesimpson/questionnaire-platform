@@ -10,7 +10,7 @@ async function up(): Promise<void> {
   console.log("Building images and starting docker-compose.yml through Testcontainers…");
   const stack = await startComposeStack({ reapWhenProcessExits: false });
   const record = await recordKeptStack(stack);
-  console.log(`\nStack is up: ${describe(record)}\n\nRun specs against it by exporting the two variables above, then: npm run test -w e2e`);
+  console.log(`\nStack is up: ${describe(record)}\n\nRun specs against it by exporting the two variables above, then: npm run test:e2e -w e2e`);
   console.log(`Take it down with: npm run stack:down -w e2e -- ${stack.projectName}`);
 }
 

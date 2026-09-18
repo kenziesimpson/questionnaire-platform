@@ -15,16 +15,17 @@
     "dev:backend": "npm run dev -w apps/backend",
     "dev:respondent": "npm run dev -w apps/respondent",
     "dev:admin": "npm run dev -w apps/admin",
-    "build": "npm run build -w packages/shared && npm run build -w packages/telemetry && npm run build -w apps/backend && npm run build -w apps/respondent && npm run build -w apps/admin",
+    "build": "npm run build -w packages/shared && npm run build --workspaces --if-present",
     "pretest": "npm run build -w packages/shared",
     "test": "vitest run",
-    "test:e2e": "npm run test -w e2e",
+    "test:e2e": "npm run test:e2e -w e2e",
     "typecheck": "npm run build -w packages/shared && tsc -p tsconfig.json --noEmit && npm run typecheck --workspaces --if-present",
-    "lint": "eslint . && npm run lint --workspaces --if-present"
+    "lint": "eslint . && knip"
   },
   "devDependencies": {
     "eslint": "^10.10.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "knip": "^6.36.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.70.0",
     "vitest": "^5.0.0"

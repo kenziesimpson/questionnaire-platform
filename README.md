@@ -95,7 +95,7 @@ npm test            # every workspace (vitest projects)
 
 | Command | What it does |
 | --- | --- |
-| `npm run build` | Build shared → telemetry → backend → respondent → admin |
+| `npm run build` | Build shared, then every workspace with a `build` script (declaration order: shared → telemetry → admin → backend → respondent) |
 | `npm run typecheck` | Typecheck every workspace |
 | `npm run test` | Run every workspace's tests |
 | `npm run db:generate -w apps/backend` | Generate a Drizzle migration from `src/db/schema.ts` |

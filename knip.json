@@ -1,0 +1,25 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreWorkspaces": ["packages/telemetry"],
+  "ignoreIssues": {
+    "packages/ui/src/primitives/**": ["exports", "types"],
+    "packages/ui/src/questionnaire/**": ["exports", "types"],
+    "apps/admin/src/**": ["exports", "types"],
+    "apps/backend/src/db/**": ["exports", "types"],
+    "apps/backend/src/http/**": ["types"],
+    "apps/backend/src/config.ts": ["exports"],
+    "packages/shared/src/domain/condition.ts": ["exports"],
+    "packages/shared/src/problems.ts": ["exports", "types"],
+    "apps/respondent/src/**": ["exports", "types"],
+    "e2e/**": ["exports", "types"],
+    "**/_tests/**": ["exports", "types"]
+  },
+  "workspaces": {
+    "packages/shared": {
+      "entry": ["src/index.ts", "src/demo/intake.ts"]
+    },
+    "apps/backend": {
+      "ignoreDependencies": ["pino", "pino-pretty", "@fastify/otel"]
+    }
+  }
+}

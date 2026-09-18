@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build:shared": "npm run build -w @qp/shared",
-    "test": "npm run build:shared && playwright test",
+    "test:e2e": "npm run build:shared && playwright test",
     "test:skip-shared-build": "playwright test",
     "test:keep-stack": "npm run build:shared && E2E_KEEP_STACK=true playwright test",
     "test:headed": "npm run build:shared && E2E_SLOW_MO=${E2E_SLOW_MO:-500} playwright test --headed",

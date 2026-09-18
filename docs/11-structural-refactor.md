@@ -173,6 +173,8 @@ Owns: `packages/shared/src/{index.ts,primitives.ts,domain,engine,demo}`, `packag
 - **Owns (2b):** `packages/ui/src/testing/**` and its tests in `packages/ui/_tests/testing/**`; the `./testing` export and test-only dependencies in `packages/ui/package.json`, and `axe-core` in the admin and respondent manifests; `**/_tests/{setup,support,axe,fixtures,harness}*`; the fakes it replaced (`apps/admin/_tests/fake-definition-api.ts`, `apps/respondent/_tests/execution-server.ts`); the tests whose imports change as a result; `tests/lint-test-support.test.ts`; and `package-lock.json` for the dependency moves.
 - The halves share test files, `eslint.config.mjs` and `docs/8-testing.md`. **PR 2a merges first; PR 2b rebases onto it** and keeps 2a's `@qp/shared/demo` imports and vocabulary imports in the shared test files.
 
+Also tightens R6 (§4.3): PR 15 relaxed knip's `exports`/`types`/`files` checks under every `_tests/**` directory because this PR's test-support unification was still pending. **Checked again after PR 2a and PR 2b both merged: the relaxation is still needed** — `apps/admin/_tests/screens/draft-editor/harness.tsx`, `apps/admin/_tests/support/builders.ts`, `apps/backend/_tests/db/{fixtures,harness}.ts` and `packages/ui/_tests/fixtures.ts` still export names nothing imports. Drop it once those are cleaned up too.
+
 #### PR 2c — The `other` option id is reserved · S · changes behaviour
 
 > **Depends on:** PR 2a. **Can run alongside:** PR 2b, PR 4b, PR 15. **PR 4b merges first**, because it renames `apps/backend/src/db/migrator.ts` to `migrations.ts`, which this PR's `_tests/db/other-option.test.ts` imports and git does not report as a conflict. Whichever of the two lands second fixes that import.
@@ -232,6 +234,8 @@ This PR follows PR 3 and covers `src/db/definition`.
 
 Owns: `apps/backend/src/db/**` except `schema.ts`, `client.ts` and the migrations.
 
+Also tightens R6 (§4.3): PR 15 relaxed knip's `exports`/`types`/`files` checks under `apps/backend/src/db/**` because this PR's cleanup was still pending. Drop that relaxation once this PR merges.
+
 #### PR 4b — Backend route and HTTP cleanup · S–M
 
 > **Depends on:** PR 1, PR 3. **Can run alongside:** PR 2, PR 15; merges before PR 4.
@@ -245,6 +249,8 @@ This is its own PR, separate from the database cleanup in PR 4.
 - Split `http/problems.ts` into `problems.ts` and `validation.ts`, and add an `applyHttpDefaults(scope, errorHandler)` helper used by the root app and both modules.
 - Rename `db/migrator.ts` to `db/migrations.ts`.
 - Move `snapshotEtag` into `@qp/shared`.
+
+Also tightens R6 (§4.3): PR 15 relaxed knip's `exports`/`types`/`files` checks under `apps/backend/src/{http,modules/definition}/**` because this PR's cleanup was still pending. **Now that this PR has merged: `modules/definition/**` is clean and that half of the relaxation is dropped.** `http/**` still needs a narrower one — `RouteRequest`, `RouteSuccess` and `RouteResponse` in `http/routes.ts` are exported but only ever used inside that file. Drop the remaining `types` relaxation once those three lose their `export`.
 
 ### Phase C — Frontends (after PR 2)
 
@@ -274,6 +280,8 @@ This is its own PR, separate from the database cleanup in PR 4.
 Lint rules: L3 and L4.
 
 Owns: `apps/admin/src/{lib,components,api,features}/**`, `draft-items.tsx`, `options-editor.tsx`, `version-preview/**`, `questionnaire-list/**`, `question-bank/**`.
+
+Also tightens R6 (§4.3): PR 15 relaxed knip's `exports`/`types`/`files` checks across all of `apps/admin/src/**` (per-workspace, not per-file) because this cleanup was still pending. Thirteen of today's fourteen findings land in this PR's or PR 6's own paths once PR 5's `screens/` → `features/` move happens. The fourteenth does not: `apps/admin/src/page-title.ts`'s `APP_TITLE` sits in neither `Owns` line. Drop the relaxation for everything but that file once PR 5 and PR 6 both merge; `page-title.ts` carries over to the unowned-findings follow-up (see the R6 amendment).
 
 #### PR 6 — Admin splits for testability · M
 
@@ -343,6 +351,8 @@ It amends the respondent half of #32 and rewrites [[10-frontend#8. Library choic
 
 Owns: `apps/respondent/src/screens/questionnaire-screen.tsx`, `apps/respondent/src/storage/**`.
 
+Also tightens R6 (§4.3), together with PR 7 and PR 8: PR 15 relaxed knip's `exports`/`types`/`files` checks across all of `apps/respondent/src/**` (per-workspace, not per-file) because this cleanup was still pending. `session/respondent-session.ts` is PR 8's and `storage/partials.ts` is this PR's, so those two clear once PR 7, PR 8 and PR 8b have all merged. Four more do not sit in any of the three `Owns` lines and stay relaxed after: `answers/precheck.ts` (`browserTimeZone`), `api/execution-client.ts` (`CREATE_SESSION_PROBLEMS`, `GET_SESSION_PROBLEMS`, `SUBMIT_SESSION_PROBLEMS`), `api/problems.ts` (`EXECUTION_PROBLEM_SLUGS`) and `screens/error-summary.tsx` (`UNPLACED_ERRORS_MESSAGE`) — carried by the unowned-findings follow-up (see the R6 amendment).
+
 ### Phase D — `packages/ui`
 
 #### PR 9 — Primitives: shadcn versions, logic in components · S–M
@@ -354,6 +364,7 @@ Owns: `apps/respondent/src/screens/questionnaire-screen.tsx`, `apps/respondent/s
 - **Add shadcn's `native-select` primitive.** Admin's `NativeSelect` goes away, and the predicate editor uses the primitive directly.
 - **Add shadcn's `tooltip` primitive.** `InfoTip` stays in `apps/admin/src/components/info-tip.tsx` as a thin component built on it. The hover/focus/Escape state it manages by hand today is deleted, and the tooltip now repositions itself away from screen edges.
 - Amend #66.
+- **Move `shadcn` from `devDependencies` to `dependencies`.** `packages/ui/src/styles/globals.css` does `@import "shadcn/tailwind.css"`, which ships into every consumer that imports `@qp/ui/globals.css` (admin, respondent); today it only resolves through hoisting. R5 (§4.3) cannot catch this — it checks per workspace, not what ships transitively into a consumer's bundle.
 
 Owns: `packages/ui/src/primitives/**`, `packages/ui/package.json`, `apps/admin/src/components/info-tip.tsx`, and the admin native-select call sites.
 
@@ -373,6 +384,8 @@ Owns: `packages/ui/src/primitives/**`, `packages/ui/package.json`, `apps/admin/s
 Lint rule: L12.
 
 Owns: `packages/ui/src/questionnaire/**`, `apps/respondent/src/screens/focus-item.ts`.
+
+Also tightens R6 (§4.3): PR 15 relaxed knip's `exports`/`types`/`files` checks under `packages/ui/src/questionnaire/**` because this PR's export trim was still pending. Drop that relaxation once this PR merges.
 
 #### PR 11 — Lucide only, through `@qp/ui/icons` · S–M
 
@@ -428,7 +441,7 @@ Lint rule: L13. This PR touches many files, so it runs after Phase C and D.
 
 > **Depends on:** PR 1. **Can run alongside:** PR 2, PR 4b, PR 16.
 
-- `build` becomes the shared build followed by `npm run build --workspaces --if-present`. The explicit shared step stays, because npm runs workspaces in declaration order, not dependency order.
+- `build` becomes the shared build followed by `npm run build --workspaces --if-present`. The explicit shared step stays, because npm runs workspaces in declaration order, not dependency order. **Amended:** the only real ordering constraint this repo has is shared-before-everything, which the explicit step covers directly; there is no telemetry-before-backend constraint to protect; nothing outside `packages/telemetry` imports `@qp/telemetry` today, and `apps/backend` does not declare it as a dependency. With today's `workspaces` globs (`packages/shared, packages/telemetry, packages/ui, apps/admin, apps/backend, apps/respondent, e2e`), `--workspaces` alone already builds shared first, so the explicit step is redundant right now (it just re-runs an incremental `tsc`, ~0.6s) — it is kept as a guard against a future change to the `workspaces` array or a renamed/reordered package making shared build after a dependent.
 - Drop the `lint --workspaces --if-present` half of the root `lint` script. Linting stays one root `eslint .` run.
 - Rename e2e's `test` script to `test:e2e`, so `test` means Vitest in every workspace.
 - Align `@types/node` to one version.
@@ -448,6 +461,8 @@ Lint rule: L13. This PR touches many files, so it runs after Phase C and D.
 - Do not rename spec files or tier directories.
 
 Lint rule: L10 already covers e2e — PR 1 extended it there and converted all three hand-parses (`fixtures/api/api-exchange.ts`, `tier-3/support/authoring.ts`, `tier-2/support/submit-traffic.ts`) onto `problemFromWire`, promoting one `ProblemReply` and a `problemOf(reply, slug)` accessor into `e2e/fixtures/api/problem-reply.ts`. What is left for PR 16 is the route matcher and request recorder, the draft-list locators, `secondContext`, `Deferred`, and splitting `authoring.ts`.
+
+Also tightens R6 (§4.3): PR 15 relaxed knip's `exports`/`types`/`files` checks across all of `e2e/**` because this PR's cleanup was still pending. PR 16 has no `Owns:` line, so this only checks against its bullets above: the fixtures and `authoring.ts` findings clear once this PR merges, but six do not — `stack/compose-stack.ts`'s `REPO_ROOT`, `PRODUCTION_COMPOSE_FILE`, `COMPOSE_PROJECT_PREFIX`, `COMPOSE_SUPERUSER` and `newComposeProjectName`, plus `stack/kept-stacks.ts`'s `KEPT_STACKS_DIRECTORY` — since none of this PR's bullets touch `e2e/stack/**`. Those six carry over to the unowned-findings follow-up (see the R6 amendment) unless this PR's scope grows to cover them.
 
 #### PR 17 — Compose redundancy · S
 
@@ -557,8 +572,8 @@ These are agreed. R1–R5 live as tests under `tests/`, next to `text-files.test
 | R2 | Every target in a package `exports` map exists; this would have caught `./hooks/*` | 9 |
 | R3 | No `*.test.*` file sits under `src/`, and every `_tests/**/x.test.ts` has a matching `src/**/x.ts` or is on an allowlist of integration and support files | 7 |
 | R4 | Every test path cited in [[8-testing#7. Test case enumeration]] exists | 7 |
-| R5 | Workspace `dependencies` match what the workspace imports | 15 |
-| R6 | [knip](https://knip.dev) in `npm run lint`, for unused exports, files and dependencies. It adds a dev dependency. It is configured to ignore `packages/telemetry` and the unused exports inside generated shadcn files | 15 |
+| R5 | Workspace `dependencies` match what the workspace imports. **Amended:** the check is per workspace, so it cannot see a package shipping into another workspace's bundle through a re-exported asset — see the `shadcn`/`packages/ui` case in the R6 row | 15 |
+| R6 | [knip](https://knip.dev) in `npm run lint`, for unused exports, files and dependencies. It adds a dev dependency. It is configured to ignore `packages/telemetry` and the unused exports inside generated shadcn files. **Amended:** dependency findings are fixed outright (`apps/backend` keeps `pino`, `pino-pretty` and `@fastify/otel` unused via an explicit `ignoreDependencies`, per ground rule §1; `tailwindcss` is dropped from admin's and respondent's devDependencies — unused because `@tailwindcss/vite@4.3.3` already declares its own `tailwindcss` dependency, not because of anything in `packages/ui`). `packages/shared`'s `./demo` export (PR 2a) needed an explicit per-workspace `entry` in `knip.json` (`src/index.ts`, `src/demo/intake.ts`) — knip's default entry heuristic only matches `index`/`cli`/`main` filenames, so a differently-named subpath entry is otherwise treated as ordinary internal code and its cross-workspace consumers aren't credited. The `exports`/`types` issue types (not `files` — nothing in the relaxed directories is a whole unused file today, so that element was dropped from every bucket) are relaxed per directory, not fixed, wherever a later PR's own cleanup is still pending: `apps/admin/src/**` (PR 5, PR 6 — all but `page-title.ts`, which neither owns), `apps/backend/src/db/**` (PR 4), `apps/backend/src/http/**` for `types` only (PR 4b — `modules/definition/**` is already clean), `apps/respondent/src/**` (PR 7's `session/respondent-session.ts`, PR 8b's `storage/partials.ts`; four more files sit outside all three `Owns` lines, see the PR 8b note), `packages/ui/src/questionnaire/**` (PR 10), `e2e/**` (PR 16's fixtures and `authoring.ts`; six `e2e/stack/**` findings sit outside its bullets, see the PR 16 note) and every `_tests/**` (PR 2, checked again after PR 2a/2b merged — still needed). `packages/ui/src/primitives/**` is relaxed pre-emptively per this row's own original scope (shadcn's generator), not because anything there is unused today — removing that entry alone leaves knip clean, so it is a standing guard, not a currently-live suppression. Each owning PR's bullet in §3 repeats which slice it tightens. **Leftover dead exports, not covered by any pending cleanup bullet:** `apps/backend/src/config.ts`'s `DATABASE_ROLES` sits in a file no PR's `Owns` line names at all. `packages/shared/src/domain/condition.ts`'s five condition-variant types do sit in PR 2a's `Owns` line (merged, #93), but PR 2a's own cleanup pass didn't remove them — they're genuinely unused, just missed. Both are relaxed by exact file path rather than assigned to a PR that either doesn't own them or has already merged without fixing them. `packages/shared/src/problems.ts` is **not** in this bucket — it is PR 1's `Owns` line (merged, #86) and PR 2c's (merged, #96), and PR 1's own bullet explicitly calls for exporting the code guards (`is*Code`) its `problemFromWire` extension table needs; its relaxation is therefore permanent, deliberate API, the same as `primitives/**`, not a pending cleanup. `PROBLEM_TYPE_BASE` and `SchemaErrorCode` are exported alongside those guards as part of the same public problem-contract surface. R5 also has one documented blind spot: it checks a workspace's own `dependencies`/`devDependencies`/`peerDependencies` against what that workspace imports directly, so it cannot see `packages/ui/src/styles/globals.css`'s `@import "shadcn/tailwind.css"` shipping into admin's and respondent's bundles (via their own `@import "@qp/ui/globals.css"`) while `shadcn` sits in `packages/ui`'s **devDependencies** — that placement is PR 9's to fix (it owns `packages/ui/package.json`), noted on its bullet in §3 | 15 |
 
 ## 5. Decisions Log changes
 
