@@ -5,7 +5,8 @@ import { revalidateLogic, useForm, useStore } from "@tanstack/react-form";
 import { useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import { precheckAnswers } from "../answers/precheck.ts";
 import type { SubmissionRejection } from "../answers/submission-rejection.ts";
-import { isRetryable, type Failure, type FormContext } from "../session/respondent-state.ts";
+import type { FormContext } from "../session/respondent-state.ts";
+import type { SubmitFailureView } from "../session/respondent-view.ts";
 import { ErrorSummary, errorSummaryEntries, errorSummaryTitle } from "./error-summary.tsx";
 import { RetryButton, type RetryControl } from "./retry-button.tsx";
 import { Lead, ScreenHeading, ScreenLayout } from "./screen-layout.tsx";
@@ -14,7 +15,7 @@ import { TRANSIENT_FAILURE_EXPLANATION } from "./terminal-screens.tsx";
 export interface QuestionnaireScreenProps {
   readonly form: FormContext;
   readonly submitting: boolean;
-  readonly submitFailure: Failure | null;
+  readonly submitFailure: SubmitFailureView | null;
   readonly rejection: SubmissionRejection | null;
   readonly onAnswerChange: (itemId: string, answers: ClientAnswers) => void;
   readonly onSubmit: (answers: ClientAnswers) => Promise<void>;
@@ -93,7 +94,14 @@ function useFocusRequests(submitting: boolean, rejection: SubmissionRejection | 
   return { requests, request: () => setRequests((count) => count + 1) };
 }
 
-export function QuestionnaireScreen({ form: context, submitting, submitFailure, rejection, onAnswerChange, onSubmit }: QuestionnaireScreenProps) {
+export function QuestionnaireScreen({
+  form: context,
+  submitting,
+  submitFailure,
+  rejection,
+  onAnswerChange,
+  onSubmit,
+}: QuestionnaireScreenProps) {
   const { definition, restoredAnswers, restored } = context;
   const formRef = useRef<HTMLFormElement>(null);
   const summaryRef = useRef<HTMLElement>(null);
@@ -135,18 +143,14 @@ export function QuestionnaireScreen({ form: context, submitting, submitFailure, 
     onAnswerChange(itemId, form.state.values.answers);
   }
 
-  function submitRetry(failure: Failure): RetryControl | null {
-    if (!isRetryable(failure.reason)) return null;
-    return {
-      attempt: failure.attempt,
-      retrying: submitting,
-      onRetry: () => void form.handleSubmit(),
-    };
-  }
-
   function jumpTo(itemId: string) {
     if (formRef.current !== null) focusItem(formRef.current, itemId);
   }
+
+  const retry: RetryControl | null =
+    submitFailure !== null && submitFailure.retryable
+      ? { attempt: submitFailure.attempt, retrying: submitting, onRetry: () => void form.handleSubmit() }
+      : null;
 
   return (
     <ScreenLayout>
@@ -166,7 +170,7 @@ export function QuestionnaireScreen({ form: context, submitting, submitFailure, 
       >
         {showSummary && <ErrorSummary ref={summaryRef} entries={entries} unplacedErrors={unplacedErrors} onJump={jumpTo} />}
         <QuestionnaireForm definition={definition} answers={answers} errors={errors} mode="interactive" onChange={changeAnswer} />
-        {submitFailure !== null && <SubmitFailedAlert key={submitFailure.attempt} retry={submitRetry(submitFailure)} />}
+        {submitFailure !== null && <SubmitFailedAlert key={submitFailure.attempt} retry={retry} />}
         <div className="flex flex-col sm:flex-row">
           <Button type="submit" size="lg" disabled={submitting}>
             {submitting ? "Submitting…" : "Submit answers"}

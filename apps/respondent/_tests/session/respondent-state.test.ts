@@ -3,7 +3,6 @@ import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { describe, expect, it } from "vitest";
 import {
   INITIAL_STATE,
-  isRetryable,
   transition,
   type Failure,
   type FailureReason,
@@ -224,21 +223,5 @@ describe("transition", () => {
     const rejected = transition(states["submitting again"] ?? INITIAL_STATE, events.submissionRejected);
 
     expect(transition(rejected, events.submitRequested)).toEqual(states.submitting);
-  });
-});
-
-describe("isRetryable", () => {
-  it.each<[string, FailureReason, boolean]>([
-    ["a network error", { kind: "network-error" }, true],
-    ["an unexpected 503", { kind: "unexpected-response", status: 503 }, true],
-    ["an unparseable 200", { kind: "unexpected-response", status: 200 }, true],
-    ["an internal problem", { kind: "problem", slug: "internal" }, true],
-    ["request/invalid", { kind: "problem", slug: "request/invalid" }, false],
-    ["resource/not-found", { kind: "problem", slug: "resource/not-found" }, false],
-    ["questionnaire/closed", { kind: "problem", slug: "questionnaire/closed" }, false],
-    ["session/already-submitted", { kind: "problem", slug: "session/already-submitted" }, false],
-    ["submission/invalid", { kind: "problem", slug: "submission/invalid" }, false],
-  ])("%s → %s", (_case, reason, retryable) => {
-    expect(isRetryable(reason)).toBe(retryable);
   });
 });

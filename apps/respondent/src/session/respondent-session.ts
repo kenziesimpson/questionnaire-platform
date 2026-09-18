@@ -50,6 +50,10 @@ function receiptOf({ sessionId, questionnaireId, version, submittedAt }: Session
   return submittedAt === null ? undefined : { sessionId, questionnaireId, version, submittedAt };
 }
 
+function unreachable(value: never): never {
+  throw new Error(`Unhandled problem slug: ${JSON.stringify(value)}`);
+}
+
 export function createRespondentSession(
   questionnaireId: string,
   client: ExecutionClient = fetchExecutionClient,
@@ -75,12 +79,25 @@ export function createRespondentSession(
       const { session, definition } = outcome.body;
       storage.writePartials(session, carriedAnswers);
       dispatch({ type: "sessionStarted", session, definition });
-    } else if (outcome.kind === "problem" && outcome.slug === "questionnaire/closed") {
-      dispatch({ type: "questionnaireClosed" });
-    } else if (outcome.kind === "problem" && outcome.slug === "resource/not-found") {
-      dispatch({ type: "questionnaireNotFound" });
-    } else {
+      return;
+    }
+    if (outcome.kind !== "problem") {
       failed(outcome);
+      return;
+    }
+    switch (outcome.slug) {
+      case "questionnaire/closed":
+        dispatch({ type: "questionnaireClosed" });
+        return;
+      case "resource/not-found":
+        dispatch({ type: "questionnaireNotFound" });
+        return;
+      case "request/invalid":
+      case "internal":
+        failed(outcome);
+        return;
+      default:
+        return unreachable(outcome);
     }
   }
 
@@ -97,14 +114,27 @@ export function createRespondentSession(
         storage.clearPartialAnswers(session);
         dispatch({ type: "submittedSessionResumed", receipt, definition });
       }
-    } else if (outcome.kind === "problem" && outcome.slug === "resource/not-found") {
-      storage.removePartials(questionnaireId);
-      dispatch({ type: "storedSessionStale" });
-      await start({});
-    } else if (outcome.kind === "problem" && outcome.slug === "questionnaire/closed") {
-      dispatch({ type: "questionnaireClosed" });
-    } else {
+      return;
+    }
+    if (outcome.kind !== "problem") {
       failed(outcome);
+      return;
+    }
+    switch (outcome.slug) {
+      case "resource/not-found":
+        storage.removePartials(questionnaireId);
+        dispatch({ type: "storedSessionStale" });
+        await start({});
+        return;
+      case "questionnaire/closed":
+        dispatch({ type: "questionnaireClosed" });
+        return;
+      case "request/invalid":
+      case "internal":
+        failed(outcome);
+        return;
+      default:
+        return unreachable(outcome);
     }
   }
 
@@ -151,17 +181,30 @@ export function createRespondentSession(
     if (outcome.kind === "ok") {
       storage.clearPartialAnswers(session);
       dispatch({ type: "submitAccepted", receipt: outcome.body.receipt });
-    } else if (outcome.kind !== "problem") {
+      return;
+    }
+    if (outcome.kind !== "problem") {
       failed(outcome);
-    } else if (outcome.slug === "submission/invalid") {
-      dispatch({ type: "submissionRejected", rejection: submissionRejectionOf(definition, answers, outcome.problem) });
-    } else if (outcome.slug === "session/already-submitted") {
-      dispatch({ type: "alreadySubmitted" });
-      await fetchRecordedReceipt(session);
-    } else if (outcome.slug === "questionnaire/closed") {
-      dispatch({ type: "questionnaireClosed" });
-    } else {
-      failed(outcome);
+      return;
+    }
+    switch (outcome.slug) {
+      case "submission/invalid":
+        dispatch({ type: "submissionRejected", rejection: submissionRejectionOf(definition, answers, outcome.problem) });
+        return;
+      case "session/already-submitted":
+        dispatch({ type: "alreadySubmitted" });
+        await fetchRecordedReceipt(session);
+        return;
+      case "questionnaire/closed":
+        dispatch({ type: "questionnaireClosed" });
+        return;
+      case "request/invalid":
+      case "resource/not-found":
+      case "internal":
+        failed(outcome);
+        return;
+      default:
+        return unreachable(outcome);
     }
   }
 

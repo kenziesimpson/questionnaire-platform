@@ -2,6 +2,7 @@ import type { ClientAnswers, PublishedDefinition, Receipt, Session } from "@qp/s
 import { withoutItemError, type SubmissionRejection } from "../answers/submission-rejection.ts";
 import type { ExecutionProblemSlug } from "../api/problems.ts";
 import type { StoredPartials } from "../storage/partials.ts";
+import { hasAnyAnswer, isRetryable } from "./failure.ts";
 
 export interface FormContext {
   readonly session: Session;
@@ -63,14 +64,6 @@ export type RespondentEvent =
   | { readonly type: "recordedReceiptFetched"; readonly receipt: Receipt; readonly definition: PublishedDefinition };
 
 export const INITIAL_STATE: RespondentState = { name: "entering" };
-
-export function hasAnyAnswer(answers: ClientAnswers): boolean {
-  return Object.values(answers).some((answer) => answer !== null);
-}
-
-export function isRetryable(reason: FailureReason): boolean {
-  return reason.kind !== "problem" || reason.slug === "internal";
-}
 
 function contextOf({ session, definition, restoredAnswers, restored }: FormContext): FormContext {
   return { session, definition, restoredAnswers, restored };
