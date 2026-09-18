@@ -370,7 +370,9 @@ Also tightens R6 (§4.3), together with PR 7 and PR 8: PR 15 relaxed knip's `exp
 - Amend #66.
 - **Move `shadcn` from `devDependencies` to `dependencies`.** `packages/ui/src/styles/globals.css` does `@import "shadcn/tailwind.css"`, which ships into every consumer that imports `@qp/ui/globals.css` (admin, respondent); today it only resolves through hoisting. R5 (§4.3) cannot catch this — it checks per workspace, not what ships transitively into a consumer's bundle.
 
-Owns: `packages/ui/src/primitives/**`, `packages/ui/package.json`, `apps/admin/src/components/info-tip.tsx`, and the admin native-select call sites.
+R2 (§4.3) lands here: `tests/package-exports.test.ts`, modeled on PR 13's `tests/tsconfig-presets.test.ts` for R1, checks every workspace's `package.json` `exports`/`main`/`types` targets against the filesystem, falling back to the matching source file for a `dist/`-built target so a fresh, unbuilt checkout does not fail spuriously.
+
+Owns: `packages/ui/src/primitives/**`, `packages/ui/package.json`, `apps/admin/src/components/info-tip.tsx`, the admin native-select call sites, and `tests/package-exports.test.ts`.
 
 #### PR 10 — Close the questionnaire index · S
 

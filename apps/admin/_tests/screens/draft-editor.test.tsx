@@ -375,18 +375,21 @@ describe("the draft editor", () => {
     expect(puts(requests)).toHaveLength(0);
 
     const info = within(confirmation).getByRole("button", { name: "About removing an archived question" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    await userEvent.hover(info);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent("cannot be added back once removed");
     expect(info).toHaveAccessibleDescription(
       "This question is archived in the question bank, so it cannot be added back once removed. Writing it again makes a new question, and its answers are not tracked together with this one's.",
     );
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-    await userEvent.hover(info);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("cannot be added back once removed");
     await userEvent.unhover(info);
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+
     act(() => info.focus());
-    expect(screen.getByRole("tooltip")).toBeVisible();
+    await screen.findByRole("tooltip");
     await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
     expect(await axeViolations()).toEqual([]);
 
     await userEvent.click(within(confirmation).getByRole("button", { name: "Remove question" }));

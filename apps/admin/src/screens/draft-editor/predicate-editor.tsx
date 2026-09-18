@@ -13,6 +13,7 @@ import {
 import { Button } from "@qp/ui/primitives/button";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { Input } from "@qp/ui/primitives/input";
+import { NativeSelect } from "@qp/ui/primitives/native-select";
 import { useId, useState, type KeyboardEvent } from "react";
 import { PlusIcon, RemoveIcon } from "../../components/icons";
 import { DECIMAL_INPUT_PATTERN } from "../question-editor/question-form";
@@ -26,7 +27,6 @@ import {
   withOperator,
   type Operator,
 } from "./conditions";
-import { NativeSelect } from "./native-select";
 
 interface PredicateEditorProps {
   draft: QuestionnaireDraft;
@@ -94,7 +94,7 @@ export function PredicateEditor({ draft, item, position, disabled, onChange }: P
           <span>Shown when</span>
           <NativeSelect
             aria-label="Which conditions must be true"
-            className="w-20"
+            className="w-20 min-w-0"
             value={combinator}
             onChange={(event) => onChange(predicateOf(event.target.value === "any" ? "any" : "all", conditions))}
           >
@@ -208,7 +208,7 @@ function ConditionRow({ number, draft, dependant, saved, onCommit, onRemove }: C
           aria-label={`Condition ${number}: question`}
           aria-invalid={isLater || undefined}
           aria-describedby={isLater ? warningId : undefined}
-          className="w-full"
+          className="w-full min-w-0"
           value={condition.itemId}
           onChange={(event) => {
             const picked = earlier.find(({ item }) => item.itemId === event.target.value);
@@ -228,7 +228,7 @@ function ConditionRow({ number, draft, dependant, saved, onCommit, onRemove }: C
         </NativeSelect>
         <NativeSelect
           aria-label={`Condition ${number}: operator`}
-          className="w-full"
+          className="w-full min-w-0"
           value={condition.op}
           onChange={(event) => {
             const op = operators.find((candidate) => candidate === event.target.value);
@@ -280,7 +280,7 @@ function Operand({ number, condition, question, describedBy, onChange }: Operand
       return (
         <NativeSelect
           aria-label={label}
-          className="w-full"
+          className="w-full min-w-0"
           value={condition.value ? "answered" : "unanswered"}
           onChange={(event) => onChange({ ...condition, value: event.target.value === "answered" })}
         >
@@ -331,7 +331,7 @@ function ChoiceOperand({
     return (
       <NativeSelect
         aria-label={label}
-        className="w-full"
+        className="w-full min-w-0"
         value={condition.optionId}
         onChange={(event) => onChange({ ...condition, optionId: event.target.value })}
       >
