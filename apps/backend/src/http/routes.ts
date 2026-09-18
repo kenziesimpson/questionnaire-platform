@@ -27,6 +27,10 @@ function isSuccess<R extends RouteDefinition>(response: RouteResponse<R>): respo
   return "body" in response;
 }
 
+function locatedAt(body: Problem, instance: string): Problem {
+  return body.instance === undefined ? { ...body, instance } : body;
+}
+
 export function registerRoute<R extends RouteDefinition>(scope: FastifyInstance, route: R, handler: RouteHandler<R>): void {
   scope.route({
     method: route.method,
@@ -35,7 +39,7 @@ export function registerRoute<R extends RouteDefinition>(scope: FastifyInstance,
     handler: async (request, reply) => {
       const response = await handler(request as RouteRequest<R>);
       if (!isSuccess(response)) {
-        return sendProblem(reply, response);
+        return sendProblem(reply, locatedAt(response, request.url));
       }
       return reply
         .code(response.status as number)

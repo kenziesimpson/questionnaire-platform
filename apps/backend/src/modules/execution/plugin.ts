@@ -4,7 +4,7 @@ import type { Database } from "../../db/client.js";
 import { PublishedDefinitions } from "../../db/execution/published-definitions.js";
 import { resumeSession, sessionView, startSession, type SessionWithDefinitionOutcome } from "../../db/execution/sessions.js";
 import { submitSession, type SubmitOutcome } from "../../db/execution/submit.js";
-import { replyNotFound, replyWithProblem, requestValidatorCompiler } from "../../http/problems.js";
+import { applyHttpDefaults, notFoundProblem, replyWithProblem } from "../../http/problems.js";
 import { registerRoute } from "../../http/routes.js";
 
 export interface ExecutionModuleOptions {
@@ -16,7 +16,7 @@ type Refusal = Exclude<SessionWithDefinitionOutcome | SubmitOutcome, { readonly 
 function problemFor(refusal: Refusal, instance: string): Problem {
   switch (refusal.outcome) {
     case "not-found":
-      return problem("resource/not-found", { instance });
+      return notFoundProblem(instance);
     case "closed":
       return problem("questionnaire/closed", { instance });
     case "already-submitted":
@@ -29,9 +29,7 @@ function problemFor(refusal: Refusal, instance: string): Problem {
 export async function executionModule(scope: FastifyInstance, { database }: ExecutionModuleOptions): Promise<void> {
   const definitions = new PublishedDefinitions();
 
-  scope.setValidatorCompiler(requestValidatorCompiler());
-  scope.setErrorHandler(replyWithProblem);
-  scope.setNotFoundHandler(replyNotFound);
+  applyHttpDefaults(scope, replyWithProblem);
   scope.addHook("onSend", async (_request, reply) => {
     reply.header("cache-control", "no-store");
   });
