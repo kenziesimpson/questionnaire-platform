@@ -1,7 +1,7 @@
 import { definitionApi, parseDraftEtag } from "@qp/shared";
 import { expect, test, uniqueName, waitForDefinitionResponse } from "../../fixtures/index.ts";
-import { createTextQuestions, promptOf } from "./support/question-input.ts";
 import { tabUntilFocused } from "./support/keyboard.ts";
+import { createTextQuestions, promptOf } from "./support/question-input.ts";
 
 test.describe("E21 reordering by keyboard", () => {
   test("a drag handle reached with Tab moves a question with Space and the arrow keys, announces each step, and the order persists through If-Match", async ({
