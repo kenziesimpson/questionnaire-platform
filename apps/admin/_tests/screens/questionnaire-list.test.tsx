@@ -151,6 +151,18 @@ describe("the questionnaire list", () => {
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/q/${INTAKE_ID}`);
   });
 
+  it("doesn't link the name or offer a copy-link button once a questionnaire is closed, showing an archived mark instead", async () => {
+    renderList({ [`GET ${LIST_URL}`]: () => jsonResponse(200, [flu]) });
+
+    await screen.findByRole("table");
+
+    const row = rowOf("Flu Season Screening");
+    expect(within(row).queryByRole("link", { name: "Flu Season Screening" })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /Copy link/ })).not.toBeInTheDocument();
+    expect(within(row).getByText("Flu Season Screening")).toBeInTheDocument();
+    expect(within(row).getByLabelText("Flu Season Screening is archived")).toBeInTheDocument();
+  });
+
   it("reads closed and last edited as of when the list was loaded, and again when a refetch lands", async () => {
     const loadedAt = Date.parse("2026-01-14T12:00:00.000Z");
     const closingSoon = aSummary({

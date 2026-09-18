@@ -7,7 +7,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { questionnaireQueries } from "../api/queries";
 import { useOpenDraft, type OpenDraft } from "../api/use-open-draft";
-import { CheckIcon, LinkIcon } from "../components/icons";
+import { ArchiveIcon, CheckIcon, LinkIcon } from "../components/icons";
 import { Panel } from "../components/panel";
 import { Pill } from "../components/pill";
 import { ClosesAtDialog } from "./questionnaire-list/closes-at-dialog";
@@ -42,6 +42,8 @@ function Muted({ children }: { children: ReactNode }) {
   return <span className="text-muted-foreground">{children}</span>;
 }
 
+const ROW_ICON_CLASS = "inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground";
+
 function CopyLinkButton({ questionnaireId, name }: { questionnaireId: string; name: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -55,11 +57,19 @@ function CopyLinkButton({ questionnaireId, name }: { questionnaireId: string; na
     <button
       type="button"
       aria-label={`Copy link to ${name}`}
-      className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+      className={cn(ROW_ICON_CLASS, "outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50")}
       onClick={() => void navigator.clipboard.writeText(respondentLink(questionnaireId)).then(() => setCopied(true))}
     >
       {copied ? <CheckIcon size={13} /> : <LinkIcon size={13} />}
     </button>
+  );
+}
+
+function ArchivedMark({ name }: { name: string }) {
+  return (
+    <span className={ROW_ICON_CLASS} role="img" aria-label={`${name} is archived`} title="Archived">
+      <ArchiveIcon size={13} />
+    </span>
   );
 }
 
@@ -73,15 +83,23 @@ function QuestionnaireRow({ summary, now, drafts }: { summary: QuestionnaireSumm
       <TableCell className="py-3 pl-4 whitespace-normal">
         <div className="flex flex-col gap-0.5">
           <div className="flex items-center gap-1.5">
-            <a
-              href={respondentLink(summary.questionnaireId)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:underline"
-            >
-              <span className={cn("font-medium", closed && "text-muted-foreground")}>{summary.name}</span>
-            </a>
-            <CopyLinkButton questionnaireId={summary.questionnaireId} name={summary.name} />
+            {closed ? (
+              <span className="font-medium text-muted-foreground">{summary.name}</span>
+            ) : (
+              <a
+                href={respondentLink(summary.questionnaireId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline"
+              >
+                <span className="font-medium">{summary.name}</span>
+              </a>
+            )}
+            {closed ? (
+              <ArchivedMark name={summary.name} />
+            ) : (
+              <CopyLinkButton questionnaireId={summary.questionnaireId} name={summary.name} />
+            )}
           </div>
           {summary.key === null ? null : (
             <span className="font-mono text-xs text-muted-foreground">{summary.key}</span>
