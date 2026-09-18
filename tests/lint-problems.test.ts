@@ -102,6 +102,27 @@ describe("L10 — problem bodies are parsed only by problemFromWire", () => {
     expect(await restrictedSyntax(builder.replace("notFoundProblem", "notFound"), "apps/backend/src/modules/definition/routes/example.ts")).toHaveLength(1);
   });
 
+  it("does not exempt a function named notFoundProblem outside apps/backend/src/http/problems.ts", async () => {
+    const localBuilder =
+      'import { problem } from "@qp/shared";\nexport function notFoundProblem(instance: string) {\n  return problem("resource/not-found", { instance });\n}';
+
+    for (const filePath of ["apps/backend/src/modules/definition/problems.ts", "apps/backend/src/db/schema.ts", "apps/backend/src/db/client.ts"]) {
+      const messages = await restrictedSyntax(localBuilder, filePath);
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0]?.message).toContain("notFoundProblem");
+    }
+  });
+
+  it("keeps the backend's other restrictions inside the builder's own module", async () => {
+    const builderModule = "apps/backend/src/http/problems.ts";
+
+    expect(await restrictedSyntax(valueCheck, builderModule)).toHaveLength(1);
+    expect(await restrictedSyntax('import { sql } from "drizzle-orm";\nexport const q = sql`SELECT 1`;', builderModule)).toHaveLength(1);
+    expect(await restrictedSyntax('import { Pool } from "pg";\nexport const p = new Pool();', builderModule)).toHaveLength(1);
+    expect(await restrictedSyntax("export default 1;", builderModule)).toHaveLength(1);
+  });
+
   it("keeps the backend's raw SQL, connection and problem-parsing restrictions beside the resource/not-found rule", async () => {
     const backend = "apps/backend/src/modules/definition/routes/example.ts";
 

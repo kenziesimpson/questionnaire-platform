@@ -182,12 +182,21 @@ const notFoundProblem = {
     "The `resource/not-found` body is built in one place. Call that builder instead, and read one off the wire with problemFromWire.",
 };
 
+const backendNotFoundMessage =
+  "The `resource/not-found` body is built only by notFoundProblem in apps/backend/src/http/problems.ts, so every 404 carries the same members. Call it instead.";
+
+const notFoundInTheBackend = {
+  selector: 'CallExpression[callee.name="problem"][arguments.0.value="resource/not-found"]',
+  message: backendNotFoundMessage,
+};
+
 const notFoundOutsideNotFoundProblem = {
   selector:
     'CallExpression[callee.name="problem"][arguments.0.value="resource/not-found"]:not(FunctionDeclaration[id.name="notFoundProblem"] *)',
-  message:
-    "The `resource/not-found` body is built only by notFoundProblem in apps/backend/src/http/problems.ts, so every 404 carries the same members. Call it instead.",
+  message: backendNotFoundMessage,
 };
+
+const theNotFoundBuilder = "apps/backend/src/http/problems.ts";
 
 const sourcesOutsideTheBackend = ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}", "e2e/**/*.{ts,tsx}"];
 
@@ -453,19 +462,26 @@ export default tseslint.config(
   {
     name: "L10: resource/not-found in the backend, built only by notFoundProblem, alongside its raw SQL and connection restrictions",
     files: ["apps/backend/src/**/*.ts"],
-    ignores: ["apps/backend/src/db/schema.ts", "apps/backend/src/db/client.ts"],
+    ignores: ["apps/backend/src/db/schema.ts", "apps/backend/src/db/client.ts", theNotFoundBuilder],
     rules: {
-      "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction, ...problemParsing, notFoundOutsideNotFoundProblem),
+      "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction, ...problemParsing, notFoundInTheBackend),
     },
   },
   {
     name: "L10: resource/not-found in the schema declaration, whose checks and defaults are SQL expressions",
     files: ["apps/backend/src/db/schema.ts"],
-    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundOutsideNotFoundProblem) },
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundInTheBackend) },
   },
   {
     name: "L10: resource/not-found in the connection constructor, which constructs connections",
     files: ["apps/backend/src/db/client.ts"],
-    rules: { "no-restricted-syntax": syntax(...rawSql, ...problemParsing, notFoundOutsideNotFoundProblem) },
+    rules: { "no-restricted-syntax": syntax(...rawSql, ...problemParsing, notFoundInTheBackend) },
+  },
+  {
+    name: "L10: resource/not-found inside notFoundProblem, its one builder",
+    files: [theNotFoundBuilder],
+    rules: {
+      "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction, ...problemParsing, notFoundOutsideNotFoundProblem),
+    },
   },
 );

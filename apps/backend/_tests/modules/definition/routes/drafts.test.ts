@@ -776,7 +776,7 @@ describe("POST /questionnaires/:id/publish", () => {
     expect(await draftStatusOf(draft.draftVersionId)).toBe("draft");
   });
 
-  it("is 400 pointing at If-Match for one the server never issued, at the request's URL, and leaves the draft open", async () => {
+  it("is 400 pointing at a malformed If-Match, at the publish URL, and leaves the draft open", async () => {
     const db = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(db);
     const url = definitionUrl(`/questionnaires/${draft.questionnaireId}/publish`);
