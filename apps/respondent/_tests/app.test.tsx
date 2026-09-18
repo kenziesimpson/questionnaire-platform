@@ -1,26 +1,25 @@
-import { problem, type ClientAnswers, type ItemError, type SubmissionItemCode } from "@qp/shared";
+import { executionApi, problem, type ClientAnswers, type ItemError, type SubmissionItemCode } from "@qp/shared";
 import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
+import { axeViolations, FakeServer, heldReply, jsonReply, networkFailure, problemReply, urlOf } from "@qp/ui/testing";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/app.tsx";
 import { partialsKey, readPartials, writePartials } from "../src/storage/partials.ts";
-import { axeViolations } from "./axe.ts";
-import { ExecutionServer, heldReply, jsonReply, networkFailure, problemReply } from "./execution-server.ts";
 import { ANSWER_SENTINEL, inProgressSession, intakeV1, receipt, SESSION_ID, submittedSession } from "./fixtures.ts";
 
 const STALE_SESSION_ID = "0b0b0b0b-1b3d-4e8f-a6c5-9d0b1e2f3a4b";
 const intakePath = `/q/${INTAKE_QUESTIONNAIRE_ID}`;
-const sessionsUrl = "/api/run/sessions";
-const sessionUrl = `/api/run/sessions/${SESSION_ID}`;
-const submitUrl = `${sessionUrl}/submit`;
+const sessionsUrl = urlOf(executionApi.EXECUTION_PREFIX, executionApi.createSession);
+const sessionUrlOf = (sessionId: string) => urlOf(executionApi.EXECUTION_PREFIX, executionApi.getSession, { params: { sessionId } });
+const sessionUrl = sessionUrlOf(SESSION_ID);
+const submitUrl = urlOf(executionApi.EXECUTION_PREFIX, executionApi.submitSession, { params: { sessionId: SESSION_ID } });
 
-let server: ExecutionServer;
+let server: FakeServer;
 
 beforeEach(() => {
-  server = new ExecutionServer();
-  vi.stubGlobal("fetch", server.fetch);
+  server = new FakeServer().install();
 });
 
 afterEach(() => {
@@ -73,7 +72,7 @@ describe("entering at /q/:questionnaireId with nothing stored", () => {
   it("starts one session, even under StrictMode, and persists the envelope before any answer", async () => {
     await startFresh();
 
-    expect(server.sent("POST", sessionsUrl)).toEqual([
+    expect(server.sent("POST", sessionsUrl)).toMatchObject([
       { method: "POST", url: sessionsUrl, body: { questionnaireId: INTAKE_QUESTIONNAIRE_ID } },
     ]);
     expect(readPartials(INTAKE_QUESTIONNAIRE_ID)).toMatchObject({ sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, answers: {} });
@@ -494,7 +493,7 @@ describe("resuming from storage", () => {
 
   it("removes a stale session on 404 and starts a new one", async () => {
     storeSession(STALE_SESSION_ID, { itm_04: { type: "text", text: "Corner pharmacy" } });
-    server.on("GET", `/api/run/sessions/${STALE_SESSION_ID}`, problemReply(problem("resource/not-found")));
+    server.on("GET", sessionUrlOf(STALE_SESSION_ID), problemReply(problem("resource/not-found")));
     server.on("POST", sessionsUrl, jsonReply(201, { session: inProgressSession, definition: intakeV1 }));
     renderApp();
 
@@ -609,7 +608,7 @@ describe("retrying a resume that failed", () => {
   it("starts a new session from a failed resume, replacing the stored id only on 201 and carrying the answers into it", async () => {
     const user = userEvent.setup();
     const saved: ClientAnswers = { itm_01: { type: "single_choice", optionId: "no" }, itm_04: { type: "text", text: "Corner pharmacy" } };
-    const abandonedUrl = `/api/run/sessions/${STALE_SESSION_ID}`;
+    const abandonedUrl = sessionUrlOf(STALE_SESSION_ID);
     storeSession(STALE_SESSION_ID, saved);
     const held = heldReply();
     server.on("GET", abandonedUrl, networkFailure());
@@ -642,7 +641,7 @@ describe("retrying a resume that failed", () => {
     const user = userEvent.setup();
     const saved: ClientAnswers = { itm_04: { type: "text", text: "Corner pharmacy" } };
     storeSession(STALE_SESSION_ID, saved);
-    server.on("GET", `/api/run/sessions/${STALE_SESSION_ID}`, networkFailure());
+    server.on("GET", sessionUrlOf(STALE_SESSION_ID), networkFailure());
     server.on("POST", sessionsUrl, jsonReply(503, "<html>Service unavailable</html>"), jsonReply(201, { session: inProgressSession, definition: intakeV1 }));
     renderApp();
     await screen.findByRole("heading", loadFailedHeading);
@@ -680,7 +679,7 @@ describe("retrying a resume that failed", () => {
   it("starts a new session when the retried resume finds the stored session stale", async () => {
     const user = userEvent.setup();
     storeSession(STALE_SESSION_ID, { itm_04: { type: "text", text: "Corner pharmacy" } });
-    const staleUrl = `/api/run/sessions/${STALE_SESSION_ID}`;
+    const staleUrl = sessionUrlOf(STALE_SESSION_ID);
     server.on("GET", staleUrl, networkFailure(), problemReply(problem("resource/not-found")));
     server.on("POST", sessionsUrl, networkFailure(), jsonReply(201, { session: inProgressSession, definition: intakeV1 }));
     renderApp();

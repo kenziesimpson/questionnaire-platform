@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Button } from "../../src/primitives/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "../../src/primitives/command";
 import { Popover, PopoverContent, PopoverTrigger } from "../../src/primitives/popover";
-import { violationsInDocumentIncludingPortals } from "../axe";
+import { componentAxeViolations } from "../../src/testing";
 
 const questions = [
   { value: "has-condition", label: "Do you have a medical condition?" },
@@ -92,10 +92,10 @@ describe("Command in a Popover, the combobox pattern", () => {
 
   it("finds no axe violations closed or open", async () => {
     render(<QuestionCombobox />);
-    expect(await violationsInDocumentIncludingPortals()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
 
     await userEvent.click(screen.getByRole("combobox", { name: "Earlier question" }));
 
-    expect(await violationsInDocumentIncludingPortals()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
   });
 });
