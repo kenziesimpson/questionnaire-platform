@@ -1,28 +1,14 @@
 import type { QuestionnaireSummary } from "@qp/shared";
+import { axeViolations, jsonResponse, problemResponse, stubFetch, type RecordedRequest } from "@qp/ui/testing";
 import type { QueryClient } from "@tanstack/react-query";
-import { createMemoryHistory } from "@tanstack/react-router";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { questionnaireQueries } from "../../src/api/queries";
-import { App } from "../../src/app";
-import { createAppRouter } from "../../src/router";
-import {
-  aDraft,
-  deferred,
-  draftResponse,
-  etagAt,
-  jsonResponse,
-  problemResponse,
-  stubFetch,
-  testQueryClient,
-  type FetchHandler,
-  type RecordedRequest,
-} from "../fixtures";
-
-const JSDOM_CANNOT_EVALUATE = { "color-contrast": { enabled: false } };
-const LIST_URL = "/api/definition/questionnaires";
+import { aDraft, etagAt } from "../support/builders";
+import { deferred, draftResponse, routed, type Routes } from "../support/http";
+import { renderAppAt, testQueryClient } from "../support/render-app";
+import { LIST_URL } from "../support/routes";
 
 const INTAKE_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8c0";
 const FOLLOW_UP_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8d0";
@@ -62,25 +48,11 @@ const flu = aSummary({
   updatedAt: "2020-01-14T10:00:00.000Z",
 });
 
-type Routes = Record<string, (request: RecordedRequest) => Response | Promise<Response>>;
-
-function routed(routes: Routes): FetchHandler {
-  return (request) => {
-    const respond = routes[`${request.method} ${request.url}`];
-    return respond ? respond(request) : problemResponse("resource/not-found");
-  };
-}
-
 function renderList(routes: Routes, prepare: (queryClient: QueryClient) => void = () => undefined) {
-  const requests = stubFetch(routed(routes));
+  const requests = stubFetch(routed(routes, () => problemResponse("resource/not-found")));
   const queryClient = testQueryClient();
   prepare(queryClient);
-  const router = createAppRouter({
-    queryClient,
-    history: createMemoryHistory({ initialEntries: ["/admin/questionnaires"] }),
-  });
-  const { container } = render(<App queryClient={queryClient} router={router} />);
-  return { requests, queryClient, router, container };
+  return { requests, ...renderAppAt("/questionnaires", queryClient) };
 }
 
 function namesInOrder(): string[] {
@@ -96,11 +68,6 @@ function rowOf(name: string): HTMLElement {
 
 function callsTo(requests: RecordedRequest[]) {
   return requests.map(({ method, url }) => `${method} ${url}`);
-}
-
-async function violationsIn(element: Element) {
-  const results = await axe.run(element, { rules: JSDOM_CANNOT_EVALUATE });
-  return results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }));
 }
 
 describe("the questionnaire list", () => {
@@ -438,21 +405,21 @@ describe("the questionnaire list's accessibility", () => {
     const { container } = renderList({ [`GET ${LIST_URL}`]: () => jsonResponse(200, [flu, intake, followUp]) });
     await screen.findByRole("table");
 
-    expect(await violationsIn(container)).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
 
     await userEvent.click(screen.getByRole("button", { name: "New questionnaire" }));
-    expect(await violationsIn(await screen.findByRole("dialog"))).toEqual([]);
+    expect(await axeViolations(await screen.findByRole("dialog"))).toEqual([]);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: "Reopen Flu Season Screening" }));
-    expect(await violationsIn(await screen.findByRole("dialog"))).toEqual([]);
+    expect(await axeViolations(await screen.findByRole("dialog"))).toEqual([]);
   });
 
   it("has no axe violations in the empty state", async () => {
     const { container } = renderList({ [`GET ${LIST_URL}`]: () => jsonResponse(200, []) });
     await screen.findByText("No questionnaires yet");
 
-    expect(await violationsIn(container)).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 });

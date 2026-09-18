@@ -9,8 +9,7 @@ import {
   referenceOf,
   withOperator,
 } from "../../../src/screens/draft-editor/conditions";
-import { VERSION_ID, QUESTIONNAIRE_ID } from "../../fixtures";
-import { aQuestionVersion } from "../question-editor/harness";
+import { QUESTIONNAIRE_ID, VERSION_ID, aQuestionVersion } from "../../support/builders";
 
 const uuid = (n: number) => `01a0950e-56a0-73d6-b936-4a1e10eff${String(n).padStart(3, "0")}`;
 

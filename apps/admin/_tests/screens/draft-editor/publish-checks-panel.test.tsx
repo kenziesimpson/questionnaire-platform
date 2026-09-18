@@ -1,12 +1,11 @@
+import { componentAxeViolations, jsonResponse, problemResponse } from "@qp/ui/testing";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { deferred, jsonResponse, problemResponse } from "../../fixtures";
-import { axeViolations, fillJsdomLayoutGaps } from "../question-editor/harness";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { smoke } from "../../support/builders";
+import { deferred } from "../../support/http";
+import { DRAFT_URL, PUBLISH_URL, VALIDATE_URL } from "../../support/routes";
 import {
-  DRAFT_URL,
-  PUBLISH_URL,
-  VALIDATE_URL,
   aDraftOf,
   itemList,
   notes,
@@ -15,13 +14,11 @@ import {
   puts,
   renderEditor,
   rowOf,
-  smoke,
   started,
   validations,
   type Validation,
 } from "./harness";
 
-beforeAll(fillJsdomLayoutGaps);
 afterEach(() => vi.restoreAllMocks());
 
 const panel = () => screen.getByRole("region", { name: "Publish checks" });
@@ -98,7 +95,7 @@ describe("the publish checks panel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Publish checks" }));
     expect(within(panel()).getByRole("heading", { name: "Publish checks" })).toHaveFocus();
 
-    expect(await axeViolations()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
   });
 
   it("jumps to a rule problem with Rules open and focused, and to any other problem by focusing its named row", async () => {
@@ -149,7 +146,7 @@ describe("the publish checks panel", () => {
     expect(within(panel()).getByText("Ready")).toBeInTheDocument();
     expect(liveRegion()).toHaveTextContent("Publish checks: no problems. Ready to publish.");
     expect(publishButton()).toBeEnabled();
-    expect(await axeViolations()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
   });
 
   it("keeps the last results while a change saves and rechecks, disables Publish, and announces only the new count", async () => {
@@ -179,7 +176,7 @@ describe("the publish checks panel", () => {
     expect(publishButton()).toBeDisabled();
     expect(publishButton()).toHaveAccessibleDescription("Publishing waits until Publish checks have run on the saved draft.");
     expect(liveRegion()).toHaveTextContent("");
-    expect(await axeViolations()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
 
     recheck.resolve(jsonResponse(200, { valid: false, items: [{ itemId: "itm_per_day", code: "predicate/forward-reference" }] }));
 
@@ -222,7 +219,7 @@ describe("the publish checks panel", () => {
     expect(within(alert).queryByRole("listitem")).not.toBeInTheDocument();
     expect(alert).toHaveAttribute("data-problem", "questionnaire/draft-invalid");
     expect(alert).not.toHaveTextContent(/questionnaire\/|422/);
-    expect(await axeViolations()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
 
     recheck.resolve(jsonResponse(200, refused));
     await within(panel()).findByText("Fix 1 problem to publish.");

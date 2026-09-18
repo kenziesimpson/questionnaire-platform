@@ -1,35 +1,18 @@
 import type { Question, QuestionUsage, QuestionnaireSummary } from "@qp/shared";
-import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { axeViolations, jsonResponse, problemResponse, stubFetch, type RecordedRequest } from "@qp/ui/testing";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import axe from "axe-core";
-import { beforeAll, describe, expect, it } from "vitest";
-import { App } from "../../src/app";
-import { createAppRouter } from "../../src/router";
-import {
-  deferred,
-  jsonResponse,
-  problemResponse,
-  stubFetch,
-  testQueryClient,
-  type FetchHandler,
-  type RecordedRequest,
-} from "../fixtures";
-import { aBankQuestion, aQuestionVersion, fillJsdomLayoutGaps } from "./question-editor/harness";
-
-beforeAll(fillJsdomLayoutGaps);
-
-const JSDOM_CANNOT_EVALUATE = { "color-contrast": { enabled: false } };
-const BANK_URL = "/api/definition/questions?includeArchived=true";
-const QUESTIONNAIRES_URL = "/api/definition/questionnaires";
+import { describe, expect, it } from "vitest";
+import { aBankQuestion, aQuestionVersion } from "../support/builders";
+import { deferred, routed, type Routes } from "../support/http";
+import { renderAppAt } from "../support/render-app";
+import { BANK_URL, LIST_URL, usageUrl } from "../support/routes";
 
 const INTAKE_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8c0";
 const REVIEW_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8d0";
 const CONDITION_ID = "01a0950e-56a0-73d6-b936-4a1e10eff9a1";
 const PHARMACY_ID = "01a0950e-56a0-73d6-b936-4a1e10eff9a2";
 const SMOKER_ID = "01a0950e-56a0-73d6-b936-4a1e10eff9a3";
-
-const usageUrl = (questionId: string) => `/api/definition/questions/${questionId}/usage`;
 
 const condition: Question = {
   ...aBankQuestion(
@@ -84,19 +67,10 @@ const conditionUsage: QuestionUsage[] = [
   { questionnaireId: REVIEW_ID, version: 1, questionVersion: 4 },
 ];
 
-type Routes = Record<string, (request: RecordedRequest) => Response | Promise<Response>>;
-
-function routed(routes: Routes): FetchHandler {
-  return (request) => {
-    const respond = routes[`${request.method} ${request.url}`];
-    return respond ? respond(request) : jsonResponse(200, []);
-  };
-}
-
 function bankRoutes(overrides: Routes = {}): Routes {
   return {
     [`GET ${BANK_URL}`]: () => jsonResponse(200, [smoker, condition, pharmacy]),
-    [`GET ${QUESTIONNAIRES_URL}`]: () =>
+    [`GET ${LIST_URL}`]: () =>
       jsonResponse(200, [aSummary(INTAKE_ID, "Patient Intake"), aSummary(REVIEW_ID, "Medication Review")]),
     [`GET ${usageUrl(CONDITION_ID)}`]: () => jsonResponse(200, conditionUsage),
     ...overrides,
@@ -104,10 +78,8 @@ function bankRoutes(overrides: Routes = {}): Routes {
 }
 
 function renderBank(routes: Routes = bankRoutes()) {
-  const requests = stubFetch(routed(routes));
-  const queryClient = testQueryClient();
-  const router = createAppRouter({ queryClient, history: createMemoryHistory({ initialEntries: ["/admin/questions"] }) });
-  const { container } = render(<App queryClient={queryClient} router={router} />);
+  const requests = stubFetch(routed(routes, () => jsonResponse(200, [])));
+  const { router, container } = renderAppAt("/questions");
   return { requests, router, container };
 }
 
@@ -124,11 +96,6 @@ function rowOf(prompt: string): HTMLElement {
 function promptsInOrder(): string[] {
   const [, ...bodyRows] = within(screen.getByRole("table")).getAllByRole("row");
   return bodyRows.map((row) => row.querySelector("td span span")?.textContent ?? "");
-}
-
-async function violationsIn(element: Element) {
-  const results = await axe.run(element, { rules: JSDOM_CANNOT_EVALUATE });
-  return results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }));
 }
 
 const focused = () => (document.activeElement instanceof HTMLElement ? document.activeElement : null);
@@ -429,7 +396,7 @@ describe("question bank accessibility", () => {
     const { container } = renderBank();
     await screen.findByRole("list", { name: "Published versions using Which condition?" });
 
-    expect(await violationsIn(container)).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 
   it("has no axe violations in the archive confirmation", async () => {
@@ -438,7 +405,7 @@ describe("question bank accessibility", () => {
 
     await userEvent.click(within(rowOf("Preferred pharmacy")).getByRole("button", { name: "Archive Preferred pharmacy" }));
 
-    expect(await violationsIn(screen.getByRole("dialog"))).toEqual([]);
+    expect(await axeViolations(screen.getByRole("dialog"))).toEqual([]);
   });
 
   it.each([
@@ -448,6 +415,6 @@ describe("question bank accessibility", () => {
     const { container } = renderBank(bankRoutes({ [`GET ${BANK_URL}`]: respond }));
     await screen.findByText(text);
 
-    expect(await violationsIn(container)).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 });

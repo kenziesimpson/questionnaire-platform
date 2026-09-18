@@ -1,8 +1,7 @@
 import { DRAFT_ITEM_CODES, type DraftItem, type DraftItemCode, type QuestionVersion, type QuestionnaireDraft } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import { DRAFT_ITEM_MESSAGES } from "../../../src/screens/draft-editor/draft-item-messages";
-import { QUESTIONNAIRE_ID, VERSION_ID } from "../../fixtures";
-import { aQuestionVersion } from "../question-editor/harness";
+import { QUESTIONNAIRE_ID, VERSION_ID, aQuestionVersion } from "../../support/builders";
 
 const uuid = (n: number) => `01a0950e-56a0-73d6-b936-4a1e10eff${String(n).padStart(3, "0")}`;
 

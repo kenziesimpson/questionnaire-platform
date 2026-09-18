@@ -12,9 +12,28 @@ import {
   type RouteDefinition,
   type VersionSummary,
 } from "@qp/shared";
+import { contractResponse, jsonResponse, problemResponse, stubFetch, type RecordedRequest, type Reply } from "@qp/ui/testing";
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
-import { jsonResponse, problemResponse, stubFetch, type RecordedRequest } from "./fixtures";
+import { etagAt } from "./builders";
+
+export function draftResponse(draft: QuestionnaireDraft, revision: number, status = 200): Response {
+  return jsonResponse(status, draft, { etag: etagAt(revision) });
+}
+
+export type Routes = Record<string, Reply>;
+
+export function routed(routes: Routes, unrouted: Reply): Reply {
+  return (request) => (routes[`${request.method} ${request.url}`] ?? unrouted)(request);
+}
+
+export function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
 
 interface StoredDraft {
   versionId: string;
@@ -43,14 +62,6 @@ function bodyOf<S extends TSchema>(request: RecordedRequest, schema: S): Static<
   return request.body;
 }
 
-function checked(route: RouteDefinition, status: number, body: unknown, headers: Record<string, string> = {}): Response {
-  const schema = route.schema.response[String(status)];
-  if (schema === undefined || !Value.Check(schema, body)) {
-    throw new Error(`the fake answered ${route.method} ${route.url} with a ${status} body the contract rejects`);
-  }
-  return jsonResponse(status, body, headers);
-}
-
 export function fakeDefinitionApi({ bank = [] }: { bank?: Question[] } = {}) {
   let clock = Date.parse("2026-09-14T09:00:00.000Z");
   const now = () => new Date((clock += 60_000)).toISOString();
@@ -75,7 +86,7 @@ export function fakeDefinitionApi({ bank = [] }: { bank?: Question[] } = {}) {
   });
 
   const draftReply = (route: RouteDefinition, status: number, questionnaireId: string, draft: StoredDraft) =>
-    checked(route, status, draftBody(questionnaireId, draft), { etag: formatDraftEtag(draft.versionId, draft.revision) });
+    contractResponse(route, status, draftBody(questionnaireId, draft), { etag: formatDraftEtag(draft.versionId, draft.revision) });
 
   const withQuestionnaire = (id: string, act: (stored: StoredQuestionnaire) => Response) => {
     const stored = questionnaires.get(id);
@@ -90,7 +101,7 @@ export function fakeDefinitionApi({ bank = [] }: { bank?: Question[] } = {}) {
 
   const routes: [string, RegExp, Handler][] = [
     ["GET", /^\/questions\?includeArchived=(true|false)$/, (_, includeArchived) =>
-      checked(
+      contractResponse(
         definitionApi.listQuestions,
         200,
         [...bankEntries.values()].filter((question) => includeArchived === "true" || question.archivedAt === null).reverse(),
@@ -103,10 +114,10 @@ export function fakeDefinitionApi({ bank = [] }: { bank?: Question[] } = {}) {
       const entry: Question = { questionId, key: null, archivedAt: null, createdAt, latest };
       questions.set(questionId, [latest]);
       bankEntries.set(questionId, entry);
-      return checked(definitionApi.createQuestion, 201, entry);
+      return contractResponse(definitionApi.createQuestion, 201, entry);
     }],
     ["GET", /^\/questions\/([^/]+)\/usage$/, (_, questionId) =>
-      checked(
+      contractResponse(
         definitionApi.getQuestionUsage,
         200,
         [...questionnaires.values()].flatMap(({ versions }) =>
@@ -118,7 +129,7 @@ export function fakeDefinitionApi({ bank = [] }: { bank?: Question[] } = {}) {
         ),
       )],
     ["GET", /^\/questionnaires$/, () =>
-      checked(definitionApi.listQuestionnaires, 200, [...questionnaires.values()].map(({ summary }) => summary).reverse())],
+      contractResponse(definitionApi.listQuestionnaires, 200, [...questionnaires.values()].map(({ summary }) => summary).reverse())],
     ["POST", /^\/questionnaires$/, (request) => {
       const { name, title } = bodyOf(request, definitionApi.createQuestionnaire.schema.body);
       const questionnaireId = crypto.randomUUID();
@@ -138,7 +149,7 @@ export function fakeDefinitionApi({ bank = [] }: { bank?: Question[] } = {}) {
         draft: { versionId: crypto.randomUUID(), revision: 1, title, items: [], updatedAt: createdAt },
         versions: [],
       });
-      return checked(definitionApi.createQuestionnaire, 201, summary);
+      return contractResponse(definitionApi.createQuestionnaire, 201, summary);
     }],
     ["GET", /^\/questionnaires\/([^/]+)\/draft$/, (_, id) =>
       withDraft(id, (_stored, draft) => draftReply(definitionApi.getDraft, 200, id, draft))],
@@ -154,7 +165,7 @@ export function fakeDefinitionApi({ bank = [] }: { bank?: Question[] } = {}) {
     ["POST", /^\/questionnaires\/([^/]+)\/draft\/validate$/, (_, id) =>
       withDraft(id, (_stored, draft) => {
         const { valid, items } = validateDraft({ items: draft.items, questions: pinned(draft.items).map(contentOf) });
-        return checked(definitionApi.validateDraft, 200, { valid, items: items.map(({ itemId, code }) => ({ itemId, code })) });
+        return contractResponse(definitionApi.validateDraft, 200, { valid, items: items.map(({ itemId, code }) => ({ itemId, code })) });
       })],
     ["POST", /^\/questionnaires\/([^/]+)\/draft$/, (_, id) =>
       withQuestionnaire(id, (stored) => {
@@ -203,16 +214,16 @@ export function fakeDefinitionApi({ bank = [] }: { bank?: Question[] } = {}) {
         stored.versions.push({ summary, snapshot });
         stored.draft = null;
         stored.summary = { ...stored.summary, currentVersion: version, hasDraft: false, updatedAt: publishedAt };
-        return checked(definitionApi.publishDraft, 201, summary);
+        return contractResponse(definitionApi.publishDraft, 201, summary);
       })],
     ["GET", /^\/questionnaires\/([^/]+)\/versions$/, (_, id) =>
       withQuestionnaire(id, ({ versions }) =>
-        checked(definitionApi.listVersions, 200, versions.map(({ summary }) => summary).reverse()),
+        contractResponse(definitionApi.listVersions, 200, versions.map(({ summary }) => summary).reverse()),
       )],
     ["GET", /^\/questionnaires\/([^/]+)\/versions\/(\d+)$/, (_, id, version) =>
       withQuestionnaire(id, ({ versions }) => {
         const found = versions.find(({ summary }) => String(summary.version) === version);
-        return found === undefined ? problemResponse("resource/not-found") : checked(definitionApi.getVersion, 200, found.snapshot);
+        return found === undefined ? problemResponse("resource/not-found") : contractResponse(definitionApi.getVersion, 200, found.snapshot);
       })],
   ];
 

@@ -1,7 +1,7 @@
 import type { Question, QuestionnaireSummary } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import { bankCountLabel, groupUsage, sortByLatestEdit } from "../../../src/screens/question-bank/bank-display";
-import { aBankQuestion, aQuestionVersion } from "../question-editor/harness";
+import { aBankQuestion, aQuestionVersion } from "../../support/builders";
 
 const INTAKE_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8c0";
 const REVIEW_ID = "01a0950e-56a0-73d6-b936-4a1e10eff8d0";

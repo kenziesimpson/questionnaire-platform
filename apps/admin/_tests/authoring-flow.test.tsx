@@ -1,23 +1,16 @@
-import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { axeViolations } from "@qp/ui/testing";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import axe from "axe-core";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { App } from "../src/app";
-import { createAppRouter } from "../src/router";
-import { fakeDefinitionApi } from "./fake-definition-api";
-import { testQueryClient } from "./fixtures";
-import { smoke } from "./screens/draft-editor/harness";
-import { aBankQuestion, fillJsdomLayoutGaps } from "./screens/question-editor/harness";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { aBankQuestion, smoke } from "./support/builders";
+import { fakeDefinitionApi } from "./support/http";
+import { renderAppAt } from "./support/render-app";
 
-beforeAll(fillJsdomLayoutGaps);
 afterEach(() => vi.restoreAllMocks());
 
 function renderApp() {
   const api = fakeDefinitionApi({ bank: [aBankQuestion(smoke)] });
-  const queryClient = testQueryClient();
-  const router = createAppRouter({ queryClient, history: createMemoryHistory({ initialEntries: ["/admin/questionnaires"] }) });
-  const { container } = render(<App queryClient={queryClient} router={router} />);
+  const { router, container } = renderAppAt("/questionnaires");
   return { ...api, router, container };
 }
 
@@ -26,8 +19,7 @@ async function landOn(heading: string) {
 }
 
 async function expectNoAxeViolations(container: HTMLElement) {
-  const results = await axe.run(container, { rules: { "color-contrast": { enabled: false } } });
-  expect(results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))).toEqual([]);
+  expect(await axeViolations(container)).toEqual([]);
 }
 
 function currentNav() {

@@ -1,18 +1,12 @@
-import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { axeViolations, problemResponse, stubFetch } from "@qp/ui/testing";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import axe from "axe-core";
 import { describe, expect, it } from "vitest";
-import { App } from "../../src/app";
-import { createAppRouter } from "../../src/router";
-import { QUESTIONNAIRE_ID, problemResponse, stubFetch, testQueryClient } from "../fixtures";
-
-const JSDOM_CANNOT_EVALUATE = { "color-contrast": { enabled: false } };
+import { QUESTIONNAIRE_ID } from "../support/builders";
+import { renderAppAt } from "../support/render-app";
 
 async function renderShellAt(path: string) {
-  const queryClient = testQueryClient();
-  const router = createAppRouter({ queryClient, history: createMemoryHistory({ initialEntries: [`/admin${path}`] }) });
-  const { container } = render(<App queryClient={queryClient} router={router} />);
+  const { container, router } = renderAppAt(path);
   await screen.findByRole("heading", { level: 1 });
   return { container, router };
 }
@@ -23,9 +17,7 @@ describe("the app shell", () => {
     async (path) => {
       const { container } = await renderShellAt(path);
 
-      const results = await axe.run(container, { rules: JSDOM_CANNOT_EVALUATE });
-
-      expect(results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))).toEqual([]);
+      expect(await axeViolations(container)).toEqual([]);
     },
   );
 
