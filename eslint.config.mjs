@@ -101,7 +101,17 @@ const appLibraries = [
   },
 ];
 
-const librariesAwayFrom = (home) => appLibraries.filter((library) => library.home !== home).map(({ group, message }) => ({ group, message }));
+const testSupportLibraries = [
+  {
+    home: "packages/ui/src/testing",
+    group: ["axe-core", "axe-core/*", "vitest-axe", "vitest-axe/*"],
+    message:
+      "Accessibility checks run through axeViolations and componentAxeViolations in @qp/ui/testing, so every workspace audits against the same rule config.",
+  },
+];
+
+const librariesAwayFrom = (home) =>
+  [...appLibraries, ...testSupportLibraries].filter((library) => library.home !== home).map(({ group, message }) => ({ group, message }));
 
 const restrictOutside = (home, ...patterns) => ["error", { patterns: [telemetryOnly, ...librariesAwayFrom(home), ...patterns] }];
 
@@ -277,6 +287,16 @@ const filesThatMustDefaultExport = [
 ];
 
 const backendFilesThatMustDefaultExport = ["apps/backend/**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}"];
+
+const harnessFile = "harness(\\.[cm]?[jt]sx?)?$";
+
+const anotherDirectorysHarness = {
+  regex: `^(?!\\./+[^/.][^/]*/+${harnessFile})(\\.{1,2}/+)+([^/]+/+)*?[^/.][^/]*/+${harnessFile}`,
+  message:
+    "A harness serves its own directory: the tests beside it, below it, and the test named after it one level up. Helpers other directories share live in support modules — apps/admin/_tests/support, a backend fixtures.ts, or @qp/ui/testing.",
+};
+
+const testSupportLibrariesAway = testSupportLibraries.map(({ group, message }) => ({ group, message }));
 
 const e2eFilesThatMustDefaultExport = [
   "e2e/**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}",
@@ -467,5 +487,41 @@ export default tseslint.config(
     rules: {
       "no-restricted-syntax": syntax(...rawSql, ...connectionConstruction, ...problemParsing, notFoundOutsideNotFoundProblem),
     },
+  },
+  {
+    name: "L11: axe inside @qp/ui/testing",
+    files: ["packages/ui/src/testing/**"],
+    rules: { "no-restricted-imports": restrictOutside("packages/ui/src/testing") },
+  },
+  {
+    name: "L11: harness imports in every _tests directory",
+    files: ["**/_tests/**"],
+    rules: { "no-restricted-imports": restrict(anotherDirectorysHarness) },
+  },
+  {
+    name: "L11: harness imports in admin's tests, alongside its library split",
+    files: ["apps/admin/_tests/**"],
+    rules: { "no-restricted-imports": restrictOutside("apps/admin", anotherDirectorysHarness) },
+  },
+  {
+    name: "L11: harness imports in the respondent's tests, alongside its library split",
+    files: ["apps/respondent/_tests/**"],
+    rules: { "no-restricted-imports": restrictOutside("apps/respondent", anotherDirectorysHarness) },
+  },
+  {
+    name: "L11: harness imports in backend tests, alongside the openDatabase restriction",
+    files: ["apps/backend/_tests/**/*.ts"],
+    ignores: ["apps/backend/_tests/db/harness.ts"],
+    rules: { "no-restricted-imports": restrict(openDatabaseOutsideTheHarness, anotherDirectorysHarness) },
+  },
+  {
+    name: "L11: axe inside packages/telemetry, which may import pino and OpenTelemetry",
+    files: ["packages/telemetry/**"],
+    rules: { "no-restricted-imports": ["error", { patterns: testSupportLibrariesAway }] },
+  },
+  {
+    name: "L11: axe and harness imports in the telemetry tests",
+    files: ["packages/telemetry/_tests/**"],
+    rules: { "no-restricted-imports": ["error", { patterns: [...testSupportLibrariesAway, anotherDirectorysHarness] }] },
   },
 );
