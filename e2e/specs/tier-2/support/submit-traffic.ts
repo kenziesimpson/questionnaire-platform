@@ -10,7 +10,7 @@ import {
   type ProblemReply,
 } from "../../../fixtures/index.ts";
 
-export const SUBMIT_URL_GLOB = `**${executionApi.EXECUTION_PREFIX}/sessions/*/submit`;
+export const SUBMIT_URL_GLOB = `**${executionApi.EXECUTION_PREFIX}${executionApi.submitSession.url.replace(":sessionId", "*")}`;
 
 export const SubmitBody = executionApi.submitSession.schema.body;
 export type SubmitBody = Static<typeof SubmitBody>;
@@ -29,8 +29,6 @@ export function isCreateSessionRequest(request: Request): boolean {
 export function isGetSessionRequest(request: Request, sessionId: string): boolean {
   return matchesExecutionRoute(request, executionApi.getSession, { sessionId });
 }
-
-export { recordRequests };
 
 export function recordSubmitRequests(page: Page): Request[] {
   return recordRequests(page, isSubmitRequest);
