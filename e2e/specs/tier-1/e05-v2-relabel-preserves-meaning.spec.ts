@@ -28,8 +28,7 @@ async function submitHypertension(respondent: RespondentPage, hypertensionLabel:
 test.describe("E5 — a v2 relabel preserves collected meaning", () => {
   test("relabelling an option in a v2 draft leaves v1 responses untouched and both versions record the same option id", async ({
     page,
-    browser,
-    stack,
+    secondContext,
     api,
     db,
     admin,
@@ -37,7 +36,7 @@ test.describe("E5 — a v2 relabel preserves collected meaning", () => {
     const demo = await createDemoShapedQuestionnaire(api, { name: "E5 relabel" });
     const whichConditionQuestionId = demo.questions.whichCondition.questionId;
 
-    const sessionA = await openRespondentBrowser(browser, stack.baseUrl);
+    const sessionA = await openRespondentBrowser(secondContext);
     await sessionA.respondent.openForm(demo.questionnaireId);
     await expect(sessionA.respondent.option(prompts.whichCondition, V2_HYPERTENSION)).toHaveCount(0);
     const sessionAId = await submitHypertension(sessionA.respondent, V1_HYPERTENSION, "Session A pharmacy");
@@ -57,7 +56,7 @@ test.describe("E5 — a v2 relabel preserves collected meaning", () => {
     await authoring.relabelOption(2, DEMO_OPTION_IDS.hypertension, V2_HYPERTENSION, 2);
     await authoring.publish(2);
 
-    const sessionB = await openRespondentBrowser(browser, stack.baseUrl);
+    const sessionB = await openRespondentBrowser(secondContext);
     await sessionB.respondent.openForm(demo.questionnaireId);
     await sessionB.respondent.choose(prompts.hasCondition, YES);
     await expect(sessionB.respondent.option(prompts.whichCondition, V2_HYPERTENSION)).toBeVisible();

@@ -1,8 +1,19 @@
-import type { Page } from "@playwright/test";
+import type { Page, Request } from "@playwright/test";
 import { executionApi } from "@qp/shared";
 import { Value } from "typebox/value";
-import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, DEMO_V1, expect, test, type RespondentPage } from "../../fixtures/index.ts";
-import { ApiTraffic, openRespondentBrowser } from "./support/respondent-browser.ts";
+import {
+  createDemoShapedQuestionnaire,
+  DEMO_ITEM_IDS,
+  DEMO_OPTION_IDS,
+  DEMO_V1,
+  expect,
+  isDefinitionRequest,
+  matchesExecutionRoute,
+  recordRequests,
+  test,
+  type RespondentPage,
+} from "../../fixtures/index.ts";
+import { openRespondentBrowser } from "./support/respondent-browser.ts";
 
 const prompts = DEMO_V1.prompts;
 const YES = DEMO_V1.optionLabel(DEMO_OPTION_IDS.yes);
@@ -38,51 +49,53 @@ async function expectStartedAnswersRestored(respondent: RespondentPage): Promise
 
 test.describe("E4 — resume from storage", () => {
   test("a reload and a new browser context with the same storage resume one session from GET /sessions/:id and submit one response set", async ({
-    browser,
-    stack,
+    secondContext,
     api,
     db,
   }) => {
     const { questionnaireId } = await createDemoShapedQuestionnaire(api, { name: "E4 resume" });
-    const traffic = new ApiTraffic();
+    const sessionCreations = (traffic: Request[]) => traffic.filter((request) => matchesExecutionRoute(request, executionApi.createSession));
+    const sessionReads = (traffic: Request[], sessionId: string) =>
+      traffic.filter((request) => matchesExecutionRoute(request, executionApi.getSession, { sessionId }));
+    const submissions = (traffic: Request[], sessionId: string) =>
+      traffic.filter((request) => matchesExecutionRoute(request, executionApi.submitSession, { sessionId }));
 
-    const first = await openRespondentBrowser(browser, stack.baseUrl);
-    traffic.watch(first.context);
+    const first = await openRespondentBrowser(secondContext);
+    let traffic = recordRequests(first.context);
     await first.respondent.openForm(questionnaireId);
     await first.respondent.choose(prompts.hasCondition, YES);
     await first.respondent.choose(prompts.whichCondition, DIABETES);
     await expect.poll(async () => (await first.respondent.readEnvelope(questionnaireId)).answers).toEqual(STARTED_ANSWERS);
     const { sessionId } = await first.respondent.readEnvelope(questionnaireId);
-    expect(traffic.sessionCreations()).toHaveLength(1);
+    expect(sessionCreations(traffic)).toHaveLength(1);
     expect(await db.session(sessionId)).toMatchObject({ questionnaireId, status: "in_progress" });
 
-    traffic.clear();
+    traffic.length = 0;
     expect(await resumedDefinitionVersion(first.page, sessionId, () => first.page.reload())).toBe(1);
     await expectStartedAnswersRestored(first.respondent);
-    expect(traffic.sessionCreations()).toEqual([]);
-    expect(traffic.sessionReads(sessionId)).toHaveLength(1);
-    expect(traffic.definitionRequests()).toEqual([]);
+    expect(sessionCreations(traffic)).toEqual([]);
+    expect(sessionReads(traffic, sessionId)).toHaveLength(1);
+    expect(traffic.filter(isDefinitionRequest)).toEqual([]);
     expect((await first.respondent.readEnvelope(questionnaireId)).sessionId).toBe(sessionId);
 
     const storageState = await first.context.storageState();
     await first.context.close();
 
-    const second = await openRespondentBrowser(browser, stack.baseUrl, storageState);
-    traffic.clear();
-    traffic.watch(second.context);
+    const second = await openRespondentBrowser(secondContext, storageState);
+    traffic = recordRequests(second.context);
     expect(await resumedDefinitionVersion(second.page, sessionId, () => second.respondent.goto(questionnaireId))).toBe(1);
     await expectStartedAnswersRestored(second.respondent);
-    expect(traffic.sessionCreations()).toEqual([]);
-    expect(traffic.sessionReads(sessionId)).toHaveLength(1);
-    expect(traffic.definitionRequests()).toEqual([]);
+    expect(sessionCreations(traffic)).toEqual([]);
+    expect(sessionReads(traffic, sessionId)).toHaveLength(1);
+    expect(traffic.filter(isDefinitionRequest)).toEqual([]);
     expect((await second.respondent.readEnvelope(questionnaireId)).sessionId).toBe(sessionId);
 
     await second.respondent.fillDate(prompts.diagnosedOn, "2021-11-30");
     await second.respondent.fillText(prompts.pharmacy, "Riverside pharmacy");
     const receipt = await second.respondent.submitAndExpectReceipt();
     expect(receipt.sessionId).toBe(sessionId);
-    expect(traffic.sessionCreations()).toEqual([]);
-    expect(traffic.submissions(sessionId)).toHaveLength(1);
+    expect(sessionCreations(traffic)).toEqual([]);
+    expect(submissions(traffic, sessionId)).toHaveLength(1);
     await second.context.close();
 
     expect((await db.sessionsFor(questionnaireId)).map((session) => session.sessionId)).toEqual([sessionId]);

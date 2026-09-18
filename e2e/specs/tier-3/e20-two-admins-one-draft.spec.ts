@@ -1,18 +1,7 @@
 import type { APIResponse } from "@playwright/test";
 import { definitionApi } from "@qp/shared";
-import { expect, uniqueName } from "../../fixtures/index.ts";
-import {
-  createTextQuestions,
-  Deferred,
-  definitionUrlPattern,
-  draftItemRow,
-  dragHandle,
-  expectDraftItemOrder,
-  moveItemByKeyboard,
-  problemReplyOfResponse,
-  promptOf,
-  waitForDefinitionResponse,
-} from "./support/authoring.ts";
+import { Deferred, definitionUrlPattern, expect, problemReplyOfResponse, uniqueName, waitForDefinitionResponse } from "../../fixtures/index.ts";
+import { createTextQuestions, promptOf } from "./support/question-input.ts";
 import { testWithSecondAdmin as test } from "./support/second-admin.ts";
 
 test.describe("E20 two admins on one draft", () => {
@@ -36,10 +25,10 @@ test.describe("E20 two admins on one draft", () => {
     await admin.openDraftEditor(questionnaireId);
     await secondAdmin.openDraftEditor(questionnaireId);
     const orderBeforeReorder = [firstPrompt, secondPrompt, thirdPrompt];
-    await expectDraftItemOrder(pageB, orderBeforeReorder);
+    await secondAdmin.expectDraftItemOrder(orderBeforeReorder);
 
     const saveA = waitForDefinitionResponse(page, definitionApi.replaceDraft, { id: questionnaireId });
-    await draftItemRow(page, 3, thirdPrompt).getByRole("checkbox", { name: "Required", exact: true }).click();
+    await admin.draftItemRow(3, thirdPrompt).getByRole("checkbox", { name: "Required", exact: true }).click();
     expect((await saveA).status()).toBe(200);
     const stateA = await api.getDraft(questionnaireId);
     expect(stateA.draft.items.map((item) => item.required)).toEqual([true, true, false]);
@@ -54,11 +43,11 @@ test.describe("E20 two admins on one draft", () => {
     });
 
     const writeB = waitForDefinitionResponse(pageB, definitionApi.replaceDraft, { id: questionnaireId });
-    await dragHandle(pageB, 1).focus();
-    await moveItemByKeyboard(pageB, { prompt: firstPrompt, from: 1, to: 2, total: 3 });
+    await secondAdmin.dragHandle(1).focus();
+    await secondAdmin.moveItemByKeyboard({ prompt: firstPrompt, from: 1, to: 2, total: 3 });
 
     expect((await serverAnswered.promise).status()).toBe(409);
-    await expectDraftItemOrder(pageB, [secondPrompt, firstPrompt, thirdPrompt]);
+    await secondAdmin.expectDraftItemOrder([secondPrompt, firstPrompt, thirdPrompt]);
     releaseAnswer.resolve();
 
     const conflict = await problemReplyOfResponse(await writeB);
@@ -67,9 +56,9 @@ test.describe("E20 two admins on one draft", () => {
 
     const notice = pageB.getByRole("alert").filter({ hasText: "Someone else changed this draft" });
     await expect(notice).toContainText("Your last change was undone and the draft has been reloaded with their version, so carry on from there.");
-    await expectDraftItemOrder(pageB, orderBeforeReorder);
-    await expect(draftItemRow(pageB, 3, thirdPrompt).getByRole("checkbox", { name: "Required", exact: true })).not.toBeChecked();
-    await expect(draftItemRow(pageB, 1, firstPrompt).getByRole("checkbox", { name: "Required", exact: true })).toBeChecked();
+    await secondAdmin.expectDraftItemOrder(orderBeforeReorder);
+    await expect(secondAdmin.draftItemRow(3, thirdPrompt).getByRole("checkbox", { name: "Required", exact: true })).not.toBeChecked();
+    await expect(secondAdmin.draftItemRow(1, firstPrompt).getByRole("checkbox", { name: "Required", exact: true })).toBeChecked();
 
     expect(await api.getDraft(questionnaireId)).toEqual(stateA);
   });

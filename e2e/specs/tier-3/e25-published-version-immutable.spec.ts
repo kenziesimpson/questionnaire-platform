@@ -1,16 +1,14 @@
 import type { Locator } from "@playwright/test";
 import { definitionApi, draftItemOf, type Question } from "@qp/shared";
-import { expect, test, uniqueName, type DefinitionApi } from "../../fixtures/index.ts";
 import {
-  draftItemList,
-  draftItemRow,
+  expect,
   problemReplyOfExchange,
-  promptOf,
-  textQuestionInput,
+  test,
+  uniqueName,
   waitForDefinitionResponse,
-  YES_NO_OPTION_IDS,
-  yesNoQuestionInput,
-} from "./support/authoring.ts";
+  type DefinitionApi,
+} from "../../fixtures/index.ts";
+import { promptOf, textQuestionInput, YES_NO_OPTION_IDS, yesNoQuestionInput } from "./support/question-input.ts";
 
 const ITEM_IDS = { gate: "itm_gate", followUp: "itm_follow_up" } as const;
 
@@ -68,7 +66,7 @@ test.describe("E25 a published version is not editable", () => {
 
     await expect(main.getByRole("button", { name: EDITING_CONTROL_NAMES })).toHaveCount(0);
     await expect(main.getByRole("checkbox", { name: "Required" })).toHaveCount(0);
-    await expect(draftItemList(page)).toHaveCount(0);
+    await expect(admin.draftItemList()).toHaveCount(0);
     await expect(snapshot.getByRole("button", { name: "Submit answers", exact: true })).toBeDisabled();
 
     const snapshotRadios = snapshot.getByRole("radio");
@@ -99,7 +97,7 @@ test.describe("E25 a published version is not editable", () => {
     expect((await opened).status()).toBe(201);
     await expect(page).toHaveURL(new RegExp(`/questionnaires/${published.questionnaireId}/draft$`));
 
-    const followUpRow = draftItemRow(page, 2, promptOf(published.followUp));
+    const followUpRow = admin.draftItemRow(2, promptOf(published.followUp));
     await expect(followUpRow.getByText("Text · pinned v1 · Shown when 1 condition is true")).toBeVisible();
     await expect(followUpRow.getByText("Newer version available")).toBeVisible();
 
