@@ -216,19 +216,20 @@ describe("changeAnswers", () => {
     const storage = fakeStorage();
     const session = createRespondentSession(INTAKE_QUESTIONNAIRE_ID, client, storage);
 
-    session.changeAnswers("itm_04", { itm_04: { type: "text", text: "x" } });
+    session.changeAnswers("itm_04");
 
     expect(storage.writePartials).not.toHaveBeenCalled();
   });
 
-  it("writes the new answers against the current session", async () => {
+  it("no longer writes to storage itself; local persistence is the screen's job now", async () => {
     const client = fakeClient();
     const storage = fakeStorage();
     const session = await readySession(client, storage);
+    storage.writePartials.mockClear();
 
-    session.changeAnswers("itm_04", { itm_04: { type: "text", text: "Corner pharmacy" } });
+    session.changeAnswers("itm_04");
 
-    expect(storage.writePartials).toHaveBeenCalledWith(inProgressSession, { itm_04: { type: "text", text: "Corner pharmacy" } });
+    expect(storage.writePartials).not.toHaveBeenCalled();
   });
 
   it("notifies subscribers when the change clears a server-rejected item's errors", async () => {
@@ -244,7 +245,7 @@ describe("changeAnswers", () => {
     const listener = vi.fn();
     session.subscribe(listener);
 
-    session.changeAnswers("itm_04", { itm_04: { type: "text", text: "Short" } });
+    session.changeAnswers("itm_04");
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect(session.getState()).toMatchObject({ name: "ready", rejection: { itemErrors: {} } });

@@ -219,6 +219,54 @@ describe("the client pre-check", () => {
   });
 });
 
+describe("touched-on-blur error timing", () => {
+  it("shows no error before a field is visited, then only that field's error once it is left", async () => {
+    await startFresh();
+
+    expect(screen.queryByText("Answer this question.")).not.toBeInTheDocument();
+    expect(pharmacy()).not.toHaveAttribute("aria-invalid");
+    expect(hasCondition()).not.toHaveAttribute("aria-invalid");
+
+    fireEvent.blur(pharmacy());
+
+    const summary = await screen.findByRole("region", { name: "1 answer needs attention" });
+    expect(within(summary).getAllByRole("listitem").map((entry) => entry.textContent)).toEqual(["Preferred pharmacy — Answer this question."]);
+    expect(pharmacy()).toHaveAttribute("aria-invalid", "true");
+    expect(hasCondition()).not.toHaveAttribute("aria-invalid", "true");
+    expect(server.sent("POST", submitUrl)).toHaveLength(0);
+  });
+
+  it("shows every visible item's error once a submit is attempted, not only the ones already visited", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    fireEvent.blur(pharmacy());
+    await screen.findByText("Answer this question.");
+
+    await user.click(submitButton());
+
+    const summary = await screen.findByRole("region", { name: "2 answers need attention" });
+    expect(within(summary).getAllByRole("listitem").map((entry) => entry.textContent)).toEqual([
+      "Do you have a medical condition? — Answer this question.",
+      "Preferred pharmacy — Answer this question.",
+    ]);
+  });
+
+  it("updates a touched field's error live as the answer changes, without needing another blur", async () => {
+    const user = userEvent.setup();
+    await startFresh();
+    await user.click(within(hasCondition()).getByRole("radio", { name: "Yes" }));
+    await user.click(within(whichCondition()).getByRole("radio", { name: "Diabetes" }));
+    fireEvent.change(diagnosedOn(), { target: { value: "2999-01-01" } });
+    fireEvent.blur(diagnosedOn());
+
+    expect(await screen.findByText("Enter a date that is not in the future.")).toBeInTheDocument();
+
+    fireEvent.change(diagnosedOn(), { target: { value: "2019-04-02" } });
+
+    expect(screen.queryByText("Enter a date that is not in the future.")).not.toBeInTheDocument();
+  });
+});
+
 describe("a submission the server rejects with 422 submission/invalid", () => {
   it("returns to the form with an error summary, inline errors and focus on the first invalid item", async () => {
     const user = userEvent.setup();

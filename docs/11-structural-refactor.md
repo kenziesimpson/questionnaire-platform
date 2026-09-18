@@ -355,7 +355,7 @@ It amends the respondent half of #32 and rewrites [[10-frontend#8. Library choic
 
 Owns: `apps/respondent/src/screens/questionnaire-screen.tsx`, `apps/respondent/src/storage/**`.
 
-Also tightens R6 (§4.3), together with PR 7 and PR 8: PR 15 relaxed knip's `exports`/`types`/`files` checks across all of `apps/respondent/src/**` (per-workspace, not per-file) because this cleanup was still pending. `session/respondent-session.ts` is PR 8's and `storage/partials.ts` is this PR's, so those two clear once PR 7, PR 8 and PR 8b have all merged. Four more do not sit in any of the three `Owns` lines and stay relaxed after: `answers/precheck.ts` (`browserTimeZone`), `api/execution-client.ts` (`CREATE_SESSION_PROBLEMS`, `GET_SESSION_PROBLEMS`, `SUBMIT_SESSION_PROBLEMS`), `api/problems.ts` (`EXECUTION_PROBLEM_SLUGS`) and `screens/error-summary.tsx` (`UNPLACED_ERRORS_MESSAGE`) — carried by the unowned-findings follow-up (see the R6 amendment).
+Also tightens R6 (§4.3), together with PR 7 and PR 8: PR 15 relaxed knip's `exports`/`types`/`files` checks across all of `apps/respondent/src/**` (per-workspace, not per-file) because this cleanup was still pending. **Now that PR 7, PR 8 and PR 8b have all merged:** `session/respondent-session.ts` and `storage/partials.ts` are clean (their last unused exports, `fetchExecutionClient`, `localPartialsStorage` and `StoredPartialsEnvelope`, lost the `export` keyword nothing outside the file needed), and the workspace-wide relaxation is replaced by four narrow, permanent per-file entries for the findings no `Owns` line covers: `answers/precheck.ts` (`browserTimeZone`), `api/execution-client.ts` (`CREATE_SESSION_PROBLEMS`, `GET_SESSION_PROBLEMS`, `SUBMIT_SESSION_PROBLEMS`), `api/problems.ts` (`EXECUTION_PROBLEM_SLUGS`) and `screens/error-summary.tsx` (`UNPLACED_ERRORS_MESSAGE`) — carried by the unowned-findings follow-up (see the R6 amendment).
 
 ### Phase D — `packages/ui`
 
@@ -601,7 +601,7 @@ These are agreed. R1–R5 live as tests under `tests/`, next to `text-files.test
 | New | A problem body is read off the wire whole or not at all; `problemFromWire` takes no unknown-code policy, because both consumers already rejected | 1 |
 | Several | Rationale extracted from comments in `packages/shared` and `packages/telemetry`; the rows cited include #13, #15, #18, #20, #25, #31, #34, #36 and #37 and #40–#44 | 18 |
 
-New rows are numbered from #79 in the order they merge. PR 1 took #81, PR 2a #82 and PR 2c #83; a PR that merges before one of them renumbers.
+New rows are numbered from #79 in the order they merge. PR 1 took #81, PR 2a #82, PR 2c #83 and PR 8b #84; a PR that merges before one of them renumbers.
 
 ## 6. Out of scope
 

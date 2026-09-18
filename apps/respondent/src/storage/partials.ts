@@ -4,7 +4,7 @@ import { Value } from "typebox/value";
 
 export const PARTIALS_FORMAT_VERSION = 1;
 
-export const StoredPartialsEnvelope = Type.Object(
+const StoredPartialsEnvelope = Type.Object(
   {
     formatVersion: Type.Literal(PARTIALS_FORMAT_VERSION),
     sessionId: Uuid,
