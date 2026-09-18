@@ -111,10 +111,10 @@ describe("QuestionEditorDialog — field wiring the clamping unit tests do not c
   it("number: letters cannot be typed into a bound", async () => {
     renderEditor();
     await chooseType("Number");
-    await typeInto("Unit", "kg");
+    await typeInto("Min", "25.5");
 
     await userEvent.type(field("Min"), "x");
-    expect(field("Min")).toHaveValue("");
+    expect(field("Min")).toHaveValue("25.5");
   });
 
   it("date: the latest field's min attribute tracks the earliest value", async () => {

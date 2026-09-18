@@ -2,6 +2,7 @@ import type { Condition, ConditionOf } from "@qp/shared";
 import { Input } from "@qp/ui/primitives/input";
 import { useId, useState, type KeyboardEvent } from "react";
 import { DECIMAL_INPUT_PATTERN } from "../../../lib/input-patterns";
+import { lowerOf, upperOf } from "../conditions";
 
 function commitOnEnter(commit: () => void) {
   return (event: KeyboardEvent<HTMLInputElement>) => {
@@ -62,9 +63,6 @@ function Unit({ id, unit }: { id: string; unit: string | undefined }) {
     </span>
   );
 }
-
-const upperOf = (low: number, high: number) => (Number.isFinite(high) ? Math.max(low, high) : high);
-const lowerOf = (high: number, low: number) => (Number.isFinite(low) ? Math.min(high, low) : low);
 
 export function NumberOperands({
   label,

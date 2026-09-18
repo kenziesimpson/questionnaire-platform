@@ -3,7 +3,7 @@ import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { NativeSelect } from "@qp/ui/primitives/native-select";
 import { useId } from "react";
 
-export type ChoiceCondition = ConditionOf<"single_choice"> | ConditionOf<"multiple_choice">;
+type ChoiceCondition = ConditionOf<"single_choice"> | ConditionOf<"multiple_choice">;
 
 function OptionCheckbox({
   label,

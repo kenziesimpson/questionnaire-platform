@@ -39,7 +39,7 @@ export interface QuestionForm {
   relative: RelativeDate;
 }
 
-export const DEFAULT_OTHER_LABEL = "Other";
+const DEFAULT_OTHER_LABEL = "Other";
 
 const emptyConstraints = {
   minLength: "",

@@ -10,18 +10,14 @@ import { NativeSelect } from "@qp/ui/primitives/native-select";
 import { Button } from "@qp/ui/primitives/button";
 import { useId, useState } from "react";
 import { RemoveIcon } from "../../../components/icons";
-import { defaultConditionFor, isComplete, OPERATOR_LABELS, withOperator, type Operator } from "../conditions";
+import { defaultConditionFor, isComplete, OPERATOR_LABELS, sameCondition, withOperator, type Operator } from "../conditions";
 import { earlierItemsThan, referenceOf } from "../draft-selectors";
 import { ChoiceOperand } from "./choice-operand";
 import { DateOperands } from "./date-operands";
 import { NumberOperands } from "./number-operands";
 
-export function promptLabel(position: number, prompt: string) {
+function promptLabel(position: number, prompt: string) {
   return `${position}. ${prompt}`;
-}
-
-function sameCondition(a: Condition, b: Condition) {
-  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 export type ConditionStep =

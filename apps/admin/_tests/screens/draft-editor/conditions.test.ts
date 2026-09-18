@@ -1,7 +1,16 @@
 import { Value } from "typebox/value";
 import { Condition, OPERATORS_BY_TYPE, RESPONSE_TYPES, type QuestionVersion } from "@qp/shared";
 import { describe, expect, it } from "vitest";
-import { defaultConditionFor, isComplete, withOperator } from "../../../src/screens/draft-editor/conditions";
+import {
+  defaultConditionFor,
+  earlierDate,
+  isComplete,
+  laterDate,
+  lowerOf,
+  sameCondition,
+  upperOf,
+  withOperator,
+} from "../../../src/screens/draft-editor/conditions";
 import { uuid, aQuestionVersion } from "../../support/builders";
 
 const questions: Record<QuestionVersion["type"], QuestionVersion> = {
@@ -66,5 +75,27 @@ describe("predicate conditions", () => {
       min: "2026-01-01",
       max: "2026-01-01",
     });
+  });
+
+  it("tells whether two conditions are the same value, regardless of object identity", () => {
+    const a: Condition = { type: "number", itemId: "itm_01", op: "eq", value: 10 };
+    expect(sameCondition(a, { ...a })).toBe(true);
+    expect(sameCondition(a, { ...a, value: 11 })).toBe(false);
+  });
+
+  it("keeps a between range's bounds coherent as either end moves, staying unbounded when the other end is unset", () => {
+    expect(upperOf(10, 4)).toBe(10);
+    expect(upperOf(10, 20)).toBe(20);
+    expect(upperOf(10, Number.NaN)).toBe(Number.NaN);
+    expect(lowerOf(10, 20)).toBe(10);
+    expect(lowerOf(10, 4)).toBe(4);
+    expect(lowerOf(10, Number.NaN)).toBe(Number.NaN);
+
+    expect(laterDate("2026-06-01", "2026-01-01")).toBe("2026-06-01");
+    expect(laterDate("2026-01-01", "2026-06-01")).toBe("2026-06-01");
+    expect(laterDate("2026-06-01", "")).toBe("");
+    expect(earlierDate("2026-06-01", "2026-01-01")).toBe("2026-01-01");
+    expect(earlierDate("2026-01-01", "2026-06-01")).toBe("2026-01-01");
+    expect(earlierDate("2026-06-01", "")).toBe("");
   });
 });

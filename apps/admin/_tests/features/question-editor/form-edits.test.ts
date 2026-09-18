@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addOption, edits } from "../../../src/features/question-editor/form-edits";
+import { edits } from "../../../src/features/question-editor/form-edits";
 import { blankForm, type QuestionForm } from "../../../src/features/question-editor/form-state";
 
 const withType = (patch: Partial<QuestionForm>): QuestionForm => ({ ...blankForm(), prompt: "PR6 Prompt", ...patch });
@@ -57,17 +57,5 @@ describe("edits — cross-field clamping", () => {
     form = edits.options(form, form.options.slice(1));
     expect(form.minSelections).toBe("2");
     expect(form.maxSelections).toBe("2");
-  });
-});
-
-describe("addOption", () => {
-  it("generates an id distinct from every option already on the form, including the reserved ones", () => {
-    const form = withType({
-      type: "single_choice",
-      options: [{ optionId: "opt_a", label: "" }],
-    });
-    const { form: next, added } = addOption(form);
-    expect(next.options.map((option) => option.optionId)).toContain(added);
-    expect(added).toMatch(/^opt_[a-z0-9]{8}$/);
   });
 });

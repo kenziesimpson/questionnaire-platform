@@ -1,6 +1,6 @@
 import type { Condition, ConditionOf } from "@qp/shared";
 import { Input } from "@qp/ui/primitives/input";
-import { UNSET_DATE } from "../conditions";
+import { UNSET_DATE, earlierDate, laterDate } from "../conditions";
 
 function DateInput({
   label,
@@ -27,9 +27,6 @@ function DateInput({
     />
   );
 }
-
-const laterDate = (low: string, high: string) => (high !== UNSET_DATE && low > high ? low : high);
-const earlierDate = (high: string, low: string) => (low !== UNSET_DATE && high < low ? high : low);
 
 export function DateOperands({
   label,

@@ -101,3 +101,13 @@ export function withOperator(condition: Condition, op: Operator): Condition {
     }
   }
 }
+
+export function sameCondition(a: Condition, b: Condition): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+export const upperOf = (low: number, high: number) => (Number.isFinite(high) ? Math.max(low, high) : high);
+export const lowerOf = (high: number, low: number) => (Number.isFinite(low) ? Math.min(high, low) : low);
+
+export const laterDate = (low: string, high: string) => (high !== UNSET_DATE && low > high ? low : high);
+export const earlierDate = (high: string, low: string) => (low !== UNSET_DATE && high < low ? high : low);

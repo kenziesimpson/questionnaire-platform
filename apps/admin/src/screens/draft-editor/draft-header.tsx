@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { BackToQuestionnaires } from "../../components/back-to-questionnaires";
 import type { PublishHint } from "./publish-checks";
 
-export function publishFacts(summary: QuestionnaireSummary | undefined) {
+function publishFacts(summary: QuestionnaireSummary | undefined) {
   if (summary === undefined) return null;
   if (summary.currentVersion === null) return "never published · publishing creates version 1";
   return `published v${summary.currentVersion} · publishing creates v${summary.currentVersion + 1}`;
