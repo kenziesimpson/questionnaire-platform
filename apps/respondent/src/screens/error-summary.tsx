@@ -41,7 +41,7 @@ export function ErrorSummary({ ref, entries, unplacedErrors, onJump }: ErrorSumm
       tabIndex={-1}
       aria-labelledby={titleId}
       aria-describedby={unplacedErrors ? unplacedId : undefined}
-      className={cn(alertVariants({ variant: "destructive" }), "flex-col gap-3 outline-none focus-visible:ring-3 focus-visible:ring-destructive/25")}
+      className={cn(alertVariants({ variant: "destructive" }), "flex-col items-stretch gap-3 outline-none focus-visible:ring-3 focus-visible:ring-destructive/25")}
     >
       <h2 id={titleId} className="flex items-center gap-2 text-base font-semibold text-destructive">
         <AlertCircleIcon aria-hidden="true" className="shrink-0" size={18} />

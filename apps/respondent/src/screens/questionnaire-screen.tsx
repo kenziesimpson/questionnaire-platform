@@ -81,7 +81,7 @@ function RestoreStrip() {
 function SubmitFailedAlert({ retry }: { retry: RetryControl | null }) {
   const messageId = useId();
   return (
-    <div className={cn(alertVariants({ variant: "destructive" }), "flex-col gap-4 py-4")}>
+    <div className={cn(alertVariants({ variant: "destructive" }), "flex-col items-stretch gap-4 py-4")}>
       <div id={messageId} role="alert" className="flex gap-2">
         <AlertCircleIcon aria-hidden="true" className="mt-0.5 shrink-0 text-destructive" size={16} />
         <div className="flex flex-col gap-1 leading-relaxed">
