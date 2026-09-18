@@ -1,15 +1,8 @@
-import type { ClientAnswers, PublishedDefinition, Receipt } from "@qp/shared";
+import type { PublishedDefinition, Receipt } from "@qp/shared";
 import type { SubmissionRejection } from "../answers/submission-rejection.ts";
 import type { StoredPartials } from "../storage/partials.ts";
-import type { FailedState, Failure, FailureReason, FormContext, RespondentState } from "./respondent-state.ts";
-
-function isRetryable(reason: FailureReason): boolean {
-  return reason.kind !== "problem" || reason.slug === "internal";
-}
-
-function hasAnyAnswer(answers: ClientAnswers): boolean {
-  return Object.values(answers).some((answer) => answer !== null);
-}
+import { hasAnyAnswer, isRetryable } from "./failure.ts";
+import type { FailedState, Failure, FormContext, RespondentState } from "./respondent-state.ts";
 
 export interface SubmitFailureView {
   readonly attempt: number;

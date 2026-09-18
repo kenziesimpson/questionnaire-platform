@@ -56,6 +56,11 @@ const cases: Array<[string, RespondentState, RespondentView]> = [
     { kind: "savedAnswersResumeFailed", attempt: 1, retrying: false, startingNewSession: true },
   ],
   [
+    "startingNewSession, with no answers stored",
+    { name: "startingNewSession", stored: withoutAnswers, previousFailure: networkFailure },
+    { kind: "loadFailed", attempt: 1, retrying: false },
+  ],
+  [
     "ready, with no rejection",
     { name: "ready", ...form, rejection: null },
     { kind: "questionnaire", form, submitting: false, submitFailure: null, rejection: null },
@@ -151,15 +156,8 @@ describe("viewOf", () => {
 
   it.each<[string, FailureReason, boolean]>([
     ["a network error", { kind: "network-error" }, true],
-    ["an unexpected 503", { kind: "unexpected-response", status: 503 }, true],
-    ["an unparseable 200", { kind: "unexpected-response", status: 200 }, true],
-    ["an internal problem", { kind: "problem", slug: "internal" }, true],
-    ["request/invalid", { kind: "problem", slug: "request/invalid" }, false],
-    ["resource/not-found", { kind: "problem", slug: "resource/not-found" }, false],
-    ["questionnaire/closed", { kind: "problem", slug: "questionnaire/closed" }, false],
-    ["session/already-submitted", { kind: "problem", slug: "session/already-submitted" }, false],
     ["submission/invalid", { kind: "problem", slug: "submission/invalid" }, false],
-  ])("marks a submit failure retryable for %s: %s", (_case, reason, retryable) => {
+  ])("carries isRetryable's verdict for %s into a submit failure's retryable flag: %s", (_case, reason, retryable) => {
     const failed: RespondentState = { name: "failed", step: "submitting", ...form, failure: { reason, attempt: 3 } };
 
     expect(viewOf(failed)).toEqual({
