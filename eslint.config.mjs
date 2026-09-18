@@ -487,6 +487,8 @@ export default tseslint.config(
     rules: {
       "no-restricted-imports": restrictOutside(
         "apps/admin",
+        uiInternalsByRelativePath,
+        uiInternalsPastASingleFileEntry,
         mutationsOutsideTheirHome,
         ...privateAdminScreens.filter((other) => other !== name).map(screenIsPrivate),
       ),
@@ -495,13 +497,28 @@ export default tseslint.config(
   {
     name: "L4: mutations stay allowed inside src/api/mutations, which never imports screens/ either",
     files: ["apps/admin/src/api/mutations/**"],
-    rules: { "no-restricted-imports": restrictOutside("apps/admin", screensAreDownstream) },
+    rules: {
+      "no-restricted-imports": restrictOutside(
+        "apps/admin",
+        uiInternalsByRelativePath,
+        uiInternalsPastASingleFileEntry,
+        screensAreDownstream,
+      ),
+    },
   },
   {
     name: "L3: lib, components, api and features never import screens/, whether a private subdirectory or a screen's own top-level file",
     files: ["apps/admin/src/{lib,components,api,features}/**"],
     ignores: ["apps/admin/src/api/mutations/**"],
-    rules: { "no-restricted-imports": restrictOutside("apps/admin", mutationsOutsideTheirHome, screensAreDownstream) },
+    rules: {
+      "no-restricted-imports": restrictOutside(
+        "apps/admin",
+        uiInternalsByRelativePath,
+        uiInternalsPastASingleFileEntry,
+        mutationsOutsideTheirHome,
+        screensAreDownstream,
+      ),
+    },
   },
   {
     name: "L3 and L4: a screen with no private subdirectory of its own still keeps the other screens' out, and mutations live in src/api/mutations",
@@ -514,6 +531,8 @@ export default tseslint.config(
     rules: {
       "no-restricted-imports": restrictOutside(
         "apps/admin",
+        uiInternalsByRelativePath,
+        uiInternalsPastASingleFileEntry,
         mutationsOutsideTheirHome,
         ...privateAdminScreens.map(screenIsPrivate),
       ),
