@@ -291,22 +291,18 @@ const rawSql = [
 const relativeImportHasExtensionMessage =
   "Vite and Playwright resolve a relative import themselves, so this workspace's specifiers carry no extension ([[11-structural-refactor]] L13).";
 
-const relativeImportHasExtension = [
-  {
-    selector: "ImportDeclaration[source.value=/^\\.{1,2}\\/.*\\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/]",
-    message: relativeImportHasExtensionMessage,
-  },
-];
+const relativeImportHasExtension = ["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].map((node) => ({
+  selector: `${node}[source.value=/^\\.{1,2}\\/.*\\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/]`,
+  message: relativeImportHasExtensionMessage,
+}));
 
 const relativeImportMissingJsExtensionMessage =
   "This workspace compiles for Node with tsc, which requires the compiled .js extension on a relative import even though the source is .ts ([[11-structural-refactor]] L13).";
 
-const relativeImportMissingJsExtension = [
-  {
-    selector: "ImportDeclaration[source.value=/^\\.{1,2}\\/(?!.*\\.js$).*$/]",
-    message: relativeImportMissingJsExtensionMessage,
-  },
-];
+const relativeImportMissingJsExtension = ["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].map((node) => ({
+  selector: `${node}[source.value=/^\\.{1,2}\\/(?!.*\\.js$).*$/]`,
+  message: relativeImportMissingJsExtensionMessage,
+}));
 
 const connectionConstructionMessage =
   "Connections come from one constructor: `openDatabase` in apps/backend/src/db/client.ts, which is where pool sizing lands ([[2-design-doc#17. Decisions Log]] #77). Constructing a pg client or pool directly bypasses it. Where a raw connection is genuinely needed — connecting to another database in order to create one — disable it with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>";

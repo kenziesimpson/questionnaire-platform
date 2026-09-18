@@ -11,14 +11,14 @@ const UNNAMED_RE_EXPORT = "`export *`";
 
 describe("L8 — entry points name their exports", () => {
   it.each([
-    ["the shared entry point", SHARED_ENTRY_POINT],
-    ["the renderer's entry point", "packages/ui/src/questionnaire/index.ts"],
-    ["packages/telemetry", "packages/telemetry/src/index.ts"],
-    ["the shared domain, which is exempt from L9 only", "packages/shared/src/domain/question.ts"],
-    ["an app", "apps/admin/src/api/index.ts"],
-    ["the e2e fixtures' barrel", "e2e/fixtures/index.ts"],
-  ])("warns on `export *` in %s", async (_, filePath) => {
-    const messages = await restrictedSyntax(filePath, `export * from "./primitives.js";`);
+    ["the shared entry point", SHARED_ENTRY_POINT, "./primitives.js"],
+    ["the renderer's entry point", "packages/ui/src/questionnaire/index.ts", "./primitives"],
+    ["packages/telemetry", "packages/telemetry/src/index.ts", "./primitives.js"],
+    ["the shared domain, which is exempt from L9 only", "packages/shared/src/domain/question.ts", "./primitives.js"],
+    ["an app", "apps/admin/src/api/index.ts", "./primitives"],
+    ["the e2e fixtures' barrel", "e2e/fixtures/index.ts", "./primitives"],
+  ])("warns on `export *` in %s", async (_, filePath, specifier) => {
+    const messages = await restrictedSyntax(filePath, `export * from "${specifier}";`);
 
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain(UNNAMED_RE_EXPORT);

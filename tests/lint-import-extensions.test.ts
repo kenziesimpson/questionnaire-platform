@@ -85,6 +85,25 @@ describe("L13: import extension convention — Node workspaces keep .js", () => 
     expect(messages.some((message) => message.includes("compiled .js extension"))).toBe(false);
   });
 
+  it.each(NODE_WORKSPACE_FILES)("rejects a named re-export missing .js in %s", async (_, filePath) => {
+    const messages = await restrictedSyntax(filePath, `export { x } from "./sibling";`);
+
+    expect(messages.some((message) => message.includes("compiled .js extension"))).toBe(true);
+  });
+
+  it.each(NODE_WORKSPACE_FILES)("rejects a star re-export missing .js in %s", async (_, filePath) => {
+    const messages = await restrictedSyntax(filePath, `export * from "./sibling";`);
+
+    expect(messages.some((message) => message.includes("compiled .js extension"))).toBe(true);
+  });
+
+  it.each(NODE_WORKSPACE_FILES)("allows a re-export carrying .js in %s", async (_, filePath) => {
+    const namedMessages = await restrictedSyntax(filePath, `export { x } from "./sibling.js";`);
+    const starMessages = await restrictedSyntax(filePath, `export * from "./sibling.js";`);
+
+    expect(namedMessages.some((message) => message.includes("compiled .js extension"))).toBe(false);
+    expect(starMessages.some((message) => message.includes("compiled .js extension"))).toBe(false);
+  });
 });
 
 describe("L13: import extension convention — bundler and Playwright workspaces carry no extension", () => {
@@ -111,6 +130,26 @@ describe("L13: import extension convention — bundler and Playwright workspaces
 
     expect(messages.some((message) => message.includes("carry no extension"))).toBe(false);
   });
+
+  it.each(BUNDLER_WORKSPACE_FILES)("rejects a named re-export carrying .ts in %s", async (_, filePath) => {
+    const messages = await restrictedSyntax(filePath, `export { x } from "./sibling.ts";`);
+
+    expect(messages.some((message) => message.includes("carry no extension"))).toBe(true);
+  });
+
+  it.each(BUNDLER_WORKSPACE_FILES)("rejects a star re-export carrying .ts in %s", async (_, filePath) => {
+    const messages = await restrictedSyntax(filePath, `export * from "./sibling.ts";`);
+
+    expect(messages.some((message) => message.includes("carry no extension"))).toBe(true);
+  });
+
+  it.each(BUNDLER_WORKSPACE_FILES)("allows an extensionless re-export in %s", async (_, filePath) => {
+    const namedMessages = await restrictedSyntax(filePath, `export { x } from "./sibling";`);
+    const starMessages = await restrictedSyntax(filePath, `export * from "./sibling";`);
+
+    expect(namedMessages.some((message) => message.includes("carry no extension"))).toBe(false);
+    expect(starMessages.some((message) => message.includes("carry no extension"))).toBe(false);
+  });
 });
 
 describe("L13: e2e/stack is a plain Node CLI and is exempt in both directions", () => {
@@ -122,6 +161,18 @@ describe("L13: e2e/stack is a plain Node CLI and is exempt in both directions", 
 
   it("does not forbid .ts there", async () => {
     const messages = await restrictedSyntax(E2E_STACK, `import { x } from "./sibling.ts";`);
+
+    expect(messages.some((message) => message.includes("carry no extension"))).toBe(false);
+  });
+
+  it("does not require .js on a re-export there", async () => {
+    const messages = await restrictedSyntax(E2E_STACK, `export { x } from "./sibling";`);
+
+    expect(messages.some((message) => message.includes("compiled .js extension"))).toBe(false);
+  });
+
+  it("does not forbid .ts on a re-export there", async () => {
+    const messages = await restrictedSyntax(E2E_STACK, `export { x } from "./sibling.ts";`);
 
     expect(messages.some((message) => message.includes("carry no extension"))).toBe(false);
   });
