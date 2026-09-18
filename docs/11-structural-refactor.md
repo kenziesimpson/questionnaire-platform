@@ -214,7 +214,7 @@ This PR follows PR 3 and covers `src/db/definition`.
 **Decide and document**
 - Decide what happens to the `archivedQuestionIds` option on the shared `validateDraft`: `refusedItems` either uses it or it is deleted. Either way, the behaviour in #75 stays.
 - Write down which test layer owns what in [[8-testing#2. Layers]]: repository tests own outcomes, locks and audit; route tests own status, problem type and headers. Then trim the scenarios both layers repeat.
-- **Open from PR 2b:** `useExecutionApp` lives in `_tests/db/execution/harness.ts`, and `_tests/db/execution/fixtures.ts` re-exports it so `_tests/modules/execution` can build the same app without importing another directory's harness (L11). Once the layers are decided, move the builder to the directory that owns route tests and drop the re-export.
+- **Execution test support.** `apps/backend/_tests/db/execution/fixtures.ts` re-exports `useExecutionApp`, an app builder, because `db/execution` and `modules/execution` tests both need it and PR 2b's `harness.ts`/`fixtures.ts` split didn't cover execution's own layering. Decide where `useExecutionApp` belongs (its own `harness.ts`, or promoted elsewhere) and move it there.
 - Unchanged: `traceId` stays on every command type (§1).
 
 Owns: `apps/backend/src/db/**` except `schema.ts`, `client.ts` and the migrations.
