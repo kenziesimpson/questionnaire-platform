@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateUnusedId, randomSuffix } from "../../src/components/generated-id";
+import { generateUnusedId, randomSuffix } from "../../src/lib/generated-id";
 
 describe("generateUnusedId", () => {
   it("draws eight lowercase base-36 characters", () => {

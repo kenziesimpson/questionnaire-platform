@@ -1,51 +1,24 @@
-import type { Problem, QuestionnaireDraft, VersionSummary } from "@qp/shared";
+import type { QuestionnaireDraft } from "@qp/shared";
 import { useIsMutating, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { draftApi, type VersionedDraft } from "./client";
-import { isProblem } from "./problem-error";
-import { questionnaireQueries } from "./queries";
-import { draftWriteScope, queryKeys } from "./query-keys";
-
-export type DraftChange = (draft: QuestionnaireDraft) => QuestionnaireDraft;
-
-export type DraftRejection =
-  | { kind: "stale"; problem: Problem<"questionnaire/draft-stale"> }
-  | { kind: "invalid"; problem: Problem<"questionnaire/draft-invalid"> }
-  | { kind: "failed"; error: Error };
-
-export type PublishOutcome =
-  | { kind: "published"; version: VersionSummary }
-  | { kind: "refused"; rejection: DraftRejection }
-  | { kind: "superseded" };
-
-export interface DraftMutation {
-  change: (apply: DraftChange) => void;
-  publish: () => Promise<PublishOutcome>;
-  rejection: DraftRejection | null;
-  dismissRejection: () => void;
-  isSaving: boolean;
-}
-
-interface DraftWriteLedger {
-  generation: number;
-  successors: Map<string, string>;
-}
-
-interface QueuedWrite {
-  baseEtag: string;
-  generation: number;
-}
+import { draftApi } from "../client";
+import {
+  SupersededDraftWrite,
+  bumpGeneration,
+  createLedger,
+  etagToSend,
+  recordSuccess,
+  type DraftWriteLedger,
+  type QueuedWrite,
+} from "../draft-write-ledger";
+import type { DraftChange, DraftMutation, DraftRejection, PublishOutcome, VersionedDraft } from "../draft-types";
+import { isProblem } from "../problem-error";
+import { questionnaireQueries } from "../queries";
+import { draftWriteScope, queryKeys } from "../query-keys";
 
 interface QueuedChange extends QueuedWrite {
   previous: VersionedDraft;
   next: QuestionnaireDraft;
-}
-
-class SupersededDraftWrite extends Error {
-  constructor() {
-    super("An earlier draft write was rejected, so this one was built on a draft the server never accepted");
-    this.name = "SupersededDraftWrite";
-  }
 }
 
 const ledgersByClient = new WeakMap<QueryClient, Map<string, DraftWriteLedger>>();
@@ -53,18 +26,9 @@ const ledgersByClient = new WeakMap<QueryClient, Map<string, DraftWriteLedger>>(
 function ledgerFor(queryClient: QueryClient, questionnaireId: string): DraftWriteLedger {
   const ledgers = ledgersByClient.get(queryClient) ?? new Map<string, DraftWriteLedger>();
   ledgersByClient.set(queryClient, ledgers);
-  const ledger = ledgers.get(questionnaireId) ?? { generation: 0, successors: new Map<string, string>() };
+  const ledger = ledgers.get(questionnaireId) ?? createLedger();
   ledgers.set(questionnaireId, ledger);
   return ledger;
-}
-
-function etagToSend(ledger: DraftWriteLedger, { baseEtag, generation }: QueuedWrite): string {
-  if (generation !== ledger.generation) throw new SupersededDraftWrite();
-  let etag = baseEtag;
-  for (let successor = ledger.successors.get(etag); successor !== undefined; successor = ledger.successors.get(etag)) {
-    etag = successor;
-  }
-  return etag;
 }
 
 function rejectionOf(error: Error): DraftRejection {
@@ -83,12 +47,12 @@ export function useDraftMutation(questionnaireId: string): DraftMutation {
 
   const recordRejection = (error: Error, write: QueuedWrite): DraftRejection => {
     const ledger = ledgerFor(queryClient, questionnaireId);
-    ledger.generation = Math.max(ledger.generation, write.generation + 1);
+    bumpGeneration(ledger, write.generation);
     const next = rejectionOf(error);
     setRejection(next);
     if (next.kind === "stale") {
-      void queryClient.invalidateQueries({ queryKey: draftKey, exact: true });
-      void queryClient.invalidateQueries({ queryKey: validationKey, exact: true });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.questionnaires.draft(questionnaireId), exact: true });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.questionnaires.draftValidation(questionnaireId), exact: true });
     }
     return next;
   };
@@ -99,7 +63,7 @@ export function useDraftMutation(questionnaireId: string): DraftMutation {
       const ledger = ledgerFor(queryClient, questionnaireId);
       const etag = etagToSend(ledger, write);
       const saved = await draftApi.replace(questionnaireId, { title: write.next.title, items: write.next.items }, etag);
-      ledger.successors.set(etag, saved.etag);
+      recordSuccess(ledger, etag, saved.etag);
       return saved;
     },
     onSuccess: (saved, write) => {
@@ -122,7 +86,7 @@ export function useDraftMutation(questionnaireId: string): DraftMutation {
     mutationFn: (write: QueuedWrite) =>
       draftApi.publish(questionnaireId, etagToSend(ledgerFor(queryClient, questionnaireId), write)),
     onSuccess: () => {
-      queryClient.removeQueries({ queryKey: draftKey });
+      queryClient.removeQueries({ queryKey: queryKeys.questionnaires.draft(questionnaireId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.questionnaires.versions(questionnaireId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.questionnaires.list() });
     },
@@ -132,7 +96,7 @@ export function useDraftMutation(questionnaireId: string): DraftMutation {
       if (refused.kind === "invalid") {
         queryClient.setQueryData(validationKey, { valid: false, items: refused.problem.items });
       }
-      void queryClient.invalidateQueries({ queryKey: validationKey, exact: true });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.questionnaires.draftValidation(questionnaireId), exact: true });
     },
   });
 
@@ -143,7 +107,7 @@ export function useDraftMutation(questionnaireId: string): DraftMutation {
   };
 
   const change = (apply: DraftChange) => {
-    void queryClient.cancelQueries({ queryKey: draftKey, exact: true });
+    void queryClient.cancelQueries({ queryKey: queryKeys.questionnaires.draft(questionnaireId), exact: true });
     const previous = loadedDraft();
     const next = apply(previous.draft);
     queryClient.setQueryData(draftKey, { draft: next, etag: previous.etag });

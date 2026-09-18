@@ -1,30 +1,15 @@
-import {
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type Announcements,
-  type DragEndEvent,
-  type UniqueIdentifier,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import type { UniqueIdentifier } from "@dnd-kit/core";
+import { arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { OTHER_OPTION_ID } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { Input } from "@qp/ui/primitives/input";
 import { useId, useState, type ReactNode } from "react";
-import { describedByFor, errorIdFor, FieldMessages } from "./field";
-import { optionPointer, type FieldErrors } from "./field-errors";
+import { describedByFor, errorIdFor, FieldMessages } from "../../components/field";
 import { GripIcon, LockIcon, PlusIcon, RemoveIcon } from "../../components/icons";
+import { Pill } from "../../components/pill";
+import { SortableList, SortableRow, useSortableList } from "../../components/sortable-list";
+import { optionPointer, type FieldErrors } from "./field-errors";
 import { addOption, edits, type EditableOption, type QuestionForm } from "./question-form";
 
 interface OptionsEditorProps {
@@ -99,74 +84,39 @@ function OptionRowContent({ option, errors, pointer, onLabel, onRemove, canRemov
 }
 
 function SortableOptionRow(props: Omit<RowProps, "handle">) {
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
-    id: props.option.optionId,
-  });
   return (
-    <li
-      ref={setNodeRef}
-      data-option-id={props.option.optionId}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={`flex flex-col gap-1 rounded-lg ${isDragging ? "relative z-10 bg-background shadow-md ring-1 ring-foreground/10" : ""}`}
-    >
-      <OptionRowContent
-        {...props}
-        handle={
-          <button
-            type="button"
-            ref={setActivatorNodeRef}
-            aria-label={`Reorder option ${nameOf(props.option)}`}
-            className="inline-flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground/70 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 active:cursor-grabbing"
-            {...attributes}
-            {...listeners}
-          >
-            <GripIcon />
-          </button>
-        }
-      />
-    </li>
+    <SortableRow id={props.option.optionId}>
+      {({ setNodeRef, setActivatorNodeRef, attributes, listeners, style, isDragging }) => (
+        <li
+          ref={setNodeRef}
+          data-option-id={props.option.optionId}
+          style={style}
+          className={`flex flex-col gap-1 rounded-lg ${isDragging ? "relative z-10 bg-background shadow-md ring-1 ring-foreground/10" : ""}`}
+        >
+          <OptionRowContent
+            {...props}
+            handle={
+              <button
+                type="button"
+                ref={setActivatorNodeRef}
+                aria-label={`Reorder option ${nameOf(props.option)}`}
+                className="inline-flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground/70 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 active:cursor-grabbing"
+                {...attributes}
+                {...listeners}
+              >
+                <GripIcon />
+              </button>
+            }
+          />
+        </li>
+      )}
+    </SortableRow>
   );
 }
 
 function positionOf(options: readonly EditableOption[], id: UniqueIdentifier | undefined) {
   return options.findIndex(({ optionId }) => optionId === id) + 1;
 }
-
-class DragProgress {
-  hasMoved = false;
-}
-
-function announcementsFor(options: readonly EditableOption[], progress: DragProgress): Announcements {
-  const labelOf = (id: UniqueIdentifier) => {
-    const option = options.find(({ optionId }) => optionId === id);
-    return option === undefined ? String(id) : nameOf(option);
-  };
-  const total = options.length;
-  return {
-    onDragStart: ({ active }) => {
-      progress.hasMoved = false;
-      return `Picked up option ${labelOf(active.id)}. It is in position ${positionOf(options, active.id)} of ${total}.`;
-    },
-    onDragOver: ({ active, over }) => {
-      if (!progress.hasMoved && over?.id === active.id) return undefined;
-      progress.hasMoved = true;
-      return over === null
-        ? `Option ${labelOf(active.id)} is no longer over the list.`
-        : `Option ${labelOf(active.id)} moved to position ${positionOf(options, over.id)} of ${total}.`;
-    },
-    onDragEnd: ({ active, over }) =>
-      over === null
-        ? `Option ${labelOf(active.id)} was dropped back in place.`
-        : `Option ${labelOf(active.id)} was dropped in position ${positionOf(options, over.id)} of ${total}.`,
-    onDragCancel: ({ active }) =>
-      `Reordering cancelled. Option ${labelOf(active.id)} went back to position ${positionOf(options, active.id)} of ${total}.`,
-  };
-}
-
-const SCREEN_READER_INSTRUCTIONS = {
-  draggable:
-    "To reorder, press Space or Enter to pick up the option, use the up and down arrow keys to move it, then press Space or Enter again to drop it, or Escape to cancel.",
-};
 
 function YesNoOptions({ form, errors, onChange }: Omit<OptionsEditorProps, "onDraggingChange">) {
   return (
@@ -179,12 +129,7 @@ function YesNoOptions({ form, errors, onChange }: Omit<OptionsEditorProps, "onDr
               option={option}
               errors={errors}
               pointer={optionPointer(index)}
-              onLabel={(label) =>
-                onChange({
-                  ...form,
-                  options: form.options.map((each) => (each.optionId === option.optionId ? { ...each, label } : each)),
-                })
-              }
+              onLabel={(label) => onChange(edits.optionLabel(form, option.optionId, label))}
               canRemove={false}
               autoFocus={false}
               handle={null}
@@ -206,82 +151,68 @@ export function OptionsEditor({ form, errors, onChange, onDraggingChange }: Opti
 
 function EditableOptions({ form, errors, onChange, onDraggingChange }: OptionsEditorProps) {
   const [lastAdded, setLastAdded] = useState<string | null>(null);
-  const [dragProgress] = useState(() => new DragProgress());
-  const [liveRegionContainer, setLiveRegionContainer] = useState<HTMLDivElement | null>(null);
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
   const checkboxId = useId();
   const listErrorId = errorIdFor(useId());
   const { options } = form;
   const onlyOneOption = options.length + (form.otherEnabled ? 1 : 0) <= 1;
 
-  const relabel = (optionId: string, label: string) =>
-    onChange(edits.options(form, options.map((option) => (option.optionId === optionId ? { ...option, label } : option))));
+  const relabel = (optionId: string, label: string) => onChange(edits.optionLabel(form, optionId, label));
 
   const remove = (optionId: string) =>
     onChange(edits.options(form, options.filter((option) => option.optionId !== optionId)));
 
-  const drop = ({ active, over }: DragEndEvent) => {
-    onDraggingChange(false);
-    if (over === null || active.id === over.id) return;
-    const from = positionOf(options, active.id) - 1;
-    const to = positionOf(options, over.id) - 1;
-    onChange(edits.options(form, arrayMove(options, from, to)));
-  };
+  const controls = useSortableList({
+    noun: "option",
+    total: options.length,
+    nameOf: (id) => {
+      const option = options.find(({ optionId }) => optionId === id);
+      return option === undefined ? String(id) : nameOf(option);
+    },
+    positionOf: (id) => positionOf(options, id),
+    onDragStart: () => onDraggingChange(true),
+    onDragCancel: () => onDraggingChange(false),
+    onDragEnd: ({ active, over }) => {
+      onDraggingChange(false);
+      if (over === null || active.id === over.id) return;
+      const from = positionOf(options, active.id) - 1;
+      const to = positionOf(options, over.id) - 1;
+      onChange(edits.options(form, arrayMove(options, from, to)));
+    },
+  });
 
   const other: EditableOption = { optionId: OTHER_OPTION_ID, label: form.otherLabel };
 
   return (
     <fieldset className="flex min-w-0 flex-col gap-2" aria-describedby={describedByFor(errors, "/options", listErrorId)}>
       <legend className="mb-2 text-sm font-medium">Options</legend>
-      <div ref={setLiveRegionContainer} />
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        accessibility={{
-          announcements: announcementsFor(options, dragProgress),
-          screenReaderInstructions: SCREEN_READER_INSTRUCTIONS,
-          container: liveRegionContainer ?? undefined,
-        }}
-        onDragStart={() => onDraggingChange(true)}
-        onDragCancel={() => onDraggingChange(false)}
-        onDragEnd={drop}
-      >
-        <SortableContext items={options.map(({ optionId }) => optionId)} strategy={verticalListSortingStrategy}>
-          <ul aria-label="Options, in order" className="flex flex-col gap-2">
-            {options.map((option, index) => (
-              <SortableOptionRow
-                key={option.optionId}
-                option={option}
-                errors={errors}
-                pointer={optionPointer(index)}
-                onLabel={(label) => relabel(option.optionId, label)}
-                onRemove={() => remove(option.optionId)}
-                canRemove={!onlyOneOption}
-                autoFocus={option.optionId === lastAdded}
-              />
-            ))}
-          </ul>
-        </SortableContext>
-      </DndContext>
+      <SortableList ids={options.map(({ optionId }) => optionId)} controls={controls} strategy={verticalListSortingStrategy}>
+        <ul aria-label="Options, in order" className="flex flex-col gap-2">
+          {options.map((option, index) => (
+            <SortableOptionRow
+              key={option.optionId}
+              option={option}
+              errors={errors}
+              pointer={optionPointer(index)}
+              onLabel={(label) => relabel(option.optionId, label)}
+              onRemove={() => remove(option.optionId)}
+              canRemove={!onlyOneOption}
+              autoFocus={option.optionId === lastAdded}
+            />
+          ))}
+        </ul>
+      </SortableList>
       {form.otherEnabled && (
         <div data-option-id={OTHER_OPTION_ID} className="flex flex-col gap-1">
           <OptionRowContent
             option={other}
             errors={errors}
             pointer={optionPointer(options.length)}
-            onLabel={(otherLabel) => onChange({ ...form, otherLabel })}
+            onLabel={(otherLabel) => onChange(edits.otherLabel(form, otherLabel))}
             onRemove={() => onChange(edits.otherEnabled(form, false))}
             canRemove={!onlyOneOption}
             autoFocus={false}
             handle={<span className="inline-flex size-7 shrink-0" />}
-            badge={
-              <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-border px-2 text-[11px] font-medium text-muted-foreground">
-                Freeform
-              </span>
-            }
+            badge={<Pill className="text-muted-foreground">Freeform</Pill>}
           />
         </div>
       )}

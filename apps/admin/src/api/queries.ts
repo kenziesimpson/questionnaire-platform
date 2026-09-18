@@ -39,23 +39,6 @@ export const questionQueries = {
       queryKey: queryKeys.questions.list(includeArchived),
       queryFn: ({ signal }) => callDefinition(definitionApi.listQuestions, { query: { includeArchived }, signal }),
     }),
-  one: (questionId: string) =>
-    queryOptions({
-      queryKey: queryKeys.questions.one(questionId),
-      queryFn: ({ signal }) => callDefinition(definitionApi.getQuestion, { params: { questionId }, signal }),
-    }),
-  versions: (questionId: string) =>
-    queryOptions({
-      queryKey: queryKeys.questions.versions(questionId),
-      queryFn: ({ signal }) => callDefinition(definitionApi.listQuestionVersions, { params: { questionId }, signal }),
-    }),
-  version: (questionId: string, version: number) =>
-    queryOptions({
-      queryKey: queryKeys.questions.version(questionId, version),
-      queryFn: ({ signal }) =>
-        callDefinition(definitionApi.getQuestionVersion, { params: { questionId, v: version }, signal }),
-      staleTime: Infinity,
-    }),
   usage: (questionId: string) =>
     queryOptions({
       queryKey: queryKeys.questions.usage(questionId),

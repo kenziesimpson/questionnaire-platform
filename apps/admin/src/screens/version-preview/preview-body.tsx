@@ -9,7 +9,7 @@ const NO_ERRORS: ItemErrors = {};
 
 const ignoreRendererChange: AnswerChangeHandler = () => undefined;
 
-export function VersionPreview({ definition }: { definition: PublishedDefinition }) {
+export function PreviewBody({ definition }: { definition: PublishedDefinition }) {
   const [answers, setAnswers] = useState<ClientAnswers>({});
   const titleId = useId();
   const submitNoteId = useId();

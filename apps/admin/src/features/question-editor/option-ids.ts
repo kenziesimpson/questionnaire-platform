@@ -1,4 +1,4 @@
-import { generateUnusedId, randomSuffix } from "../../components/generated-id";
+import { generateUnusedId, randomSuffix } from "../../lib/generated-id";
 
 export const YES_OPTION_ID = "yes";
 export const NO_OPTION_ID = "no";

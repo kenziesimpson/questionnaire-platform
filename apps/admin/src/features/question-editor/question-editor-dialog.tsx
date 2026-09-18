@@ -5,20 +5,14 @@ import { Dialog, DialogClose, DialogContent, DialogTitle } from "@qp/ui/primitiv
 import { Input } from "@qp/ui/primitives/input";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { isProblem } from "../../api/problem-error";
-import { ConstraintFields } from "./constraint-fields";
-import { describedByFor, errorIdFor, FieldMessages } from "./field";
-import { NO_ERRORS, hasErrors, missingEntries, placeErrors, type SaveErrors } from "./field-errors";
+import { useSaveQuestion } from "../../api/mutations/use-save-question";
+import { describedByFor, errorIdFor, FieldMessages } from "../../components/field";
 import { LockIcon } from "../../components/icons";
-import {
-  RESPONSE_TYPE_LABELS,
-  blankForm,
-  formFromQuestion,
-  questionInputFromForm,
-  edits,
-  type QuestionForm,
-} from "./question-form";
-import { SegmentedControl } from "./segmented-control";
-import { useSaveQuestion } from "./use-save-question";
+import { SegmentedControl } from "../../components/segmented-control";
+import { RESPONSE_TYPE_LABELS } from "../../lib/question";
+import { ConstraintFields } from "./constraint-fields";
+import { NO_ERRORS, hasErrors, missingEntries, placeErrors, type SaveErrors } from "./field-errors";
+import { blankForm, edits, formFromQuestion, questionInputFromForm, type QuestionForm } from "./question-form";
 
 export interface QuestionEditorDialogProps {
   open: boolean;

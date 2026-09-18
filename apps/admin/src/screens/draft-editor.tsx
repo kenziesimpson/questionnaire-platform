@@ -4,22 +4,23 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, getRouteApi, useNavigate } from "@tanstack/react-router";
 import { useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import type { DraftChange } from "../api/draft-types";
+import { useDraftMutation } from "../api/mutations/use-draft-mutation";
+import { useOpenDraft } from "../api/mutations/use-open-draft";
 import { isProblem } from "../api/problem-error";
 import { questionQueries, questionnaireQueries } from "../api/queries";
-import { useDraftMutation, type DraftChange } from "../api/use-draft-mutation";
-import { useOpenDraft } from "../api/use-open-draft";
 import { BackToQuestionnaires } from "../components/back-to-questionnaires";
-import { problemCount, questionCount } from "../components/counts";
 import { PlusIcon } from "../components/icons";
 import { Notice } from "../components/notice";
 import { QuestionnaireNotFound } from "../components/questionnaire-not-found";
+import { QuestionEditorDialog } from "../features/question-editor/question-editor-dialog";
+import { useQuestionEditor } from "../features/question-editor/use-question-editor";
+import { problemCount, questionCount } from "../lib/counts";
 import { AddFromBankDialog } from "./draft-editor/add-from-bank-dialog";
 import { addItem, repinItem } from "./draft-editor/draft-changes";
 import { DraftItems, itemDomId, rulesEditorOf } from "./draft-editor/draft-items";
 import { DraftRejectionNotice, type DraftWrite } from "./draft-editor/draft-rejection-notice";
 import { PublishChecksPanel, type JumpOptions, type PublishChecks } from "./draft-editor/publish-checks-panel";
-import { QuestionEditorDialog } from "./question-editor/question-editor-dialog";
-import { useQuestionEditor } from "./question-editor/use-question-editor";
 
 const route = getRouteApi("/questionnaires/$questionnaireId/draft");
 

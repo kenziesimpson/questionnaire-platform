@@ -1,5 +1,6 @@
 import type { Question, QuestionUsage, QuestionnaireSummary } from "@qp/shared";
-import { questionCount } from "../../components/counts";
+import { questionCount } from "../../lib/counts";
+import { isArchived } from "../../lib/question";
 
 export interface UsagePlacement {
   version: number;
@@ -10,14 +11,6 @@ export interface QuestionnaireUsage {
   questionnaireId: string;
   name: string | null;
   placements: UsagePlacement[];
-}
-
-export function sortByLatestEdit(questions: readonly Question[]): Question[] {
-  return questions.toSorted((a, b) => Date.parse(b.latest.createdAt) - Date.parse(a.latest.createdAt));
-}
-
-export function isArchived(question: Pick<Question, "archivedAt">): boolean {
-  return question.archivedAt !== null;
 }
 
 export function bankCountLabel(questions: readonly Question[]): string {

@@ -556,6 +556,8 @@ All rules below are agreed. The "today" column counts violations measured on 202
 | L20 | No default exports except in tool config files | Consistent named imports. `*.config.*` is exempt, and so are the three `globalSetup`/`globalTeardown` files vitest and Playwright load by default export: `apps/backend/_tests/db/global-setup.ts` and `e2e/stack/{global-setup,global-teardown}.ts`. An exempted file loses only this selector and keeps every other `no-restricted-syntax` selector that reaches it | `no-restricted-syntax` on `ExportDefaultDeclaration` | 0b | 0 outside those files |
 | L21 | Dates are formatted only in `src/lib/dates.ts` per app | One locale policy per app | `no-restricted-syntax` on `toLocale*String` and `Intl.DateTimeFormat` | 5 | 5 files |
 
+**Amended:** PR 5 lands L21 for `apps/admin` only, where the violation count is 0 once its own three files move. `apps/respondent`'s two call sites (`answers/precheck.ts`, `screens/receipt-screen.tsx`) are outside PR 5's `Owns` line; extending the rule there is a follow-up.
+
 Deferred to the telemetry work, not this pass: banning `request.log`, `reply.log` and `app.log` in `apps/backend/src` outside one logger adapter. There are 3 such calls today.
 
 ### 4.2 Type-aware rules (PR 21)

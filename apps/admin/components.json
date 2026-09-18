@@ -11,9 +11,9 @@
   },
   "iconLibrary": "lucide",
   "aliases": {
-    "components": "@/components",
-    "hooks": "@/hooks",
-    "lib": "@/lib",
+    "components": "@qp/ui/primitives",
+    "hooks": "@qp/ui/hooks",
+    "lib": "@qp/ui/lib",
     "utils": "@qp/ui/lib/utils",
     "ui": "@qp/ui/primitives"
   },

@@ -1,6 +1,6 @@
 import { SLUG_PATTERN } from "@qp/shared";
 import { describe, expect, it } from "vitest";
-import { generateOptionId } from "../../../src/screens/question-editor/option-ids";
+import { generateOptionId } from "../../../src/features/question-editor/option-ids";
 
 describe("generateOptionId", () => {
   it("returns an opt_ slug with a random suffix that matches the shared option id pattern", () => {

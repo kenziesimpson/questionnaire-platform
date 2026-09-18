@@ -8,7 +8,7 @@ import {
   type QuestionnaireDraft,
   type ResponseType,
 } from "@qp/shared";
-import { RESPONSE_TYPE_LABELS } from "../question-editor/question-form";
+import { RESPONSE_TYPE_LABELS } from "../../lib/question";
 import { laterReferencesIn, listOfPositions, referenceOf, type Reference } from "./conditions";
 import { pinnedQuestionOf } from "./draft-changes";
 

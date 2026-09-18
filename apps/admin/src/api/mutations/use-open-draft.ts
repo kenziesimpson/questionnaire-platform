@@ -1,10 +1,10 @@
 import type { QuestionnaireSummary } from "@qp/shared";
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { draftApi } from "./client";
-import { isProblem } from "./problem-error";
-import { questionnaireQueries } from "./queries";
-import { queryKeys } from "./query-keys";
+import { draftApi } from "../client";
+import { isProblem } from "../problem-error";
+import { questionnaireQueries } from "../queries";
+import { queryKeys } from "../query-keys";
 
 export type DraftTarget = Pick<QuestionnaireSummary, "questionnaireId" | "hasDraft">;
 

@@ -16,7 +16,7 @@ import { Input } from "@qp/ui/primitives/input";
 import { NativeSelect } from "@qp/ui/primitives/native-select";
 import { useId, useState, type KeyboardEvent } from "react";
 import { PlusIcon, RemoveIcon } from "../../components/icons";
-import { DECIMAL_INPUT_PATTERN } from "../question-editor/question-form";
+import { DECIMAL_INPUT_PATTERN } from "../../lib/input-patterns";
 import {
   OPERATOR_LABELS,
   UNSET_DATE,

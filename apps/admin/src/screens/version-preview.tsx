@@ -4,11 +4,12 @@ import { Link, getRouteApi } from "@tanstack/react-router";
 import { isProblem } from "../api/problem-error";
 import { questionnaireQueries } from "../api/queries";
 import { ArrowLeftIcon } from "../components/icons";
-import { VersionPreview } from "./version-preview/version-preview";
+import { LoadingLine } from "../components/query-state";
+import { ScreenHeader } from "../components/screen-header";
+import { calendarDateLabel } from "../lib/dates";
+import { PreviewBody } from "./version-preview/preview-body";
 
 const route = getRouteApi("/questionnaires/$questionnaireId/versions/$version");
-
-const publishedDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
 interface VersionAddress {
   questionnaireId: string;
@@ -41,15 +42,13 @@ function BackToVersionHistory({ questionnaireId }: { questionnaireId: string }) 
 
 function PreviewHeader({ questionnaireId, version, title }: VersionAddress & { title: string | undefined }) {
   const publishedAt = usePublishedAt({ questionnaireId, version });
-  const facts = [title, publishedAt && `published ${publishedDateFormat.format(new Date(publishedAt))}`].filter(Boolean);
+  const facts = [title, publishedAt && `published ${calendarDateLabel(publishedAt)}`].filter(Boolean);
   return (
-    <header className="flex flex-col gap-1">
-      <div className="flex items-center gap-2">
-        <BackToVersionHistory questionnaireId={questionnaireId} />
-        <h1 className="text-xl font-semibold tracking-tight">Preview of version {version}</h1>
-      </div>
-      {facts.length > 0 && <p className="pl-9 text-sm text-muted-foreground">{facts.join(" · ")}</p>}
-    </header>
+    <ScreenHeader
+      back={<BackToVersionHistory questionnaireId={questionnaireId} />}
+      title={`Preview of version ${version}`}
+      meta={facts.length > 0 ? facts.join(" · ") : undefined}
+    />
   );
 }
 
@@ -83,14 +82,10 @@ export function VersionPreviewScreen() {
 
   function body() {
     if (snapshot.isSuccess) {
-      return <VersionPreview key={`${questionnaireId}:${version}`} definition={snapshot.data} />;
+      return <PreviewBody key={`${questionnaireId}:${version}`} definition={snapshot.data} />;
     }
     if (snapshot.isPending) {
-      return (
-        <p role="status" className="text-sm text-muted-foreground">
-          Loading version {version}…
-        </p>
-      );
+      return <LoadingLine>Loading version {version}…</LoadingLine>;
     }
     if (isProblem(snapshot.error, "resource/not-found")) {
       return <VersionNotFound version={version} />;
