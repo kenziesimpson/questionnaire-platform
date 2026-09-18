@@ -30,6 +30,7 @@ const RESPONDENT_TESTS = "apps/respondent/_tests/screens/questionnaire-screen.te
 const E2E_SPEC = "e2e/specs/tier-1/questionnaire.spec.ts";
 const E2E_FIXTURE = "e2e/fixtures/index.ts";
 const E2E_STACK = "e2e/stack/compose-stack.ts";
+const E2E_STACK_GLOBAL_SETUP = "e2e/stack/global-setup.ts";
 
 const NODE_WORKSPACE_FILES = [
   ["backend", BACKEND_SRC],
@@ -152,17 +153,18 @@ describe("L13: import extension convention — bundler and Playwright workspaces
   });
 });
 
-describe("L13: e2e/stack is a plain Node CLI and is exempt in both directions", () => {
+describe("L13: e2e/stack is a plain Node CLI, exempt from the other two rules but not from a misleading .js", () => {
   it("does not require .js there", async () => {
     const messages = await restrictedSyntax(E2E_STACK, `import { x } from "./sibling";`);
 
     expect(messages.some((message) => message.includes("compiled .js extension"))).toBe(false);
   });
 
-  it("does not forbid .ts there", async () => {
+  it("allows .ts there, which is the file that actually exists", async () => {
     const messages = await restrictedSyntax(E2E_STACK, `import { x } from "./sibling.ts";`);
 
     expect(messages.some((message) => message.includes("carry no extension"))).toBe(false);
+    expect(messages.some((message) => message.includes("has no compiled output to answer to") || message.includes("names the .ts file that actually exists"))).toBe(false);
   });
 
   it("does not require .js on a re-export there", async () => {
@@ -171,9 +173,27 @@ describe("L13: e2e/stack is a plain Node CLI and is exempt in both directions", 
     expect(messages.some((message) => message.includes("compiled .js extension"))).toBe(false);
   });
 
-  it("does not forbid .ts on a re-export there", async () => {
+  it("allows .ts on a re-export there", async () => {
     const messages = await restrictedSyntax(E2E_STACK, `export { x } from "./sibling.ts";`);
 
     expect(messages.some((message) => message.includes("carry no extension"))).toBe(false);
+  });
+
+  it.each([
+    ["a plain stack file", E2E_STACK],
+    ["global-setup.ts, which also keeps its default export", E2E_STACK_GLOBAL_SETUP],
+  ])("rejects the misleading .js extension in %s, since node never compiles it", async (_, filePath) => {
+    const messages = await restrictedSyntax(filePath, `import { x } from "./sibling.js";`);
+
+    expect(messages.some((message) => message.includes("names the .ts file that actually exists"))).toBe(true);
+  });
+
+  it.each([
+    ["a plain stack file", E2E_STACK],
+    ["global-setup.ts, which also keeps its default export", E2E_STACK_GLOBAL_SETUP],
+  ])("rejects a misleading .js re-export in %s", async (_, filePath) => {
+    const messages = await restrictedSyntax(filePath, `export { x } from "./sibling.js";`);
+
+    expect(messages.some((message) => message.includes("names the .ts file that actually exists"))).toBe(true);
   });
 });

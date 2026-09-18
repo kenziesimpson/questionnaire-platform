@@ -304,6 +304,14 @@ const relativeImportMissingJsExtension = ["ImportDeclaration", "ExportNamedDecla
   message: relativeImportMissingJsExtensionMessage,
 }));
 
+const stackRelativeImportHasJsExtensionMessage =
+  "e2e/stack's scripts run directly under node, which never compiles them: a relative import here names the .ts file that actually exists, not the .js name a build would have produced ([[11-structural-refactor]] L13).";
+
+const stackRelativeImportHasJsExtension = ["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].map((node) => ({
+  selector: `${node}[source.value=/^\\.{1,2}\\/.*\\.js$/]`,
+  message: stackRelativeImportHasJsExtensionMessage,
+}));
+
 const connectionConstructionMessage =
   "Connections come from one constructor: `openDatabase` in apps/backend/src/db/client.ts, which is where pool sizing lands ([[2-design-doc#17. Decisions Log]] #77). Constructing a pg client or pool directly bypasses it. Where a raw connection is genuinely needed — connecting to another database in order to create one — disable it with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>";
 
@@ -895,5 +903,16 @@ export default tseslint.config(
     name: "L13: e2e fixtures and specs carry no extension, Playwright resolves them; e2e/stack is a plain Node CLI and keeps its extensions",
     files: ["e2e/fixtures/**/*.ts", "e2e/specs/**/*.ts"],
     rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, noSvgJsx, ...relativeImportHasExtension) },
+  },
+  {
+    name: "L13: e2e/stack forbids the .js extension its scripts have no compiled output to answer to",
+    files: ["e2e/stack/**/*.ts"],
+    ignores: ["e2e/stack/global-setup.ts", "e2e/stack/global-teardown.ts"],
+    rules: { "no-restricted-syntax": syntax(...problemParsing, notFoundProblem, noSvgJsx, ...stackRelativeImportHasJsExtension) },
+  },
+  {
+    name: "L13: e2e/stack's globalSetup and globalTeardown forbid the .js extension too, alongside their default export",
+    files: ["e2e/stack/global-setup.ts", "e2e/stack/global-teardown.ts"],
+    rules: { "no-restricted-syntax": syntaxAllowingDefaultExport(...problemParsing, notFoundProblem, ...stackRelativeImportHasJsExtension) },
   },
 );
