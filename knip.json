@@ -5,7 +5,6 @@
     "packages/ui/src/primitives/**": ["exports", "types"],
     "packages/ui/src/questionnaire/**": ["exports", "types"],
     "apps/admin/src/**": ["exports", "types"],
-    "apps/backend/src/db/**": ["exports", "types"],
     "apps/backend/src/http/**": ["types"],
     "apps/backend/src/config.ts": ["exports"],
     "packages/shared/src/domain/condition.ts": ["exports"],

@@ -19,7 +19,7 @@ import { createQuestionnaire } from "../../../../src/db/definition/questionnaire
 import { appendQuestionVersion, createQuestion } from "../../../../src/db/definition/questions.js";
 import { AUTHOR_PLACEHOLDER } from "../../../../src/modules/definition/author.js";
 import { actor, aTextQuestion, useTestDatabase } from "../../../db/fixtures.js";
-import { createNextDraftDirectly, definitionUrl, type OpenDraft } from "../fixtures.js";
+import { createNextDraftDirectly, definitionUrl, theOpenDraft, type OpenDraft } from "../fixtures.js";
 import { useDefinitionApp } from "../harness.js";
 
 const testDatabase = useTestDatabase();
@@ -71,7 +71,7 @@ async function publish(db: Database, questionnaireId: string, draft: OpenDraft, 
   const saved = await saveDraft(db, questionnaireId, draft, items);
   const published = await publishDraft(db, {
     questionnaireId,
-    precondition: { versionId: saved.draftVersionId, draftRevision: saved.draftRevision },
+    precondition: { versionId: saved.draft.versionId, draftRevision: saved.draftRevision },
     actorId: "test",
     traceId: null,
   });
@@ -380,7 +380,9 @@ describe("POST /questions/:questionId/archive", () => {
     const db = testDatabase.database("definition");
     const questionId = await aQuestion();
     const questionnaire = await createQuestionnaire(db, { key: null, name: "Placed", title: "Placed", ...actor });
-    await publish(db, questionnaire.questionnaireId, questionnaire, [placement("itm_01", questionId, 1)]);
+    await publish(db, questionnaire.questionnaireId, await theOpenDraft(db, questionnaire.questionnaireId), [
+      placement("itm_01", questionId, 1),
+    ]);
 
     await post(`/questions/${questionId}/archive`);
 
@@ -398,17 +400,22 @@ describe("GET /questions/:questionId/usage", () => {
     const unrelated = await aQuestion();
 
     const early = await createQuestionnaire(db, { key: null, name: "Early", title: "Early", ...actor });
-    await publish(db, early.questionnaireId, early, [placement("itm_01", questionId, 1), placement("itm_02", unrelated, 1)]);
+    await publish(db, early.questionnaireId, await theOpenDraft(db, early.questionnaireId), [
+      placement("itm_01", questionId, 1),
+      placement("itm_02", unrelated, 1),
+    ]);
     const earlyNext = await createNextDraftDirectly(testDatabase, early.questionnaireId);
     await publish(db, early.questionnaireId, earlyNext, [placement("itm_01", questionId, 2)]);
 
     const late = await createQuestionnaire(db, { key: null, name: "Late", title: "Late", ...actor });
-    await publish(db, late.questionnaireId, late, [placement("itm_01", questionId, 2)]);
+    await publish(db, late.questionnaireId, await theOpenDraft(db, late.questionnaireId), [placement("itm_01", questionId, 2)]);
     const lateNext = await createNextDraftDirectly(testDatabase, late.questionnaireId);
     await saveDraft(db, late.questionnaireId, lateNext, [placement("itm_01", questionId, 1)]);
 
     const draftOnly = await createQuestionnaire(db, { key: null, name: "Draft only", title: "Draft only", ...actor });
-    await saveDraft(db, draftOnly.questionnaireId, draftOnly, [placement("itm_01", questionId, 2)]);
+    await saveDraft(db, draftOnly.questionnaireId, await theOpenDraft(db, draftOnly.questionnaireId), [
+      placement("itm_01", questionId, 2),
+    ]);
 
     const response = await get(`/questions/${questionId}/usage`);
 

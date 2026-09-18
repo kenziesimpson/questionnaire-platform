@@ -12,8 +12,8 @@ import {
   startedSessionId,
   startSession,
   submit,
-  useExecutionApp,
-} from "../../db/execution/fixtures.js";
+} from "./fixtures.js";
+import { useExecutionApp } from "./harness.js";
 import { useTestDatabase } from "../../db/fixtures.js";
 
 const testDatabase = useTestDatabase();

@@ -16,7 +16,8 @@ import {
   questionVersionOption,
 } from "../../../src/db/schema.js";
 import { executionModule } from "../../../src/modules/execution/plugin.js";
-import { answersYes, executionUrl, seedIntakeV1, startedSessionId, submit, useExecutionApp } from "../../db/execution/fixtures.js";
+import { answersYes, executionUrl, seedIntakeV1, startedSessionId, submit } from "./fixtures.js";
+import { useExecutionApp } from "./harness.js";
 import { expectSqlState, SQLSTATE, useTestDatabase } from "../../db/fixtures.js";
 
 const testDatabase = useTestDatabase();

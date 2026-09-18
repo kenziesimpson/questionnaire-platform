@@ -9,7 +9,7 @@ export interface ResponsePartition {
   readonly to: Date;
 }
 
-export function startOfUtcMonth(instant: Date): Date {
+function startOfUtcMonth(instant: Date): Date {
   return new Date(Date.UTC(instant.getUTCFullYear(), instant.getUTCMonth(), 1));
 }
 

@@ -3,7 +3,7 @@ import { INTAKE_QUESTIONNAIRE_ID, intakeDefinition } from "@qp/shared/demo";
 import { v4 as uuidv4 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { createQuestionnaire } from "../../../src/db/definition/questionnaires.js";
-import { useTestDatabase } from "../harness.js";
+import { useTestDatabase } from "../../db/fixtures.js";
 import { answersNo, getSession, problemOf, seedIntakeV1, startedSessionId, startSession, submit } from "./fixtures.js";
 import { freezeTimeAt, NOW, useExecutionApp } from "./harness.js";
 

@@ -9,7 +9,12 @@ export function formatDraftEtag(versionId: string, draftRevision: number): strin
 
 const DRAFT_ETAG = /^W\/"([0-9a-f-]{36}):(0|[1-9][0-9]*)"$/i;
 
-export function parseDraftEtag(etag: string): { versionId: string; draftRevision: number } | undefined {
+export interface DraftPrecondition {
+  readonly versionId: string;
+  readonly draftRevision: number;
+}
+
+export function parseDraftEtag(etag: string): DraftPrecondition | undefined {
   const match = DRAFT_ETAG.exec(etag.trim());
   if (!match) return undefined;
   return { versionId: match[1]!.toLowerCase(), draftRevision: Number(match[2]) };

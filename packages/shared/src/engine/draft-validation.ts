@@ -26,7 +26,6 @@ function questionKey(questionId: string, questionVersion: number): string {
 class DraftValidator {
   readonly #slots: Slot[];
   readonly #firstIndexById = new Map<string, number>();
-  readonly #archivedQuestionIds: ReadonlySet<string>;
   readonly #errors = new Map<string, ItemError<DraftItemCode> & { index: number }>();
   readonly #reachability = new Map<number, ConstraintTerm[] | undefined>();
 
@@ -39,7 +38,6 @@ class DraftValidator {
       visibleWhen: item.visibleWhen,
       question: questions.get(questionKey(item.questionId, item.questionVersion)),
     }));
-    this.#archivedQuestionIds = draft.archivedQuestionIds ?? new Set();
     for (const slot of this.#slots) {
       if (!this.#firstIndexById.has(slot.itemId)) this.#firstIndexById.set(slot.itemId, slot.index);
     }
@@ -66,7 +64,6 @@ class DraftValidator {
       if (this.#firstIndexById.get(slot.itemId) !== slot.index) this.#report(slot, "draft/duplicate-item-id");
       if (placedQuestionIds.has(slot.questionId)) this.#report(slot, "draft/duplicate-question");
       placedQuestionIds.add(slot.questionId);
-      if (this.#archivedQuestionIds.has(slot.questionId)) this.#report(slot, "draft/question-archived");
       if (!slot.question) this.#report(slot, "draft/question-version-unknown");
     }
   }

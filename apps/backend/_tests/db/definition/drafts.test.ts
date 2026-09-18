@@ -1,7 +1,6 @@
-import type { DraftItem, QuestionInput } from "@qp/shared";
+import type { DraftItem, DraftPrecondition, QuestionInput } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../../../src/db/client.js";
-import type { DraftPrecondition } from "../../../src/db/definition/draft-precondition.js";
 import { withLockedQuestionnaire } from "../../../src/db/definition/questionnaire-rows.js";
 import { createNextDraft, replaceDraft, validateOpenDraft } from "../../../src/db/definition/drafts.js";
 import { createQuestionnaire } from "../../../src/db/definition/questionnaires.js";
@@ -14,6 +13,7 @@ import {
   publishSavedDraft,
   saveDraft,
   QUESTIONNAIRE_LOCK_STATEMENT,
+  theOpenDraftOf,
   theStatementWaitingOnALock,
   whileHoldingALock,
 } from "../fixtures.js";
@@ -64,7 +64,7 @@ async function aDraftPlacingTwoQuestionsLaterArchived(db: Database): Promise<Pla
   const precondition = await saveDraft(
     db,
     created.questionnaireId,
-    { versionId: created.draftVersionId, draftRevision: created.draftRevision },
+    await theOpenDraftOf(db, created.questionnaireId),
     "Archived later",
     items,
   );
@@ -109,7 +109,11 @@ describe("replaceDraft", () => {
       traceId: null,
     });
 
-    expect(outcome).toMatchObject({ outcome: "saved", draftVersionId: draft.draftVersionId, draftRevision: withThree.draftRevision + 1 });
+    expect(outcome).toMatchObject({
+      outcome: "saved",
+      draft: { versionId: draft.draftVersionId },
+      draftRevision: withThree.draftRevision + 1,
+    });
     expect(await draftItems(draft.draftVersionId)).toEqual([
       { item_id: "itm_03", position: 0 },
       { item_id: "itm_01", position: 1 },

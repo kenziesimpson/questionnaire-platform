@@ -11,9 +11,11 @@ import {
 } from "@qp/shared/demo";
 import { eq } from "drizzle-orm";
 import type { Database, Transaction } from "../client.js";
+import { mustExist } from "../errors.js";
 import { publishDraft } from "../definition/publish.js";
 import { replaceDraft } from "../definition/drafts.js";
 import { createQuestionnaire } from "../definition/questionnaires.js";
+import { readOpenDraft } from "../definition/questionnaire-version-rows.js";
 import { appendQuestionVersion, createQuestion } from "../definition/questions.js";
 import { questionnaire } from "../schema.js";
 
@@ -37,7 +39,7 @@ async function saveBankHistoryFor(tx: Transaction, role: IntakeQuestionRole, ite
     throw new Error(`no revisions to seed for question ${questionId}`);
   }
 
-  let saved = await createQuestion(tx, { questionId, key: INTAKE_QUESTION_KEYS[role], content: first, ...common });
+  let saved = await createQuestion(tx, { seededQuestionId: questionId, key: INTAKE_QUESTION_KEYS[role], content: first, ...common });
   for (const content of later) {
     const appended = await appendQuestionVersion(tx, { questionId, content, ...common });
     if (appended.outcome !== "saved") {
@@ -65,17 +67,18 @@ export async function seedDemoQuestionnaire(db: Database): Promise<DemoSeedOutco
       await saveBankHistoryFor(tx, role, intakeItem(demo, role));
     }
 
-    const created = await createQuestionnaire(tx, {
-      questionnaireId: INTAKE_QUESTIONNAIRE_ID,
+    await createQuestionnaire(tx, {
+      seededQuestionnaireId: INTAKE_QUESTIONNAIRE_ID,
       key: INTAKE_QUESTIONNAIRE_KEY,
       name: demo.title,
       title: demo.title,
       createdBy: SEED_ACTOR,
       traceId: null,
     });
+    const opened = mustExist(await readOpenDraft(tx, INTAKE_QUESTIONNAIRE_ID), "the demo draft just created");
     const edited = await replaceDraft(tx, {
       questionnaireId: INTAKE_QUESTIONNAIRE_ID,
-      precondition: { versionId: created.draftVersionId, draftRevision: created.draftRevision },
+      precondition: { versionId: opened.id, draftRevision: opened.draftRevision },
       title: demo.title,
       items: demo.items.map(draftItemOf),
       actorId: SEED_ACTOR,
@@ -86,7 +89,7 @@ export async function seedDemoQuestionnaire(db: Database): Promise<DemoSeedOutco
     }
     const published = await publishDraft(tx, {
       questionnaireId: INTAKE_QUESTIONNAIRE_ID,
-      precondition: { versionId: edited.draftVersionId, draftRevision: edited.draftRevision },
+      precondition: { versionId: edited.draft.versionId, draftRevision: edited.draftRevision },
       actorId: SEED_ACTOR,
       traceId: null,
     });

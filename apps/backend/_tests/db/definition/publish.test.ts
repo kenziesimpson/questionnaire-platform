@@ -62,8 +62,6 @@ describe("publishDraft", () => {
 
     expect(outcome).toEqual({
       outcome: "published",
-      questionnaireVersionId: draft.draftVersionId,
-      version: 1,
       summary: {
         questionnaireId: draft.questionnaireId,
         version: 1,
@@ -260,7 +258,7 @@ describe("publishDraft", () => {
       traceId: null,
     });
 
-    expect(outcome).toMatchObject({ outcome: "published", questionnaireVersionId: draft.draftVersionId, version: 1 });
+    expect(outcome).toMatchObject({ outcome: "published", summary: { version: 1 } });
   });
 
   it("reports no draft once the only draft has been published", async () => {

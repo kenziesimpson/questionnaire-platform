@@ -1,6 +1,6 @@
 import { PROBLEM_CONTENT_TYPE, problem, type Problem } from "@qp/shared";
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { databaseErrorOf } from "./database-errors.js";
+import { databaseErrorOf } from "../db/errors.js";
 import { pointerErrors, requestValidatorCompiler } from "./validation.js";
 
 type ProblemErrorHandler = (error: FastifyError, request: FastifyRequest, reply: FastifyReply) => FastifyReply;

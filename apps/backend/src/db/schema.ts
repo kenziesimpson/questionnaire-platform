@@ -95,7 +95,7 @@ export const question = definitionSchema.table("question", {
   createdAt: timestamptz().notNull().defaultNow(),
 });
 
-export const RESPONSE_TYPE_VALUES = ["text", "single_choice", "multiple_choice", "number", "date"] as const;
+const RESPONSE_TYPE_VALUES = ["text", "single_choice", "multiple_choice", "number", "date"] as const;
 
 export const questionVersion = definitionSchema.table(
   "question_version",

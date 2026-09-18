@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import type { Transaction } from "./client.js";
 import type { AUDIT_ACTIONS } from "./schema.js";
 
-export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 export interface AuditEntry {
   readonly action: AuditAction;

@@ -4,7 +4,7 @@ import { integer, jsonb, uuid } from "drizzle-orm/pg-core";
 import type { Executor } from "../client.js";
 import { definitionSchema } from "../schema.js";
 
-export const publishedQuestionnaireVersion = definitionSchema
+const publishedQuestionnaireVersion = definitionSchema
   .view("published_questionnaire_version", {
     id: uuid("id").notNull(),
     snapshot: jsonb("snapshot").notNull(),
