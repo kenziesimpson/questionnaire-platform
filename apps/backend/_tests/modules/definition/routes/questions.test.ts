@@ -135,6 +135,7 @@ describe("POST /questions", () => {
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
     expect(response.json()).toMatchObject({
       type: problemType("request/invalid"),
+      instance: definitionUrl("/questions"),
       errors: [{ pointer: "/body/question/min", code: "question/min-exceeds-max" }],
     });
     expect((await get("/questions?includeArchived=true")).json()).toEqual([]);
@@ -252,6 +253,7 @@ describe("POST /questions/:questionId/versions", () => {
       type: problemType("request/invalid"),
       title: expect.any(String),
       status: 400,
+      instance: definitionUrl(`/questions/${questionId}/versions`),
       errors: [{ pointer: "/body/question/type", code: "question/type-changed" }],
     });
     expect((await get(`/questions/${questionId}/versions`)).json()).toMatchObject([{ questionVersion: 1, type: "text" }]);

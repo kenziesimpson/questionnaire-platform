@@ -1,5 +1,6 @@
-import { definitionApi, formatDraftEtag, problem } from "@qp/shared";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import { definitionApi, formatDraftEtag } from "@qp/shared";
+import type { FastifyInstance } from "fastify";
+import type { Database } from "../../../db/client.js";
 import {
   createNextDraft,
   readDraft,
@@ -7,30 +8,31 @@ import {
   validateOpenDraft,
   type CurrentDraft,
 } from "../../../db/definition/drafts.js";
+import { publishDraft } from "../../../db/definition/publish.js";
+import { notFoundProblem } from "../../../http/problems.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { draftPreconditionOf } from "../if-match.js";
-import type { DefinitionModuleOptions } from "../plugin.js";
+import { definitionProblem } from "../problems.js";
 
 function draftHeaders({ draft, draftRevision }: CurrentDraft): Record<string, string> {
   return { etag: formatDraftEtag(draft.versionId, draftRevision), "cache-control": "no-store" };
 }
 
-function notFound(request: FastifyRequest) {
-  return problem("resource/not-found", { instance: request.url });
-}
-
-export async function draftRoutes(scope: FastifyInstance, { database }: DefinitionModuleOptions): Promise<void> {
+export function registerDraftRoutes(scope: FastifyInstance, database: Database): void {
   registerRoute(scope, definitionApi.getDraft, async (request) => {
     const current = await readDraft(database, request.params.id);
     if (current === undefined) {
-      return notFound(request);
+      return notFoundProblem(request.url);
     }
     return { status: 200, body: current.draft, headers: draftHeaders(current) };
   });
 
   registerRoute(scope, definitionApi.replaceDraft, async (request) => {
     const precondition = draftPreconditionOf(request.headers["if-match"]);
+    if ("status" in precondition) {
+      return precondition;
+    }
     const { title, items } = request.body;
     const outcome = await replaceDraft(database, {
       questionnaireId: request.params.id,
@@ -40,16 +42,10 @@ export async function draftRoutes(scope: FastifyInstance, { database }: Definiti
       actorId: authorOf(request),
       traceId: null,
     });
-    switch (outcome.outcome) {
-      case "saved":
-        return { status: 200, body: outcome.draft, headers: draftHeaders(outcome) };
-      case "stale":
-        return problem("questionnaire/draft-stale", { instance: request.url });
-      case "no-draft":
-        return notFound(request);
-      case "invalid":
-        return problem("questionnaire/draft-invalid", { items: [...outcome.items] });
+    if (outcome.outcome !== "saved") {
+      return definitionProblem(outcome, request.url);
     }
+    return { status: 200, body: outcome.draft, headers: draftHeaders(outcome) };
   });
 
   registerRoute(scope, definitionApi.openDraft, async (request) => {
@@ -58,22 +54,34 @@ export async function draftRoutes(scope: FastifyInstance, { database }: Definiti
       createdBy: authorOf(request),
       traceId: null,
     });
-    switch (outcome.outcome) {
-      case "created":
-        return { status: 201, body: outcome.draft, headers: draftHeaders(outcome) };
-      case "draft-exists":
-        return problem("questionnaire/draft-exists", { instance: request.url });
-      case "questionnaire-not-found":
-      case "nothing-published":
-        return notFound(request);
+    if (outcome.outcome !== "created") {
+      return definitionProblem(outcome, request.url);
     }
+    return { status: 201, body: outcome.draft, headers: draftHeaders(outcome) };
   });
 
   registerRoute(scope, definitionApi.validateDraft, async (request) => {
     const validation = await validateOpenDraft(database, request.params.id);
     if (validation === undefined) {
-      return notFound(request);
+      return notFoundProblem(request.url);
     }
     return { status: 200, body: validation };
+  });
+
+  registerRoute(scope, definitionApi.publishDraft, async (request) => {
+    const precondition = draftPreconditionOf(request.headers["if-match"]);
+    if ("status" in precondition) {
+      return precondition;
+    }
+    const published = await publishDraft(database, {
+      questionnaireId: request.params.id,
+      precondition,
+      actorId: authorOf(request),
+      traceId: null,
+    });
+    if (published.outcome !== "published") {
+      return definitionProblem(published, request.url);
+    }
+    return { status: 201, body: published.summary };
   });
 }
