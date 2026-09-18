@@ -43,7 +43,7 @@ Two PRs can run at the same time when the files they own don't overlap. The wave
 | --- | --- | --- |
 | 0 | PR 0 (lint harness), PR 0b (the four rules PR 0 left unowned), PR 17 (compose), PR 20 (ownership table) | nothing |
 | 1 | PR 1 (request helpers, problem parser), PR 3 (`db/execution`), PR 13 (tsconfig presets) | PR 0 |
-| 2 | PR 2a (shared vocabulary), PR 2b (test support), PR 4b (route cleanup), PR 15 (root scripts) | PR 1 and PR 3 |
+| 2 | PR 2a (shared vocabulary), PR 2b (test support), PR 4b (route cleanup), PR 15 (root scripts), then PR 2c (`other` id reserved) | PR 1 and PR 3; PR 2c waits for PR 2a |
 | 3 | PR 4 (database cleanup), PR 5 → PR 6 (admin), PR 7 → PR 8 → PR 8b (respondent), PR 9 (primitives), PR 10 (questionnaire index), PR 16 (e2e), PR 18 (comments) | PR 2a and PR 2b |
 | 4 | PR 11 (icons), PR 12 (preview panel) | PR 5, PR 6, PR 8b, PR 10 |
 | 5 | PR 14 (import extensions), then PR 19 (`AGENTS.md`) | everything above; PR 14 runs alone |
@@ -56,6 +56,7 @@ graph LR
   PR0 --> PR1 & PR3 & PR13
   PR1 --> PR2a & PR2b & PR4b & PR15
   PR3 --> PR2a & PR2b & PR4b
+  PR2a --> PR2c
   PR2a & PR2b --> PR4 & PR5 & PR7 & PR9 & PR10 & PR16 & PR18
   PR4b -. merges before .-> PR4
   PR5 -- first commit --> PR6
@@ -171,6 +172,18 @@ Owns: `packages/shared/src/{index.ts,primitives.ts,domain,engine,demo}`, `packag
 - **Owns (2a):** `packages/shared/src/**`, `packages/shared/package.json` (the `./demo` export), `apps/backend/src/db/seed/**`, the local copies of the vocabulary wherever they sit, and every import of the demo names.
 - **Owns (2b):** `packages/ui/src/testing/**` and its tests in `packages/ui/_tests/testing/**`; the `./testing` export and test-only dependencies in `packages/ui/package.json`, and `axe-core` in the admin and respondent manifests; `**/_tests/{setup,support,axe,fixtures,harness}*`; the fakes it replaced (`apps/admin/_tests/fake-definition-api.ts`, `apps/respondent/_tests/execution-server.ts`); the tests whose imports change as a result; `tests/lint-test-support.test.ts`; and `package-lock.json` for the dependency moves.
 - The halves share test files, `eslint.config.mjs` and `docs/8-testing.md`. **PR 2a merges first; PR 2b rebases onto it** and keeps 2a's `@qp/shared/demo` imports and vocabulary imports in the shared test files.
+
+#### PR 2c — The `other` option id is reserved · S · changes behaviour
+
+> **Depends on:** PR 2a. **Can run alongside:** PR 2b, PR 4b, PR 15. **PR 4b merges first**, because it renames `apps/backend/src/db/migrator.ts` to `migrations.ts`, which this PR's `_tests/db/other-option.test.ts` imports and git does not report as a conflict. Whichever of the two lands second fixes that import.
+
+**Added after PR 2a.** PR 2a made `id === OTHER_OPTION_ID && freeform` the one definition of the other option (#82), which left an edge case: on a question with a plain `other` option, ticking the editor's freeform Other checkbox failed with `question/duplicate-option-id`. This PR makes the rule work both ways, so an option has the id `other` exactly when it is freeform. It is a contract change, recorded as Decisions Log #83.
+
+- The shared question rules reject a non-freeform `other` option with `question/other-not-freeform`, pointing at the option's `optionId`. `POST /questions` and `POST /questions/:questionId/versions` return `400` for it.
+- Migration `0015` replaces `freeform_is_other` with `freeform_exactly_when_other` (`freeform = (option_id = 'other')`) and drops `qvo_one_freeform`, which the primary key now covers. It fails if a stored row breaks the rule.
+- The admin editor needs no new state: option ids are generated with the `opt_` prefix, so an author cannot type or generate `other` on an ordinary row.
+
+Owns: `packages/shared/src/{problems.ts,engine/question-rules.ts}`, `apps/backend/src/db/schema.ts`, `apps/backend/drizzle/{0015_other_option_id_reserved.sql,migrations.lock.json,meta/{_journal.json,0015_snapshot.json}}`, `apps/backend/README.md`, `apps/admin/src/screens/question-editor/field-errors.ts`, and these test files: `packages/shared/_tests/{problems.test.ts,engine/question-rules.test.ts}`, `apps/backend/_tests/db/other-option.test.ts`, `apps/backend/_tests/modules/definition/routes/questions.test.ts` and `apps/admin/_tests/screens/question-editor/question-form.test.ts`. `questions.test.ts` is also edited by PR 4b and PR 2b, so this PR rebases onto whichever merges first.
 
 ### Phase B — Backend
 
@@ -555,6 +568,7 @@ These are agreed. R1–R5 live as tests under `tests/`, next to `text-files.test
 | #66 | Amend: the unused `command`, `input-group` and Radix `select` primitives are removed; `native-select` and `tooltip` are added; `popover` is kept | 9 |
 | #68 | Amend: the sample-answer panel is built from the renderer in `interactive` mode, and the preview stays `readonly`. The panel accepts the free-text "Other" answer | 12 |
 | New | One definition of the "other" option across the engine, the renderer and admin: `id === OTHER_OPTION_ID && freeform` | 2a |
+| New | The id `other` is reserved for the freeform option in both directions; supersedes the plain-`other` clause of the row above | 2c |
 | New | The respondent shows an item's errors once the field is left (touched on blur), and every visible item's errors after a submit attempt | 8b |
 | New | Execution persistence lives in `src/db/execution`, mirroring the definition side | 3 |
 | New | Icons come only from lucide, through `@qp/ui/icons` | 11 |
@@ -564,7 +578,7 @@ These are agreed. R1–R5 live as tests under `tests/`, next to `text-files.test
 | New | A problem body is read off the wire whole or not at all; `problemFromWire` takes no unknown-code policy, because both consumers already rejected | 1 |
 | Several | Rationale extracted from comments in `packages/shared` and `packages/telemetry`; the rows cited include #13, #15, #18, #20, #25, #31, #34, #36 and #37 and #40–#44 | 18 |
 
-New rows are numbered from #79 in the order they merge. PR 1 took #81 and PR 2a #82; a PR that merges before one of them renumbers.
+New rows are numbered from #79 in the order they merge. PR 1 took #81, PR 2a #82 and PR 2c #83; a PR that merges before one of them renumbers.
 
 ## 6. Out of scope
 

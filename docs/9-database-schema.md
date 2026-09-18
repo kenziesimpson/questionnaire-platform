@@ -227,18 +227,16 @@ CREATE TABLE definition.question_version_option (
   PRIMARY KEY (question_id, version, option_id),
   FOREIGN KEY (question_id, version) REFERENCES definition.question_version(question_id, version),
   UNIQUE (question_id, version, position),
-  CONSTRAINT freeform_is_other CHECK (NOT freeform OR option_id = 'other')
+  CONSTRAINT freeform_exactly_when_other CHECK (freeform = (option_id = 'other'))
 );
-CREATE UNIQUE INDEX qvo_one_freeform
-  ON definition.question_version_option (question_id, version) WHERE freeform;
 ```
 
 There is no `yes_no` type. A yes/no question is a `single_choice` with two options, created by an editor
 template that seeds the reserved ids `yes` / `no` with editable labels — one storage shape and one operator
-set, per Decisions Log #36 (superseding #10). Nothing in the schema enforces the reserved ids; see the note
-on option-id stability below, which is the same tier of guarantee.
+set, per Decisions Log #36 (superseding #10). Nothing in the schema enforces `yes` / `no`; see the note
+on option-id stability below, which is the same tier of guarantee. The id `other` is enforced, by the check below.
 
-`freeform_is_other` and `qvo_one_freeform` close a gap between the boolean and the format doc. [[5-questionnaire-format#2.3 The `other` option]] treats `other` as a reserved id that rules test by name, but a bare `freeform boolean` would allow `opt_misc` to be marked freeform — an option that can never carry `otherText`, because the response-side constraint keys on the literal `other`. The check pins freeform to the one reserved id, and the partial unique index allows at most one per version.
+`freeform_exactly_when_other` closes a gap between the boolean and the format doc. [[5-questionnaire-format#2.3 The `other` option]] reserves the id `other` for the freeform option, and rules test it by name. A bare `freeform boolean` would allow `opt_misc` to be marked freeform, an option that can never carry `otherText` because the response-side constraint keys on the literal `other`. It would also allow a plain option under `other`, which the response-side constraint would let carry `otherText`. The check makes an option freeform exactly when its id is `other`, both ways (Decisions Log #83). Because every freeform row then has the id `other`, the primary key allows at most one per version. That is now the only thing holding that invariant: if `freeform_exactly_when_other` is ever relaxed, for example to allow a second freeform id, restore `qvo_one_freeform`, because the primary key alone does not limit freeform options. Migration `0015` dropped the partial unique index `qvo_one_freeform` that enforced this before. On a database that already holds a row breaking the check, `0015` stops before changing anything and names the row, because no migration may rewrite a question version; the backend README's "Migrations that refuse existing data" gives the recovery.
 
 **On option-id stability.** [[5-questionnaire-format#2.1 Option ids are stable across question versions]] guarantees option ids survive a version bump. An earlier draft of this schema added a `question_option (question_id, option_id)` registry so that guarantee would be a foreign key. It was dropped, because it does not deliver it: the application inserts into the registry on demand, so nothing distinguishes "renamed an option's label" from "minted a new id". A table that looks like an enforcement mechanism without being one is worse than no table. Stability is preserved by the editor copying ids forward into version N+1, and proven by the v2 demo test — which is exactly the role [[8-testing#3. Required coverage — the graded list]] already assigns it.
 
@@ -558,7 +556,6 @@ Every index below exists for a named query or a named invariant. Nothing is inde
 | `questionnaire_version_number` | version lookup by number, and uniqueness of it |
 | `qv_addressable` | §3.1's published-only foreign keys |
 | `vqi_reverse` | "which published versions contain question X" ([[2-design-doc#12. Database]] §12.1) |
-| `qvo_one_freeform` | at most one freeform option per question version |
 | `session` PK | resume — `GET /sessions/:sessionId`, a point lookup |
 | `session_by_version` | "sessions started against version N", for the republish story and analytics |
 | `session_in_progress` (partial) | abandonment analytics; partial because submitted sessions are the majority and are never the subject of this query |

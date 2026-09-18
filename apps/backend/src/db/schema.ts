@@ -137,8 +137,7 @@ export const questionVersionOption = definitionSchema.table(
       foreignColumns: [questionVersion.questionId, questionVersion.version],
     }),
     unique("question_version_option_position_key").on(t.questionId, t.version, t.position),
-    check("freeform_is_other", sql`NOT freeform OR option_id = 'other'`),
-    uniqueIndex("qvo_one_freeform").on(t.questionId, t.version).where(sql`freeform`),
+    check("freeform_exactly_when_other", sql`freeform = (option_id = 'other')`),
   ],
 );
 

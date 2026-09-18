@@ -177,12 +177,12 @@ The fields follow the `QuestionFields` and `AdminQuestionEditor` prototypes in `
 | Type | Fields after the prompt | What the controls hold |
 | --- | --- | --- |
 | `text` | Min length and max length inputs; `multiline` checkbox | Max clamped at or above min while typing — `question/min-length-exceeds-max-length` |
-| `single_choice` | Options list; "Allow a freeform Other" checkbox | Ids generated, never typed; only `other` can be freeform — `question/duplicate-option-id`, `question/freeform-not-other` |
+| `single_choice` | Options list; "Allow a freeform Other" checkbox | Ids generated, never typed; `other` is the freeform option and nothing else is — `question/duplicate-option-id`, `question/freeform-not-other`, `question/other-not-freeform` |
 | `multiple_choice` | Options list; min and max selections inputs | Both bounds capped by the option count, max never below min — `question/min-selections-exceeds-max-selections`, `question/selections-exceed-options` |
 | `number` | `numberKind` as a Whole number / Decimal segmented control, required; min, max and unit inputs | Max never below min — `question/min-exceeds-max` |
 | `date` | Earliest and latest as native date inputs; `relative` as an Any / Not in the future / Not in the past segmented control | Latest never before earliest — `question/min-exceeds-max`. The fixed bounds and the relative rule are independent |
 
-**The six `QUESTION_RULE_CODES` cross-field rules are made unrepresentable in the controls, not reported after a save** — the predicate editor's move (§5.4). Their `400` exists for clients that are not this editor; an author who sees one has found an editor bug.
+**The `QUESTION_RULE_CODES` cross-field rules are made unrepresentable in the controls, not reported after a save** — the predicate editor's move (§5.4). Their `400` exists for clients that are not this editor; an author who sees one has found an editor bug.
 
 **Options** are one row each: a drag handle for reordering (dnd-kit, as everywhere else), the generated option id shown in a locked chip, an editable label, and a remove button, with "Add option" below the list. The id is set once and never changes, so relabelling stays safe ([[5-questionnaire-format#2.1 Option ids are stable across question versions]]). The freeform `other` option is marked on its own row.
 

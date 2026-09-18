@@ -19,6 +19,7 @@ const RULE_MESSAGES: Record<QuestionRuleCode, string> = {
   "question/selections-exceed-options": "There are not that many options to select.",
   "question/duplicate-option-id": "Another option already has this id.",
   "question/freeform-not-other": "Only the Other option can be freeform.",
+  "question/other-not-freeform": "The id “other” is reserved for the freeform Other option.",
   "question/type-changed":
     "The response type was fixed when this question was first saved. To ask it with another type, create a new question.",
 };

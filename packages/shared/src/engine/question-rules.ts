@@ -19,6 +19,9 @@ function optionErrors(options: readonly Option[]): QuestionRuleError[] {
     if (option.freeform === true && option.optionId !== OTHER_OPTION_ID) {
       errors.push({ pointer: `/options/${index}/freeform`, code: "question/freeform-not-other" });
     }
+    if (option.optionId === OTHER_OPTION_ID && option.freeform !== true) {
+      errors.push({ pointer: `/options/${index}/optionId`, code: "question/other-not-freeform" });
+    }
   });
   return errors;
 }

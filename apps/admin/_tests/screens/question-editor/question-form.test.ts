@@ -70,12 +70,4 @@ describe("formFromQuestion", () => {
       options: [cough, { optionId: "other", label: "Something else", freeform: true }],
     });
   });
-
-  it("keeps an option with the other id that is not freeform as an ordinary option, and saves it unchanged (Decisions Log #82)", () => {
-    const plainOther = { optionId: "other", label: "None of these" };
-    const form = formFromQuestion(choiceWith(cough, plainOther));
-
-    expect(form).toMatchObject({ options: [cough, plainOther], otherEnabled: false });
-    expect(questionInputFromForm(form)).toMatchObject({ options: [cough, plainOther] });
-  });
 });

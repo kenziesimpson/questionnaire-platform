@@ -37,7 +37,7 @@ becoming a different kind of thing. A distinct type bought a duplicated operator
 response shape constraint and a `display` render hint, and cost the author the ability to phrase the
 question — see [[2-design-doc#17. Decisions Log]] #36, superseding #10.
 
-The reserved ids are an **editor convention, not a guarantee.** A template-created question aggregates
+The reserved ids `yes` and `no` are an **editor convention, not a guarantee**, unlike `other` (§2.3). A template-created question aggregates
 across questionnaires on `yes` / `no`; a two-option question assembled by hand does not. That is the same
 tier as option-id stability below — upheld by the editor and proven by a test, not by a constraint, for the
 reason [[9-database-schema#3.2 The question bank]] gives when it rejects a registry table.
@@ -56,7 +56,7 @@ A stored answer is `{ value, unit }`, not a bare number. A later version that sw
 
 A choice question may mark a trailing option as freeform. The answer then has two parts — the selected option ids (one being `other`) and an `otherText` string — so the stored shape for every choice question carries an optional `otherText`, validated with the same length rules as a `text` question.
 
-The other option is the option whose id is `other` **and** that is freeform. An option with id `other` that is not freeform is an ordinary option: no text box, no `otherText`. The validator, the renderer and the admin editor all read it through `freeformOptionOf` in `@qp/shared` ([[2-design-doc#17. Decisions Log]] #82).
+**The id `other` is reserved for the freeform option, in both directions.** A freeform option must have the id `other` (`question/freeform-not-other`), and an option with the id `other` must be freeform (`question/other-not-freeform`). Saving a question that breaks either rule is `400 request/invalid`, and the `freeform_exactly_when_other` check holds the same rule in the database ([[9-database-schema#3.2 The question bank]]). The validator, the renderer and the admin editor all find the option through `freeformOptionOf` in `@qp/shared` ([[2-design-doc#17. Decisions Log]] #82, #83).
 
 **Rules may test whether `other` was selected; they may not match against the text.** Kept deliberately simple: text matching in rules is fragile and there is no version-stable identity to match on. If `otherText` ever needs to drive a branch, the likely shape is a promotion workflow — an admin converts a recurring freeform answer into a real option in the next version — rather than string matching in the rule engine. Noted as a possible future change, not a current limitation to design around.
 

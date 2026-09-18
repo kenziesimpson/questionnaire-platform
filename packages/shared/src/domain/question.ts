@@ -14,8 +14,7 @@ export const Option = Type.Object(
   {
     optionId: Slug,
     label: Type.String({ minLength: 1 }),
-    /** Only the option with id `other` may be freeform; checked when a question is saved. */
-    freeform: Type.Optional(Type.Boolean()),
+      freeform: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );

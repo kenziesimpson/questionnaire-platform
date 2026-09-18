@@ -36,6 +36,28 @@ describe("validateQuestionRules — cross-field rules a schema cannot express", 
       { type: "multiple_choice", prompt: "x", options: [{ optionId: "a", label: "A", freeform: true }] },
       [{ pointer: "/options/0/freeform", code: "question/freeform-not-other" }],
     ],
+    [
+      "an option named other that is not freeform",
+      { type: "single_choice", prompt: "x", options: [{ optionId: "a", label: "A" }, { optionId: "other", label: "None of these" }] },
+      [{ pointer: "/options/1/optionId", code: "question/other-not-freeform" }],
+    ],
+    [
+      "an option named other with freeform false",
+      { type: "multiple_choice", prompt: "x", options: [{ optionId: "other", label: "Other", freeform: false }] },
+      [{ pointer: "/options/0/optionId", code: "question/other-not-freeform" }],
+    ],
+    [
+      "a plain other beside the freeform other",
+      {
+        type: "multiple_choice",
+        prompt: "x",
+        options: [{ optionId: "other", label: "Other", freeform: true }, { optionId: "other", label: "None of these" }],
+      },
+      [
+        { pointer: "/options/1/optionId", code: "question/duplicate-option-id" },
+        { pointer: "/options/1/optionId", code: "question/other-not-freeform" },
+      ],
+    ],
     ["a freeform other", questions.single(), []],
   ])("%s", (_, question, expected) => {
     const errors = validateQuestionRules(question);
