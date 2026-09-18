@@ -52,9 +52,17 @@ function hiddenPrompts() {
     .map((item) => item.textContent);
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 async function chooseSample(group: string, option: string) {
-  const fieldset = within(samplePanel()).getByRole("group", { name: group });
+  const fieldset = within(samplePanel()).getByRole("radiogroup", { name: new RegExp(`^${escapeRegExp(group)}`) });
   await userEvent.click(within(fieldset).getByRole("radio", { name: option }));
+}
+
+function clearButton(label: string) {
+  return within(samplePanel()).getByRole("button", { name: `Clear ${label}` });
 }
 
 describe("the version preview screen", () => {
@@ -83,9 +91,41 @@ describe("the version preview screen", () => {
     await renderLoadedIntake();
 
     const panel = within(samplePanel());
-    expect(panel.getByRole("group", { name: "1. Do you have a medical condition?" })).toBeInTheDocument();
-    expect(panel.getByRole("radio", { name: "Unanswered" })).toBeChecked();
+    const hasConditionGroup = panel.getByRole("radiogroup", { name: /^1\. Do you have a medical condition\?/ });
+    for (const radio of within(hasConditionGroup).getAllByRole("radio")) expect(radio).not.toBeChecked();
+    expect(clearButton("1. Do you have a medical condition?")).toBeDisabled();
     expect(panel.getByRole("textbox", { name: "4. Preferred pharmacy" })).toBeInTheDocument();
+    expect(clearButton("4. Preferred pharmacy")).toBeDisabled();
+    expect(hiddenPrompts()).toEqual(["2. Which condition?", "3. When were you diagnosed?"]);
+  });
+
+  it("enters the free-text Other answer through the panel and shows it in the renderer", async () => {
+    await renderLoadedIntake();
+
+    await chooseSample("1. Do you have a medical condition?", "Yes");
+    const whichConditionPanel = within(samplePanel()).getByRole("radiogroup", { name: /^2\. Which condition\?/ });
+    await userEvent.click(within(whichConditionPanel).getByRole("radio", { name: "Other" }));
+    await userEvent.type(within(samplePanel()).getByRole("textbox", { name: "Other, please specify" }), "Asthma");
+
+    expect(clearButton("2. Which condition?")).toBeEnabled();
+    const whichConditionRespondent = within(respondentView()).getByRole("radiogroup", { name: /Which condition\?/ });
+    expect(within(whichConditionRespondent).getByRole("radio", { name: "Other" })).toBeChecked();
+    expect(within(respondentView()).getByRole("textbox", { name: "Other, please specify" })).toHaveValue("Asthma");
+  });
+
+  it("clears a single sample answer with its Clear button, closing a branch that depended on it", async () => {
+    await renderLoadedIntake();
+
+    await chooseSample("1. Do you have a medical condition?", "Yes");
+    expect(renderedItemIds()).toEqual(["itm_01", "itm_02", "itm_03", "itm_04"]);
+    expect(clearButton("1. Do you have a medical condition?")).toBeEnabled();
+
+    await userEvent.click(clearButton("1. Do you have a medical condition?"));
+
+    expect(renderedItemIds()).toEqual(["itm_01", "itm_04"]);
+    const hasConditionGroup = within(samplePanel()).getByRole("radiogroup", { name: /^1\. Do you have a medical condition\?/ });
+    for (const radio of within(hasConditionGroup).getAllByRole("radio")) expect(radio).not.toBeChecked();
+    expect(clearButton("1. Do you have a medical condition?")).toBeDisabled();
     expect(hiddenPrompts()).toEqual(["2. Which condition?", "3. When were you diagnosed?"]);
   });
 
@@ -96,8 +136,11 @@ describe("the version preview screen", () => {
 
     expect(renderedItemIds()).toEqual(["itm_01", "itm_02", "itm_03", "itm_04"]);
     expect(within(respondentView()).getByRole("radio", { name: "Yes" })).toBeChecked();
-    expect(within(samplePanel()).getByRole("group", { name: "2. Which condition?" })).toBeInTheDocument();
-    expect(within(samplePanel()).getByLabelText("3. When were you diagnosed?")).toHaveAttribute("type", "date");
+    expect(within(samplePanel()).getByRole("radiogroup", { name: /^2\. Which condition\?/ })).toBeInTheDocument();
+    expect(within(samplePanel()).getByLabelText("3. When were you diagnosed?", { exact: false, selector: "input" })).toHaveAttribute(
+      "type",
+      "date",
+    );
     expect(hiddenPrompts()).toEqual([]);
     expect(within(hiddenByRules()).getByText("The current sample answers hide no questions.")).toBeInTheDocument();
 
@@ -105,7 +148,7 @@ describe("the version preview screen", () => {
 
     expect(renderedItemIds()).toEqual(["itm_01", "itm_04"]);
     expect(within(respondentView()).getByRole("radio", { name: "No" })).toBeChecked();
-    expect(within(samplePanel()).queryByRole("group", { name: "2. Which condition?" })).not.toBeInTheDocument();
+    expect(within(samplePanel()).queryByRole("radiogroup", { name: /^2\. Which condition\?/ })).not.toBeInTheDocument();
     expect(hiddenPrompts()).toEqual(["2. Which condition?", "3. When were you diagnosed?"]);
   });
 
@@ -140,7 +183,9 @@ describe("the version preview screen", () => {
     await userEvent.click(reset);
 
     expect(renderedItemIds()).toEqual(["itm_01", "itm_04"]);
-    expect(within(samplePanel()).getByRole("radio", { name: "Unanswered" })).toBeChecked();
+    const hasConditionGroup = within(samplePanel()).getByRole("radiogroup", { name: /^1\. Do you have a medical condition\?/ });
+    for (const radio of within(hasConditionGroup).getAllByRole("radio")) expect(radio).not.toBeChecked();
+    expect(clearButton("1. Do you have a medical condition?")).toBeDisabled();
     expect(within(samplePanel()).getByRole("textbox", { name: "4. Preferred pharmacy" })).toHaveValue("");
     expect(within(respondentView()).getByRole("textbox", { name: /Preferred pharmacy/ })).toHaveValue("");
     for (const radio of within(respondentView()).getAllByRole("radio")) expect(radio).not.toBeChecked();
