@@ -311,6 +311,34 @@ const e2eFilesThatMustDefaultExport = [
   "e2e/stack/global-teardown.ts",
 ];
 
+const proseCommentMessage =
+  "Comments are forbidden here (AGENTS.md, No comments): rename, extract or encode the constraint in a type instead, and put a decision's reasoning in docs/. The exceptions are ESLint directives (eslint-disable, eslint-disable-next-line, eslint-disable-line, eslint-enable, eslint-env) and `@ts-expect-error — <reason>` in type-level tests.";
+
+const tsExpectErrorWithReason = /^@ts-expect-error\s+—\s+\S/;
+
+function isAllowedDirectiveComment(value) {
+  const text = value.trim();
+  return text.startsWith("eslint-") || tsExpectErrorWithReason.test(text);
+}
+
+const noProseComments = {
+  rules: {
+    "no-prose-comments": {
+      meta: { type: "problem", docs: { description: proseCommentMessage } },
+      create(context) {
+        return {
+          Program() {
+            for (const comment of context.sourceCode.getAllComments()) {
+              if (isAllowedDirectiveComment(comment.value)) continue;
+              context.report({ loc: comment.loc, message: proseCommentMessage });
+            }
+          },
+        };
+      },
+    },
+  },
+};
+
 export default tseslint.config(
   {
     ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**", "**/playwright-report/**", "**/test-results/**", "**/.stacks/**"],
@@ -532,5 +560,11 @@ export default tseslint.config(
     files: ["packages/ui/src/**"],
     ignores: ["packages/ui/src/testing/**"],
     rules: { "@typescript-eslint/no-restricted-imports": ["error", { patterns: [theTestSupportPackage, theTestSupportDirectory] }] },
+  },
+  {
+    name: "L5: no prose comments in packages/shared and packages/telemetry",
+    files: ["packages/shared/**", "packages/telemetry/**"],
+    plugins: { local: noProseComments },
+    rules: { "local/no-prose-comments": "error" },
   },
 );

@@ -1,8 +1,3 @@
-/**
- * The draft ETag, `W/"<versionId>:<draftRevision>"` (Decisions Log #43). Built from a counter the
- * draft's own transaction increments — never from `updated_at`, which is display-only. Clients treat
- * it as opaque and echo it in `If-Match` on `PUT /draft` and `POST /publish`.
- */
 export function formatDraftEtag(versionId: string, draftRevision: number): string {
   return `W/"${versionId}:${draftRevision}"`;
 }

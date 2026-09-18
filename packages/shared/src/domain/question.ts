@@ -1,15 +1,10 @@
 import Type, { type Static, type TProperties } from "typebox";
 import { IsoDate, IsoDateTime, NonNegativeInt, PositiveInt, Slug, Uuid, strict } from "../primitives.js";
 
-/**
- * Five response types. There is no `yes_no`: a yes/no question is a `single_choice` created by an
- * editor template with option ids `yes` / `no` (Decisions Log #36).
- */
 export const RESPONSE_TYPES = ["text", "single_choice", "multiple_choice", "number", "date"] as const;
 export const ResponseType = Type.Enum(RESPONSE_TYPES);
 export type ResponseType = (typeof RESPONSE_TYPES)[number];
 
-/** Option ids are stable across question versions; rules and responses key on them, never on labels. */
 export const Option = Type.Object(
   {
     optionId: Slug,
@@ -23,11 +18,6 @@ export type Option = Static<typeof Option>;
 const Options = Type.Array(Option, { minItems: 1 });
 const Prompt = Type.String({ minLength: 1 });
 
-/**
- * One object per response type, with that type's constraints flat on it — the shape in
- * [[5-questionnaire-format]] §3. `head` carries the identity fields that differ between the
- * snapshot, the bank and a save request, so the per-type constraints are written once.
- */
 function questionUnion<H extends TProperties>(head: H) {
   return Type.Union([
     Type.Object(
@@ -59,10 +49,8 @@ function questionUnion<H extends TProperties>(head: H) {
         type: Type.Literal("number"),
         prompt: Prompt,
         numberKind: Type.Union([Type.Literal("integer"), Type.Literal("float")]),
-        /** Authored constants are JSON numbers; only answers are decimal strings (#42). */
         min: Type.Optional(Type.Number()),
         max: Type.Optional(Type.Number()),
-        /** A display label, copied onto each answer by the server — never sent by the client. */
         unit: Type.Optional(Type.String({ minLength: 1 })),
       },
       strict,
@@ -74,7 +62,6 @@ function questionUnion<H extends TProperties>(head: H) {
         prompt: Prompt,
         min: Type.Optional(IsoDate),
         max: Type.Optional(IsoDate),
-        /** Resolved against a `today` the caller passes in — never a clock read by the evaluator. */
         relative: Type.Optional(Type.Union([Type.Literal("not_future"), Type.Literal("not_past")])),
       },
       strict,
@@ -82,11 +69,9 @@ function questionUnion<H extends TProperties>(head: H) {
   ]);
 }
 
-/** A question as a save request carries it: content only, identity assigned by the server. */
 export const QuestionInput = questionUnion({});
 export type QuestionInput = Static<typeof QuestionInput>;
 
-/** A question as embedded in a published snapshot: one immutable question version, inline. */
 export const QuestionContent = questionUnion({ questionId: Uuid, questionVersion: PositiveInt });
 export type QuestionContent = Static<typeof QuestionContent>;
 
@@ -117,7 +102,6 @@ export function questionInputOf(content: QuestionContent): QuestionInput {
   return input;
 }
 
-/** One append-only `question_version` row as the bank serves it (Decisions Log #13). */
 export const QuestionVersion = questionUnion({
   questionId: Uuid,
   questionVersion: PositiveInt,
@@ -126,7 +110,6 @@ export const QuestionVersion = questionUnion({
 });
 export type QuestionVersion = Static<typeof QuestionVersion>;
 
-/** Version history is metadata only ([[7-application-boundary]] §4.1). */
 export const QuestionVersionSummary = Type.Object(
   {
     questionVersion: PositiveInt,
@@ -138,7 +121,6 @@ export const QuestionVersionSummary = Type.Object(
 );
 export type QuestionVersionSummary = Static<typeof QuestionVersionSummary>;
 
-/** A bank entry: stable identity plus its latest version. Archived, never deleted (#15). */
 export const Question = Type.Object(
   {
     questionId: Uuid,
@@ -151,7 +133,6 @@ export const Question = Type.Object(
 );
 export type Question = Static<typeof Question>;
 
-/** One row of `GET /questions/:questionId/usage`, read from `version_question_index`. */
 export const QuestionUsage = Type.Object(
   { questionnaireId: Uuid, version: PositiveInt, questionVersion: PositiveInt },
   { additionalProperties: false },

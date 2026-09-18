@@ -121,7 +121,6 @@ describe("problem()", () => {
   });
 
   it("requires each slug's extension members and admits no others", () => {
-    // Compile-time assertions only; `npm run typecheck` fails if any directive goes unused.
     const _typeChecks = () => {
       // @ts-expect-error — a submission rejection must name its items
       problem("submission/invalid");

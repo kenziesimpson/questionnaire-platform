@@ -7,10 +7,6 @@ import { PublishedDefinition } from "../../src/domain/definition.js";
 import { QuestionInput, QuestionVersionSummary, RESPONSE_TYPES, ResponseType } from "../../src/domain/question.js";
 import type { Equal } from "../type-equality.js";
 
-/**
- * The worked example from [[5-questionnaire-format]] §3, verbatim. Schema conformance of the documented
- * format, not the seeded demo builder — that lands with the seed and replaces nothing here.
- */
 const documentedV1 = {
   formatVersion: 1,
   questionnaireId: "01a0950e-56a0-73d6-b936-4a1e10eff8c0",

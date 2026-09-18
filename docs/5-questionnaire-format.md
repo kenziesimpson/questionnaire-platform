@@ -17,6 +17,8 @@ Reusable question content never carries placement or branching. A question is re
 
 There are no edges between questions. Order is the list index; the next question is the first unanswered item whose predicate evaluates true. Convergence after a branch is not a property to prove — it is the only thing a list can do. See §6 for the models this was chosen over.
 
+**Identifiers come in two kinds.** Bank rows, questionnaires, sessions and published versions are addressed by uuid (v7 or v4), never a sequential integer. `itemId`, `optionId` and the `key` slugs on questions and questionnaires are different: they are authored identifiers that live inside a document rather than as a database row, matching `^[a-z][a-z0-9_]{0,63}$`. `yes`, `no` and `other` are reserved option ids by editor convention (§2, §2.3), not by this pattern — the pattern only constrains shape, not which slugs are meaningful.
+
 ## 2. Question types
 
 Five response types. Constraints belong to the question version and compile into a validator at publish time.
@@ -207,6 +209,8 @@ Nesting is not supported. One `all` or `any` over a flat list satisfies the brie
 
 Deeper composition is a plausible future extension, and the escape hatch already exists without it: two conditions that would need nesting can usually be expressed as two items with separate predicates.
 
+Empty `all` and `any` groups are representable in the schema rather than rejected outright. That is deliberate: it lets the engine's edge cases — what an empty group evaluates to — be exercised directly in a test, while what an empty group *means* stays the engine's decision rather than the schema's.
+
 ### 4.2 Conditions are typed per response type
 
 There is no generic `{ itemId, op, value }` shape. The condition union is discriminated by the type of the question it references, so the operator set and the operand type travel together — comparing a date against a number, or asking whether a text answer is greater than 5, is unrepresentable at the type level in the shared package rather than a runtime error class to detect, message and test.
@@ -221,7 +225,7 @@ There is no generic `{ itemId, op, value }` shape. The condition union is discri
 
 Text has no content-matching operators, for the reason in §2.3. Its one operator carries a boolean rather than coming as an `answered` / `notAnswered` pair, so the condition is `{ type: "text", itemId, op: "answered", value: boolean }`. Like every condition, it is `false` when the referenced item is hidden, for either value (§4.3).
 
-Number conditions are expressed in the referenced question's unit. Because rules live on the questionnaire version and each item pins a specific question version, the unit is fixed for the life of that version and the comparison stays internally consistent.
+Number conditions are expressed in the referenced question's unit. Because rules live on the questionnaire version and each item pins a specific question version, the unit is fixed for the life of that version and the comparison stays internally consistent. `between`, on both the `number` and `date` operators, is inclusive of both bounds.
 
 ### 4.3 Evaluation
 

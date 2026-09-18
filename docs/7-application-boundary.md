@@ -122,6 +122,10 @@ No endpoint paginates. Definition tables run to dozens or hundreds of rows ([[9-
 
 `POST /draft/validate` exists so the authoring UI can show satisfiability and reachability problems ([[5-questionnaire-format#5. Publish-time validation]]) while editing, using exactly the code path publish uses. Not a second implementation of the rules — the publish handler calls the same function and refuses on the same result.
 
+`GET /questionnaires/:id/draft` returns `questions` as a flat array beside `items`, each pinned question version once, rather than embedding it inside every item that places it — the editor can then render every item's type and operators from the one response, with no request per item. Concurrency travels in the `ETag` header, never the body, as above.
+
+`GET /questionnaires` distinguishes `name`, the mutable admin-facing label an author can rename at any time, from `title`, which is versioned and travels inside the published snapshot: renaming a questionnaire does not touch what a past version says it was called.
+
 ### 4.2 Reading version history — this is a definition-side concern
 
 Version history, snapshot inspection and "which questionnaires use this question" all live here, on `GET /questionnaires/:id/versions` and friends. Two notes on why, since the shape of §5.2 makes it a fair question:
@@ -264,7 +268,7 @@ Every problem body carries `instance`, set to the request's URL, path and query 
 
 A standard beats a bespoke envelope here for one reason worth more than familiarity: it already specifies how to add fields. Validation failures carry `errors: [{ pointer, code }]`, submit failures carry `items: [{ itemId, code }]`, and both are extension members rather than a second error shape.
 
-`type` slugs come from a closed union in `@qp/shared`, so they are exhaustive on the client and cannot be invented at a call site:
+`type` slugs come from a closed union in `@qp/shared`, so they are exhaustive on the client and cannot be invented at a call site. A schema failure's code in `errors: [{ pointer, code }]` is `schema/<keyword>`, the failing JSON Schema keyword (e.g. `schema/required`); `pointer` is an RFC 6901 JSON Pointer into the request body (e.g. `/body/question/max`).
 
 | Slug | Status | Meaning |
 | --- | --- | --- |
@@ -299,6 +303,8 @@ The split that keeps `409` and `422` from becoming interchangeable: **`409` mean
 One TypeBox schema per route, registered with Fastify, which validates and coerces before the handler runs — one of the reasons Fastify was chosen (Decisions Log #2). The schema is the source of truth and the TypeScript type is inferred from it, so a route's declared contract and its handler's types cannot disagree. Shared request/response types live in `@qp/shared` and both halves import them; the frontend imports the same types, so the wire contract is checked at compile time on both ends without a codegen step.
 
 Schema validation covers shape. Domain validation — satisfiability, reachability, `closesAt` — is the handler's, because it needs the database.
+
+`defineRoute` (`packages/shared/src/api/route.ts`) is the one place every route's schema gains `4xx` and `5xx` responses of `ProblemDetails`, so error serialization is contractual for every route rather than opted into per handler. A route's `headers` schema is deliberately not marked `strict`: only the header a route actually names (such as `If-Match`) is constrained, so headers Fastify itself attaches are never rejected.
 
 ### 6.4 Caching
 

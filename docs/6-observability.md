@@ -97,7 +97,9 @@ export class Sensitive<T> {
 }
 ```
 
-Anything that accidentally serializes one — `JSON.stringify` in a log call, template interpolation, `console.log`, an error message, an OTel attribute — gets the redaction instead of the value. This inverts the problem: static analysis no longer has to recognise "any expression that might be an answer," it only has to find `.unwrap()` outside the persistence layer, which is a small and enumerable surface.
+Anything that accidentally serializes one — `JSON.stringify` in a log call, template interpolation, `console.log`, an error message, an OTel attribute — gets the redaction instead of the value. This inverts the problem: static analysis no longer has to recognise "any expression that might be an answer," it only has to find `.unwrap()` outside the persistence and validation layers, which is a small and enumerable surface.
+
+**Layer 0 also reaches the log message itself.** `log()`'s message parameter is typed so that only a string *literal* satisfies it: `string` and an interpolated template both widen to a type a literal cannot be distinguished from, so both are rejected by the same type-level check that makes an accidental `` `rejected ${reason}` `` a compile error rather than a review comment. Domain data has exactly one way in, the closed `context` object.
 
 **Layer 1 — a single telemetry boundary.** One module (`packages/telemetry`) is the only place in the codebase permitted to import `pino` or `@opentelemetry/api`. It exposes functions taking a **typed context object with a closed field set** — no `...rest`, no `Record<string, unknown>`, no `any`. Enforced by an ESLint `no-restricted-imports` rule with a path exception for that module: roughly three lines of config, and very hard to violate by accident.
 
@@ -137,11 +139,11 @@ Request telemetry tells us the API returned 200. It does not tell us that 40% of
 | `session.resumed` | Incomplete session reopened | + elapsed since last activity |
 | `session.question_answered` | Answer accepted | + question id, question type |
 | `session.answer_rejected` | Validation failure | + question id, reason (never the value) |
-| `session.item_skipped` | A visibility predicate evaluated false and hid an item | + question id, predicate id |
+| `session.item_skipped` | A visibility predicate evaluated false and hid an item | + question id |
 | `session.abandoned` | Inactivity threshold passed, or tab closed | + last question id |
 | `session.completed` | Submitted | + duration, question count |
 
-`session.abandoned` and `session.item_skipped` are the two that make the drop-off question answerable — the reason the design keeps a server-side session record at all ([[2-design-doc#8. Sessions & Responses]]).
+`session.abandoned` and `session.item_skipped` are the two that make the drop-off question answerable — the reason the design keeps a server-side session record at all ([[2-design-doc#8. Sessions & Responses]]). `session.item_skipped` carries no separate predicate id: predicates have no identity of their own, so the item they hid is what names which predicate fired ([[2-design-doc#17. Decisions Log]] #41).
 
 ## 5. Audit trail
 

@@ -1,12 +1,5 @@
 const REDACTED = "[redacted]";
 
-/**
- * A respondent answer value. Every way of turning it into text yields `[redacted]` — `JSON.stringify`,
- * template interpolation, `String()`, `console.log`, `util.inspect`, an OTel attribute — so an
- * accidental leak into a log, span or error message is structurally prevented rather than forbidden
- * ([[6-observability]] §3.1, Layer 0). `unwrap()` is the only way out, and belongs in persistence
- * and validation code only.
- */
 export class Sensitive<T> {
   readonly #value: T;
 
