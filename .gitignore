@@ -27,5 +27,8 @@ coverage/
 # Cowork output folder (delivered files, not project source)
 Claude outputs/
 
+# Local git worktrees used by concurrent agent sessions
+.claude/worktrees/
+
 # Seeded design canvases (regenerated from the .dc.html sources beside them)
 docs/designs/**/*-ui.html
