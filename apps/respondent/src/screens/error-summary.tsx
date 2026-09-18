@@ -1,5 +1,5 @@
 import { visibleItems, type ClientAnswers, type PublishedDefinition } from "@qp/shared";
-import { itemErrorMessage, type RenderedItemErrors } from "@qp/ui/questionnaire";
+import { itemErrorMessage, type ItemErrors } from "@qp/ui/questionnaire";
 import { useId, type Ref } from "react";
 
 export interface ErrorSummaryEntry {
@@ -8,7 +8,7 @@ export interface ErrorSummaryEntry {
   readonly message: string;
 }
 
-export function errorSummaryEntries(definition: PublishedDefinition, answers: ClientAnswers, errors: RenderedItemErrors): ErrorSummaryEntry[] {
+export function errorSummaryEntries(definition: PublishedDefinition, answers: ClientAnswers, errors: ItemErrors): ErrorSummaryEntry[] {
   return visibleItems(definition, answers).flatMap(({ itemId, question }) => {
     const message = itemErrorMessage(errors[itemId], question);
     return message === undefined ? [] : [{ itemId, prompt: question.prompt, message }];

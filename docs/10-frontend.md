@@ -66,7 +66,7 @@ The package holds two folders and one rule.
 <QuestionnaireForm
   definition={publishedDefinition}   // the immutable snapshot
   answers={answers}                  // current answer map
-  errors={errorsByItemId}            // SubmissionItemCode[] per itemId, no values echoed
+  errors={errorsByItemId}            // ItemErrors: the codes that reach a rendered item, per itemId, no values echoed
   onChange={(itemId, answer) => void}
   mode="interactive" | "readonly"
 />
@@ -229,7 +229,7 @@ The demo questionnaire collects medical conditions. Accessibility is treated the
 
 - A `<fieldset>` with a `<legend>` per choice group; a real `<label>` per control; `aria-invalid` and `aria-describedby` pointing at the error node.
 - **An `aria-live="polite"` region announcing visibility changes.** This is the gap the single-page model creates: answering *yes* makes two questions appear, and without an announcement a screen-reader user is told nothing at all. Announce what was added or removed.
-- Focus moved to the first invalid item on a rejected submit, and the error summary reachable rather than merely visible.
+- Focus moved to the first invalid item on a rejected submit, and the error summary reachable rather than merely visible. Every item's rendered wrapper carries a `data-item-id` attribute equal to its `itemId`: this is the one contract for locating an item's control from outside the renderer, used by `focusItem` in `packages/ui/src/questionnaire` and by the end-to-end specs, so neither keeps its own way of finding an item in the DOM.
 - Native `<input type="date">` rather than a custom date widget — accessible, free, and internationalised by the platform.
 
 **What is tested.** [[8-testing#2.4 End-to-end — Playwright against the composed stack]] already queries by role and label, which makes the labelling a tested property. Added to that: an `@axe-core/playwright` check on the respondent form and the draft editor. This narrows the deferral in [[8-testing#9. Open questions]] §4 from "not graded, so deferred" to a committed minimum, on the grounds that the domain argues for it even where the rubric does not.

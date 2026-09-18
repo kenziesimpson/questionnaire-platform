@@ -1,13 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import { SUBMISSION_ITEM_CODES, type Item } from "@qp/shared";
 import { describe, expect, it } from "vitest";
+import { itemErrorMessage, QuestionnaireItems } from "../../src/questionnaire";
 import {
   CODES_WITHOUT_A_RENDERED_ITEM,
   ITEM_ERROR_MESSAGES,
-  itemErrorMessage,
-  QuestionnaireItems,
   type RenderedItemErrorCode,
-} from "../../src/questionnaire";
+} from "../../src/questionnaire/messages";
 import { aDateItem, aNumberItem, aSymptomsItem, aTextItem, rendererProps, whichCondition } from "../fixtures";
 
 describe("the item error catalogue", () => {

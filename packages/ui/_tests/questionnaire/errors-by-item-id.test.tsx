@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { problem, problemType, SUBMISSION_ITEM_CODES, type ProblemDetailsWire } from "@qp/shared";
 import { describe, expect, it } from "vitest";
-import { CODES_WITHOUT_A_RENDERED_ITEM, errorsByItemId, QuestionnaireItems } from "../../src/questionnaire";
+import { errorsByItemId, QuestionnaireItems } from "../../src/questionnaire";
+import { CODES_WITHOUT_A_RENDERED_ITEM } from "../../src/questionnaire/messages";
 import { answeredYes, rendererProps } from "../fixtures";
 
 const wireRejection: ProblemDetailsWire = {
@@ -50,6 +51,21 @@ describe("errorsByItemId", () => {
     const expected = SUBMISSION_ITEM_CODES.filter((code) => !(CODES_WITHOUT_A_RENDERED_ITEM as readonly string[]).includes(code));
 
     expect(errorsByItemId(problem("submission/invalid", { items }))).toEqual({ itm_01: expected });
+  });
+
+  it("drops a draft-only item code that is not in the submission catalogue, even carried on a submission/invalid wire body", () => {
+    const body: ProblemDetailsWire = {
+      type: problemType("submission/invalid"),
+      title: "The submission failed validation",
+      status: 422,
+      instance: "/api/run/sessions/01a0951b/submit",
+      items: [
+        { itemId: "itm_01", code: "predicate/forward-reference" },
+        { itemId: "itm_02", code: "answer/required" },
+      ],
+    };
+
+    expect(errorsByItemId(body)).toEqual({ itm_02: ["answer/required"] });
   });
 
   it("yields no errors for a problem that is not a submission rejection", () => {

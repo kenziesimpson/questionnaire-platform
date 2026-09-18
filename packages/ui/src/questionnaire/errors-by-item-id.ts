@@ -1,18 +1,10 @@
-import { problemSlug, SUBMISSION_ITEM_CODES, type Problem, type ProblemDetailsWire } from "@qp/shared";
-import { CODES_WITHOUT_A_RENDERED_ITEM, type RenderedItemErrorCode } from "./messages";
+import { problemSlug, type Problem, type ProblemDetailsWire } from "@qp/shared";
+import { isRenderedItemErrorCode, type RenderedItemErrorCode } from "./messages";
+import type { ItemErrors } from "./types";
 
 export type ProblemBody = Problem | ProblemDetailsWire;
 
-export type RenderedItemErrors = Readonly<Partial<Record<string, readonly RenderedItemErrorCode[]>>>;
-
-const renderedItemErrorCodes = new Set<string>(SUBMISSION_ITEM_CODES);
-for (const code of CODES_WITHOUT_A_RENDERED_ITEM) renderedItemErrorCodes.delete(code);
-
-function isRenderedItemErrorCode(code: string): code is RenderedItemErrorCode {
-  return renderedItemErrorCodes.has(code);
-}
-
-export function errorsByItemId(body: ProblemBody): RenderedItemErrors {
+export function errorsByItemId(body: ProblemBody): ItemErrors {
   if (problemSlug(body.type) !== "submission/invalid" || !("items" in body)) return {};
   const grouped = new Map<string, RenderedItemErrorCode[]>();
   for (const { itemId, code } of body.items ?? []) {

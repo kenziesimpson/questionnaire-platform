@@ -5,7 +5,7 @@ import { ChoiceFieldset, useFieldIds } from "../field";
 import type { ControlProps } from "../types";
 import { OtherTextInput, useRetainedOtherText } from "./other-text-input";
 
-export function multipleChoiceAnswer(
+function multipleChoiceAnswer(
   question: QuestionOf<"multiple_choice">,
   selected: ReadonlySet<string>,
   otherText: string | undefined,

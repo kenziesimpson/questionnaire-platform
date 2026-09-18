@@ -1,24 +1,10 @@
-import { freeformOptionOf, type ClientAnswerValueOf, type Option } from "@qp/shared";
-import { useFieldIds, type FieldIds } from "../field";
+import { freeformOptionOf, type ClientAnswerValueOf } from "@qp/shared";
+import { useFieldIds } from "../field";
 import type { ControlProps } from "../types";
 import { useRetainedOtherText } from "./other-text-input";
-import { RadioChoiceView } from "./radio-choice-view";
+import { RadioChoiceView, type SingleChoiceViewProps } from "./radio-choice-view";
 
-export interface SingleChoiceViewProps {
-  ids: FieldIds;
-  prompt: string;
-  required: boolean;
-  error: string | undefined;
-  options: readonly Option[];
-  otherOptionId: string | undefined;
-  selectedOptionId: string | null;
-  otherText: string;
-  readOnly: boolean;
-  onSelect: (optionId: string) => void;
-  onOtherTextChange: (optionId: string, text: string) => void;
-}
-
-export function singleChoiceAnswer(optionId: string, otherText?: string): ClientAnswerValueOf<"single_choice"> {
+function singleChoiceAnswer(optionId: string, otherText?: string): ClientAnswerValueOf<"single_choice"> {
   return otherText ? { type: "single_choice", optionId, otherText } : { type: "single_choice", optionId };
 }
 

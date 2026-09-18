@@ -314,6 +314,21 @@ const theTestSupportPackage = { group: ["@qp/ui/testing", "@qp/ui/testing/*"], m
 
 const theTestSupportDirectory = { regex: "^(\\.{1,2}/+)+([^/]+/+)*testing(/|$)", message: testSupportMessage };
 
+const uiEntryPoints = ["questionnaire", "testing"];
+
+const uiInternalsMessage =
+  "Apps reach @qp/ui only through the entry points packages/ui/package.json declares in its exports map. A relative path into packages/ui/src, or a bare import deeper than a single-file entry such as ./questionnaire, reaches past what the package exports.";
+
+const uiInternalsByRelativePath = {
+  regex: `(^|/)packages${pathGap}ui${pathGap}src(/|$)`,
+  message: uiInternalsMessage,
+};
+
+const uiInternalsPastASingleFileEntry = {
+  regex: `^@qp/ui/(${uiEntryPoints.join("|")})/.+`,
+  message: uiInternalsMessage,
+};
+
 const e2eFilesThatMustDefaultExport = [
   "e2e/**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}",
   "e2e/stack/global-setup.ts",
@@ -406,14 +421,14 @@ export default tseslint.config(
     files: reactWorkspaces,
   },
   {
-    name: "library split by app: admin",
+    name: "library split by app: admin, alongside L12",
     files: ["apps/admin/**"],
-    rules: { "no-restricted-imports": restrictOutside("apps/admin") },
+    rules: { "no-restricted-imports": restrictOutside("apps/admin", uiInternalsByRelativePath, uiInternalsPastASingleFileEntry) },
   },
   {
-    name: "library split by app: respondent",
+    name: "library split by app: respondent, alongside L12",
     files: ["apps/respondent/**"],
-    rules: { "no-restricted-imports": restrictOutside("apps/respondent") },
+    rules: { "no-restricted-imports": restrictOutside("apps/respondent", uiInternalsByRelativePath, uiInternalsPastASingleFileEntry) },
   },
   {
     name: "library split by app: the shared primitives",
@@ -550,14 +565,23 @@ export default tseslint.config(
     rules: { "no-restricted-imports": restrict(anotherDirectorysHarness) },
   },
   {
-    name: "L11: harness imports in admin's tests, alongside its library split",
+    name: "L11 and L12: harness imports in admin's tests, alongside its library split",
     files: ["apps/admin/_tests/**"],
-    rules: { "no-restricted-imports": restrictOutside("apps/admin", anotherDirectorysHarness) },
+    rules: {
+      "no-restricted-imports": restrictOutside("apps/admin", anotherDirectorysHarness, uiInternalsByRelativePath, uiInternalsPastASingleFileEntry),
+    },
   },
   {
-    name: "L11: harness imports in the respondent's tests, alongside its library split",
+    name: "L11 and L12: harness imports in the respondent's tests, alongside its library split",
     files: ["apps/respondent/_tests/**"],
-    rules: { "no-restricted-imports": restrictOutside("apps/respondent", anotherDirectorysHarness) },
+    rules: {
+      "no-restricted-imports": restrictOutside(
+        "apps/respondent",
+        anotherDirectorysHarness,
+        uiInternalsByRelativePath,
+        uiInternalsPastASingleFileEntry,
+      ),
+    },
   },
   {
     name: "L11: harness imports in backend tests, alongside the openDatabase restriction",
