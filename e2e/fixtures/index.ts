@@ -38,7 +38,6 @@ export {
   DEMO_V2,
   demoItem,
   publishDemoHypertensionRelabel,
-  questionInputOf,
   type DemoDescription,
   type DemoOptionId,
   type DemoQuestionRole,

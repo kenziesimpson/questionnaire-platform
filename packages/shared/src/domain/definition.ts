@@ -1,8 +1,7 @@
 import Type, { type Static } from "typebox";
-import { IsoDateTime, NonNegativeInt, PositiveInt, Slug, Uuid } from "../primitives.js";
+import { IsoDateTime, NonNegativeInt, PositiveInt, Slug, Uuid, strict } from "../primitives.js";
 import { Predicate } from "./condition.js";
 import { QuestionContent } from "./question.js";
-import { strict } from "./utils.js";
 
 /**
  * The snapshot format this code writes. Stored snapshots are never rewritten; older formats are

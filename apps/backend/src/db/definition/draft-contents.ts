@@ -1,4 +1,4 @@
-import type { DraftForValidation, DraftItem, DraftItemCode, Item, ItemError, QuestionVersion } from "@qp/shared";
+import type { DraftItem, DraftItemCode, Item, ItemError, QuestionVersion } from "@qp/shared";
 import { and, inArray, isNotNull } from "drizzle-orm";
 import type { Executor } from "../client.js";
 import { question } from "../schema.js";
@@ -64,17 +64,4 @@ export async function archivedQuestionIds(executor: Executor, questionIds: reado
     .from(question)
     .where(and(inArray(question.id, distinct), isNotNull(question.archivedAt)));
   return new Set(archived.map((row) => row.id));
-}
-
-export function draftForValidation(items: readonly Item[]): DraftForValidation {
-  return {
-    items: items.map((item) => ({
-      itemId: item.itemId,
-      required: item.required,
-      visibleWhen: item.visibleWhen,
-      questionId: item.question.questionId,
-      questionVersion: item.question.questionVersion,
-    })),
-    questions: items.map((item) => item.question),
-  };
 }

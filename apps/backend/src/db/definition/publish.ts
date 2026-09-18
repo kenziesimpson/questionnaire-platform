@@ -1,11 +1,11 @@
-import { FORMAT_VERSION, PublishedDefinition, validateDraft, type VersionSummary } from "@qp/shared";
+import { FORMAT_VERSION, PublishedDefinition, draftForValidation, validateDraft, type VersionSummary } from "@qp/shared";
 import { eq, max, sql } from "drizzle-orm";
 import { Value } from "typebox/value";
 import { recordAudit } from "../audit.js";
 import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
 import type { Executor, Transaction } from "../client.js";
 import { questionnaireVersion } from "../schema.js";
-import { draftForValidation, itemsWithQuestionContent, readDraftContents, type DraftInvalidItem } from "./draft-contents.js";
+import { itemsWithQuestionContent, readDraftContents, type DraftInvalidItem } from "./draft-contents.js";
 import { lockOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
 import { readBack } from "./read-back.js";
 import { readVersionSummary } from "./versions.js";

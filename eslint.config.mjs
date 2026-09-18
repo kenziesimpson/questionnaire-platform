@@ -119,11 +119,48 @@ const routePathLiteral = {
     "Route paths are filled in by routePath in packages/shared/src/api/request.ts, which is the one place that knows the `:param` syntax. Import it instead of matching `:param` with a regex.",
 };
 
-const syntaxAllowingDefaultExport = (...selectors) => ["warn", ...doubleAssertions, routePathLiteral, ...selectors];
+const unnamedReExport = {
+  selector: "ExportAllDeclaration[exported=null]",
+  message:
+    "`export *` re-exports whatever the other module happens to export, so an entry point's API grows without anyone naming it. List the names; `export * as namespace` is fine, because it adds one named export.",
+};
+
+const sharedVocabularyNames = [
+  "QuestionOf",
+  "strict",
+  "OTHER_OPTION_ID",
+  "optionIdsOf",
+  "freeformOptionOf",
+  "conditionsOf",
+  "referencedOptionIds",
+  "OPERATORS_BY_TYPE",
+  "isChoiceQuestion",
+  "draftItemOf",
+  "draftForValidation",
+  "questionInputOf",
+];
+
+const sharedVocabulary = ["TSTypeAliasDeclaration", "VariableDeclarator", "FunctionDeclaration"].map((declaration) => ({
+  selector: `${declaration}[id.name=/^(${sharedVocabularyNames.join("|")})$/]`,
+  message:
+    "This name is shared vocabulary, declared once in packages/shared/src/domain or packages/shared/src/primitives.ts. Import it from @qp/shared; a local copy drifts, as the three definitions of the \"other\" option did ([[2-design-doc#17. Decisions Log]] #82).",
+}));
+
+const syntaxOutsideTheRoutePathHelper = [...doubleAssertions, routePathLiteral, unnamedReExport];
+
+const syntaxDeclaringTheSharedVocabulary = (...selectors) => ["warn", ...syntaxOutsideTheRoutePathHelper, noDefaultExport, ...selectors];
+
+const syntaxAllowingDefaultExport = (...selectors) => ["warn", ...syntaxOutsideTheRoutePathHelper, ...sharedVocabulary, ...selectors];
 
 const syntax = (...selectors) => syntaxAllowingDefaultExport(noDefaultExport, ...selectors);
 
-const syntaxInsideTheRoutePathHelper = (...selectors) => ["warn", ...doubleAssertions, noDefaultExport, ...selectors];
+const syntaxInsideTheRoutePathHelper = (...selectors) => [
+  "warn",
+  ...syntaxOutsideTheRoutePathHelper.filter((selector) => selector !== routePathLiteral),
+  noDefaultExport,
+  ...sharedVocabulary,
+  ...selectors,
+];
 
 const problemParsingMessage =
   "Problem bodies are read off the wire by problemFromWire in packages/shared/src/problems.ts, which owns the code guards and the unknown-code policy. Parse through it and keep only this consumer's policy here.";
@@ -394,5 +431,16 @@ export default tseslint.config(
     name: "L6: routePath owns the :param syntax",
     files: [theRoutePathHelper],
     rules: { "no-restricted-syntax": syntaxInsideTheRoutePathHelper(...problemParsing, notFoundProblem) },
+  },
+  {
+    name: "L9: the shared vocabulary's own declarations",
+    files: ["packages/shared/src/primitives.ts", "packages/shared/src/domain/**"],
+    rules: { "no-restricted-syntax": syntaxDeclaringTheSharedVocabulary(...problemParsing, notFoundProblem) },
+  },
+  {
+    name: "L15: no explicit any",
+    files: everyFile,
+    plugins: { "@typescript-eslint": tseslint.plugin },
+    rules: { "@typescript-eslint/no-explicit-any": "error" },
   },
 );

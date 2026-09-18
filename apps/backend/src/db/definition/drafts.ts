@@ -1,4 +1,4 @@
-import { validateDraft, type DraftItem, type DraftValidation, type QuestionnaireDraft } from "@qp/shared";
+import { draftForValidation, validateDraft, type DraftItem, type DraftValidation, type QuestionnaireDraft } from "@qp/shared";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import { desc, eq, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
@@ -8,7 +8,6 @@ import type { Database, Executor, Transaction } from "../client.js";
 import { questionnaireItem, questionnaireVersion } from "../schema.js";
 import {
   archivedQuestionIds,
-  draftForValidation,
   itemsWithQuestionContent,
   pinnedQuestionVersionsInPlacementOrder,
   readDraftContents,

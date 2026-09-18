@@ -1,10 +1,8 @@
-import { ClientAnswerValue, IsoDateTime, SLUG_PATTERN, Uuid, type ClientAnswers } from "@qp/shared";
+import { ClientAnswerValue, IsoDateTime, SLUG_PATTERN, Uuid, strict, type ClientAnswers } from "@qp/shared";
 import Type, { type Static } from "typebox";
 import { Value } from "typebox/value";
 
 export const PARTIALS_FORMAT_VERSION = 1;
-
-const strict = { additionalProperties: false } as const;
 
 export const StoredPartialsEnvelope = Type.Object(
   {

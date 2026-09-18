@@ -1,4 +1,4 @@
-import type { ClientAnswerValueOf, Option } from "@qp/shared";
+import { freeformOptionOf, type ClientAnswerValueOf, type Option } from "@qp/shared";
 import { useFieldIds, type FieldIds } from "../field";
 import type { ControlProps } from "../types";
 import { useRetainedOtherText } from "./other-text-input";
@@ -10,6 +10,7 @@ export interface SingleChoiceViewProps {
   required: boolean;
   error: string | undefined;
   options: readonly Option[];
+  otherOptionId: string | undefined;
   selectedOptionId: string | null;
   otherText: string;
   readOnly: boolean;
@@ -25,8 +26,8 @@ export function SingleChoiceControl({ item, answer, error, mode, onChange }: Con
   const ids = useFieldIds();
   const { question } = item;
   const readOnly = mode === "readonly";
-  const freeformIds = new Set(question.options.filter((option) => option.freeform).map((option) => option.optionId));
-  const otherSelected = answer !== undefined && freeformIds.has(answer.optionId);
+  const otherOptionId = freeformOptionOf(question)?.optionId;
+  const otherSelected = answer !== undefined && answer.optionId === otherOptionId;
   const otherText = useRetainedOtherText(otherSelected, answer?.otherText);
   const view: SingleChoiceViewProps = {
     ids,
@@ -34,12 +35,13 @@ export function SingleChoiceControl({ item, answer, error, mode, onChange }: Con
     required: item.required,
     error,
     options: question.options,
+    otherOptionId,
     selectedOptionId: answer?.optionId ?? null,
     otherText,
     readOnly,
     onSelect: (optionId) => {
       if (readOnly || optionId === answer?.optionId) return;
-      onChange(item.itemId, singleChoiceAnswer(optionId, freeformIds.has(optionId) ? otherText : undefined));
+      onChange(item.itemId, singleChoiceAnswer(optionId, optionId === otherOptionId ? otherText : undefined));
     },
     onOtherTextChange: (optionId, text) => {
       if (!readOnly) onChange(item.itemId, singleChoiceAnswer(optionId, text));

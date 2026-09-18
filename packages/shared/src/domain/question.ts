@@ -1,6 +1,5 @@
 import Type, { type Static, type TProperties } from "typebox";
-import { IsoDate, IsoDateTime, NonNegativeInt, PositiveInt, Slug, Uuid } from "../primitives.js";
-import { strict } from "./utils.js";
+import { IsoDate, IsoDateTime, NonNegativeInt, PositiveInt, Slug, Uuid, strict } from "../primitives.js";
 
 /**
  * Five response types. There is no `yes_no`: a yes/no question is a `single_choice` created by an
@@ -91,6 +90,33 @@ export type QuestionInput = Static<typeof QuestionInput>;
 /** A question as embedded in a published snapshot: one immutable question version, inline. */
 export const QuestionContent = questionUnion({ questionId: Uuid, questionVersion: PositiveInt });
 export type QuestionContent = Static<typeof QuestionContent>;
+
+export type QuestionOf<T extends ResponseType> = Extract<QuestionContent, { type: T }>;
+
+export const OTHER_OPTION_ID = "other";
+
+type ChoiceType = "single_choice" | "multiple_choice";
+
+export function isChoiceQuestion<Q extends { type: ResponseType }>(question: Q): question is Q & { type: ChoiceType } {
+  return question.type === "single_choice" || question.type === "multiple_choice";
+}
+
+function isFreeformOther(option: Option): boolean {
+  return option.optionId === OTHER_OPTION_ID && option.freeform === true;
+}
+
+export function optionIdsOf(question: QuestionInput): string[] {
+  return isChoiceQuestion(question) ? question.options.map((option) => option.optionId) : [];
+}
+
+export function freeformOptionOf(question: QuestionInput): Option | undefined {
+  return isChoiceQuestion(question) ? question.options.find(isFreeformOther) : undefined;
+}
+
+export function questionInputOf(content: QuestionContent): QuestionInput {
+  const { questionId: _questionId, questionVersion: _questionVersion, ...input } = content;
+  return input;
+}
 
 /** One append-only `question_version` row as the bank serves it (Decisions Log #13). */
 export const QuestionVersion = questionUnion({

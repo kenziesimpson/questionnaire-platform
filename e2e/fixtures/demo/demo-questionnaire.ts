@@ -1,40 +1,30 @@
+import { isChoiceQuestion, questionInputOf, type Item, type PublishedDefinition, type Question } from "@qp/shared";
 import {
+  INTAKE_ITEM_IDS,
+  INTAKE_OPTION_IDS,
   INTAKE_QUESTION_IDS,
+  INTAKE_QUESTION_ROLES,
   INTAKE_QUESTIONNAIRE_ID,
   intakeDefinition,
+  type IntakeOptionId,
+  type IntakeQuestionRole,
   type IntakeVersion,
-  type Item,
-  type PublishedDefinition,
-  type Question,
-  type QuestionContent,
-  type QuestionInput,
-} from "@qp/shared";
+} from "@qp/shared/demo";
 import { uniqueName, type DefinitionApi, type Placement, type PublishedQuestionnaire } from "../api/definition-api.ts";
 
 export const DEMO_QUESTIONNAIRE_ID = INTAKE_QUESTIONNAIRE_ID;
 
 export const DEMO_SEEDED_QUESTION_IDS = INTAKE_QUESTION_IDS;
 
-export const DEMO_ITEM_IDS = {
-  hasCondition: "itm_01",
-  whichCondition: "itm_02",
-  diagnosedOn: "itm_03",
-  pharmacy: "itm_04",
-} as const;
+export const DEMO_ITEM_IDS = INTAKE_ITEM_IDS;
 
-export type DemoQuestionRole = keyof typeof DEMO_ITEM_IDS;
+export type DemoQuestionRole = IntakeQuestionRole;
 
-export const DEMO_QUESTION_ROLES: readonly DemoQuestionRole[] = ["hasCondition", "whichCondition", "diagnosedOn", "pharmacy"];
+export const DEMO_QUESTION_ROLES = INTAKE_QUESTION_ROLES;
 
-export const DEMO_OPTION_IDS = {
-  yes: "yes",
-  no: "no",
-  diabetes: "opt_diabetes",
-  hypertension: "opt_hyperten",
-  other: "other",
-} as const;
+export const DEMO_OPTION_IDS = INTAKE_OPTION_IDS;
 
-export type DemoOptionId = (typeof DEMO_OPTION_IDS)[keyof typeof DEMO_OPTION_IDS];
+export type DemoOptionId = IntakeOptionId;
 
 export interface DemoDescription {
   readonly questionnaireId: string;
@@ -53,7 +43,7 @@ export function demoItem(definition: PublishedDefinition, role: DemoQuestionRole
 
 function optionLabelIn(definition: PublishedDefinition, optionId: DemoOptionId): string {
   for (const item of definition.items) {
-    if (item.question.type !== "single_choice" && item.question.type !== "multiple_choice") continue;
+    if (!isChoiceQuestion(item.question)) continue;
     const option = item.question.options.find((candidate) => candidate.optionId === optionId);
     if (option !== undefined) return option.label;
   }
@@ -81,11 +71,6 @@ function describeDemo(version: IntakeVersion): DemoDescription {
 export const DEMO_V1 = describeDemo(1);
 
 export const DEMO_V2 = describeDemo(2);
-
-export function questionInputOf(content: QuestionContent): QuestionInput {
-  const { questionId: _questionId, questionVersion: _questionVersion, ...input } = content;
-  return input;
-}
 
 export interface DemoShapedQuestionnaire extends PublishedQuestionnaire {
   readonly questionnaireId: string;

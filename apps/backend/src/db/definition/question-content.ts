@@ -1,4 +1,11 @@
-import type { Option, QuestionContent, QuestionInput, QuestionVersion, ResponseType } from "@qp/shared";
+import {
+  isChoiceQuestion,
+  type Option,
+  type QuestionContent,
+  type QuestionInput,
+  type QuestionVersion,
+  type ResponseType,
+} from "@qp/shared";
 
 export interface QuestionVersionColumns {
   readonly type: ResponseType;
@@ -8,7 +15,7 @@ export interface QuestionVersionColumns {
 }
 
 export function questionInputToColumns(input: QuestionInput): QuestionVersionColumns {
-  if (input.type === "single_choice" || input.type === "multiple_choice") {
+  if (isChoiceQuestion(input)) {
     const { type, prompt, options, ...constraints } = input;
     return { type, prompt, constraints, options };
   }
@@ -47,8 +54,7 @@ export function storedQuestionToContent(
     type: stored.type,
     prompt: stored.prompt,
   };
-  const hasOptions = stored.type === "single_choice" || stored.type === "multiple_choice";
-  return (hasOptions ? { ...head, options: optionsInPosition.map(toOption) } : head) as QuestionContent;
+  return (isChoiceQuestion(stored) ? { ...head, options: optionsInPosition.map(toOption) } : head) as QuestionContent;
 }
 
 export interface StoredQuestionVersionRow extends StoredQuestionVersion {

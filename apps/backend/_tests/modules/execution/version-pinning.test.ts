@@ -1,4 +1,5 @@
-import { INTAKE_QUESTION_IDS, intakeDefinition, problemType, type PublishedDefinition } from "@qp/shared";
+import { problemType, type PublishedDefinition } from "@qp/shared";
+import { INTAKE_QUESTION_IDS, intakeDefinition } from "@qp/shared/demo";
 import { describe, expect, it } from "vitest";
 import {
   answersYes,

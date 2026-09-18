@@ -26,3 +26,4 @@ export const DecimalString = Type.String({ pattern: DECIMAL_PATTERN });
 
 export const PositiveInt = Type.Integer({ minimum: 1 });
 export const NonNegativeInt = Type.Integer({ minimum: 0 });
+export const strict = { additionalProperties: false } as const;

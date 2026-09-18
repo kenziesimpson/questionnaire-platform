@@ -1,6 +1,5 @@
 import Type, { type Static } from "typebox";
-import { DecimalString, IsoDate, PositiveInt, SLUG_PATTERN, Slug, Uuid } from "../primitives.js";
-import { strict } from "./utils.js";
+import { DecimalString, IsoDate, PositiveInt, SLUG_PATTERN, Slug, Uuid, strict } from "../primitives.js";
 
 const ClientOtherText = Type.Optional(Type.String());
 const StoredOtherText = Type.Optional(Type.String({ minLength: 1 }));

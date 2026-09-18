@@ -56,6 +56,8 @@ A stored answer is `{ value, unit }`, not a bare number. A later version that sw
 
 A choice question may mark a trailing option as freeform. The answer then has two parts — the selected option ids (one being `other`) and an `otherText` string — so the stored shape for every choice question carries an optional `otherText`, validated with the same length rules as a `text` question.
 
+The other option is the option whose id is `other` **and** that is freeform. An option with id `other` that is not freeform is an ordinary option: no text box, no `otherText`. The validator, the renderer and the admin editor all read it through `freeformOptionOf` in `@qp/shared` ([[2-design-doc#17. Decisions Log]] #82).
+
 **Rules may test whether `other` was selected; they may not match against the text.** Kept deliberately simple: text matching in rules is fragile and there is no version-stable identity to match on. If `otherText` ever needs to drive a branch, the likely shape is a promotion workflow — an admin converts a recurring freeform answer into a real option in the next version — rather than string matching in the rule engine. Noted as a possible future change, not a current limitation to design around.
 
 ### 2.4 Relative date constraints resolve against two different clocks

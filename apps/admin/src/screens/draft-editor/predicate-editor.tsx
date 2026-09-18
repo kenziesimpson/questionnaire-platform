@@ -1,4 +1,15 @@
-import type { Condition, ConditionOf, DraftItem, Option, Predicate, QuestionVersion, QuestionnaireDraft } from "@qp/shared";
+import {
+  OPERATORS_BY_TYPE,
+  conditionsOf,
+  isChoiceQuestion,
+  type Condition,
+  type ConditionOf,
+  type DraftItem,
+  type Option,
+  type Predicate,
+  type QuestionVersion,
+  type QuestionnaireDraft,
+} from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { Input } from "@qp/ui/primitives/input";
@@ -11,12 +22,10 @@ import {
   defaultConditionFor,
   earlierItemsThan,
   isComplete,
-  operatorsFor,
   referenceOf,
   withOperator,
   type Operator,
 } from "./conditions";
-import { conditionsOf } from "./draft-changes";
 import { NativeSelect } from "./native-select";
 
 interface PredicateEditorProps {
@@ -29,9 +38,9 @@ interface PredicateEditorProps {
 
 type Combinator = "all" | "any";
 
-function predicateOf(combinator: Combinator, conditions: Condition[]): Predicate | null {
+function predicateOf(combinator: Combinator, conditions: readonly Condition[]): Predicate | null {
   if (conditions.length === 0) return null;
-  return combinator === "all" ? { all: conditions } : { any: conditions };
+  return combinator === "all" ? { all: [...conditions] } : { any: [...conditions] };
 }
 
 function promptLabel(position: number, prompt: string) {
@@ -165,6 +174,7 @@ function ConditionRow({ number, draft, dependant, saved, onCommit, onRemove }: C
   const reference = referenceOf(draft, dependant.itemId, condition);
   const earlier = earlierItemsThan(draft, dependant.itemId);
   const incomplete = !isComplete(condition);
+  const operators: readonly Operator[] = OPERATORS_BY_TYPE[condition.type];
 
   const update = (next: Condition) => {
     if (!isComplete(next)) {
@@ -221,11 +231,11 @@ function ConditionRow({ number, draft, dependant, saved, onCommit, onRemove }: C
           className="w-full"
           value={condition.op}
           onChange={(event) => {
-            const op = operatorsFor(condition.type).find((candidate) => candidate === event.target.value);
+            const op = operators.find((candidate) => candidate === event.target.value);
             if (op !== undefined) update(withOperator(condition, op));
           }}
         >
-          {operatorsFor(condition.type).map((op: Operator) => (
+          {operators.map((op) => (
             <option key={op} value={op}>
               {OPERATOR_LABELS[op]}
             </option>
@@ -284,7 +294,7 @@ function Operand({ number, condition, question, describedBy, onChange }: Operand
         <ChoiceOperand
           label={label}
           condition={condition}
-          options={"options" in question ? question.options : []}
+          options={isChoiceQuestion(question) ? question.options : []}
           onChange={onChange}
         />
       );

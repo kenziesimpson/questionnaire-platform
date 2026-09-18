@@ -2,7 +2,6 @@ import { generateUnusedId, randomSuffix } from "../../components/generated-id";
 
 export const YES_OPTION_ID = "yes";
 export const NO_OPTION_ID = "no";
-export const OTHER_OPTION_ID = "other";
 
 const GENERATED_PREFIX = "opt_";
 

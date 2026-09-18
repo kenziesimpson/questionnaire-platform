@@ -1,4 +1,5 @@
-import { INTAKE_QUESTIONNAIRE_ID, problem, type ClientAnswers, type ItemError, type SubmissionItemCode } from "@qp/shared";
+import { problem, type ClientAnswers, type ItemError, type SubmissionItemCode } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";

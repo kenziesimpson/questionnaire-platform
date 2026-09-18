@@ -158,4 +158,13 @@ describe("multiple choice readonly and error state", () => {
     expect(group).toHaveAttribute("aria-invalid", "true");
     expect(group).toHaveAccessibleDescription("Choose no more than 2 options.");
   });
+
+  it("renders no text box for a freeform option whose id is not the other id (Decisions Log #82)", () => {
+    const item = aSymptomsItem();
+    if (item.question.type !== "multiple_choice") throw new Error("the symptoms fixture is no longer a multiple choice question");
+    const options = item.question.options.map((option) => (option.freeform ? { ...option, optionId: "opt_else" } : option));
+    render(<QuestionnaireItems visibleItems={[{ ...item, question: { ...item.question, options } }]} {...rendererProps()} />);
+    expect(screen.getByRole("checkbox", { name: "Other" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
 });

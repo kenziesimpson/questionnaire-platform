@@ -15,11 +15,12 @@ The intake questionnaire (`qnr_intake`, "Patient Intake") and the four questions
 | `qst_diagnosed_on` | 1 | 1 |
 | `qst_pharmacy` | 1 | 1 |
 
-The v1 snapshot is not written here. It comes from `intakeDefinition(1)` in
-[`packages/shared/src/demo/intake.ts`](../../../../../packages/shared/src/demo/intake.ts), the one demo definition
-the seed and the test fixtures share ([`docs/8-testing.md`](../../../../../docs/8-testing.md) §6). Each item's
-pinned question content becomes that question's bank version, and the seed fails if a saved version number
-differs from the pin.
+Nothing about the demo is written here. The v1 snapshot comes from `intakeDefinition(1)`, and the question keys,
+the questionnaire key and the earlier bank versions from `INTAKE_QUESTION_KEYS`, `INTAKE_QUESTIONNAIRE_KEY` and
+`INTAKE_EARLIER_REVISIONS`, all in [`packages/shared/src/demo/intake.ts`](../../../../../packages/shared/src/demo/intake.ts)
+(`@qp/shared/demo`), the one demo definition the seed and the test fixtures share
+([`docs/8-testing.md`](../../../../../docs/8-testing.md) §6). Each item's pinned question content becomes that
+question's latest bank version, and the seed fails if a saved version number differs from the pin.
 
 `qst_which_condition` versions 1 and 2 are **placeholder content**. The docs say only that the question was
 "revised twice" before v1 placed version 3 ([`docs/5-questionnaire-format.md`](../../../../../docs/5-questionnaire-format.md) §3).

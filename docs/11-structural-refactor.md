@@ -43,8 +43,8 @@ Two PRs can run at the same time when the files they own don't overlap. The wave
 | --- | --- | --- |
 | 0 | PR 0 (lint harness), PR 0b (the four rules PR 0 left unowned), PR 17 (compose), PR 20 (ownership table) | nothing |
 | 1 | PR 1 (request helpers, problem parser), PR 3 (`db/execution`), PR 13 (tsconfig presets) | PR 0 |
-| 2 | PR 2 (shared vocabulary, test support), PR 4b (route cleanup), PR 15 (root scripts) | PR 1 and PR 3 |
-| 3 | PR 4 (database cleanup), PR 5 → PR 6 (admin), PR 7 → PR 8 → PR 8b (respondent), PR 9 (primitives), PR 10 (questionnaire index), PR 16 (e2e), PR 18 (comments) | PR 2 |
+| 2 | PR 2a (shared vocabulary), PR 2b (test support), PR 4b (route cleanup), PR 15 (root scripts) | PR 1 and PR 3 |
+| 3 | PR 4 (database cleanup), PR 5 → PR 6 (admin), PR 7 → PR 8 → PR 8b (respondent), PR 9 (primitives), PR 10 (questionnaire index), PR 16 (e2e), PR 18 (comments) | PR 2a and PR 2b |
 | 4 | PR 11 (icons), PR 12 (preview panel) | PR 5, PR 6, PR 8b, PR 10 |
 | 5 | PR 14 (import extensions), then PR 19 (`AGENTS.md`) | everything above; PR 14 runs alone |
 | 6 | PR 21 (`noUncheckedIndexedAccess`) | everything |
@@ -54,9 +54,9 @@ Wave 3 is the widest: up to eight branches at once (PR 4, PR 5, PR 6, one respon
 ```mermaid
 graph LR
   PR0 --> PR1 & PR3 & PR13
-  PR1 --> PR2 & PR4b & PR15
-  PR3 --> PR2 & PR4b
-  PR2 --> PR4 & PR5 & PR7 & PR9 & PR10 & PR16 & PR18
+  PR1 --> PR2a & PR2b & PR4b & PR15
+  PR3 --> PR2a & PR2b & PR4b
+  PR2a & PR2b --> PR4 & PR5 & PR7 & PR9 & PR10 & PR16 & PR18
   PR4b -. merges before .-> PR4
   PR5 -- first commit --> PR6
   PR7 --> PR8 --> PR8b
@@ -138,15 +138,20 @@ Follow-up: [gh#80](https://github.com/kenziesimpson/questionnaire-platform/issue
 
 This is items 3 and 4 of the audit's first tier. It branches after PR 1 merges, because both edit `packages/shared/src/index.ts`.
 
+**Amended:** PR 2 shipped as two PRs, so its halves could run in parallel. **PR 2a** owns **Domain vocabulary** and **Shared package surface** below, with L8, L9 and L15. **PR 2b** owns **Test support**, with L11. Wave 3 waits for both (§3.1), and a later PR that depends on "PR 2" depends on both.
+
 **Domain vocabulary**
 - Export the following from `packages/shared/src/domain/`: `QuestionOf`, `OTHER_OPTION_ID`, `optionIdsOf`, `freeformOptionOf`, `conditionsOf`, `referencedOptionIds`, `OPERATORS_BY_TYPE`, `isChoiceQuestion`, `draftItemOf`, `draftForValidation` and `questionInputOf`.
 - Delete every local copy of those helpers: 4 of `QuestionOf`, 3 of `OTHER_OPTION_ID`, 5 of the `Item`→`DraftItem` projection, 3 of the `QuestionContent`→`QuestionInput` strip, and so on.
 - Use one definition of the "other" option everywhere: `id === OTHER_OPTION_ID && freeform`. Today it is detected three different ways, so this is a small behaviour change, recorded as a new Decisions Log row (§5).
+- **Amended (PR 2a):** admin's `questionInputOf` was not a copy: it builds a `QuestionInput` from the editor's form, not from `QuestionContent`. It is renamed `questionInputFromForm` rather than deleted, because L9 reserves the name. `freeformOptionOf`, `OPERATORS_BY_TYPE` and `isChoiceQuestion` had no copies under those names; they replace inline spellings (`"options" in question`, admin's `OPERATORS` and `isChoice`, the renderer's `option.freeform`).
 
 **Shared package surface**
 - Move `strict` into `primitives.ts` and delete `domain/utils.ts`. Remove the 7 re-declarations of `strict`.
 - Convert `packages/shared/src/index.ts` from `export *` to named exports, and stop exporting the roughly 30 names nothing imports.
+- **Amended (PR 2a):** that includes the code guards (`is*Code`) and `ItemErrorOf`, which PR 1 exported; nothing outside the package imports them, and L10 bans hand-built guards anyway.
 - Move the demo data to a `./demo` subpath export, including the seed's question keys and bank history, and the item and option ids that e2e re-types by hand.
+- **Amended (PR 2a):** the e2e fixtures keep their `DEMO_*` names as aliases of the shared `INTAKE_*` constants, so no spec changes; folding the aliases away is PR 16's.
 - Add an execution-route completeness test to match the existing definition-route one.
 
 **Test support**
@@ -158,9 +163,14 @@ This is items 3 and 4 of the audit's first tier. It branches after PR 1 merges, 
 - Add `apps/admin/_tests/support/` with `render-app.tsx`, `routes.ts`, `builders.ts` and `http.ts`. The general helpers in `_tests/screens/question-editor/harness.tsx`, which nine unrelated files import, move there. `fillJsdomLayoutGaps` moves into `_tests/setup.ts`.
 - Align backend test support naming: `harness.ts` builds the app, `fixtures.ts` holds data and request helpers. Add `_tests/modules/definition/fixtures.ts`, and export the shared helpers once from `_tests/db/fixtures.ts`.
 
-Lint rules: L8, L9 and L11.
+Lint rules: L8, L9 and L11. **Amended:** L15 too, which §4.1 assigns to PR 2; PR 2a lands L8, L9 and L15, and PR 2b lands L11.
 
 Owns: `packages/shared/src/{index.ts,primitives.ts,domain,engine,demo}`, `packages/ui/src/testing/**`, `**/_tests/{setup,support,axe,fixtures,harness}*`, `apps/backend/src/db/seed/**`.
+
+**Amended:** one Owns line per half.
+- **Owns (2a):** `packages/shared/src/**`, `packages/shared/package.json` (the `./demo` export), `apps/backend/src/db/seed/**`, the local copies of the vocabulary wherever they sit, and every import of the demo names.
+- **Owns (2b):** `packages/ui/src/testing/**`, the `./testing` export in `packages/ui/package.json`, and `**/_tests/{setup,support,axe,fixtures,harness}*`.
+- The halves share test files, `eslint.config.mjs` and `docs/8-testing.md`. **PR 2a merges first; PR 2b rebases onto it** and keeps 2a's `@qp/shared/demo` imports and vocabulary imports in the shared test files.
 
 ### Phase B — Backend
 
@@ -496,14 +506,14 @@ All rules below are agreed. The "today" column counts violations measured on 202
 | L5 | No prose comments | Rejects any comment except ESLint and TypeScript directives (`eslint-*`, `@ts-expect-error — <reason>`) | A local rule in `eslint.config.mjs` | 18 | about 190 lines |
 | L6 | Route paths are built only by the shared helper | Rejects regex literals matching `/:(…)/` outside `packages/shared/src/api/request.ts` | `no-restricted-syntax` on `Literal[regex.pattern=/^:\\(/]` | 1 | 4 |
 | L7 | Library split by app (#32) | `@tanstack/react-query`, `@tanstack/react-router` and `@dnd-kit/*` are allowed only in `apps/admin`. `@tanstack/react-form` is allowed only in `apps/respondent`. `radix-ui` is allowed only in `packages/ui/src/primitives`. Each home covers the workspace's tests as well as its sources | `no-restricted-imports` | 0b | 0; this codifies the current state |
-| L8 | No named exports via `export *` in package entry points | Public APIs are explicit | `no-restricted-syntax` on `ExportAllDeclaration` in `packages/*/src` | 2 | 13 |
-| L9 | Shared vocabulary is not re-declared | Rejects declaring `QuestionOf`, `strict`, `OTHER_OPTION_ID`, `conditionsOf` and the other PR 2 names outside `packages/shared` | `no-restricted-syntax` on `TSTypeAliasDeclaration` and `VariableDeclarator` names | 2 | 14 |
+| L8 | No unnamed `export *` | Public APIs are explicit. **Amended:** the rule covers every file, not only `packages/*/src`, because it travels with the selectors `syntax()` carries (see L9); `export * as namespace` passes, since it adds one named export | `no-restricted-syntax` on `ExportAllDeclaration[exported=null]` | 2a | 13; 14 when PR 2a landed it, all in `packages/shared/src/index.ts` |
+| L9 | Shared vocabulary is not re-declared | Rejects declaring `QuestionOf`, `strict`, `OTHER_OPTION_ID`, `conditionsOf` and the other PR 2 names outside `packages/shared`. **Amended:** outside `packages/shared/src/domain` and `packages/shared/src/primitives.ts`, so the engine's and the API modules' own copies inside `packages/shared` are caught too. The selectors join the ones `syntax()` carries for every file, like the double-assertion ones, so a block appended later cannot drop them; one block exempts the domain and restates the rest | `no-restricted-syntax` on `TSTypeAliasDeclaration`, `VariableDeclarator` and `FunctionDeclaration` names | 2a | 14 |
 | L10 | Problem bodies are parsed only by `problemFromWire` | Rejects hand-built problem guards, and rejects calling `problem("resource/not-found", …)` outside `notFoundProblem` | `no-restricted-syntax` | 1 (and 4b, 16) | 6 in backend `src` |
 | L11 | Test support comes from support modules | `axe-core` and `vitest-axe` may be imported only in `@qp/ui/testing`. `_tests/**` may not import another directory's `harness` | `no-restricted-imports` | 2 | 7 admin files |
 | L12 | No deep imports into `packages/ui` internals | Apps import only the `@qp/ui/*` entry points. The package `exports` map already blocks most deep imports; this rule also blocks relative paths | `no-restricted-imports` | 10 | 0 |
 | L13 | Import extension convention | `.js` in backend, shared and telemetry; no extension in admin, ui, respondent and e2e | `no-restricted-syntax` on `ImportDeclaration[source.value=/…/]` per block | 14 | about 60 |
 | L14 | No non-null assertions | Keeps PR 21 honest | `@typescript-eslint/no-non-null-assertion` | 21 | 5 (3 in `decimal.ts`) |
-| L15 | No explicit `any` | Types stay honest; test data uses typed builders | `@typescript-eslint/no-explicit-any` | 2 | 16, all in shared tests |
+| L15 | No explicit `any` | Types stay honest; test data uses typed builders | `@typescript-eslint/no-explicit-any` | 2a | 16, all in shared tests; 10 when PR 2a landed it, all in `domain/schemas.test.ts` |
 | L16 | `fetch` only in API client modules | One transport per app. This is where trace headers and client spans will attach | `no-restricted-globals` everywhere except `apps/*/src/api/**`, `e2e/fixtures/**` and `e2e/stack/**` | 1 | 0 outside; this codifies the current state |
 | L17 | `localStorage` only in `apps/respondent/src/storage` | One persistence seam, in production code: the rule covers every `src` directory and not `_tests/**` or `e2e/**`, whose Playwright `page.evaluate` callbacks run in the browser | `no-restricted-globals` for the bare global, plus `no-restricted-properties` for `window.localStorage` and `globalThis.localStorage`, which the global rule does not see | 0b | 0; this codifies the current state |
 | L18 | `process.env` only in `apps/backend/src/config.ts` and root config files | One environment reader, which is where telemetry configuration will land | `no-restricted-properties` | 4 | 1 extra (`drizzle.config.ts`, which is allowed as a config file) |
@@ -543,7 +553,7 @@ These are agreed. R1–R5 live as tests under `tests/`, next to `text-files.test
 | #32 | Amend the respondent half: TanStack Form is used per field for validation and touched state, and the rationale is rewritten to match | 8b |
 | #66 | Amend: the unused `command`, `input-group` and Radix `select` primitives are removed; `native-select` and `tooltip` are added; `popover` is kept | 9 |
 | #68 | Amend: the sample-answer panel is built from the renderer in `interactive` mode, and the preview stays `readonly`. The panel accepts the free-text "Other" answer | 12 |
-| New | One definition of the "other" option across the engine, the renderer and admin: `id === OTHER_OPTION_ID && freeform` | 2 |
+| New | One definition of the "other" option across the engine, the renderer and admin: `id === OTHER_OPTION_ID && freeform` | 2a |
 | New | The respondent shows an item's errors once the field is left (touched on blur), and every visible item's errors after a submit attempt | 8b |
 | New | Execution persistence lives in `src/db/execution`, mirroring the definition side | 3 |
 | New | Icons come only from lucide, through `@qp/ui/icons` | 11 |
@@ -553,7 +563,7 @@ These are agreed. R1–R5 live as tests under `tests/`, next to `text-files.test
 | New | A problem body is read off the wire whole or not at all; `problemFromWire` takes no unknown-code policy, because both consumers already rejected | 1 |
 | Several | Rationale extracted from comments in `packages/shared` and `packages/telemetry`; the rows cited include #13, #15, #18, #20, #25, #31, #34, #36 and #37 and #40–#44 | 18 |
 
-New rows are numbered from #79 in the order they merge. PR 1 took #81; a PR that merges before it renumbers.
+New rows are numbered from #79 in the order they merge. PR 1 took #81 and PR 2a #82; a PR that merges before one of them renumbers.
 
 ## 6. Out of scope
 

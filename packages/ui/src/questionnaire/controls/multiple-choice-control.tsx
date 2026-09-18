@@ -1,4 +1,4 @@
-import type { ClientAnswerValueOf, Option } from "@qp/shared";
+import { freeformOptionOf, optionIdsOf, type ClientAnswerValueOf, type QuestionOf } from "@qp/shared";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { Label } from "@qp/ui/primitives/label";
 import { ChoiceFieldset, useFieldIds } from "../field";
@@ -6,14 +6,15 @@ import type { ControlProps } from "../types";
 import { OtherTextInput, useRetainedOtherText } from "./other-text-input";
 
 export function multipleChoiceAnswer(
-  options: readonly Option[],
+  question: QuestionOf<"multiple_choice">,
   selected: ReadonlySet<string>,
   otherText: string | undefined,
 ): ClientAnswerValueOf<"multiple_choice"> | null {
-  const optionIds = options.filter((option) => selected.has(option.optionId)).map((option) => option.optionId);
+  const optionIds = optionIdsOf(question).filter((optionId) => selected.has(optionId));
   const [first, ...rest] = optionIds;
   if (first === undefined) return null;
-  const keepsOtherText = otherText && options.some((option) => option.freeform && selected.has(option.optionId));
+  const otherOptionId = freeformOptionOf(question)?.optionId;
+  const keepsOtherText = otherText && otherOptionId !== undefined && selected.has(otherOptionId);
   return keepsOtherText
     ? { type: "multiple_choice", optionIds: [first, ...rest], otherText }
     : { type: "multiple_choice", optionIds: [first, ...rest] };
@@ -24,11 +25,12 @@ export function MultipleChoiceControl({ item, answer, error, mode, onChange }: C
   const { question } = item;
   const readOnly = mode === "readonly";
   const selected = new Set(answer?.optionIds ?? []);
-  const otherSelected = question.options.some((option) => option.freeform && selected.has(option.optionId));
+  const otherOptionId = freeformOptionOf(question)?.optionId;
+  const otherSelected = otherOptionId !== undefined && selected.has(otherOptionId);
   const otherText = useRetainedOtherText(otherSelected, answer?.otherText);
 
   function change(nextSelected: Set<string>, nextOtherText: string | undefined) {
-    if (!readOnly) onChange(item.itemId, multipleChoiceAnswer(question.options, nextSelected, nextOtherText));
+    if (!readOnly) onChange(item.itemId, multipleChoiceAnswer(question, nextSelected, nextOtherText));
   }
 
   function toggle(optionId: string, checked: boolean) {
@@ -53,7 +55,7 @@ export function MultipleChoiceControl({ item, answer, error, mode, onChange }: C
             <Label htmlFor={id} className="font-normal">
               {option.label}
             </Label>
-            {option.freeform && (
+            {option.optionId === otherOptionId && (
               <OtherTextInput
                 option={option}
                 value={otherText}

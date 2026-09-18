@@ -1,6 +1,6 @@
 import Type from "typebox";
 import { DRAFT_ITEM_CODES, ItemErrorOf } from "../problems.js";
-import { IsoDateTime, PositiveInt, Slug, Uuid } from "../primitives.js";
+import { IsoDateTime, PositiveInt, Slug, Uuid, strict } from "../primitives.js";
 import { PublishedDefinition, VersionSummary } from "../domain/definition.js";
 import { DraftItem, QuestionnaireDraft, QuestionnaireSummary } from "../domain/draft.js";
 import {
@@ -19,7 +19,6 @@ import { defineRoute } from "./route.js";
  */
 export const DEFINITION_PREFIX = "/api/definition";
 
-const strict = { additionalProperties: false } as const;
 const QuestionParams = Type.Object({ questionId: Uuid }, strict);
 const QuestionVersionParams = Type.Object({ questionId: Uuid, v: PositiveInt }, strict);
 const QuestionnaireParams = Type.Object({ id: Uuid }, strict);

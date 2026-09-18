@@ -1,4 +1,5 @@
-import { INTAKE_QUESTIONNAIRE_ID, intakeDefinition, problemType, PROBLEM_CONTENT_TYPE } from "@qp/shared";
+import { problemType, PROBLEM_CONTENT_TYPE } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID, intakeDefinition } from "@qp/shared/demo";
 import { v4 as uuidv4 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { createQuestionnaire } from "../../../src/db/definition/questionnaires.js";

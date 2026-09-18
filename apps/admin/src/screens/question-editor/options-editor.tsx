@@ -17,6 +17,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { OTHER_OPTION_ID } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { Input } from "@qp/ui/primitives/input";
@@ -24,7 +25,6 @@ import { useId, useState, type ReactNode } from "react";
 import { describedByFor, errorIdFor, FieldMessages } from "./field";
 import { optionPointer, type FieldErrors } from "./field-errors";
 import { GripIcon, LockIcon, PlusIcon, RemoveIcon } from "../../components/icons";
-import { OTHER_OPTION_ID } from "./option-ids";
 import { addOption, edits, type EditableOption, type QuestionForm } from "./question-form";
 
 interface OptionsEditorProps {

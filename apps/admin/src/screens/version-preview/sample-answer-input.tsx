@@ -1,4 +1,4 @@
-import type { ClientAnswerValue, ClientAnswerValueOf, Item, QuestionContent, ResponseType } from "@qp/shared";
+import { optionIdsOf, type ClientAnswerValue, type ClientAnswerValueOf, type Item, type QuestionOf, type ResponseType } from "@qp/shared";
 import { Checkbox } from "@qp/ui/primitives/checkbox";
 import { Input } from "@qp/ui/primitives/input";
 import { Label } from "@qp/ui/primitives/label";
@@ -7,8 +7,6 @@ import type { AnswerChangeHandler } from "@qp/ui/questionnaire";
 import { useId, type ReactNode } from "react";
 
 const UNANSWERED_CHOICE = "(unanswered)";
-
-type QuestionOf<T extends ResponseType> = Extract<QuestionContent, { type: T }>;
 
 interface SampleProps<T extends ResponseType> {
   itemId: string;
@@ -124,7 +122,7 @@ function MultipleChoiceSample({ itemId, label, question, answer, onChange }: Sam
     const next = new Set(selected);
     if (checked) next.add(optionId);
     else next.delete(optionId);
-    const optionIds = question.options.map((option) => option.optionId).filter((id) => next.has(id));
+    const optionIds = optionIdsOf(question).filter((id) => next.has(id));
     onChange(itemId, optionIds.length === 0 ? null : { type: "multiple_choice", optionIds });
   }
 

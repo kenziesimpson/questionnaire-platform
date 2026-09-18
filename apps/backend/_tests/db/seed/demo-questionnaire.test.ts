@@ -1,4 +1,5 @@
-import { INTAKE_QUESTION_IDS, INTAKE_QUESTIONNAIRE_ID, intakeDefinition, PublishedDefinition } from "@qp/shared";
+import { PublishedDefinition } from "@qp/shared";
+import { INTAKE_QUESTION_IDS, INTAKE_QUESTIONNAIRE_ID, intakeDefinition } from "@qp/shared/demo";
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import { seedDemoQuestionnaire } from "../../../src/db/seed/demo-questionnaire.js";

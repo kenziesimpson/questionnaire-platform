@@ -1,4 +1,5 @@
-import { intakeDefinition, type VersionSummary } from "@qp/shared";
+import { type VersionSummary } from "@qp/shared";
+import { intakeDefinition } from "@qp/shared/demo";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

@@ -1,10 +1,8 @@
 import type { Condition, ConditionOf } from "../domain/condition.js";
-import type { QuestionContent } from "../domain/question.js";
+import { type QuestionContent, type QuestionOf, optionIdsOf } from "../domain/question.js";
 import { dayNumber } from "./calendar.js";
 
 export type ConstraintTerm = ReadonlyMap<string, readonly Condition[]>;
-
-type QuestionOf<T extends QuestionContent["type"]> = Extract<QuestionContent, { type: T }>;
 
 interface Bound {
   value: number;
@@ -26,7 +24,7 @@ function textSatisfiable(conditions: readonly ConditionOf<"text">[]): boolean {
 }
 
 function singleChoiceSatisfiable(question: QuestionOf<"single_choice">, conditions: readonly ConditionOf<"single_choice">[]): boolean {
-  const allowed = new Set(question.options.map((option) => option.optionId));
+  const allowed = new Set(optionIdsOf(question));
   for (const condition of conditions) {
     switch (condition.op) {
       case "is":
@@ -79,7 +77,7 @@ function multipleChoiceSatisfiable(
         break;
     }
   }
-  const selectable = question.options.map((option) => option.optionId).filter((id) => !forbidden.has(id));
+  const selectable = optionIdsOf(question).filter((id) => !forbidden.has(id));
   if ([...required].some((id) => !selectable.includes(id))) return false;
   const unhit = atLeastOneOf
     .filter((ids) => !ids.some((id) => required.has(id)))

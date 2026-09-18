@@ -10,6 +10,7 @@ export function RadioChoiceView({
   required,
   error,
   options,
+  otherOptionId,
   selectedOptionId,
   otherText,
   readOnly,
@@ -27,7 +28,7 @@ export function RadioChoiceView({
               <Label htmlFor={id} className="font-normal">
                 {option.label}
               </Label>
-              {option.freeform && (
+              {option.optionId === otherOptionId && (
                 <OtherTextInput
                   option={option}
                   value={otherText}
