@@ -1,6 +1,6 @@
 # Structural Refactor
 
-> **Status: agreed, not started.** This is the plan for one consolidation pass over the finished build, to prepare the codebase for adding telemetry and metrics. It comes from a structural audit made on 2026-09-16 (six area leads, each backed by per-file deep dives).
+> **Status: nearly complete.** Every PR in Phases A–F has merged; PR 21 (Phase G) is the only one left. This is the plan for one consolidation pass over the finished build, to prepare the codebase for adding telemetry and metrics. It comes from a structural audit made on 2026-09-16 (six area leads, each backed by per-file deep dives).
 >
 > The pass has four aims:
 > - make each concept live in one place;
