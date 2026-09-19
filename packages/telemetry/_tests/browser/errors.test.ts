@@ -124,6 +124,45 @@ describe("installErrorCapture", () => {
     expect(sent[0]?.attributes).toEqual({ "error.type": "Error" });
   });
 
+  it("keeps a function name only when it has the shape of an identifier path", () => {
+    const { queue, page, sent } = capturing();
+    const stack = [
+      "Error: boom",
+      "    at Object.type 2 diabetes (main.js:1:2)",
+      `    at Object.${LEAK} (main.js:3:4)`,
+      "    at async Promise.all (main.js:5:6)",
+      "    at Object.<anonymous> (main.js:7:8)",
+      "    at new Screen (main.js:9:10)",
+    ].join("\n");
+
+    page.dispatch("error", { error: withStack(new Error("boom"), stack) });
+    queue.flush();
+
+    expect(sent[0]?.attributes["error.stack"]).toBe(
+      [
+        "    at anonymous (main.js:1:2)",
+        "    at anonymous (main.js:3:4)",
+        "    at async Promise.all (main.js:5:6)",
+        "    at Object.<anonymous> (main.js:7:8)",
+        "    at new Screen (main.js:9:10)",
+      ].join("\n"),
+    );
+  });
+
+  it("listens once per page however often it is installed", () => {
+    const { queue, page, sent, uninstall } = capturing();
+
+    const again = installErrorCapture(queue, page);
+    page.dispatch("error", { error: new Error("boom") });
+    queue.flush();
+
+    expect(again).toBe(uninstall);
+    expect([page.listenerCount("error"), page.listenerCount("unhandledrejection")]).toEqual([1, 1]);
+    expect(sent).toHaveLength(1);
+    uninstall();
+    expect(installErrorCapture(queue, page)).not.toBe(uninstall);
+  });
+
   it("drops an error name that is not a class name", () => {
     const { queue, page, sent } = capturing();
     const error = new Error("boom");
@@ -151,7 +190,7 @@ describe("captureError", () => {
 
   it("never throws, whether the queue throws or the error misbehaves", () => {
     const throwingQueue = {
-      enqueue: () => {
+      enqueueRecord: () => {
         throw new Error(LEAK);
       },
     };

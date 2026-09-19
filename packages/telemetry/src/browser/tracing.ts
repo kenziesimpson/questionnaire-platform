@@ -29,7 +29,7 @@ function withoutTraceparent(headers: Readonly<Record<string, string>>): Record<s
 
 export function injectTraceHeaders(headers: Readonly<Record<string, string>> = {}): Record<string, string> {
   const active = trace.getActiveSpan()?.spanContext();
-  if (active === undefined || !isSpanContextValid(active)) return { ...headers };
+  if (active === undefined || !isSpanContextValid(active)) return withoutTraceparent(headers);
   const flags = active.traceFlags.toString(16).padStart(2, "0");
   return { ...withoutTraceparent(headers), [TRACEPARENT]: `${TRACEPARENT_VERSION}-${active.traceId}-${active.spanId}-${flags}` };
 }

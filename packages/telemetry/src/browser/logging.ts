@@ -5,13 +5,13 @@ export interface LoggingRoute {
   readonly debug?: (record: LogRecord) => void;
 }
 
-export function routeLogsToQueue(queue: Pick<EventQueue, "enqueue">, route: LoggingRoute = {}): () => void {
+export function routeLogsToQueue(queue: Pick<EventQueue, "enqueueRecord">, route: LoggingRoute = {}): () => void {
   const { debug } = route;
   configureLogging({
     level: debug === undefined ? "info" : "debug",
     sink: (record) => {
       if (record.level !== "debug") {
-        queue.enqueue(record);
+        queue.enqueueRecord(record);
         return;
       }
       try {

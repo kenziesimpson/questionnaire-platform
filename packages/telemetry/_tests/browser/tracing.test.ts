@@ -32,6 +32,12 @@ describe("injectTraceHeaders", () => {
     expect(injected).not.toBe(headers);
   });
 
+  it("drops a traceparent already present when there is no active span, so a stale one is never propagated", () => {
+    const stale = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+    expect(injectTraceHeaders({ TraceParent: stale, accept: "application/json" })).toEqual({ accept: "application/json" });
+  });
+
   it("returns no headers when given none and there is no active span", () => {
     startBrowserTracing();
 

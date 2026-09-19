@@ -1,16 +1,25 @@
 import { FIELDS } from "../fields.js";
-import type { LogLevel, LogRecord } from "../logger.js";
+import type { LiteralMessage, LogLevel, LogRecord } from "../logger.js";
 import { scrubAttributes, type DropCounts } from "../scrub.js";
+import { safeFrames } from "./frames.js";
 
 export const QUEUED_LEVELS = ["info", "warn", "error"] as const satisfies readonly LogLevel[];
 export type QueuedLevel = (typeof QUEUED_LEVELS)[number];
 
 export type QueuedEvent = Omit<LogRecord, "level"> & { readonly level: QueuedLevel };
 
-export interface EventInput {
+export interface EventRecord {
   readonly level: string;
-  readonly message: string;
+  readonly message: unknown;
   readonly attributes?: unknown;
+}
+
+export type CallerAttributes = { readonly [attribute: string]: unknown; readonly "error.stack"?: never };
+
+export interface CallerEvent<M extends string> {
+  readonly level: QueuedLevel;
+  readonly message: LiteralMessage<M>;
+  readonly attributes?: CallerAttributes;
 }
 
 interface ScrubbedEvent {
@@ -30,16 +39,22 @@ function attributesOf(input: unknown): Record<string, unknown> {
   return typeof input === "object" && input !== null ? { ...input } : {};
 }
 
-export function scrubbedEvent(input: EventInput, screen: string | undefined): ScrubbedEvent {
-  const attributes = attributesOf(input.attributes);
+function withSafeStack(attributes: Record<string, unknown>): Record<string, unknown> {
+  const key = FIELDS.errorStack.attribute;
+  const stack = attributes[key];
+  return typeof stack === "string" ? { ...attributes, [key]: safeFrames(stack) } : attributes;
+}
+
+export function scrubbedEvent(input: EventRecord, screen: string | undefined): ScrubbedEvent {
+  const attributes = withSafeStack(attributesOf(input.attributes));
   const screenAttribute = FIELDS.route.attribute;
   const scrubbed = scrubAttributes(
     screen === undefined || screenAttribute in attributes ? attributes : { ...attributes, [screenAttribute]: screen },
     "log",
   );
-  const namedByShape = MESSAGE_SHAPE.test(input.message);
-  const dropped = { ...scrubbed.dropped, invalid: scrubbed.dropped.invalid + (namedByShape ? 0 : 1) };
+  const message = typeof input.message === "string" && MESSAGE_SHAPE.test(input.message) ? input.message : undefined;
+  const dropped = { ...scrubbed.dropped, invalid: scrubbed.dropped.invalid + (message === undefined ? 1 : 0) };
   const { level } = input;
-  if (!isQueuedLevel(level)) return { event: undefined, dropped: scrubbed.dropped };
-  return { event: { level, message: namedByShape ? input.message : UNNAMED_MESSAGE, attributes: scrubbed.attributes }, dropped };
+  if (!isQueuedLevel(level)) return { event: undefined, dropped };
+  return { event: { level, message: message ?? UNNAMED_MESSAGE, attributes: scrubbed.attributes }, dropped };
 }

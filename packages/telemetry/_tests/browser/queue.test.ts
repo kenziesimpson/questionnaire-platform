@@ -43,7 +43,7 @@ describe("createEventQueue: what is queued", () => {
   it("keeps registered fields under their attribute names and the infrastructure attributes", () => {
     const { queue, batches } = queueWith();
 
-    queue.enqueue(info("session abandoned", { "questionnaire.session_id": SESSION_ID, "questionnaire.last_item_id": "itm_03", module: "events" }));
+    queue.enqueueRecord(info("session abandoned", { "questionnaire.session_id": SESSION_ID, "questionnaire.last_item_id": "itm_03", module: "events" }));
     queue.flush();
 
     expect(batches).toEqual([
@@ -60,7 +60,7 @@ describe("createEventQueue: what is queued", () => {
   it("drops an unknown field and a field of the wrong shape, never the event, and counts them", () => {
     const { queue, batches } = queueWith();
 
-    queue.enqueue(
+    queue.enqueueRecord(
       info("answer received", {
         "questionnaire.session_id": SESSION_ID,
         answer: LEAK,
@@ -82,7 +82,7 @@ describe("createEventQueue: what is queued", () => {
   ])("keeps the event when its attributes are %s", (_kind, attributes) => {
     const { queue, batches } = queueWith();
 
-    queue.enqueue(info("session abandoned", attributes));
+    queue.enqueueRecord(info("session abandoned", attributes));
     queue.flush();
 
     expect(batches[0]?.[0]?.attributes).toEqual({});
@@ -91,7 +91,7 @@ describe("createEventQueue: what is queued", () => {
   it("drops the indexes of an array given as attributes", () => {
     const { queue, batches } = queueWith();
 
-    queue.enqueue(info("session abandoned", [LEAK]));
+    queue.enqueueRecord(info("session abandoned", [LEAK]));
     queue.flush();
 
     expect(batches[0]?.[0]?.attributes).toEqual({});
@@ -102,7 +102,7 @@ describe("createEventQueue: what is queued", () => {
     const { queue, batches } = queueWith();
 
     for (const message of [LEAK, "Rejected answer: Diabetes", "", `a${"b".repeat(200)}`, "line\nbreak"]) {
-      queue.enqueue(info(message));
+      queue.enqueueRecord(info(message));
     }
     queue.flush();
 
@@ -113,12 +113,53 @@ describe("createEventQueue: what is queued", () => {
   it("never queues debug, or a level that does not exist", () => {
     const { queue, batches } = queueWith();
 
-    queue.enqueue({ level: "debug", message: "rule evaluated", attributes: {} });
-    queue.enqueue({ level: "fatal", message: "boom", attributes: {} });
+    queue.enqueueRecord({ level: "debug", message: "rule evaluated", attributes: {} });
+    queue.enqueueRecord({ level: "fatal", message: "boom", attributes: {} });
     queue.flush();
 
     expect(batches).toEqual([]);
     expect(queue.stats().pending).toBe(0);
+    expect(queue.stats().droppedEvents.level).toBe(2);
+  });
+
+  it("queues only a string that has the shape of a message, never an object that stringifies to one", () => {
+    const { queue, batches } = queueWith();
+    const disguised = { toString: () => "answer received", leak: LEAK };
+
+    queue.enqueueRecord({ level: "info", message: disguised, attributes: {} });
+    queue.enqueueRecord({ level: "info", message: 7, attributes: {} });
+    queue.flush();
+
+    expect(messagesOf(batches)).toEqual(["unnamed", "unnamed"]);
+    expect(JSON.stringify(batches)).not.toContain(LEAK);
+  });
+
+  it("cuts the frames of a stack a caller supplied to script files and safe function names", () => {
+    const { queue, batches } = queueWith();
+    const stack = [
+      `    at render (https://example.test/run/${SESSION_ID}/step?cursor=abc.js:1:2)`,
+      `    at Object.${LEAK} (main.js:3:4)`,
+      "    at Array.map (main.js?next=/run/x:5:6)",
+      "    at async Promise.all (<anonymous>)",
+    ].join("\n");
+
+    queue.enqueueRecord(info("session abandoned", { "error.stack": stack }));
+    queue.flush();
+
+    expect(batches[0]?.[0]?.attributes["error.stack"]).toBe(
+      ["    at render (anonymous.js:1:2)", "    at anonymous (main.js:3:4)", "    at Array.map (main.js:5:6)", "    at async Promise.all (<anonymous>)"].join("\n"),
+    );
+  });
+
+  it("drops an error stack that is not made of frames, and one that is not a string", () => {
+    const { queue, batches } = queueWith();
+
+    queue.enqueueRecord(info("session abandoned", { "error.stack": `    at go (main.js:1:2)\n${LEAK}` }));
+    queue.enqueueRecord(info("session abandoned", { "error.stack": { text: LEAK } }));
+    queue.flush();
+
+    expect(batches[0]?.map((event) => event.attributes)).toEqual([{}, {}]);
+    expect(queue.stats().droppedFields.invalid).toBe(2);
   });
 
   it("never throws into the caller, even for input that throws when read", () => {
@@ -130,10 +171,37 @@ describe("createEventQueue: what is queued", () => {
     };
 
     expect(() => {
-      queue.enqueue(info("session abandoned", hostile));
+      queue.enqueueRecord(info("session abandoned", hostile));
     }).not.toThrow();
     expect(queue.stats().droppedEvents.internal).toBe(1);
     expect(queue.stats().pending).toBe(0);
+  });
+});
+
+describe("createEventQueue: enqueue, the form for app code", () => {
+  it("takes a literal message and attributes that do not name the error stack", () => {
+    const { queue, batches } = queueWith();
+
+    queue.enqueue({ level: "info", message: "session abandoned", attributes: { "questionnaire.session_id": SESSION_ID } });
+    queue.flush();
+
+    expect(batches[0]).toEqual([
+      { level: "info", message: "session abandoned", attributes: { "questionnaire.session_id": SESSION_ID } },
+    ]);
+  });
+
+  it("refuses a message held in a string variable and an error stack at compile time", () => {
+    const { queue } = queueWith();
+    const text: string = LEAK;
+
+    // @ts-expect-error — a message must be a literal, not a string variable
+    queue.enqueue({ level: "info", message: text });
+    // @ts-expect-error — a caller cannot name the error stack
+    queue.enqueue({ level: "info", message: "session abandoned", attributes: { "error.stack": "    at go (main.js:1:2)" } });
+    // @ts-expect-error — debug is never queued
+    queue.enqueue({ level: "debug", message: "rule evaluated" });
+
+    expect(queue.stats().droppedEvents.level).toBe(1);
   });
 });
 
@@ -141,7 +209,7 @@ describe("createEventQueue: the screen", () => {
   it("stamps the caller's route template as the route", () => {
     const { queue, batches } = queueWith({ screen: () => ROUTE });
 
-    queue.enqueue(info("session abandoned"));
+    queue.enqueueRecord(info("session abandoned"));
     queue.flush();
 
     expect(batches[0]?.[0]?.attributes).toEqual({ "http.route": ROUTE });
@@ -157,7 +225,7 @@ describe("createEventQueue: the screen", () => {
   ])("drops %s as a screen and keeps the event", (_kind, screen) => {
     const { queue, batches } = queueWith({ screen: () => screen });
 
-    queue.enqueue(info("session abandoned", { "questionnaire.session_id": SESSION_ID }));
+    queue.enqueueRecord(info("session abandoned", { "questionnaire.session_id": SESSION_ID }));
     queue.flush();
 
     expect(batches[0]?.[0]?.attributes).toEqual({ "questionnaire.session_id": SESSION_ID });
@@ -167,7 +235,7 @@ describe("createEventQueue: the screen", () => {
   it("keeps the route an event already carries over the queue's screen", () => {
     const { queue, batches } = queueWith({ screen: () => "/other" });
 
-    queue.enqueue(info("session abandoned", { "http.route": "/questionnaires" }));
+    queue.enqueueRecord(info("session abandoned", { "http.route": "/questionnaires" }));
     queue.flush();
 
     expect(batches[0]?.[0]?.attributes).toEqual({ "http.route": "/questionnaires" });
@@ -180,7 +248,7 @@ describe("createEventQueue: the screen", () => {
       },
     });
 
-    queue.enqueue(info("session abandoned"));
+    queue.enqueueRecord(info("session abandoned"));
     queue.flush();
 
     expect(batches[0]).toHaveLength(1);
@@ -191,10 +259,10 @@ describe("createEventQueue: flushing", () => {
   it("sends a batch as soon as the batch size is reached", () => {
     const { queue, batches } = queueWith({ batchSize: 3 });
 
-    queue.enqueue(info("event 1"));
-    queue.enqueue(info("event 2"));
+    queue.enqueueRecord(info("event 1"));
+    queue.enqueueRecord(info("event 2"));
     expect(batches).toEqual([]);
-    queue.enqueue(info("event 3"));
+    queue.enqueueRecord(info("event 3"));
 
     expect(messagesOf(batches)).toEqual(["event 1", "event 2", "event 3"]);
     expect(batches).toHaveLength(1);
@@ -203,7 +271,7 @@ describe("createEventQueue: flushing", () => {
   it("sends what is queued once the interval has passed since the first event", () => {
     const { queue, batches } = queueWith({ flushIntervalMs: 1000 });
 
-    queue.enqueue(info("event 1"));
+    queue.enqueueRecord(info("event 1"));
     vi.advanceTimersByTime(999);
     expect(batches).toEqual([]);
     vi.advanceTimersByTime(1);
@@ -222,13 +290,13 @@ describe("createEventQueue: flushing", () => {
 
   it("falls back to the defaults for a size or interval that is not a positive integer, and never batches past the bound", () => {
     const zero = queueWith({ batchSize: 0, maxPending: Number.NaN, flushIntervalMs: -1 });
-    for (let index = 0; index < 19; index += 1) zero.queue.enqueue(info("event"));
+    for (let index = 0; index < 19; index += 1) zero.queue.enqueueRecord(info("event"));
     expect(zero.batches).toEqual([]);
-    zero.queue.enqueue(info("event"));
+    zero.queue.enqueueRecord(info("event"));
     expect(zero.batches[0]).toHaveLength(20);
 
     const clamped = queueWith({ maxPending: 3, batchSize: 10 });
-    for (let index = 0; index < 3; index += 1) clamped.queue.enqueue(info("event"));
+    for (let index = 0; index < 3; index += 1) clamped.queue.enqueueRecord(info("event"));
     expect(clamped.batches[0]).toHaveLength(3);
   });
 
@@ -245,7 +313,7 @@ describe("createEventQueue: flushing", () => {
       },
     });
 
-    for (let index = 1; index <= 4; index += 1) queue.enqueue(info(`event ${String(index)}`));
+    for (let index = 1; index <= 4; index += 1) queue.enqueueRecord(info(`event ${String(index)}`));
     expect(sends).toHaveLength(1);
     expect(queue.stats().pending).toBe(2);
 
@@ -267,9 +335,9 @@ describe("createEventQueue: flushing", () => {
       },
     });
 
-    queue.enqueue(info("event 1"));
+    queue.enqueueRecord(info("event 1"));
     await vi.advanceTimersByTimeAsync(0);
-    queue.enqueue(info("event 2"));
+    queue.enqueueRecord(info("event 2"));
     await vi.advanceTimersByTimeAsync(0);
 
     expect(calls).toBe(2);
@@ -286,7 +354,7 @@ describe("createEventQueue: flushing", () => {
     });
 
     expect(() => {
-      queue.enqueue(info("event 1"));
+      queue.enqueueRecord(info("event 1"));
     }).not.toThrow();
     expect(queue.stats().droppedEvents.undelivered).toBe(1);
   });
@@ -296,7 +364,7 @@ describe("createEventQueue: the bound", () => {
   it("holds at most maxPending events and drops the oldest, counting each", () => {
     const { queue, beacons } = queueWith({ maxPending: 5, batchSize: 2, send: () => new Promise<void>(() => undefined) });
 
-    for (let index = 1; index <= 10; index += 1) queue.enqueue(info(`event ${String(index)}`));
+    for (let index = 1; index <= 10; index += 1) queue.enqueueRecord(info(`event ${String(index)}`));
 
     expect(queue.stats().pending).toBe(5);
     expect(queue.stats().droppedEvents.overflow).toBe(3);
@@ -309,9 +377,42 @@ describe("createEventQueue: the bound", () => {
   it("does not count an event as dropped when it fits", () => {
     const { queue } = queueWith({ maxPending: 5, batchSize: 5 });
 
-    for (let index = 1; index <= 5; index += 1) queue.enqueue(info(`event ${String(index)}`));
+    for (let index = 1; index <= 5; index += 1) queue.enqueueRecord(info(`event ${String(index)}`));
 
     expect(queue.stats().droppedEvents).toEqual({ overflow: 0, undelivered: 0, internal: 0 });
+  });
+});
+
+describe("createEventQueue: close", () => {
+  it("stops the timer and never sends again, even when a send that was in flight settles afterwards", async () => {
+    const releases: (() => void)[] = [];
+    const send = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releases.push(resolve);
+        }),
+    );
+    const { queue, beacons } = queueWith({ batchSize: 2, flushIntervalMs: 1000, send });
+
+    for (let index = 1; index <= 4; index += 1) queue.enqueueRecord(info(`event ${String(index)}`));
+    queue.flushOnExit();
+    queue.close();
+    releases[0]?.();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(messagesOf(beacons)).toEqual(["event 3", "event 4"]);
+  });
+
+  it("ignores events and flushes once closed", () => {
+    const { queue, batches } = queueWith({ batchSize: 1 });
+
+    queue.close();
+    queue.enqueueRecord(info("event 1"));
+    queue.flush();
+
+    expect(batches).toEqual([]);
+    expect(queue.stats().pending).toBe(0);
   });
 });
 
@@ -320,7 +421,7 @@ describe("createEventQueue: flushOnExit", () => {
     const send = vi.fn(() => new Promise<void>(() => undefined));
     const { queue, beacons } = queueWith({ batchSize: 2, send });
 
-    for (let index = 1; index <= 5; index += 1) queue.enqueue(info(`event ${String(index)}`));
+    for (let index = 1; index <= 5; index += 1) queue.enqueueRecord(info(`event ${String(index)}`));
     queue.flushOnExit();
 
     expect(beacons.map((batch) => batch.length)).toEqual([2, 1]);
@@ -332,7 +433,7 @@ describe("createEventQueue: flushOnExit", () => {
   it("cancels the interval flush", () => {
     const { queue, batches, beacons } = queueWith({ flushIntervalMs: 1000 });
 
-    queue.enqueue(info("event 1"));
+    queue.enqueueRecord(info("event 1"));
     queue.flushOnExit();
     vi.advanceTimersByTime(5000);
 
@@ -350,13 +451,13 @@ describe("createEventQueue: flushOnExit", () => {
 
   it("counts a batch the beacon refused, or threw on, as undelivered and never throws", () => {
     const refusing = queueWith({ beacon: () => false });
-    refusing.queue.enqueue(info("event 1"));
+    refusing.queue.enqueueRecord(info("event 1"));
     const throwing = queueWith({
       beacon: () => {
         throw new Error(LEAK);
       },
     });
-    throwing.queue.enqueue(info("event 1"));
+    throwing.queue.enqueueRecord(info("event 1"));
 
     expect(() => {
       refusing.queue.flushOnExit();

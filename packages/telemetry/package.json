@@ -36,7 +36,7 @@
     "@opentelemetry/sdk-metrics": "2.10.0",
     "@opentelemetry/sdk-node": "^0.221.0",
     "@opentelemetry/sdk-trace": "2.10.0",
-    "@opentelemetry/sdk-trace-web": "2.10.0",
+    "@opentelemetry/sdk-trace-web": "2.11.0",
     "@qp/shared": "*",
     "pino": "^10.3.1",
     "pino-pretty": "^13.1.3"

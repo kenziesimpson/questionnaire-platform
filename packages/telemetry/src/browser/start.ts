@@ -14,7 +14,10 @@ export interface BrowserTelemetry {
   stop(): void;
 }
 
+let running: BrowserTelemetry | undefined;
+
 export function startBrowserTelemetry(options: BrowserTelemetryOptions): BrowserTelemetry {
+  if (running !== undefined) return running;
   startBrowserTracing();
   const queue = createEventQueue(options);
   const removers = [
@@ -22,12 +25,17 @@ export function startBrowserTelemetry(options: BrowserTelemetryOptions): Browser
     flushOnPageHide(queue, options.page),
     installErrorCapture(queue, options.page),
   ];
-  return {
+  const started: BrowserTelemetry = {
     queue,
     stop: () => {
+      if (running !== started) return;
+      running = undefined;
       for (const remove of removers) remove();
-      queue.flush();
+      queue.flushOnExit();
+      queue.close();
       void stopBrowserTracing();
     },
   };
+  running = started;
+  return started;
 }

@@ -191,12 +191,16 @@ O19). The rules are the server's rules, applied before anything is queued:
 
 - Events carry registry fields only. `createEventQueue` runs the same `scrubAttributes(…, "log")` as
   the pino formatter, drops an unknown or ill-shaped field and keeps the event, and replaces a message
-  that is not a lower-case literal shape with `unnamed`. The shape check cannot tell a lower-case
-  answer from a message, so never cast into a browser log message either.
+  that is not a lower-case literal shape (or not a string) with `unnamed`. App code calls `enqueue`,
+  whose message is a `LiteralMessage` and whose attributes cannot name `error.stack`; `enqueueRecord`
+  is for the logger sink and `captureError`. The shape check cannot tell a lower-case answer from a
+  message, and `local/no-cast-into-telemetry-text` does not cover `enqueue`, so never cast into a
+  browser log message either.
 - A screen is a route template the caller supplies, accepted only by the `route` field. Never a URL,
   a query string, a cursor or an element's text: a clicked option's label is an answer.
-- An error is its class name and stack frames, through `stackFramesOf`, with each frame cut to its
-  script file name. Never read `event.message`, `event.filename` or `error.message`, and never build
+- An error is its class name and stack frames, through `stackFramesOf`, with every frame rewritten by the queue
+  to a script file name and an identifier-shaped function name (a computed key or a URL in a frame
+  cannot pass). Never read `event.message`, `event.filename` or `error.message`, and never build
   an `Error` from an answer. `installErrorCapture` and `captureError` are the only way an error
   reaches the queue; an app's error boundary calls `captureError`, not `log.error(…, error)` with
   anything else attached.

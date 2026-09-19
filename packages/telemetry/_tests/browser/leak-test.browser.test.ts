@@ -30,7 +30,15 @@ function stackWith(error: Error, stack: string): Error {
   return error;
 }
 
-function plantEverywhere(page: FakeWindow, enqueue: (level: string, message: string, attributes: unknown) => void, sentinel: string): void {
+function plantThroughLogger(sentinel: string): void {
+  const forged = { answer: sentinel, sessionId: sentinel, itemId: sentinel, route: `/run/${sentinel}` };
+  log.info("answer received", { ...forged });
+  log.error("submit failed", { status: 500 }, new Error(sentinel));
+  emitDomainEvent({ name: "session.abandoned", sessionId: sentinel, lastItemId: sentinel });
+  emitDomainEvent({ name: "session.item_skipped", sessionId: sentinel, itemId: sentinel, questionId: sentinel });
+}
+
+function plantEverywhere(page: FakeWindow, enqueue: (level: string, message: unknown, attributes: unknown) => void, sentinel: string): void {
   enqueue("info", "answer received", {
     answer: sentinel,
     value: sentinel,
@@ -53,17 +61,16 @@ function plantEverywhere(page: FakeWindow, enqueue: (level: string, message: str
   enqueue("info", "answer received", { "questionnaire.item_id": sensitive(sentinel), "questionnaire.session_id": { nested: sentinel } });
   enqueue("warn", sentinel, { "questionnaire.session_id": SESSION_ID });
   enqueue("error", `answer ${sentinel}`, {});
-
-  const forged = { answer: sentinel, sessionId: sentinel, itemId: sentinel, route: `/run/${sentinel}` };
-  log.info("answer received", { ...forged });
-  emitDomainEvent({ name: "session.abandoned", sessionId: sentinel, lastItemId: sentinel });
-  emitDomainEvent({ name: "session.item_skipped", sessionId: sentinel, itemId: sentinel, questionId: sentinel });
+  enqueue("info", { toString: () => "answer received", answer: sentinel }, {});
+  enqueue("info", "answer received", { "error.stack": `    at render (https://example.test/run/${sentinel}/answers?cursor=${sentinel}:1:2)` });
+  plantThroughLogger(sentinel);
 
   page.dispatch("error", {
     error: stackWith(new TypeError(`cannot read ${sentinel}`), `TypeError: cannot read ${sentinel}\n    at render (https://example.test/run/${sentinel}:1:2)`),
     message: `Uncaught TypeError: cannot read ${sentinel}`,
     filename: `https://example.test/run/${sentinel}`,
   });
+  page.dispatch("error", { error: stackWith(new Error("boom"), `Error: boom\n    at Object.${sentinel} (main.js:1:2)`) });
   page.dispatch("error", { error: stackWith(new Error("innocent"), `Error: ${sentinel}\n    at render (main.js:1:2)`) });
   page.dispatch("error", { error: stackWith(new Error("boom"), `Error: boom\n    at render (main.js:1:2)\n${sentinel}\n${sentinel}: ${sentinel}`) });
   const multiLine = `first\n    at ${sentinel} (${sentinel}.js:1:1)`;
@@ -97,7 +104,7 @@ function run(sentinel: string, exit: Exit): Delivery {
     plantEverywhere(
       page,
       (level, message, attributes) => {
-        queue.enqueue({ level, message, attributes });
+        queue.enqueueRecord({ level, message, attributes });
       },
       sentinel,
     );
@@ -118,7 +125,7 @@ function lowerCasedTokenQueued(): readonly QueuedEvent[] {
     beacon: () => true,
     screen: () => `/${LEAK_SENTINEL.toLowerCase()}`,
   });
-  queue.enqueue({ level: "info", message: LEAK_SENTINEL.toLowerCase(), attributes: {} });
+  queue.enqueueRecord({ level: "info", message: LEAK_SENTINEL.toLowerCase(), attributes: {} });
   queue.flush();
   return sent;
 }
@@ -150,6 +157,18 @@ describe("the browser telemetry never lets a planted answer reach the batch, the
     });
   });
 
+  it("cuts a caller-supplied error stack, a function name and a disguised message to their safe forms", () => {
+    const events = run(LEAK_SENTINEL, "send").sent;
+
+    expect(events).toContainEqual({ level: "info", message: "answer received", attributes: { "error.stack": "    at render (anonymous.js:1:2)" } });
+    expect(events).toContainEqual({
+      level: "error",
+      message: "unhandled error",
+      attributes: { "error.type": "Error", "error.stack": "    at anonymous (main.js:1:2)" },
+    });
+    expect(events).toContainEqual({ level: "info", message: "unnamed", attributes: {} });
+  });
+
   it("keeps the sentinel out of the trace headers", async () => {
     const telemetry = startBrowserTelemetry({ page: new FakeWindow(), send: () => undefined, beacon: () => true });
     let headers: Record<string, string> = {};
@@ -165,7 +184,7 @@ describe("the browser telemetry never lets a planted answer reach the batch, the
 
   it("never lets an exception carrying the sentinel out of a capture", () => {
     const failing = {
-      enqueue: vi.fn(() => {
+      enqueueRecord: vi.fn(() => {
         throw new Error(LEAK_SENTINEL);
       }),
     };
@@ -191,6 +210,7 @@ describe("the browser flow, run through the leak-test runner beside the real pip
     const flow: LeakFlow<undefined> = {
       name: "browser: forged fields, messages, stacks, screens and domain events through the queue",
       run: (_world, sentinel) => {
+        plantThroughLogger(sentinel);
         expect(carries(run(sentinel, "send"), sentinel)).toBe(false);
         return Promise.resolve();
       },
@@ -200,5 +220,6 @@ describe("the browser flow, run through the leak-test runner beside the real pip
 
     expectCleanRun(flow.name, result);
     expect(result.observed.metric).toBeGreaterThan(0);
+    expect(result.observed.log, "the logger plants run before the queue takes the log sink over, so pino output is checked too").toBeGreaterThan(0);
   });
 });

@@ -1,8 +1,8 @@
 import type { DropCounts } from "../scrub.js";
 import { DROP_REASONS, type DropReason } from "../vocabulary.js";
-import { scrubbedEvent, type EventInput, type QueuedEvent } from "./events.js";
+import { scrubbedEvent, type CallerEvent, type EventRecord, type QueuedEvent } from "./events.js";
 
-const EVENT_DROP_REASONS = ["overflow", "undelivered", "internal"] as const;
+const EVENT_DROP_REASONS = ["overflow", "undelivered", "internal", "level"] as const;
 export type EventDropReason = (typeof EVENT_DROP_REASONS)[number];
 
 const DEFAULT_MAX_PENDING = 200;
@@ -26,9 +26,11 @@ export interface QueueStats {
 }
 
 export interface EventQueue {
-  enqueue(input: EventInput): void;
+  enqueue<M extends string>(event: CallerEvent<M>): void;
+  enqueueRecord(record: EventRecord): void;
   flush(): void;
   flushOnExit(): void;
+  close(): void;
   stats(): QueueStats;
 }
 
@@ -45,10 +47,11 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
   const batchSize = Math.min(positiveIntegerOr(options.batchSize, DEFAULT_BATCH_SIZE), maxPending);
   const flushIntervalMs = positiveIntegerOr(options.flushIntervalMs, DEFAULT_FLUSH_INTERVAL_MS);
   const pending: QueuedEvent[] = [];
-  const droppedEvents: Record<EventDropReason, number> = { overflow: 0, undelivered: 0, internal: 0 };
+  const droppedEvents: Record<EventDropReason, number> = { overflow: 0, undelivered: 0, internal: 0, level: 0 };
   const droppedFields: Record<DropReason, number> = { unknown: 0, invalid: 0, unbounded: 0 };
   let sent = 0;
   let inFlight = false;
+  let closed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   function stopTimer(): void {
@@ -58,6 +61,7 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
   }
 
   function startTimer(): void {
+    if (closed) return;
     timer ??= setTimeout(() => {
       timer = undefined;
       flush();
@@ -76,12 +80,13 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
     inFlight = false;
     if (delivered) sent += count;
     else droppedEvents.undelivered += count;
+    if (closed) return;
     if (pending.length >= batchSize) flush();
     else if (pending.length > 0) startTimer();
   }
 
   function flush(): void {
-    if (inFlight) return;
+    if (closed || inFlight) return;
     const batch = pending.splice(0, batchSize);
     if (batch.length === 0) return;
     stopTimer();
@@ -114,11 +119,15 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
     while (pending.length > 0) beaconBatch(pending.splice(0, batchSize));
   }
 
-  function enqueue(input: EventInput): void {
+  function enqueueRecord(record: EventRecord): void {
+    if (closed) return;
     try {
-      const scrubbed = scrubbedEvent(input, screenNow());
+      const scrubbed = scrubbedEvent(record, screenNow());
       addDropped(droppedFields, scrubbed.dropped);
-      if (scrubbed.event === undefined) return;
+      if (scrubbed.event === undefined) {
+        droppedEvents.level += 1;
+        return;
+      }
       if (pending.length >= maxPending) {
         pending.shift();
         droppedEvents.overflow += 1;
@@ -131,9 +140,18 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
     }
   }
 
+  function enqueue<M extends string>(event: CallerEvent<M>): void {
+    enqueueRecord(event);
+  }
+
+  function close(): void {
+    closed = true;
+    stopTimer();
+  }
+
   function stats(): QueueStats {
     return { pending: pending.length, sent, droppedEvents: { ...droppedEvents }, droppedFields: { ...droppedFields } };
   }
 
-  return { enqueue, flush, flushOnExit, stats };
+  return { enqueue, enqueueRecord, flush, flushOnExit, close, stats };
 }

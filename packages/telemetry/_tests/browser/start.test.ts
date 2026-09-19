@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { QueuedEvent } from "../../src/browser/events.js";
-import { startBrowserTelemetry } from "../../src/browser/start.js";
+import { startBrowserTelemetry, type BrowserTelemetry } from "../../src/browser/start.js";
 import { stopBrowserTracing } from "../../src/browser/tracing.js";
 import { emitDomainEvent, logger, type LogLevel } from "../../src/index.js";
 import { SESSION_ID } from "../fixtures.js";
@@ -8,7 +8,10 @@ import { FakeWindow } from "./page-fakes.js";
 
 const log = logger("execution");
 
+const running: BrowserTelemetry[] = [];
+
 afterEach(async () => {
+  for (const telemetry of running.splice(0)) telemetry.stop();
   await stopBrowserTracing();
 });
 
@@ -27,6 +30,7 @@ function started(overrides: { debug?: (record: { level: LogLevel; message: strin
     },
     ...overrides,
   });
+  running.push(telemetry);
   return { page, sent, beaconed, telemetry };
 }
 
@@ -96,7 +100,7 @@ describe("startBrowserTelemetry", () => {
     expect(sent).toEqual([]);
   });
 
-  it("stops everything it started, flushing what is queued through send", () => {
+  it("stops everything it started, handing what is queued to the beacon", () => {
     const { page, sent, beaconed, telemetry } = started();
     log.info("session submitted");
 
@@ -105,9 +109,43 @@ describe("startBrowserTelemetry", () => {
     page.dispatch("error", { error: new Error("boom") });
     page.dispatch("pagehide");
 
-    expect(sent.map((event) => event.message)).toEqual(["session submitted"]);
-    expect(beaconed).toEqual([]);
+    expect(beaconed.map((event) => event.message)).toEqual(["session submitted"]);
+    expect(sent).toEqual([]);
     expect([page.listenerCount("error"), page.listenerCount("unhandledrejection"), page.listenerCount("pagehide")]).toEqual([0, 0, 0]);
     expect(page.document.listenerCount("visibilitychange")).toBe(0);
+  });
+
+  it("does not send again after stop when a send was in flight", async () => {
+    vi.useFakeTimers();
+    const releases: (() => void)[] = [];
+    const send = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releases.push(resolve);
+        }),
+    );
+    const telemetry = startBrowserTelemetry({ page: new FakeWindow(), send, beacon: () => true, batchSize: 2 });
+    running.push(telemetry);
+
+    for (const message of ["event 1", "event 2", "event 3", "event 4"]) {
+      telemetry.queue.enqueueRecord({ level: "info", message, attributes: {} });
+    }
+    telemetry.stop();
+    releases[0]?.();
+    await vi.advanceTimersByTimeAsync(60_000);
+    vi.useRealTimers();
+
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts once: a second call returns the running handle and adds no listeners, and a stopped one can start again", () => {
+    const { page, telemetry } = started();
+
+    const second = startBrowserTelemetry({ page: new FakeWindow(), send: () => undefined, beacon: () => true });
+
+    expect(second).toBe(telemetry);
+    expect(page.listenerCount("error")).toBe(1);
+    telemetry.stop();
+    expect(started().telemetry).not.toBe(telemetry);
   });
 });
