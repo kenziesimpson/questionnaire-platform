@@ -52,7 +52,7 @@ A pull request that changes what `apps/admin`, `apps/respondent` or `packages/ui
 | Lint, including the import boundaries | `npm run lint` |
 | Build | `npm run build` |
 
-CI (`.github/workflows/ci.yml`) runs all four on every push to `main` and every pull request. A PR is not ready for review until its Checks job is green.
+CI (`.github/workflows/ci.yml`) runs all four on every push to `main` and every pull request. A PR is not ready for review until its CI jobs are green or skipped.
 
 Node 24 (`.nvmrc`). TypeScript 6 in every workspace.
 
