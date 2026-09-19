@@ -1,5 +1,5 @@
 import { conditionsOf, type Option, type Predicate, type QuestionContent, type ResponseRow } from "@qp/shared";
-import { calendarDateLabel } from "../../lib/dates";
+import { calendarDayLabel } from "../../lib/dates";
 
 const TYPE_LABELS: Record<QuestionContent["type"], string> = {
   text: "Text",
@@ -43,7 +43,7 @@ export function AnswerDisplay({ question, answer }: { question: QuestionContent;
     case "number":
       return <AnswerBox label={answer.unit === undefined ? answer.number : `${answer.number} ${answer.unit}`} />;
     case "date":
-      return <AnswerBox label={calendarDateLabel(answer.date)} code={answer.date} />;
+      return <AnswerBox label={calendarDayLabel(answer.date)} code={answer.date} />;
     case "single_choice":
     case "multiple_choice": {
       const options = question.type === "single_choice" || question.type === "multiple_choice" ? question.options : [];

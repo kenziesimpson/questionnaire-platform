@@ -48,11 +48,7 @@ function parseResponsesSearch(search: Record<string, unknown>): ResponsesSearch 
   const version = typeof rawVersion === "string" || typeof rawVersion === "number" ? Number(rawVersion) : NaN;
   const status = search.status === "submitted" || search.status === "in_progress" ? search.status : undefined;
   const cursor = typeof search.cursor === "string" && search.cursor !== "" ? search.cursor : undefined;
-  return {
-    ...(Number.isInteger(version) && version >= 1 ? { version } : {}),
-    ...(status === undefined ? {} : { status }),
-    ...(cursor === undefined ? {} : { cursor }),
-  };
+  return { version: Number.isInteger(version) && version >= 1 ? version : undefined, status, cursor };
 }
 
 function parseVersion(raw: string): number {

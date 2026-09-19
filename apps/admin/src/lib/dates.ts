@@ -14,6 +14,7 @@ const calendarDateTime = new Intl.DateTimeFormat(LOCALE, {
   hour: "2-digit",
   minute: "2-digit",
 });
+const calendarDay = new Intl.DateTimeFormat(LOCALE, { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 const relativeTime = new Intl.RelativeTimeFormat(RELATIVE_LOCALE, { numeric: "auto" });
 
 export function lastEditedLabel(updatedAt: string, now: number): string {
@@ -31,4 +32,8 @@ export function fullTimestamp(iso: string): string {
 
 export function calendarDateLabel(iso: string): string {
   return calendarDate.format(Date.parse(iso));
+}
+
+export function calendarDayLabel(isoDate: string): string {
+  return calendarDay.format(Date.parse(isoDate));
 }
