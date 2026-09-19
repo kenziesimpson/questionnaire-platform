@@ -1,72 +1,13 @@
-import type { ResponseType, SubmissionItemCode } from "@qp/shared";
-
-export interface TelemetryContext {
-  readonly sessionId?: string;
-  readonly questionnaireId?: string;
-  readonly questionnaireVersion?: number;
-  readonly itemId?: string;
-  readonly questionId?: string;
-  readonly questionType?: ResponseType;
-  readonly outcome?: Outcome;
-}
-
-export type Outcome = "accepted" | "rejected_validation" | "rejected_conflict" | "failed";
-
-export type SpanName = "questionnaire.publish" | "rule.evaluate" | "session.submit";
-
-export type DomainEvent =
-  | { readonly name: "questionnaire.created"; readonly questionnaireId: string }
-  | { readonly name: "questionnaire.published"; readonly questionnaireId: string; readonly questionnaireVersion: number }
-  | { readonly name: "questionnaire.retired"; readonly questionnaireId: string }
-  | {
-      readonly name: "session.started";
-      readonly sessionId: string;
-      readonly questionnaireId: string;
-      readonly questionnaireVersion: number;
-    }
-  | {
-      readonly name: "session.resumed";
-      readonly sessionId: string;
-      readonly questionnaireId: string;
-      readonly questionnaireVersion: number;
-      readonly elapsedSeconds: number;
-    }
-  | {
-      readonly name: "session.question_answered";
-      readonly sessionId: string;
-      readonly itemId: string;
-      readonly questionId: string;
-      readonly questionType: ResponseType;
-    }
-  | {
-      readonly name: "session.answer_rejected";
-      readonly sessionId: string;
-      readonly itemId: string;
-      readonly questionId: string;
-      readonly reason: SubmissionItemCode;
-    }
-  | { readonly name: "session.item_skipped"; readonly sessionId: string; readonly itemId: string; readonly questionId: string }
-  | { readonly name: "session.abandoned"; readonly sessionId: string; readonly lastItemId: string | null }
-  | {
-      readonly name: "session.completed";
-      readonly sessionId: string;
-      readonly durationMs: number;
-      readonly questionCount: number;
-    };
-
-export type LiteralMessage<M extends string> = {} extends Record<M, 1> ? never : M;
-
-export type LogLevel = "debug" | "info" | "warn" | "error";
-
-export function log<M extends string>(
-  _level: LogLevel,
-  _message: LiteralMessage<M>,
-  _context?: TelemetryContext,
-  _error?: Error,
-): void {}
-
-export function emitDomainEvent(_event: DomainEvent): void {}
-
-export async function withSpan<T>(_name: SpanName, _context: TelemetryContext, fn: () => Promise<T>): Promise<T> {
-  return fn();
-}
+export { emitDomainEvent, type DomainEvent } from "./events.js";
+export {
+  FIELDS,
+  OUTCOMES,
+  type FieldName,
+  type FieldValue,
+  type Outcome,
+  type TelemetryContext,
+} from "./fields.js";
+export { LOG_LEVELS, logger, type LiteralMessage, type LogLevel, type Logger, type LogMethod } from "./logger.js";
+export { scrubAttributes, scrubContext, type DropCounts, type ScrubResult } from "./scrub.js";
+export { withSpan, type SpanName } from "./spans.js";
+export { DROP_REASONS, SIGNAL_KINDS, type DropReason, type SignalKind } from "./vocabulary.js";

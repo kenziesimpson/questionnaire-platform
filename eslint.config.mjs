@@ -31,7 +31,7 @@ const everySourceFile = ["**/src/**/*.{ts,tsx,mts,cts,js,mjs,cjs}"];
 const reactWorkspaces = ["apps/respondent/**/*.{ts,tsx}", "apps/admin/**/*.{ts,tsx}", "packages/ui/**/*.{ts,tsx}"];
 
 const telemetryOnly = {
-  group: ["pino", "pino/*", "pino-*", "@opentelemetry/*"],
+  group: ["pino", "pino/*", "pino-*", "@opentelemetry/*", "@fastify/otel"],
   message:
     "Only packages/telemetry may import pino or OpenTelemetry. Log, trace and count through @qp/telemetry so answer values cannot reach an exporter.",
 };
