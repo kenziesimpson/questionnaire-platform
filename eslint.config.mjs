@@ -123,6 +123,21 @@ const executionDbLayerFromItsSibling = {
   message: executionDbLayerMessage,
 };
 
+const reportingSideOfTheDbLayer = `(^|/)db${pathGap}reporting(/|$)`;
+
+const reportingDbLayerMessage =
+  "db/reporting belongs to the admin responses browser (gh#18). Neither definition nor execution reaches it; it is read through modules/reporting and @qp/shared only.";
+
+const reportingDbLayer = {
+  regex: reportingSideOfTheDbLayer,
+  message: reportingDbLayerMessage,
+};
+
+const reportingDbLayerFromItsSibling = {
+  regex: `${reportingSideOfTheDbLayer}|${relativeSibling("reporting")}(/|$)`,
+  message: reportingDbLayerMessage,
+};
+
 const anyModuleBelow = (side) => ({
   regex: "(^|/)modules(/|$)",
   message: `db/${side} sits below the backend modules and imports none of them.`,
@@ -530,22 +545,41 @@ export default tseslint.config(
   {
     name: "module boundary: definition",
     files: ["apps/backend/src/modules/definition/**"],
-    rules: { "no-restricted-imports": restrict(otherModule("execution"), executionDbLayer) },
+    rules: { "no-restricted-imports": restrict(otherModule("execution"), otherModule("reporting"), executionDbLayer, reportingDbLayer) },
   },
   {
     name: "module boundary: execution",
     files: ["apps/backend/src/modules/execution/**"],
+    rules: { "no-restricted-imports": restrict(otherModule("definition"), otherModule("reporting"), definitionDbLayer, reportingDbLayer) },
+  },
+  {
+    // Reporting is a third, narrower surface over execution's own data (gh#18): it may reuse
+    // db/execution's PublishedDefinitions loader code, but always over its own qp_reporting pool
+    // (grants in migration 0018), never execution's, and it shares nothing from the authoring side.
+    name: "module boundary: reporting",
+    files: ["apps/backend/src/modules/reporting/**"],
     rules: { "no-restricted-imports": restrict(otherModule("definition"), definitionDbLayer) },
   },
   {
     name: "module boundary: the definition side of the db layer",
     files: ["apps/backend/src/db/definition/**"],
-    rules: { "no-restricted-imports": restrict(anyModuleBelow("definition"), executionDbLayerFromItsSibling) },
+    rules: {
+      "no-restricted-imports": restrict(anyModuleBelow("definition"), executionDbLayerFromItsSibling, reportingDbLayerFromItsSibling),
+    },
   },
   {
     name: "module boundary: the execution side of the db layer",
     files: ["apps/backend/src/db/execution/**"],
-    rules: { "no-restricted-imports": restrict(anyModuleBelow("execution"), definitionDbLayerFromItsSibling) },
+    rules: {
+      "no-restricted-imports": restrict(anyModuleBelow("execution"), definitionDbLayerFromItsSibling, reportingDbLayerFromItsSibling),
+    },
+  },
+  {
+    // db/reporting is the one place allowed to reach across into db/execution (PublishedDefinitions),
+    // so this zone omits executionDbLayerFromItsSibling deliberately — see the module boundary above.
+    name: "module boundary: the reporting side of the db layer",
+    files: ["apps/backend/src/db/reporting/**"],
+    rules: { "no-restricted-imports": restrict(anyModuleBelow("reporting"), definitionDbLayerFromItsSibling) },
   },
   {
     ...reactHooks.configs.flat.recommended,

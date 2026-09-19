@@ -133,6 +133,30 @@ describe("the version history screen", () => {
     expect(router.state.location.pathname).toBe(`/questionnaires/${QUESTIONNAIRE_ID}/versions/1`);
   });
 
+  it("offers Raw responses beside the title once a version is published, linking to the responses list", async () => {
+    const { router } = renderHistory(serve({}));
+
+    await findRows();
+    const link = screen.getByRole("link", { name: "Raw responses" });
+
+    expect(link).toHaveAttribute("href", `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses`);
+
+    await userEvent.click(link);
+
+    expect(router.state.location.pathname).toBe(`/questionnaires/${QUESTIONNAIRE_ID}/responses`);
+  });
+
+  it.each([
+    ["nothing has been published", aSummary({ currentVersion: null, hasDraft: true }), []],
+    ["the questionnaire is not in the list", null, TWO_VERSIONS],
+  ])("offers no Raw responses when %s", async (_, summary, versions) => {
+    renderHistory(serve({ summaries: summary === null ? [] : [summary], versions: () => jsonResponse(200, versions) }));
+
+    await findRows();
+
+    expect(screen.queryByRole("link", { name: "Raw responses" })).not.toBeInTheDocument();
+  });
+
   it("shows the open draft above the versions, with its edited time and a link to the draft editor", async () => {
     renderHistory(serve({ summaries: [aSummary({ hasDraft: true, updatedAt: "2026-09-14T08:30:00.000Z" })] }));
 

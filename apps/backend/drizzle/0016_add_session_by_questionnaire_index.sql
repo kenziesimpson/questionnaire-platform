@@ -1,0 +1,1 @@
+CREATE INDEX "session_by_questionnaire" ON "execution"."session" USING btree ("questionnaire_id","started_at","id");

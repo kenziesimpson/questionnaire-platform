@@ -83,6 +83,8 @@ describe("the admin route tree", () => {
       "/",
       "/questionnaires",
       "/questionnaires/$questionnaireId/draft",
+      "/questionnaires/$questionnaireId/responses",
+      "/questionnaires/$questionnaireId/responses/$sessionId",
       "/questionnaires/$questionnaireId/versions",
       "/questionnaires/$questionnaireId/versions/$version",
       "/questions",

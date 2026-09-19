@@ -122,7 +122,7 @@ function QuestionnaireRow({ summary, now, drafts }: { summary: QuestionnaireSumm
         </Muted>
       </TableCell>
       <TableCell className="pr-4">
-        <div className="grid w-fit grid-cols-[6rem_4.5rem_6.5rem] items-center justify-items-start gap-1">
+        <div className="grid w-fit grid-cols-[6rem_4.5rem_6rem_6.5rem] items-center justify-items-start gap-1">
           <Button
             variant="outline"
             size="sm"
@@ -133,17 +133,31 @@ function QuestionnaireRow({ summary, now, drafts }: { summary: QuestionnaireSumm
             {opening ? "Opening…" : "Open draft"}
           </Button>
           {summary.currentVersion === null ? (
-            <span />
+            <>
+              <span />
+              <span />
+            </>
           ) : (
-            <Button asChild variant="ghost" size="sm">
-              <Link
-                to="/questionnaires/$questionnaireId/versions"
-                params={{ questionnaireId: summary.questionnaireId }}
-                aria-label={`History of ${summary.name}`}
-              >
-                History
-              </Link>
-            </Button>
+            <>
+              <Button asChild variant="ghost" size="sm">
+                <Link
+                  to="/questionnaires/$questionnaireId/versions"
+                  params={{ questionnaireId: summary.questionnaireId }}
+                  aria-label={`History of ${summary.name}`}
+                >
+                  History
+                </Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm">
+                <Link
+                  to="/questionnaires/$questionnaireId/responses"
+                  params={{ questionnaireId: summary.questionnaireId }}
+                  aria-label={`Responses of ${summary.name}`}
+                >
+                  Responses
+                </Link>
+              </Button>
+            </>
           )}
           <ClosesAtDialog summary={summary} closed={closed} />
         </div>

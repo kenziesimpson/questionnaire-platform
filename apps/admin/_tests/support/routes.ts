@@ -1,4 +1,4 @@
-import { definitionApi, type RouteDefinition } from "@qp/shared";
+import { definitionApi, reportingApi, type RouteDefinition } from "@qp/shared";
 import { urlOf, type RouteParts } from "@qp/ui/testing";
 import { QUESTIONNAIRE_ID } from "./builders";
 
@@ -21,3 +21,10 @@ export const questionUrl = (questionId: string) => definitionUrlOf(definitionApi
 export const questionVersionsUrl = (questionId: string) => definitionUrlOf(definitionApi.createQuestionVersion, ofQuestion(questionId));
 export const usageUrl = (questionId: string) => definitionUrlOf(definitionApi.getQuestionUsage, ofQuestion(questionId));
 export const versionUrl = (version: number) => definitionUrlOf(definitionApi.getVersion, { params: { id: QUESTIONNAIRE_ID, v: version } });
+
+const reportingUrlOf = (route: RouteDefinition, parts?: RouteParts) => urlOf(reportingApi.REPORTING_PREFIX, route, parts);
+
+export const sessionsUrl = (query: { version?: number; status?: string; cursor?: string } = {}) =>
+  reportingUrlOf(reportingApi.listSessions, { params: { id: QUESTIONNAIRE_ID }, query });
+export const sessionUrl = (sessionId: string) =>
+  reportingUrlOf(reportingApi.getSessionDetail, { params: { id: QUESTIONNAIRE_ID, sessionId } });

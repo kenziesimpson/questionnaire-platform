@@ -163,7 +163,7 @@ describe("qp_definition", () => {
       `SELECT role.name, c.oid::regclass::text AS relation, privilege.name AS privilege
          FROM pg_class c
          JOIN pg_namespace n ON n.oid = c.relnamespace
-        CROSS JOIN (VALUES ('qp_definition'), ('qp_execution')) AS role(name)
+        CROSS JOIN (VALUES ('qp_definition'), ('qp_execution'), ('qp_reporting')) AS role(name)
         CROSS JOIN (VALUES ('DELETE'), ('TRUNCATE')) AS privilege(name)
         WHERE n.nspname IN ('definition', 'execution', 'audit')
           AND c.relkind IN ('r', 'p')
@@ -269,5 +269,117 @@ describe("audit.record", () => {
     expect(fn.rows).toEqual([
       { prosecdef: true, proconfig: ["search_path=audit, pg_temp"], owner: "audit_owner", schema_owner: "audit_owner" },
     ]);
+  });
+});
+
+describe("qp_reporting", () => {
+  it("reads execution.session and execution.response", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const execution = await testDatabase.connect("execution");
+    const sessionId = await aSession(execution, published);
+    await insertResponse(execution, published, sessionId, { question_type: "text", text_value: "reporting can read this" });
+
+    const reporting = await testDatabase.connect("reporting");
+    const sessions = await reporting.query(`SELECT id FROM execution.session WHERE id = $1`, [sessionId]);
+    const responses = await reporting.query(`SELECT text_value FROM execution.response WHERE session_id = $1`, [sessionId]);
+
+    expect(sessions.rows).toEqual([{ id: sessionId }]);
+    expect(responses.rows).toEqual([{ text_value: "reporting can read this" }]);
+  });
+
+  it("cannot write execution.session or execution.response — no new write path", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const execution = await testDatabase.connect("execution");
+    const sessionId = await aSession(execution, published);
+    const reporting = await testDatabase.connect("reporting");
+
+    await denied(
+      reporting,
+      `INSERT INTO execution.session (id, questionnaire_id, questionnaire_version_id, version, status) VALUES (gen_random_uuid(), $1, $2, $3, 'in_progress')`,
+      [published.questionnaireId, published.draftVersionId, published.version],
+    );
+    await denied(reporting, `UPDATE execution.session SET status = 'submitted' WHERE id = $1`, [sessionId]);
+    await denied(reporting, `DELETE FROM execution.session WHERE id = $1`, [sessionId]);
+    await denied(
+      reporting,
+      `INSERT INTO execution.response (id, created_at, session_id, questionnaire_version_id, item_id, question_id, question_version, question_type, text_value)
+       VALUES (gen_random_uuid(), now(), $1, $2, 'itm_01', $3, 1, 'text', 'x')`,
+      [sessionId, published.draftVersionId, published.questionId],
+    );
+  });
+
+  it("reads the published-versions view and the questionnaire id, and nothing else in definition", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const reporting = await testDatabase.connect("reporting");
+
+    const versions = await reporting.query(
+      `SELECT id, version FROM definition.published_questionnaire_version WHERE questionnaire_id = $1`,
+      [published.questionnaireId],
+    );
+    const questionnaires = await reporting.query(`SELECT id FROM definition.questionnaire WHERE id = $1`, [published.questionnaireId]);
+    expect(versions.rows).toEqual([{ id: published.draftVersionId, version: published.version }]);
+    expect(questionnaires.rows).toEqual([{ id: published.questionnaireId }]);
+
+    await denied(reporting, `SELECT name FROM definition.questionnaire LIMIT 1`);
+    await denied(reporting, `SELECT current_version_id FROM definition.questionnaire LIMIT 1`);
+    await denied(reporting, `SELECT * FROM definition.questionnaire LIMIT 1`);
+    for (const table of ["definition.questionnaire_version", "definition.version_question_index", ...AUTHORING_TABLES]) {
+      await denied(reporting, `SELECT 1 FROM ${table} LIMIT 1`);
+    }
+  });
+
+  it("cannot write any definition table or read the audit schema", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const reporting = await testDatabase.connect("reporting");
+
+    await denied(reporting, `UPDATE definition.questionnaire SET closes_at = now() WHERE id = $1`, [published.questionnaireId]);
+    await denied(reporting, `UPDATE definition.questionnaire SET id = id WHERE id = $1`, [published.questionnaireId]);
+    await denied(reporting, `DELETE FROM definition.questionnaire WHERE id = $1`, [published.questionnaireId]);
+    await denied(reporting, `UPDATE definition.published_questionnaire_version SET title = 'x'`);
+    await denied(reporting, `SELECT 1 FROM audit.event`);
+    await denied(reporting, auditRecordCall);
+  });
+
+  it("holds SELECT on exactly four relations and no write privilege of any kind on any relation", async () => {
+    const owner = await testDatabase.connect("owner");
+    const readable = await owner.query(
+      `SELECT c.oid::regclass::text AS relation
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname IN ('definition', 'execution', 'audit')
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+          AND has_any_column_privilege('qp_reporting', c.oid, 'SELECT')
+        ORDER BY 1`,
+    );
+    const writable = await owner.query(
+      `SELECT c.oid::regclass::text AS relation, privilege.name AS privilege
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        CROSS JOIN (VALUES ('INSERT'), ('UPDATE'), ('REFERENCES')) AS privilege(name)
+        WHERE n.nspname IN ('definition', 'execution', 'audit')
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+          AND has_any_column_privilege('qp_reporting', c.oid, privilege.name)`,
+    );
+    const otherWrites = await owner.query(
+      `SELECT c.oid::regclass::text AS relation, privilege.name AS privilege
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        CROSS JOIN (VALUES ('DELETE'), ('TRUNCATE'), ('TRIGGER')) AS privilege(name)
+        WHERE n.nspname IN ('definition', 'execution', 'audit')
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+          AND has_table_privilege('qp_reporting', c.oid, privilege.name)`,
+    );
+
+    expect(readable.rows.map((row) => row.relation)).toEqual([
+      "definition.published_questionnaire_version",
+      "definition.questionnaire",
+      "execution.response",
+      "execution.session",
+    ]);
+    expect(writable.rows).toEqual([]);
+    expect(otherWrites.rows).toEqual([]);
+  });
+
+  it("keeps a distinct password from qp_execution, so it is a genuinely separate identity", async () => {
+    expect(testDatabase.url("reporting")).not.toBe(testDatabase.url("execution"));
   });
 });

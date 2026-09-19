@@ -7,7 +7,23 @@ export const ADMIN_HEADINGS = {
   questionBank: "Question bank",
   versionHistory: "Version history",
   notFound: "Page not found",
+  responses: "Responses",
 } as const;
+
+export interface ResponsesSearch {
+  readonly version?: number;
+  readonly status?: string;
+  readonly cursor?: string;
+}
+
+function responsesSearchString(search: ResponsesSearch): string {
+  const params = new URLSearchParams();
+  if (search.version !== undefined) params.set("version", String(search.version));
+  if (search.status !== undefined) params.set("status", search.status);
+  if (search.cursor !== undefined) params.set("cursor", search.cursor);
+  const query = params.toString();
+  return query === "" ? "" : `?${query}`;
+}
 
 export const ADMIN_PATHS = {
   root: `${ADMIN_BASE_PATH}/`,
@@ -16,6 +32,10 @@ export const ADMIN_PATHS = {
   draftEditor: (questionnaireId: string) => `${ADMIN_BASE_PATH}/questionnaires/${questionnaireId}/draft`,
   versionHistory: (questionnaireId: string) => `${ADMIN_BASE_PATH}/questionnaires/${questionnaireId}/versions`,
   versionPreview: (questionnaireId: string, version: number) => `${ADMIN_BASE_PATH}/questionnaires/${questionnaireId}/versions/${version}`,
+  responsesList: (questionnaireId: string, search: ResponsesSearch = {}) =>
+    `${ADMIN_BASE_PATH}/questionnaires/${questionnaireId}/responses${responsesSearchString(search)}`,
+  responseDetail: (questionnaireId: string, sessionId: string, search: ResponsesSearch = {}) =>
+    `${ADMIN_BASE_PATH}/questionnaires/${questionnaireId}/responses/${sessionId}${responsesSearchString(search)}`,
 } as const;
 
 const DRAFT_ITEM_LIST_NAME = "Questions, in the order respondents see them";
@@ -140,5 +160,59 @@ export class AdminPage {
       await this.pressUntilAnnounced(arrow, `Question “${prompt}” moved to position ${position} of ${total}.`);
     }
     await this.pressUntilAnnounced("Space", `Question “${prompt}” was dropped in position ${to} of ${total}.`);
+  }
+
+  async openResponsesList(questionnaireId: string, search: ResponsesSearch = {}): Promise<void> {
+    await this.page.goto(ADMIN_PATHS.responsesList(questionnaireId, search));
+    await expect(this.heading(ADMIN_HEADINGS.responses)).toBeVisible();
+  }
+
+  async openResponseDetail(questionnaireId: string, sessionId: string, search: ResponsesSearch = {}): Promise<void> {
+    await this.page.goto(ADMIN_PATHS.responseDetail(questionnaireId, sessionId, search));
+    await expect(this.sessionPanel()).toBeVisible();
+  }
+
+  responsesLink(questionnaireName: string): Locator {
+    return this.page.getByRole("link", { name: `Responses of ${questionnaireName}`, exact: true });
+  }
+
+  rawResponsesLink(): Locator {
+    return this.page.getByRole("link", { name: "Raw responses", exact: true });
+  }
+
+  sessionRow(sessionId: string): Locator {
+    return this.page.getByRole("row").filter({ has: this.page.getByTitle(sessionId, { exact: true }) });
+  }
+
+  openSessionButton(sessionId: string): Locator {
+    return this.page.getByRole("link", { name: `Open session ${sessionId.slice(0, 8)}`, exact: true });
+  }
+
+  versionFilter(): Locator {
+    return this.page.getByLabel("Version", { exact: true });
+  }
+
+  statusFilter(): Locator {
+    return this.page.getByLabel("Status", { exact: true });
+  }
+
+  newerPageButton(): Locator {
+    return this.page.getByRole("button", { name: "Newer", exact: true });
+  }
+
+  olderPageButton(): Locator {
+    return this.page.getByRole("button", { name: "Older", exact: true });
+  }
+
+  newerSessionButton(): Locator {
+    return this.page.getByRole("link", { name: "Newer session", exact: true }).or(this.page.getByRole("button", { name: "Newer session", exact: true }));
+  }
+
+  olderSessionButton(): Locator {
+    return this.page.getByRole("link", { name: "Older session", exact: true }).or(this.page.getByRole("button", { name: "Older session", exact: true }));
+  }
+
+  sessionPanel(): Locator {
+    return this.page.getByRole("region", { name: "Session", exact: true });
   }
 }

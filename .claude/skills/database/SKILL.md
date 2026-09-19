@@ -33,9 +33,10 @@ structural instead of a per-table list someone has to remember to extend.
 - **`execution`** — `session`, `response`
 - **`audit`** — `event`
 
-Roles: `qp_owner` owns everything and runs migrations. `qp_definition` and `qp_execution` are the two
-application roles (two pools, two connection strings). `audit_owner` owns the audit schema and the
-function that writes to it.
+Roles: `qp_owner` owns everything and runs migrations. `qp_definition`, `qp_execution` and `qp_reporting`
+are the three application roles (three pools, three connection strings; the owner's makes four).
+`qp_reporting` is read-only and exists for the admin responses browser (Decisions Log #89).
+`audit_owner` owns the audit schema and the function that writes to it.
 
 ## Invariants — do not break these
 
@@ -62,9 +63,11 @@ check instead, the change is wrong.
    submit validator's job instead (Decisions Log #34). Do not assume a `response` row read back from the
    database has distinct `option_ids`.
 5. **Collected responses are immutable.** `qp_execution` has `SELECT, INSERT` on `response` and nothing
-   else, and a response's `questionnaire_version_id` must match its session's pin (composite FK). **The
-   only `DELETE` any application role holds is `qp_definition` on `questionnaire_item`**, bounded to
-   drafts by the item guard. Do not grant another.
+   else. `qp_reporting` is the only other role that can read `execution.*` — `SELECT` on `session` and
+   `response`, no write privilege on any relation — and `qp_definition` has no grant on either. A response's
+   `questionnaire_version_id` must match its session's pin (composite FK). **The only `DELETE` any
+   application role holds is `qp_definition` on `questionnaire_item`**, bounded to drafts by the item guard.
+   Do not grant another.
 6. **`audit.event` is append-only and unreachable directly.** Writes go through
    `audit.record(...)`, a `SECURITY DEFINER` function. `qp_definition` has no privilege on the table —
    not even `SELECT` — and is the only role with `EXECUTE` on the function.
@@ -85,9 +88,17 @@ check instead, the change is wrong.
   `option_ids` against the pinned question version's options anyway — assert distinctness in that same
   walk and return `422`. This is the one invariant on this table that is *not* enforced below you.
 - **Pick the right role.** Definition repositories use the `qp_definition` pool; execution
-  repositories use `qp_execution`. Never reach across — execution code must not read an authoring
+  repositories use `qp_execution`; reporting repositories (`db/reporting`) use `qp_reporting`. Never reach across — execution code must not read an authoring
   table, and the grants will stop it at runtime if it tries. Execution reads versions from
   `definition.published_questionnaire_version`; it has no `SELECT` on the base `questionnaire_version`.
+  **`modules/reporting` holds the `qp_reporting` pool and no other.** Its whole surface is `SELECT` on `session`,
+  `response`, the same published view, and the `id` column of `definition.questionnaire`. If it needs another
+  read, add a `SELECT` grant in a migration (`0010`, `0018` are the shape); never hand it `qp_execution`'s pool,
+  which can write. A test enumerates the role's privileges, so a widening fails loudly.
+- **Read `response` with its partition key.** Filter on `created_at` as well as `session_id` (a submitted session's
+  `submitted_at` *is* its rows' `created_at`), or the read scans all 36 partitions. Keyset pages compare the row,
+  `(started_at, id) < ($1, $2)`, never `a < $1 OR (a = $1 AND b < $2)`: only the row form is an index seek on
+  `session_by_questionnaire`.
 - **Take the lock first.** Three operations need a row lock as their *first* statement:
 
   | Operation | Lock |
@@ -189,11 +200,11 @@ long-lived client to the harness, and do not cache one across tests in a test fi
 
 ## Roles and connection strings
 
-Five identities, three connection strings (Decisions Log #39,
+Six identities, four connection strings (Decisions Log #39 and #89,
 [[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]), wired in
 `docker-compose.yml` and `.env.example`: the bootstrap superuser (`POSTGRES_USER`) runs `db/init/01-roles.sh`
-(at init, and from the `roles` service on every `up`); `qp_owner` runs migrations (`DATABASE_URL_OWNER`); the backend's two pools use
-`DATABASE_URL_DEFINITION` and `DATABASE_URL_EXECUTION`, and the seed the first of them; `audit_owner` has no
+(at init, and from the `roles` service on every `up`); `qp_owner` runs migrations (`DATABASE_URL_OWNER`); the backend's three pools use
+`DATABASE_URL_DEFINITION`, `DATABASE_URL_EXECUTION` and `DATABASE_URL_REPORTING`, and the seed the first of them; `audit_owner` has no
 login. There is no unsuffixed `DATABASE_URL`.
 
 The four things that fail quietly if this is ever rewired:

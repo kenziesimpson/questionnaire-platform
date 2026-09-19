@@ -54,6 +54,6 @@ export {
   type DemoShapedOptions,
   type DemoShapedQuestionnaire,
 } from "./demo/demo-questionnaire";
-export { ADMIN_HEADINGS, ADMIN_PATHS, AdminPage, type KeyboardMove } from "./pages/admin-page";
+export { ADMIN_HEADINGS, ADMIN_PATHS, AdminPage, type KeyboardMove, type ResponsesSearch } from "./pages/admin-page";
 export { RESPONDENT_BUTTONS, RESPONDENT_HEADINGS, RespondentPage, type RespondentReceipt, type StoredValue } from "./pages/respondent-page";
 export { RESPONDENT_STORAGE_FORMAT_VERSION, RespondentStorageEnvelope, respondentStorageKey } from "./pages/respondent-storage";

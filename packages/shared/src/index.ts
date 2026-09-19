@@ -23,6 +23,13 @@ export { DraftItem, QuestionnaireDraft, QuestionnaireSummary, draftForValidation
 export { ClientAnswerValue, ClientAnswers, ResponseRow, answerFor, type ClientAnswerValueOf } from "./domain/answer.js";
 export { Receipt, Session, SessionStatus } from "./domain/session.js";
 export {
+  RESPONSES_PAGE_SIZE,
+  SessionDetail,
+  SessionDetailItem,
+  SessionSummary,
+  SessionSummaryPage,
+} from "./domain/session-report.js";
+export {
   DRAFT_ITEM_CODES,
   PROBLEM_CONTENT_TYPE,
   ProblemDetails,
@@ -75,3 +82,4 @@ export { routePath, routeSearch, successSchemaOf, type PathParams, type QueryPar
 export { formatDraftEtag, isDraftEtagFor, parseDraftEtag, snapshotEtag, type DraftPrecondition } from "./api/etag.js";
 export * as definitionApi from "./api/definition.js";
 export * as executionApi from "./api/execution.js";
+export * as reportingApi from "./api/reporting.js";

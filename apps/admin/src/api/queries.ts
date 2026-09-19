@@ -1,6 +1,6 @@
-import { definitionApi } from "@qp/shared";
+import { definitionApi, reportingApi, type SessionStatus } from "@qp/shared";
 import { queryOptions } from "@tanstack/react-query";
-import { callDefinition, draftApi } from "./client";
+import { callDefinition, callReporting, draftApi } from "./client";
 import { queryKeys } from "./query-keys";
 
 export const questionnaireQueries = {
@@ -43,5 +43,25 @@ export const questionQueries = {
     queryOptions({
       queryKey: queryKeys.questions.usage(questionId),
       queryFn: ({ signal }) => callDefinition(definitionApi.getQuestionUsage, { params: { questionId }, signal }),
+    }),
+};
+
+export interface ResponseListFilters {
+  readonly version?: number;
+  readonly status?: SessionStatus;
+  readonly cursor?: string;
+}
+
+export const responseQueries = {
+  list: (questionnaireId: string, { version, status, cursor }: ResponseListFilters) =>
+    queryOptions({
+      queryKey: queryKeys.responses.list(questionnaireId, { version, status }, cursor),
+      queryFn: ({ signal }) =>
+        callReporting(reportingApi.listSessions, { params: { id: questionnaireId }, query: { version, status, cursor }, signal }),
+    }),
+  session: (questionnaireId: string, sessionId: string) =>
+    queryOptions({
+      queryKey: queryKeys.responses.session(questionnaireId, sessionId),
+      queryFn: ({ signal }) => callReporting(reportingApi.getSessionDetail, { params: { id: questionnaireId, sessionId }, signal }),
     }),
 };
