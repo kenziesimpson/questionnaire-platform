@@ -412,6 +412,7 @@ CREATE TABLE execution.session (
  OR (status='submitted'   AND submitted_at IS NOT NULL AND response_digest IS NOT NULL))
 );
 CREATE INDEX session_by_version  ON execution.session (questionnaire_version_id, started_at);
+CREATE INDEX session_by_questionnaire ON execution.session (questionnaire_id, started_at, id);
 CREATE INDEX session_in_progress ON execution.session (questionnaire_id, last_activity_at)
   WHERE status = 'in_progress';
 ```
@@ -558,6 +559,7 @@ Every index below exists for a named query or a named invariant. Nothing is inde
 | `vqi_reverse` | "which published versions contain question X" ([[2-design-doc#12. Database]] §12.1) |
 | `session` PK | resume — `GET /sessions/:sessionId`, a point lookup |
 | `session_by_version` | "sessions started against version N", for the republish story and analytics |
+| `session_by_questionnaire (questionnaire_id, started_at, id)` | the admin responses list (Decisions Log #87): one questionnaire's sessions, newest first, paged by keyset. The predicate is the row comparison `(started_at, id) < ($1, $2)`, which a btree seeks to directly; the equivalent `OR` form is only a filter and re-walks every earlier page |
 | `session_in_progress` (partial) | abandonment analytics; partial because submitted sessions are the majority and are never the subject of this query |
 | `session_pinned_version_key (id, questionnaire_version_id)` | the target of `response`'s composite foreign key (§6.3); an invariant, not an access path |
 | `response_by_session (session_id, created_at)` | idempotent replay, with partition pruning (§6.4) |
@@ -664,7 +666,7 @@ should be "simplified" later.
 
 ## 10. Grants
 
-The migrations build this up across several files (`0005`, `0007`, `0009`, `0010`, `0013`, `0016`); the net result is:
+The migrations build this up across several files (`0005`, `0007`, `0009`, `0010`, `0013`, `0017`, `0018`); the net result is:
 
 ```sql
 GRANT USAGE ON SCHEMA definition TO qp_definition;
@@ -689,20 +691,23 @@ GRANT SELECT, INSERT         ON execution.response TO qp_execution;
 ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner IN SCHEMA definition
   GRANT SELECT, INSERT, UPDATE ON TABLES TO qp_definition;
 
--- qp_reporting: the admin responses browser (gh#18, Decisions Log #88) — SELECT only, on exactly
--- these two tables. It has no grant anywhere in definition or audit.
+-- qp_reporting: the admin responses browser (gh#18, Decisions Log #88) — SELECT only, no write of
+-- any kind. 0017 grants the two execution tables; 0018 the published-versions view and one column.
 GRANT USAGE ON SCHEMA execution TO qp_reporting;
 GRANT SELECT ON execution.session, execution.response TO qp_reporting;
+GRANT USAGE ON SCHEMA definition TO qp_reporting;
+GRANT SELECT ON definition.published_questionnaire_version TO qp_reporting;
+GRANT SELECT (id) ON definition.questionnaire TO qp_reporting;
 ```
 
 | Role | `definition` | `execution` | `audit` |
 | --- | --- | --- | --- |
 | `qp_definition` | `SELECT, INSERT` on every table; `UPDATE` on every table except `questionnaire_version` and `questionnaire`, which get only the columns above; `DELETE` on `questionnaire_item` only; `EXECUTE` on `promote_draft` | none | `EXECUTE` on `audit.record` only (§9.1) |
 | `qp_execution` | `SELECT` on `questionnaire`, `version_question_index` and the `published_questionnaire_version` view — not the base `questionnaire_version` table | `SELECT, INSERT, UPDATE` on `session`; `SELECT, INSERT` on `response` | none |
-| `qp_reporting` | none | `SELECT` on `session` and `response` only — no `INSERT`/`UPDATE`/`DELETE` anywhere | none |
+| `qp_reporting` | `SELECT` on the `published_questionnaire_version` view and on `questionnaire (id)` only — not the base `questionnaire_version` table | `SELECT` on `session` and `response` only | none |
 | `qp_owner` | owns every object | owns every object | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` (§9.1) |
 
-`qp_reporting` backs `/api/reporting`'s admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)), a narrow, later addition (Wave 3a) and not the wider "aggregate admin reporting" surface [[2-design-doc#18. Open Questions]] §8 still leaves open. It is deliberately not `qp_execution` with a different name and not a widened `qp_definition` — see Decisions Log #88 for why a fourth role rather than reusing either. Resolving a session's pinned `PublishedDefinition` for that screen reuses `qp_execution`'s own existing grant on `published_questionnaire_version` (a second, read-only use of the `qp_execution` pool from `modules/reporting`, not a grant on `qp_reporting` itself) rather than adding one.
+`qp_reporting` backs `/api/reporting`'s admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)), a narrow, later addition (Wave 3a) and not the wider "aggregate admin reporting" surface [[2-design-doc#18. Open Questions]] §8 still leaves open. It is deliberately not `qp_execution` with a different name and not a widened `qp_definition` — see Decisions Log #88 for why a fourth role rather than reusing either. It holds `SELECT` only, on every relation it touches, and `modules/reporting` holds no other pool, so the module cannot write. The published-versions view follows `0010`'s precedent (the one relation that exposes published snapshots without the base table), and `questionnaire` is granted by column — `id` alone — because the existence check reads nothing else. It was first shipped borrowing `qp_execution`'s pool for those two reads; review reversed that, since the borrowed credentials could write to `session` and `response`.
 
 No function in `definition`, `execution` or `audit` keeps the default `EXECUTE` for `PUBLIC`: `audit.record` and
 `promote_draft` are executable only by `qp_definition`, and the trigger functions by no application role (a
