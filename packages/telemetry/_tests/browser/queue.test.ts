@@ -379,7 +379,7 @@ describe("createEventQueue: the bound", () => {
 
     for (let index = 1; index <= 5; index += 1) queue.enqueueRecord(info(`event ${String(index)}`));
 
-    expect(queue.stats().droppedEvents).toEqual({ overflow: 0, undelivered: 0, internal: 0 });
+    expect(queue.stats().droppedEvents).toEqual({ overflow: 0, undelivered: 0, internal: 0, level: 0 });
   });
 });
 
