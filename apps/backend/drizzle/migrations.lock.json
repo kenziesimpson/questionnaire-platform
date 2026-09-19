@@ -19,5 +19,5 @@
   "0017_reporting_role_grant.sql": "e28bb2bfc97f069a473281caece7c97310f85e4657fd24d6b19cfe6d0f7a5c68",
   "0018_reporting_reads_published_versions_only.sql": "a6bc3adc93db79dcd5fb74a6b9f9883d7546c1b35949f95636885651f3340494",
   "0019_add_session_submitted_indexes.sql": "f88042ab022fd4d8307ea0274d960e61e8588044fcba919e99657dc4184631f1",
-  "0020_reporting_records_view_response.sql": "f1b302be6e94e845e25214caa92fdf1dcbd0402f29649fbc46cef29b7e177d2c"
+  "0020_reporting_records_view_response.sql": "64669a0c0bf438be2e0f7d3b6ff2f3b3ffad73253ef787af9a2ebd82b229e2ee"
 }

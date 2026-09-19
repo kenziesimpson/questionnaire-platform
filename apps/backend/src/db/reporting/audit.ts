@@ -20,7 +20,7 @@ export async function recordResponseView(tx: Transaction, view: ResponseView): P
           ${view.questionnaireVersionId}::uuid,
           ${view.version}::int,
           ${view.actorId}::text,
-          ${JSON.stringify({ sessionId: view.sessionId })}::jsonb,
+          jsonb_build_object('sessionId', ${view.sessionId}::uuid),
           ${view.traceId}::text
         ) AS id`,
   );

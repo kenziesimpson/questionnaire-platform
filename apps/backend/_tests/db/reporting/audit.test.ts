@@ -40,6 +40,16 @@ describe("recordResponseView", () => {
     ]);
   });
 
+  it("refuses a session id that is not a uuid, so nothing else can be written into the summary", async () => {
+    const view = await aView();
+
+    await expect(
+      testDatabase.database("reporting").transaction((tx) => recordResponseView(tx, { ...view, sessionId: "patient answered yes" })),
+    ).rejects.toThrow();
+
+    expect((await testDatabase.readAuditEvents()).filter((event) => event.action === "view_response")).toEqual([]);
+  });
+
   it("records a missing trace id as null", async () => {
     const view = await aView();
 

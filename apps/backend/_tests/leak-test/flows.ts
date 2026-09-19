@@ -437,10 +437,11 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
   },
   {
     name: "reporting: list reads with a real and a forged cursor write no audit row, then a detail read of the stored sentinel answer writes one, without the sentinel",
+    emits: ["reporting.responses_listed", "reporting.response_viewed"],
     run: async (world, sentinel) => {
       const sessionId = await submitPlantedResponse(world, sentinel);
       const cursor = encodeCursor({ sort: "started", order: "desc", direction: "forward", sortValue: new Date(Date.now() + 60_000), id: sessionId });
-      const listings = [{}, { cursor }, { cursor: sentinel }];
+      const listings: Record<string, string>[] = [{}, { cursor }, { cursor: sentinel }];
       for (const query of listings) {
         const listed = await world.app.inject({ method: "GET", url: listSessionsUrl(INTAKE_QUESTIONNAIRE_ID, query) });
         expect(listed.statusCode, "the planted list read must succeed for the flow to prove anything").toBe(200);
@@ -450,6 +451,7 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
 
       const detail = await world.app.inject({ method: "GET", url: sessionDetailUrl(INTAKE_QUESTIONNAIRE_ID, sessionId) });
       expect(detail.statusCode).toBe(200);
+      expect(detail.body, "the detail read must return the planted answer for the flow to prove anything").toContain(sentinel);
       const views = await viewRows();
       expect(views, "a detail read must write exactly one audit row").toHaveLength(1);
       expect(views[0]).toMatchObject({ questionnaire_id: INTAKE_QUESTIONNAIRE_ID, summary: { sessionId } });

@@ -93,7 +93,8 @@ check instead, the change is wrong.
   table, and the grants will stop it at runtime if it tries. Execution reads versions from
   `definition.published_questionnaire_version`; it has no `SELECT` on the base `questionnaire_version`.
   **`modules/reporting` holds the `qp_reporting` pool and no other.** Its whole surface is `SELECT` on `session`,
-  `response`, the same published view, and the `id` column of `definition.questionnaire`. If it needs another
+  `response`, the same published view, and the `id` column of `definition.questionnaire`, plus `EXECUTE` on `audit.record`
+  for `view_response` (`0020`). If it needs another
   read, add a `SELECT` grant in a migration (`0010`, `0018` are the shape); never hand it `qp_execution`'s pool,
   which can write. A test enumerates the role's privileges, so a widening fails loudly.
 - **Read `response` with its partition key.** Filter on `created_at` as well as `session_id` (a submitted session's

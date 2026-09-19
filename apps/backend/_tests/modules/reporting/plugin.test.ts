@@ -695,6 +695,17 @@ describe("the audit trail of reading a response", () => {
     expect(JSON.stringify(views)).not.toContain("Main Street");
   });
 
+  it("is a row for an in-progress session too, so the audit does not reveal which sessions hold answers", async () => {
+    await seedIntakeV1(testDatabase);
+    const sessionId = await startedSessionId(executionDatabase(), freshDefinitions(), INTAKE_QUESTIONNAIRE_ID, new Date());
+
+    const response = await sessionDetail(INTAKE_QUESTIONNAIRE_ID, sessionId);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<SessionDetail>().status).toBe("in_progress");
+    expect(await viewResponseRows()).toMatchObject([{ action: "view_response", questionnaire_id: INTAKE_QUESTIONNAIRE_ID, summary: { sessionId } }]);
+  });
+
   it("is one row per read, and none for a session that is not found, under either questionnaire, or for the responses list, with or without a cursor", async () => {
     const sessionId = await aSubmittedIntakeSession();
     const other = await aPublishedQuestionnaire(testDatabase.database("definition"));
