@@ -274,6 +274,19 @@ describe("emitDomainEvent against the real SDK", () => {
     ]);
   });
 
+  it("labels the publish counters by outcome and by draft item code, and the conflict counter by nothing", async () => {
+    const installed = install();
+    emitDomainEvent({ name: "questionnaire.publish_finished", questionnaireId: QUESTIONNAIRE_ID, outcome: "rejected_validation" });
+    emitDomainEvent({ name: "questionnaire.publish_rejected", questionnaireId: QUESTIONNAIRE_ID, itemId: "itm_01", problemCode: "predicate/forward-reference" });
+    emitDomainEvent({ name: "questionnaire.draft_conflict", questionnaireId: QUESTIONNAIRE_ID });
+    const total = await metricNamed(installed, "questionnaire.publish.total");
+    const rejections = await metricNamed(installed, "questionnaire.publish.rejections");
+    const conflicts = await metricNamed(installed, "questionnaire.draft.conflicts");
+    expect(total?.dataPoints.map((point) => point.attributes)).toEqual([{ "questionnaire.outcome": "rejected_validation" }]);
+    expect(rejections?.dataPoints.map((point) => point.attributes)).toEqual([{ "problem.code": "predicate/forward-reference" }]);
+    expect(conflicts?.dataPoints.map((point) => point.attributes)).toEqual([{}]);
+  });
+
   it("counts a submit by its outcome and a past-cutoff rejection with no label", async () => {
     const installed = install();
     const session = { sessionId: SESSION_ID, questionnaireId: QUESTIONNAIRE_ID, questionnaireVersion: 2 };

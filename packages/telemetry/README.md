@@ -212,9 +212,10 @@ find is counted too, through `reportDropped`.
 await withSpan("session.submit", { sessionId }, async () => submit());
 ```
 
-- `SpanName` is derived from `SPAN_NAMES` (`questionnaire.publish`, `rule.evaluate`, `session.submit`, `telemetry.ingest`); a
-  new span is one more member of that array. The backend wraps a submit in `session.submit` and its answer
-  evaluation in `rule.evaluate`, and adds `outcome` to the first once it is known.
+- `SpanName` is derived from `SPAN_NAMES` (`questionnaire.create`, `questionnaire.edit_draft`, `questionnaire.open_draft`, `questionnaire.publish`,
+  `questionnaire.retire`, `rule.evaluate`, `session.submit`, `telemetry.ingest`); a new span is one more member of that array.
+  The backend wraps a submit in `session.submit` and its answer evaluation in `rule.evaluate`, and each questionnaire lifecycle
+  write in its `questionnaire.*` span; the outcome, and the version for a publish, are added once known.
 - A name outside `SPAN_NAMES`, which only a cast or an untyped caller can pass, does not throw: `withSpan`
   runs the callback with no span and counts one `span/unknown` drop.
 - Context becomes attributes through the registry, so it is scrubbed like a log line.
@@ -272,6 +273,9 @@ table, so adding an event is one entry.
 | Event | Counter |
 | --- | --- |
 | `questionnaire.created`, `.published`, `.retired` | `questionnaire.created`, `.published`, `.retired` |
+| `questionnaire.publish_finished` | `questionnaire.publish.total`, labelled by `outcome` |
+| `questionnaire.publish_rejected` | `questionnaire.publish.rejections`, labelled by `problemCode`, a draft item code |
+| `questionnaire.draft_conflict` | `questionnaire.draft.conflicts` |
 | `session.started`, `.resumed`, `.abandoned`, `.completed` | `questionnaire.sessions.started`, `.resumed`, `.abandoned`, `.completed` |
 | `session.question_answered` | `questionnaire.answers.accepted`, labelled by `questionType` |
 | `session.answer_rejected` | `questionnaire.answers.rejected`, labelled by `reason`; `itemId` and `questionId` are `null` for an unknown item key, which came from the respondent; the backend emits at most `MAX_FINDINGS` (20) per submit |
