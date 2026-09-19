@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { responseRowsBySession } from "../../../src/db/reporting/responses.js";
-import { aPublishedQuestionnaire, aSession, insertResponse, useTestDatabase } from "../../db/fixtures.js";
+import { aPublishedQuestionnaire, aSession, insertResponse, useTestDatabase } from "../fixtures.js";
 
 const testDatabase = useTestDatabase();
 

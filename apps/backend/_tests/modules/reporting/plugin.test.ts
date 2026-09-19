@@ -22,6 +22,11 @@ function listSessions(questionnaireId: string, query: Record<string, string> = {
   return reportingApp().inject({ method: "GET", url: listSessionsUrl(questionnaireId, query) });
 }
 
+function presentCursor(cursor: string | null): string {
+  if (cursor === null) throw new Error("expected the page to carry a cursor");
+  return cursor;
+}
+
 function sessionDetail(questionnaireId: string, sessionId: string) {
   return reportingApp().inject({ method: "GET", url: sessionDetailUrl(questionnaireId, sessionId) });
 }
@@ -109,14 +114,14 @@ describe("GET /questionnaires/:id/responses", () => {
     expect(firstPage.olderCursor).not.toBeNull();
 
     const secondPage = (
-      await listSessions(published.questionnaireId, { cursor: firstPage.olderCursor! })
+      await listSessions(published.questionnaireId, { cursor: presentCursor(firstPage.olderCursor) })
     ).json<SessionSummaryPage>();
     expect(secondPage.items.map((item) => item.sessionId)).toEqual(newestFirst.slice(RESPONSES_PAGE_SIZE));
     expect(secondPage.olderCursor).toBeNull();
     expect(secondPage.newerCursor).not.toBeNull();
 
     const backToFirst = (
-      await listSessions(published.questionnaireId, { cursor: secondPage.newerCursor! })
+      await listSessions(published.questionnaireId, { cursor: presentCursor(secondPage.newerCursor) })
     ).json<SessionSummaryPage>();
     expect(backToFirst.items.map((item) => item.sessionId)).toEqual(newestFirst.slice(0, RESPONSES_PAGE_SIZE));
   });
@@ -142,7 +147,7 @@ describe("GET /questionnaires/:id/responses", () => {
 
     const firstPage = (await listSessions(published.questionnaireId)).json<SessionSummaryPage>();
     const secondPage = (
-      await listSessions(published.questionnaireId, { cursor: firstPage.olderCursor! })
+      await listSessions(published.questionnaireId, { cursor: presentCursor(firstPage.olderCursor) })
     ).json<SessionSummaryPage>();
     const firstIds = firstPage.items.map((item) => item.sessionId);
     const secondIds = secondPage.items.map((item) => item.sessionId);
@@ -154,7 +159,7 @@ describe("GET /questionnaires/:id/responses", () => {
     expect(secondPage.olderCursor).toBeNull();
 
     const backToFirst = (
-      await listSessions(published.questionnaireId, { cursor: secondPage.newerCursor! })
+      await listSessions(published.questionnaireId, { cursor: presentCursor(secondPage.newerCursor) })
     ).json<SessionSummaryPage>();
     expect(backToFirst.items.map((item) => item.sessionId)).toEqual(firstIds);
   });

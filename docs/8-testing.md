@@ -988,7 +988,7 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 | A session pinned to v1 shows v1's option labels after v2 is published | `_tests/modules/reporting/plugin.test.ts` | Content comes from the session's own pinned snapshot, never the latest | Response meaning preserved across a republish |
 | An in-progress session's detail has no answers and no `submittedAt` | `_tests/modules/reporting/plugin.test.ts` | Nothing is stored before submit | — conventions |
 | Reporting responses carry `cache-control: no-store` | `_tests/modules/reporting/plugin.test.ts` | Raw answers are never cached | — conventions |
-| The response read matches a session's rows only when given its own `submittedAt`, and reads nothing for an empty page | `_tests/modules/reporting/responses.test.ts` | Every response read carries the partition key, so it prunes to one partition ([[9-database-schema#6.4 Partitioning]]) | — conventions |
+| The response read matches a session's rows only when given its own `submittedAt`, and reads nothing for an empty page | `_tests/db/reporting/responses.test.ts` | Every response read carries the partition key, so it prunes to one partition ([[9-database-schema#6.4 Partitioning]]) | — conventions |
 | Concurrent callers for one version share one in-flight load, and a failed load is not cached | `_tests/modules/execution/published-definitions.test.ts` | A cold cache on a 20-row page costs one snapshot query per distinct version, not one per row | — conventions |
 | `buildApp` mounts the reporting module at `/api/reporting` | `_tests/app.test.ts` | The third plugin is mounted beside the other two | — conventions |
 
