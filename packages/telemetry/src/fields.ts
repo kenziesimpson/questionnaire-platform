@@ -1,5 +1,6 @@
 import { PROBLEM_SLUGS, RESPONSE_TYPES, SLUG_PATTERN, SUBMISSION_ITEM_CODES, UUID_PATTERN } from "@qp/shared";
 import { PROBLEM_CODES } from "./problems.js";
+import { MAX_BROWSER_FRAMES } from "./frame-shape.js";
 import {
   DROP_REASONS,
   EVENT_SOURCES,
@@ -40,7 +41,6 @@ const DB_SYSTEM = /^[a-z][a-z0-9_.]{0,31}$/;
 const DB_OPERATION = /^[A-Za-z_]{1,32}$/;
 const HOST_NAME = /^[A-Za-z0-9_.-]{1,255}$/;
 const STACK_FRAME = /^ {4}at (?:.+ \((?:[^\s()]+:\d+:\d+|<anonymous>|native)\)|[^\s()]+:\d+:\d+)$/;
-const MAX_STACK_FRAMES = 40;
 
 function matching(attribute: string, expression: RegExp, bounded: boolean): FieldDefinition<string> {
   return {
@@ -69,11 +69,11 @@ function statusCode(attribute: string): FieldDefinition<number> {
 function isStackTrace(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const lines = value.split("\n");
-  return lines.length <= MAX_STACK_FRAMES && frameLines(lines).length === lines.length;
+  return lines.length <= MAX_BROWSER_FRAMES && frameLines(lines).length === lines.length;
 }
 
 function frameLines(lines: readonly string[]): string[] {
-  return lines.filter((line) => STACK_FRAME.test(line)).slice(0, MAX_STACK_FRAMES);
+  return lines.filter((line) => STACK_FRAME.test(line)).slice(0, MAX_BROWSER_FRAMES);
 }
 
 export function stackFramesOf(error: Error): string | undefined {

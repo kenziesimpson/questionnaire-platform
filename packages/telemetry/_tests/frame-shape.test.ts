@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { BROWSER_STACK_FRAME, isBrowserStack, MAX_BROWSER_FRAME_LENGTH, MAX_BROWSER_FRAMES } from "../src/frame-shape.js";
+import {
+  BROWSER_STACK_FRAME,
+  FUNCTION_NAME,
+  isBrowserStack,
+  isSafeFunctionName,
+  isSafePosition,
+  isSafeScriptFile,
+  MAX_BROWSER_FRAME_LENGTH,
+  MAX_BROWSER_FRAMES,
+  MAX_FUNCTION_NAME_LENGTH,
+  MAX_POSITION_DIGITS,
+  MAX_SCRIPT_BASENAME_LENGTH,
+  NAME_PART,
+  POSITION,
+  SCRIPT_FILE,
+} from "../src/frame-shape.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
 
@@ -47,5 +62,42 @@ describe("isBrowserStack", () => {
 
   it.each([undefined, null, 7, "", "\n", "    at render (x.js:1:1)\n", `    at render (x.js:1:1)\n${LEAK}`])("refuses %j", (value) => {
     expect(isBrowserStack(value)).toBe(false);
+  });
+});
+
+describe("the building blocks", () => {
+  it("compose the frame pattern from the same pieces the SDK's rewriter checks", () => {
+    expect(new RegExp(`^${NAME_PART}$`).test("_render")).toBe(true);
+    expect(new RegExp(`^${FUNCTION_NAME}$`).test("async Object.<anonymous>")).toBe(true);
+    expect(new RegExp(`^${SCRIPT_FILE}$`).test("main.mjs")).toBe(true);
+    expect(new RegExp(`^${POSITION}$`).test("12:34")).toBe(true);
+  });
+
+  it("accept a function name up to the length cap and no further", () => {
+    expect(isSafeFunctionName("a".repeat(MAX_FUNCTION_NAME_LENGTH))).toBe(true);
+    expect(isSafeFunctionName("a".repeat(MAX_FUNCTION_NAME_LENGTH + 1))).toBe(false);
+    expect(isSafeFunctionName(LEAK)).toBe(false);
+    expect(isSafeFunctionName("two words")).toBe(false);
+  });
+
+  it("accept a script file whose base name is at most the cap, and only .js or .mjs", () => {
+    expect(isSafeScriptFile(`${"a".repeat(MAX_SCRIPT_BASENAME_LENGTH)}.js`)).toBe(true);
+    expect(isSafeScriptFile(`${"a".repeat(MAX_SCRIPT_BASENAME_LENGTH + 1)}.js`)).toBe(false);
+    expect(isSafeScriptFile("main.ts")).toBe(false);
+    expect(isSafeScriptFile("dir/main.js")).toBe(false);
+    expect(isSafeScriptFile("")).toBe(false);
+  });
+
+  it("accept a position of up to the digit cap in each part", () => {
+    expect(isSafePosition("1".repeat(MAX_POSITION_DIGITS), "1")).toBe(true);
+    expect(isSafePosition("1", "1".repeat(MAX_POSITION_DIGITS + 1))).toBe(false);
+    expect(isSafePosition("a", "1")).toBe(false);
+  });
+
+  it("make the ingest refuse a frame whose function name is over the name cap though the line is short enough", () => {
+    const name = "a".repeat(MAX_FUNCTION_NAME_LENGTH + 1);
+
+    expect(BROWSER_STACK_FRAME.test(`    at ${name} (x.js:1:1)`)).toBe(true);
+    expect(isBrowserStack(`    at ${name} (x.js:1:1)`)).toBe(false);
   });
 });

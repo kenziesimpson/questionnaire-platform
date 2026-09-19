@@ -200,7 +200,9 @@ O19). The rules are the server's rules, applied before anything is queued:
   a query string, a cursor or an element's text: a clicked option's label is an answer.
 - An error is its class name and stack frames, through `stackFramesOf`, with every frame rewritten by the queue
   to a script file name and an identifier-shaped function name (a computed key or a URL in a frame
-  cannot pass). Never read `event.message`, `event.filename` or `error.message`, and never build
+  cannot pass). What a safe frame is has one home, `packages/telemetry/src/frame-shape.ts`, used by
+  the rewriter (`browser/frames.ts`) and by the ingest's validator (`isBrowserStack`); change the shape or a cap
+  there, never in one of them. Never read `event.message`, `event.filename` or `error.message`, and never build
   an `Error` from an answer. `installErrorCapture` and `captureError` are the only way an error
   reaches the queue; an app's error boundary calls `captureError`, not `log.error(…, error)` with
   anything else attached.
