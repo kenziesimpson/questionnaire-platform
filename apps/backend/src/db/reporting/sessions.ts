@@ -15,7 +15,7 @@ import { and, eq, type SQL } from "drizzle-orm";
 import type { Database, Executor } from "../client.js";
 import { PublishedDefinitions } from "../execution/published-definitions.js";
 import { questionnaire, session } from "../schema.js";
-import { decodeCursor, encodeCursor, type SessionCursor, type SessionOrdering } from "./cursor.js";
+import { decodeCursor, encodeCursor, type CursorDirection, type SessionCursor, type SessionOrdering } from "./cursor.js";
 import { keysetSegments, orderByFor } from "./keyset.js";
 import { answersFromResponseRows, responseRowsBySession, type SubmittedSessionRef } from "./responses.js";
 
@@ -73,10 +73,11 @@ export function pageQueries(
   reporting: Executor,
   filters: readonly (SQL | undefined)[],
   ordering: SessionOrdering,
-  cursor: SessionCursor | undefined,
+  direction: CursorDirection,
+  segments: readonly (SQL | undefined)[],
 ) {
-  const order = orderByFor(ordering, cursor?.direction ?? "forward");
-  return keysetSegments(ordering, cursor).map(
+  const order = orderByFor(ordering, direction);
+  return segments.map(
     (segment) => (limit: number) =>
       reporting
         .select(sessionColumns)
@@ -157,11 +158,12 @@ export async function listSessionSummaries(
   ];
 
   const backward = cursor?.direction === "backward";
-  const segmentCount = keysetSegments(ordering, cursor).length;
+  const direction = cursor?.direction ?? "forward";
+  const segments = keysetSegments(ordering, cursor, params.status);
   const rows: SessionRow[] =
-    segmentCount === 1
-      ? await fetchPageRows(reporting, pageQueries(reporting, filters, ordering, cursor))
-      : await reporting.transaction((tx) => fetchPageRows(tx, pageQueries(tx, filters, ordering, cursor)), SNAPSHOT_READ);
+    segments.length <= 1
+      ? await fetchPageRows(reporting, pageQueries(reporting, filters, ordering, direction, segments))
+      : await reporting.transaction((tx) => fetchPageRows(tx, pageQueries(tx, filters, ordering, direction, segments)), SNAPSHOT_READ);
 
   const hasExtra = rows.length > RESPONSES_PAGE_SIZE;
   const page = rows.slice(0, RESPONSES_PAGE_SIZE);

@@ -350,11 +350,31 @@ const BOUNDARY_INSIDE_THE_IN_PROGRESS_RUN: SessionTimes[] = [
   ...Array.from({ length: 30 }, (_, i) => ({ startedAt: minutes(100 + (i % 3)), submittedAt: null })),
 ];
 
+const TWO_FULL_PAGES_OF_SUBMITTED: SessionTimes[] = [
+  ...Array.from({ length: 2 * RESPONSES_PAGE_SIZE }, (_, i) => ({ startedAt: minutes(i), submittedAt: minutes(600 + (i % 9)) })),
+  ...Array.from({ length: 3 }, (_, i) => ({ startedAt: minutes(300 + i), submittedAt: null })),
+];
+
 const DATASETS: readonly (readonly [string, SessionTimes[]])[] = [
   ["a page boundary between the last submitted session and the first in-progress one", SUBMITTED_ON_THE_FIRST_PAGE],
   ["a page boundary inside a run of equal timestamps", BOUNDARY_INSIDE_A_RUN_OF_EQUAL_TIMES],
   ["a page boundary inside the run of in-progress sessions", BOUNDARY_INSIDE_THE_IN_PROGRESS_RUN],
 ];
+
+const STATUSES = ["submitted", "in_progress"] as const;
+
+const STATUS_DATASETS: readonly (readonly [string, SessionTimes[]])[] = [
+  ...DATASETS,
+  ["a page ending exactly on the last submitted session", TWO_FULL_PAGES_OF_SUBMITTED],
+];
+
+function inPages(ids: readonly string[]): string[][] {
+  const pages: string[][] = [];
+  for (let start = 0; start < ids.length; start += RESPONSES_PAGE_SIZE) {
+    pages.push(ids.slice(start, start + RESPONSES_PAGE_SIZE));
+  }
+  return pages.length === 0 ? [[]] : pages;
+}
 
 describe("GET /questionnaires/:id/responses, sorted", () => {
   it("orders by every sort and order, with in-progress sessions after every submitted one under either submitted order", async () => {
@@ -449,6 +469,63 @@ describe("GET /questionnaires/:id/responses, sorted", () => {
       expect(backward.at(-1)?.previousCursor).toBeNull();
     },
   );
+
+  it.each(STATUS_DATASETS)(
+    "walks every sort and order under each status over %s, forward and back, and the pages are exactly the expected order of that status",
+    async (_name, times) => {
+      const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+      const stored = await storeSessions(published, times);
+
+      for (const [sort, order] of ORDERINGS) {
+        for (const status of STATUSES) {
+          const label = `${sort} ${order} ${status}`;
+          const ordering = { sort, order, status };
+          const expected = expectedOrder(
+            stored.filter((entry) => (entry.submittedAt !== null) === (status === "submitted")),
+            sort,
+            order,
+          );
+
+          const forward = await walkForward(published.questionnaireId, ordering);
+
+          expect(forward.map(idsOf), label).toEqual(inPages(expected));
+          expect(forward.every((page) => page.items.every((item) => item.status === status)), label).toBe(true);
+          expect(forward[0]?.previousCursor, label).toBeNull();
+          expect(forward.at(-1)?.nextCursor, label).toBeNull();
+          expect(forward.slice(0, -1).every((page) => page.nextCursor !== null), label).toBe(true);
+
+          const lastPage = forward.at(-1);
+          if (lastPage === undefined) throw new Error("expected at least one page");
+          const backward = await walkBackward(published.questionnaireId, ordering, lastPage);
+
+          expect(backward.map(idsOf), label).toEqual(forward.map(idsOf).reverse());
+        }
+      }
+    },
+  );
+
+  it("reads a cursor anchored on the last submitted session under each status filter as the sessions after it, and one anchored on the first in-progress session as the sessions before it", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const stored = await storeSessions(published, TWO_FULL_PAGES_OF_SUBMITTED);
+    const ordering = { sort: "submitted", order: "asc" } as const;
+    const submitted = expectedOrder(stored.filter((entry) => entry.submittedAt !== null), "submitted", "asc");
+    const inProgress = expectedOrder(stored.filter((entry) => entry.submittedAt === null), "submitted", "asc");
+
+    const unfiltered = await walkForward(published.questionnaireId, ordering);
+    const endsOnTheLastSubmitted = presentCursor(unfiltered[1]?.nextCursor ?? null);
+    const startsOnTheFirstInProgress = presentCursor(unfiltered[2]?.previousCursor ?? null);
+
+    const noneAfter = await pageOf(published.questionnaireId, { ...ordering, status: "submitted", cursor: endsOnTheLastSubmitted });
+    const tailAfter = await pageOf(published.questionnaireId, { ...ordering, status: "in_progress", cursor: endsOnTheLastSubmitted });
+    const submittedBefore = await pageOf(published.questionnaireId, { ...ordering, status: "submitted", cursor: startsOnTheFirstInProgress });
+    const noneBefore = await pageOf(published.questionnaireId, { ...ordering, status: "in_progress", cursor: startsOnTheFirstInProgress });
+
+    expect(unfiltered.map(idsOf)).toEqual(inPages([...submitted, ...inProgress]));
+    expect(noneAfter).toEqual({ items: [], previousCursor: null, nextCursor: null });
+    expect(idsOf(tailAfter)).toEqual(inProgress);
+    expect(idsOf(submittedBefore)).toEqual(submitted.slice(-RESPONSES_PAGE_SIZE));
+    expect(noneBefore).toEqual({ items: [], previousCursor: null, nextCursor: null });
+  });
 
   it("takes a page anchored on the null boundary in both directions", async () => {
     const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
