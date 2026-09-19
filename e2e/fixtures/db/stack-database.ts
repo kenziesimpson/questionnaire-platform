@@ -139,6 +139,12 @@ export class StackDatabase {
   }
 
   async setSessionTimes(sessionId: string, { startedAt, submittedAt }: SessionTimes): Promise<void> {
+    const stored = await this.pool.query<{ count: number }>("SELECT count(*)::int AS count FROM execution.response WHERE session_id = $1", [sessionId]);
+    if ((stored.rows[0]?.count ?? 0) > 0) {
+      throw new Error(
+        `setSessionTimes cannot re-time session ${sessionId}, which has stored answers: response.created_at is the partition key and must equal submitted_at`,
+      );
+    }
     const result = await this.pool.query(
       "UPDATE execution.session SET started_at = $2::timestamptz, last_activity_at = COALESCE($3::timestamptz, $2::timestamptz), submitted_at = $3::timestamptz WHERE id = $1",
       [sessionId, startedAt, submittedAt],
