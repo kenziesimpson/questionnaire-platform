@@ -42,16 +42,10 @@ async function down(requested: string | undefined): Promise<void> {
 
 async function main(argv: readonly string[]): Promise<void> {
   const [command, argument] = argv;
-  switch (command) {
-    case "up":
-      return up();
-    case "list":
-      return list();
-    case "down":
-      return down(argument);
-    default:
-      throw new Error("Usage: stack-cli.ts up | list | down [project]");
-  }
+  if (command === "up") return up();
+  if (command === "list") return list();
+  if (command === "down") return down(argument);
+  throw new Error("Usage: stack-cli.ts up | list | down [project]");
 }
 
 main(process.argv.slice(2)).then(

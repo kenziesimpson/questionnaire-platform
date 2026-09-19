@@ -177,7 +177,7 @@ export function QuestionnaireScreen({
   function changeAnswer(itemId: string, answer: ClientAnswerValue | null) {
     const name = answerFieldName(itemId);
     form.setFieldValue(name, answer, { dontUpdateMeta: true, dontValidate: true });
-    if (form.getFieldMeta(name)?.isTouched === true) form.validateField(name, "change");
+    if (form.getFieldMeta(name)?.isTouched === true) void form.validateField(name, "change");
     onAnswerChange(itemId);
   }
 
@@ -186,7 +186,7 @@ export function QuestionnaireScreen({
     if (itemId === undefined) return;
     const stayedWithinItem = itemIdFromBlurTarget(event.relatedTarget) === itemId;
     if (stayedWithinItem) return;
-    form.validateField(answerFieldName(itemId), "change");
+    void form.validateField(answerFieldName(itemId), "change");
   }
 
   async function submitForm() {

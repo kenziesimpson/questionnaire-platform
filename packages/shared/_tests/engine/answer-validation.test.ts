@@ -259,7 +259,9 @@ describe("validateSubmission — the server's authority over the reachable path"
 
   describe("the predicate-change fixture: same answers, opposite outcomes, decided by the pinned version", () => {
     const tightened = intakeDefinition(2);
-    tightened.items[2]!.visibleWhen = all(
+    const diagnosisDateItem = tightened.items[2];
+    if (diagnosisDateItem === undefined) throw new Error("intake v2 is missing its third item");
+    diagnosisDateItem.visibleWhen = all(
       { type: "single_choice", itemId: "itm_01", op: "is", optionId: "yes" },
       { type: "single_choice", itemId: "itm_02", op: "isNot", optionId: "other" },
     );

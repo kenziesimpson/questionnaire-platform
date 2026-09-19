@@ -194,10 +194,11 @@ export function fakeDefinitionApi({ bank = [] }: { bank?: Question[] } = {}) {
           questionnaireId: id,
           version,
           title: draft.title,
-          items: draft.items.map(({ questionId: _questionId, questionVersion: _questionVersion, ...item }, index) => ({
-            ...item,
-            question: contentOf(questionsByItem[index]!),
-          })),
+          items: draft.items.map(({ questionId: _questionId, questionVersion: _questionVersion, ...item }, index) => {
+            const pinnedVersion = questionsByItem[index];
+            if (pinnedVersion === undefined) throw new Error(`no pinned question version for item ${index}`);
+            return { ...item, question: contentOf(pinnedVersion) };
+          }),
         };
         const publishedAt = now();
         const summary: VersionSummary = {

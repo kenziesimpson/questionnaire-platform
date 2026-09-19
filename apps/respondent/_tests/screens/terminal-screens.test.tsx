@@ -178,7 +178,8 @@ describe("retrying a resume that failed", () => {
     if (isNetworkFailureCase) {
       expect(tryAgain()).toHaveAttribute("aria-disabled", "true");
       expect(await axeViolations()).toEqual([]);
-      await held!.release(jsonReply(200, { session: inProgressSession, definition: intakeV1 }));
+      if (held === undefined) throw new Error("expected a held reply for the network-failure case");
+      await held.release(jsonReply(200, { session: inProgressSession, definition: intakeV1 }));
     }
 
     expect(await screen.findByText("We restored the answers you started on this device.")).toBeInTheDocument();

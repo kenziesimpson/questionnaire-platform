@@ -38,4 +38,4 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-start();
+void start();
