@@ -129,8 +129,8 @@ export function validateSubmission(
   definition: HasItems,
   answers: ClientAnswers,
   dates: RelativeDateContext,
+  shown: ReadonlySet<string> = evaluateVisibility(definition, answers),
 ): SubmissionValidation {
-  const shown = evaluateVisibility(definition, answers);
   const errors: ItemError<SubmissionItemCode>[] = [];
   const rows: ResponseRow[] = [];
   const known = new Set<string>();

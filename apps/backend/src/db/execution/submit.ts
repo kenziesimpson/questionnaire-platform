@@ -96,10 +96,8 @@ function factsOf(row: SessionRow): SessionFacts {
 function evaluateAnswers(row: SessionRow, definition: PublishedDefinition, answers: Sensitive<ClientAnswers>, at: Date) {
   return withSpan("rule.evaluate", factsOf(row), async () => {
     const supplied = answers.unwrap();
-    return {
-      validation: validateSubmission(definition, supplied, serverDateContext(at)),
-      shown: evaluateVisibility(definition, supplied),
-    };
+    const shown = evaluateVisibility(definition, supplied);
+    return { validation: validateSubmission(definition, supplied, serverDateContext(at), shown), shown };
   });
 }
 
