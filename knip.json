@@ -1,6 +1,5 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignoreWorkspaces": ["packages/telemetry"],
   "ignoreIssues": {
     "packages/ui/src/primitives/**": ["exports", "types"],
     "apps/admin/src/**": ["exports", "types"],
@@ -23,8 +22,8 @@
     "packages/shared": {
       "entry": ["src/index.ts", "src/demo/intake.ts"]
     },
-    "apps/backend": {
-      "ignoreDependencies": ["pino", "pino-pretty", "@fastify/otel"]
+    "packages/telemetry": {
+      "entry": ["src/index.ts", "src/node.ts", "src/testing.ts"]
     }
   }
 }
