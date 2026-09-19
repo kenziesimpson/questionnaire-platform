@@ -33,6 +33,12 @@ Three layers hold it here:
 Application code imports the first. Only the backend's `src/telemetry.ts` (used by the preload and the entry point) imports
 the second, and only tests import the third and fourth.
 
+`./testing` and `./canary` sit in the package's `src/` rather than under a `_tests/` directory because they are shared test
+support. The canary builds on the real pipeline that `./testing` installs, and every workspace's canary flows import it, so a
+copy under `apps/backend/_tests` could not serve the others without deep imports into this package. Production code never
+imports either: ESLint rejects `@qp/telemetry/testing` and `@qp/telemetry/canary` in every `src/` directory, and they are
+separate entry points, so the browser-safe `.` entry never loads them.
+
 ## Write a log line
 
 ```ts
