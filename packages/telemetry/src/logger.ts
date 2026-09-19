@@ -10,7 +10,7 @@ export type LogLevel = (typeof LOG_LEVELS)[number];
 
 export type LiteralMessage<M extends string> = {} extends Record<M, 1> ? never : M;
 
-interface LogRecord {
+export interface LogRecord {
   readonly level: LogLevel;
   readonly message: string;
   readonly attributes: ScrubbedAttributes;

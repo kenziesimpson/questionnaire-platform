@@ -31,6 +31,7 @@ const ALLOWED_INTEGRATION_TESTS = [
   "apps/backend/_tests/telemetry-shapes.test.ts",
   "packages/shared/_tests/api/api.test.ts",
   "packages/shared/_tests/domain/schemas.test.ts",
+  "packages/telemetry/_tests/browser/leak-test.browser.test.ts",
   "packages/ui/_tests/questionnaire/accessibility.test.tsx",
 ];
 

@@ -23,7 +23,7 @@ and decision O2. Error bodies are covered by the same rule
 | 1 — one boundary | `packages/telemetry`, plus the `telemetryOnly` rule in `eslint.config.mjs` | Any other workspace importing `pino`, `pino-*`, `@opentelemetry/*` or `@fastify/otel` | Nothing else writes telemetry, so this is the whole surface |
 | 1 — closed registry | `FIELDS` in `packages/telemetry/src/fields.ts` | An unknown context key, at compile time via `TelemetryContext` | A known key holding the wrong content — see below |
 | 1 — the scrub | `packages/telemetry/src/scrub.ts`, at call time in `logger.ts`, `spans.ts` and, for counter labels, `events.ts` (`boundedDimensionsOf`), and again at export time in `exporters.ts` and the pino formatter in `pipeline.ts` | Unregistered keys, values failing their `accepts` check, free text, objects, a `Sensitive`, unbounded attributes on a metric, a span name outside `SPAN_NAMES` or the instrumentations' shapes, a logger module outside `LOG_MODULES`. Drops are counted in `telemetry.scrub.dropped{signal,reason}`, never by key | A value that passes its field's shape check |
-| 2 — the leak test | `apps/backend/_tests/leak-test/`, `packages/telemetry/_tests/leak-test.test.ts` | A planted `LEAK_SENTINEL` reaching any exported span, metric data point or pino line, on any registered flow, with Fastify's instrumentation on and the app built after it, so the export-time scrub sees real `request` and handler spans, plus a planted third-party span and counter. Removing the exporter scrub fails the gate, on a real-app flow as well as the planted one | A code path no flow runs, which is why extending it is mandatory. The holes listed below. `pg` spans, which never appear under test: `pg` is imported before the instrumentation starts and there is no loader hook, so the driver is not patched and no query span is produced. The pino formatter in `pipeline.ts`, which runs the same function as the call-time scrub and cannot be reached separately; only `packages/telemetry/_tests/pipeline.test.ts` covers it |
+| 2 — the leak test | `apps/backend/_tests/leak-test/`, `packages/telemetry/_tests/leak-test.test.ts`, `packages/telemetry/_tests/browser/leak-test.browser.test.ts` (the browser queue, beacon and error capture) | A planted `LEAK_SENTINEL` reaching any exported span, metric data point or pino line, on any registered flow, with Fastify's instrumentation on and the app built after it, so the export-time scrub sees real `request` and handler spans, plus a planted third-party span and counter. Removing the exporter scrub fails the gate, on a real-app flow as well as the planted one | A code path no flow runs, which is why extending it is mandatory. The holes listed below. `pg` spans, which never appear under test: `pg` is imported before the instrumentation starts and there is no loader hook, so the driver is not patched and no query span is produced. The pino formatter in `pipeline.ts`, which runs the same function as the call-time scrub and cannot be reached separately; only `packages/telemetry/_tests/pipeline.test.ts` covers it |
 | 3 — CI as the gate | the `leak-test` job, displayed as "Response telemetry leak test", in `.github/workflows/ci.yml` | A red leak test turns that job red on the PR | Nothing locally. There is no pre-commit hook yet, so CI is the only gate |
 
 Layer 4, the advisory agent review on the PR, is documented and not built. Layer 5 is this file.
@@ -183,6 +183,37 @@ are deliberately not exported from `@qp/telemetry`; application code reaches met
 `emitDomainEvent`. Labels must be `bounded` fields — the export-time scrub drops an unbounded
 attribute from a metric with reason `unbounded`. Ids belong in traces and logs only (O6).
 
+## Browser telemetry
+
+`@qp/telemetry/browser` batches the browser's log and domain events and sends them through a
+caller-supplied `send` and `beacon` ([[6-observability#6. Client-side telemetry]], O5, O8, O17,
+O19). The rules are the server's rules, applied before anything is queued:
+
+- Events carry registry fields only. `createEventQueue` runs the same `scrubAttributes(…, "log")` as
+  the pino formatter, drops an unknown or ill-shaped field and keeps the event, and replaces a message
+  that is not a lower-case literal shape (or not a string) with `unnamed`. App code calls `enqueue`,
+  whose message is a `LiteralMessage` and whose attributes cannot name `error.stack`; `enqueueRecord`
+  is for the logger sink and `captureError`. The shape check cannot tell a lower-case answer from a
+  message, and `local/no-cast-into-telemetry-text` does not cover `enqueue`, so never cast into a
+  browser log message either.
+- A screen is a route template the caller supplies, accepted only by the `route` field. Never a URL,
+  a query string, a cursor or an element's text: a clicked option's label is an answer.
+- An error is its class name and stack frames, through `stackFramesOf`, with every frame rewritten by the queue
+  to a script file name and an identifier-shaped function name (a computed key or a URL in a frame
+  cannot pass). Never read `event.message`, `event.filename` or `error.message`, and never build
+  an `Error` from an answer. `installErrorCapture` and `captureError` are the only way an error
+  reaches the queue; an app's error boundary calls `captureError`, not `log.error(…, error)` with
+  anything else attached.
+- `debug` is never queued. An app may pass a `debug` function to `routeLogsToQueue` in a development
+  build only.
+- No session replay, DOM capture, `instrumentation-fetch` or patched global `fetch` (O12). The app's
+  one `fetch` wrapper calls `injectTraceHeaders`, which adds a `traceparent` and nothing else.
+- Keep the entry point browser-safe: no `node:` import, `pino`, `./node`, `./testing` or `./leak-test`.
+  `packages/telemetry/_tests/browser.test.ts` reads the import graph and fails on one.
+- A new browser code path extends `packages/telemetry/_tests/browser/leak-test.browser.test.ts`, which
+  plants the sentinel in an unknown field, a known field's value, an error message, a stack line, a
+  screen and a domain event, and asserts it is in neither the sent batch nor the beacon.
+
 ## Never in telemetry
 
 - An answer value in any form: raw, `JSON.stringify(answer)`, `` `${answer}` ``, `String(answer)`.
@@ -250,8 +281,9 @@ drives the real path — a real request through `app.inject`, a real stored row,
   selects by that word. `tests/leak-test-selection.test.ts` fails when such a test does not carry it,
   so a flow cannot quietly fall outside the gate step.
 
-Flows still owed, by the lane that builds each path: the `/telemetry` ingest; the browser, both the
-admin response-detail screen and the respondent app, through their telemetry wrapper (O20); the
+Flows still owed, by the lane that builds each path: the `/telemetry` ingest; the apps' use of the
+browser SDK, both the admin response-detail screen and the respondent app, through their telemetry
+wrapper (O20); the
 `view_response` audit path (O14); and any new reporting read.
 
 ## The gate
