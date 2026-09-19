@@ -24,7 +24,7 @@ const ROUTE_LITERAL = "[a-z0-9][a-z0-9_.-]*";
 const ROUTE_PARAMETER = "(?::[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*|\\{[A-Za-z_][A-Za-z0-9_]*\\}|\\*)";
 const ROUTE = new RegExp(`^(?=.{1,200}$)(?:/|(?:/(?:${ROUTE_LITERAL}|${ROUTE_PARAMETER}))+/?)$`);
 const ERROR_CLASS_NAME = /^[A-Z][A-Za-z0-9]{0,63}$/;
-const TYPE_NAME = /^[A-Za-z_$][A-Za-z0-9_$.-]{0,127}$/;
+const EXCEPTION_TYPE = /^(?:[A-Z][A-Za-z0-9]{0,63}|(?:FST_)?ERR_[A-Z0-9_]{1,63}|[0-9A-Z]{5})$/;
 const SQLSTATE = /^[0-9A-Z]{5}$/;
 const INVARIANT_NAME = /^(?=.{1,64}$)[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/;
 const CONSTRAINT_NAME = /^(?=.{1,63}$)[a-z][a-z0-9]*(?:_+[a-z0-9]+)+$/;
@@ -128,7 +128,7 @@ const INFRASTRUCTURE = indexedByAttribute([
   matching(LOG_ATTRIBUTES.traceId, /^[0-9a-f]{32}$/, false),
   matching(LOG_ATTRIBUTES.spanId, /^[0-9a-f]{16}$/, false),
   oneOf(LOG_ATTRIBUTES.module, LOG_MODULES),
-  matching("exception.type", TYPE_NAME, true),
+  matching("exception.type", EXCEPTION_TYPE, true),
   oneOf("otel.status_code", ["OK", "ERROR"]),
   oneOf(SCRUB_ATTRIBUTES.signal, SIGNAL_KINDS),
   oneOf(SCRUB_ATTRIBUTES.reason, DROP_REASONS),

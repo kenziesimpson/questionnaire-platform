@@ -23,16 +23,44 @@ const FASTIFY_SPAN_PREFIXES = [
   "notFoundHandler - preHandler",
 ];
 
-const INSTRUMENTED_SPAN_NAMES: readonly RegExp[] = [
+const FASTIFY_PLUGIN_NAME_FALLBACK = "fastify -> @fastify/otel";
+
+const PG_COMMANDS = [
+  "SELECT",
+  "INSERT",
+  "UPDATE",
+  "DELETE",
+  "WITH",
+  "BEGIN",
+  "COMMIT",
+  "ROLLBACK",
+  "SAVEPOINT",
+  "RELEASE",
+  "SET",
+  "SHOW",
+  "CALL",
+  "EXPLAIN",
+  "TRUNCATE",
+  "LOCK",
+  "COPY",
+  "VALUES",
+  "DO",
+];
+
+const EXPORTED_AS_WRITTEN: readonly RegExp[] = [
   /^request$/,
-  new RegExp(`^(?:${FASTIFY_SPAN_PREFIXES.join("|")}) - [a-z@][A-Za-z0-9_$.@/-]{0,63}$`),
-  /^pg\.query(?::[A-Za-z_]{1,32}(?: [A-Za-z0-9_-]{1,63})?)?$/,
+  new RegExp(`^(?:${FASTIFY_SPAN_PREFIXES.join("|")}) - (?:[a-z][A-Za-z0-9]{0,63}|${FASTIFY_PLUGIN_NAME_FALLBACK})$`),
+  new RegExp(`^pg\\.query(?::(?:${PG_COMMANDS.join("|")}))?$`),
   /^pg\.connect$/,
   /^pg-pool\.connect$/,
 ];
 
+const PG_QUERY_WITH_DATABASE = new RegExp(`^pg\\.query:(${PG_COMMANDS.join("|")}) \\S{1,63}$`);
+
 function exportedNameOf(name: string): string {
-  if (isSpanName(name) || INSTRUMENTED_SPAN_NAMES.some((shape) => shape.test(name))) return name;
+  if (isSpanName(name) || EXPORTED_AS_WRITTEN.some((shape) => shape.test(name))) return name;
+  const command = PG_QUERY_WITH_DATABASE.exec(name)?.[1];
+  if (command !== undefined) return `pg.query:${command}`;
   reportDropped("span", oneDropped("unknown"));
   return UNNAMED_SPAN;
 }

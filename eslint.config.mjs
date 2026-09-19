@@ -151,23 +151,6 @@ const doubleAssertionThrough = (keyword, spelling) =>
 
 const doubleAssertions = [...doubleAssertionThrough("TSUnknownKeyword", "unknown"), ...doubleAssertionThrough("TSAnyKeyword", "any")];
 
-const castTypes = "TSLiteralType|TSUnionType|TSNeverKeyword|TSAnyKeyword";
-
-const castTypeNames = "SpanName|LogModule|LiteralMessage";
-
-const castIntoTelemetryText = [
-  { callee: "callee.property.name=/^(debug|info|warn|error)$/", text: "log message" },
-  { callee: 'callee.name="logger"', text: "logger module name" },
-  { callee: 'callee.name="withSpan"', text: "span name" },
-].flatMap(({ callee, text }) =>
-  ["TSAsExpression", "TSTypeAssertion"].flatMap((assertion) =>
-    [`typeAnnotation.type=/^(${castTypes})$/`, `typeAnnotation.typeName.name=/^(${castTypeNames})$/`].map((annotation) => ({
-      selector: `CallExpression[${callee}][arguments.0.type="${assertion}"][arguments.0.${annotation}]`,
-      message: `A cast into a ${text} defeats the literal-only type that keeps an answer out of telemetry ([[6-observability#3.1 Enforcement ladder]]). Use a literal, or put the value in a registered field. If a test must plant a value there, disable this line with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>`,
-    })),
-  ),
-);
-
 const appLibraries = [
   {
     home: "apps/admin",
@@ -276,7 +259,7 @@ const sharedVocabulary = ["TSTypeAliasDeclaration", "VariableDeclarator", "Funct
     "This name is shared vocabulary, declared once in packages/shared/src/domain or packages/shared/src/primitives.ts. Import it from @qp/shared; a local copy drifts, as the three definitions of the \"other\" option did ([[2-design-doc#17. Decisions Log]] #82).",
 }));
 
-const syntaxOutsideTheRoutePathHelper = [...doubleAssertions, ...castIntoTelemetryText, routePathLiteral, unnamedReExport];
+const syntaxOutsideTheRoutePathHelper = [...doubleAssertions, routePathLiteral, unnamedReExport];
 
 const syntaxDeclaringTheSharedVocabulary = (...selectors) => ["warn", ...syntaxOutsideTheRoutePathHelper, noDefaultExport, ...selectors];
 
@@ -510,6 +493,70 @@ const noProseComments = {
     },
   },
 };
+
+const castIntoTelemetryTextMessage =
+  "A cast into a log message, logger module name or span name defeats the literal-only type that keeps an answer out of telemetry ([[6-observability#3.1 Enforcement ladder]]). Use a literal, or put the value in a registered field. If a test must plant a value there, disable this line with a reason: // eslint-disable-next-line local/no-cast-into-telemetry-text -- <reason>";
+
+const castTypeKinds = new Set(["TSLiteralType", "TSUnionType", "TSNeverKeyword", "TSAnyKeyword"]);
+
+const castTypeNames = new Set(["SpanName", "LogModule", "LiteralMessage"]);
+
+const logLevels = new Set(["debug", "info", "warn", "error"]);
+
+const telemetryHomes = /^(@qp\/telemetry|\.{1,2}\/(.*\/)?(logger|spans|index)\.js)$/;
+
+function isCastIntoText(node) {
+  if (node === undefined || (node.type !== "TSAsExpression" && node.type !== "TSTypeAssertion")) return false;
+  const type = node.typeAnnotation;
+  return castTypeKinds.has(type.type) || (type.type === "TSTypeReference" && type.typeName.type === "Identifier" && castTypeNames.has(type.typeName.name));
+}
+
+const noCastIntoTelemetryText = {
+  rules: {
+    "no-cast-into-telemetry-text": {
+      meta: { type: "problem", docs: { description: castIntoTelemetryTextMessage } },
+      create(context) {
+        const loggerFactories = new Set();
+        const spanStarters = new Set();
+        const loggers = new Set();
+        const report = (node) => context.report({ node, message: castIntoTelemetryTextMessage });
+        return {
+          ImportDeclaration(node) {
+            if (!telemetryHomes.test(String(node.source.value))) return;
+            for (const specifier of node.specifiers) {
+              if (specifier.type !== "ImportSpecifier" || specifier.imported.type !== "Identifier") continue;
+              if (specifier.imported.name === "logger") loggerFactories.add(specifier.local.name);
+              if (specifier.imported.name === "withSpan") spanStarters.add(specifier.local.name);
+            }
+          },
+          VariableDeclarator(node) {
+            const { id, init } = node;
+            if (id.type === "Identifier" && init?.type === "CallExpression" && init.callee.type === "Identifier" && loggerFactories.has(init.callee.name)) {
+              loggers.add(id.name);
+            }
+          },
+          CallExpression(node) {
+            const { callee } = node;
+            const first = node.arguments[0];
+            const namesAFactoryOrSpan = callee.type === "Identifier" && (loggerFactories.has(callee.name) || spanStarters.has(callee.name));
+            const isLoggerValue = (object) =>
+              (object.type === "Identifier" && loggers.has(object.name)) ||
+              (object.type === "CallExpression" && object.callee.type === "Identifier" && loggerFactories.has(object.callee.name));
+            const isLogCall =
+              callee.type === "MemberExpression" &&
+              !callee.computed &&
+              isLoggerValue(callee.object) &&
+              callee.property.type === "Identifier" &&
+              logLevels.has(callee.property.name);
+            if ((namesAFactoryOrSpan || isLogCall) && isCastIntoText(first)) report(first);
+          },
+        };
+      },
+    },
+  },
+};
+
+const localRules = { rules: { ...noProseComments.rules, ...noCastIntoTelemetryText.rules } };
 
 export default tseslint.config(
   {
@@ -895,8 +942,14 @@ export default tseslint.config(
     name: "L5: no prose comments",
     files: everyFile,
     ignores: theToolConfigFiles,
-    plugins: { local: noProseComments },
+    plugins: { local: localRules },
     rules: { "local/no-prose-comments": "error" },
+  },
+  {
+    name: "telemetry text: no cast into a log message, logger module or span name",
+    files: everyFile,
+    plugins: { local: localRules },
+    rules: { "local/no-cast-into-telemetry-text": "error" },
   },
   {
     name: "L13: backend sources require the compiled .js extension",

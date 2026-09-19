@@ -9,6 +9,7 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const ALLOWED_INTEGRATION_TESTS = [
   "apps/admin/_tests/authoring-flow.test.tsx",
   "apps/admin/_tests/screens/draft-editor/predicate-editor.test.tsx",
+  "apps/backend/_tests/canary/canary-mutation.test.ts",
   "apps/backend/_tests/canary/canary.test.ts",
   "apps/backend/_tests/db/grants.test.ts",
   "apps/backend/_tests/db/hand-edits.test.ts",

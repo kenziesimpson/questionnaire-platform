@@ -17,9 +17,9 @@ Three layers hold it here:
 2. **The scrub.** Anything unregistered, or registered with a value of the wrong shape, is dropped
    and counted rather than written. Span names and the logger's module name are checked against
    closed lists.
-3. **Lint.** `eslint.config.mjs` rejects importing `pino` or OpenTelemetry anywhere else, and warns
-   on a cast into a log message, a logger module name or a span name, which is the one channel the
-   scrub cannot see (a message is written as given).
+3. **Lint.** `eslint.config.mjs` rejects importing `pino` or OpenTelemetry anywhere else, and
+   `local/no-cast-into-telemetry-text` is an error on a cast into a log message, a logger module name
+   or a span name, which is the one channel the scrub cannot see (a message is written as given).
 
 ## Entry points
 
@@ -48,8 +48,11 @@ log.error("submit failed", { status: 500 }, error);
   `http`) and tags every line with it. A new module is one more member of that array. Methods are `debug`, `info`,
   `warn` and `error`. There is no `fatal`.
 - The message must be a literal. `` `rejected ${value}` `` and a `string` variable are compile errors,
-  and a cast that defeats the type (`value as "message"`, `as never`) is a lint warning. Nothing checks
-  a message at runtime, so this is the one field whose guard is the type and the warning alone.
+  and a cast that defeats the type (`value as "message"`, `as never`) is a lint error. Nothing checks
+  a message at runtime, so this is the one field whose guard is the type and the lint rule alone. The
+  rule is syntactic: it does not see a cast hoisted into a variable or through a type alias, a computed
+  call, a logger held under another name, a wrapper, a namespace call, a logger created in another
+  file or a cast in a later argument.
 - Context is `{ ...fields }`. An unknown key is a compile error.
 - The optional third argument is an `Error`. Only its class name and its stack frames are recorded,
   never its message, because a message can carry a value.
@@ -68,7 +71,7 @@ context key with an attribute name, a runtime check and a `bounded` flag.
 | `questionType`, `outcome`, `reason`, `method`, `signal` | `questionnaire.question_type`, … | a member of a closed list | yes |
 | `status` | `http.response.status_code` | an integer from 100 to 599 | yes |
 | `route` | `http.route` | a route template: `/`, or lower-case literal segments and `:name`, `$name`, `{name}` or `*` parameters, with no query string or fragment | yes |
-| `errorType` | `error.type` | a class name: a capital letter, then letters and digits | yes |
+| `errorType` | `error.type` | a class name: a capital letter, then letters and digits (a raw `pg` `DatabaseError`, named `error`, has none) | yes |
 | `errorCode` | `error.code` | a five-character SQLSTATE (`23505`, `QP001`) | yes |
 | `invariant` | `error.invariant` | a dotted lower-case name with at least one dot (`session.not-marked-submitted`) | yes |
 | `constraint` | `db.constraint` | a lower-case snake-case Postgres constraint name with at least one underscore | yes |
@@ -145,11 +148,16 @@ await withSpan("session.submit", { sessionId }, async () => submit());
   rethrown.
 - Logs written inside the callback carry its `trace_id` and `span_id`.
 
-The exporter applies the same list to every span it sees. A declared name and the names the
-instrumentations produce (`request`, a Fastify hook or handler span such as `handler - getSession`,
-`pg.query:SELECT`, `pg.connect`, `pg-pool.connect`) pass. Any other name is exported as `unnamed`, and
+The exporter applies the same list to every span it sees. A declared name and an explicit allowlist of
+the names the instrumentations produce pass: `request`; `<hook> - <name>` for a Fastify lifecycle
+hook, `handler` or `notFoundHandler`, where the name is a camel-case identifier (including
+`anonymous`) or the plugin fallback `fastify -> @fastify/otel`; `pg.query`, `pg.query:<verb>` for a
+closed list of SQL verbs, `pg.connect` and `pg-pool.connect`. The database slot of
+`pg.query:<verb> <db>` is dropped from the exported name. Any other name is exported as `unnamed`, and
 the span, its parent link and its scrubbed attributes are kept, so the trace stays whole. That costs one
-`span/unknown` drop per such span, which is how a new instrumentation shows up.
+`span/unknown` drop per such span, which is how a new instrumentation shows up. Name route handlers and
+hook functions: an anonymous one is named after its plugin. A one-word lower-case camel-case name in the
+`<name>` slot (`handler - diabetes`) still passes; see the skill's hole 4.
 
 ## Problem outcomes
 

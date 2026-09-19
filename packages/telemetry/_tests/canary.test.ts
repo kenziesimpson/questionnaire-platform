@@ -166,7 +166,7 @@ describe("canary runner: runCanaryFlow", () => {
     const leaky: CanaryFlow<object> = {
       name: "casts the sentinel into a message",
       run: async (_world, sentinel) => {
-        // eslint-disable-next-line no-restricted-syntax -- the negative control: a cast is the one way past the literal-only message type
+        // eslint-disable-next-line local/no-cast-into-telemetry-text -- the negative control: a cast is the one way past the literal-only message type
         logger("execution").info(sentinel as "message");
       },
     };
@@ -275,7 +275,8 @@ describe("canary export-time scrub: a third-party span and counter that carry th
 
     const run = await mutated.runCanaryFlow({ name: thirdParty.name, run: async (_world, sentinel) => mutated.plantThirdPartyTelemetry(sentinel) }, {});
 
-    expect(run.exposures.map((exposure) => exposure.signal).sort()).toEqual(["metric", "span", "span", "span"]);
+    expect(new Set(run.exposures.map((exposure) => exposure.signal))).toEqual(new Set(["metric", "span"]));
+    expect(run.exposures.filter((exposure) => exposure.signal === "span").length).toBeGreaterThanOrEqual(7);
     expect(() => mutated.expectCleanRun(thirdParty.name, run)).toThrow(/TELEMETRY CANARY FAILED/);
   });
 });

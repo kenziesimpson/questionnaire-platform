@@ -125,34 +125,75 @@ describe("the exporter allowlist", () => {
     expect(bySeries["metric/unbounded"]).toBe(1);
   });
 
-  it.each(["request", "handler - getSession", "onRequest - anonymous", "pg.query", "pg.query:SELECT", "pg.query:SELECT qp", "pg.connect", "pg-pool.connect"])(
-    "exports the auto-instrumented span name %s unchanged",
-    (name) => {
-      const installed = install();
-      trace.getTracer("third-party").startSpan(name).end();
-      expect(installed.spans().map((span) => span.name)).toEqual([name]);
-    },
-  );
+  it.each([
+    "request",
+    "handler - getSession",
+    "handler - ready",
+    "handler - handler",
+    "handler - anonymous",
+    "handler - fastify -> @fastify/otel",
+    "onRequest - anonymous",
+    "onSend - executionModule",
+    "notFoundHandler - replyNotFound",
+    "notFoundHandler - preHandler - authenticateAuthor",
+    "pg.query",
+    "pg.query:SELECT",
+    "pg.query:BEGIN",
+    "pg.connect",
+    "pg-pool.connect",
+  ])("exports the auto-instrumented span name %s unchanged", (name) => {
+    const installed = install();
+    trace.getTracer("third-party").startSpan(name).end();
+    expect(installed.spans().map((span) => span.name)).toEqual([name]);
+  });
 
-  it.each([CANARY, `handler - ${CANARY} and more`, "GET /sessions/abc", "pg.query:SELECT * FROM t", `pg.query:${CANARY}\n`, "", "handler - "])(
-    "exports a span named %j as unnamed, keeps the span and counts the name as unknown",
-    async (name) => {
-      const installed = install();
-      const outer = trace.getTracer("third-party").startSpan(name);
-      trace.getTracer("third-party").startSpan("pg.connect", {}, trace.setSpan(context.active(), outer)).end();
-      outer.end();
-      const exported = installed.spans();
-      expect(exported.map((span) => span.name).sort()).toEqual(["pg.connect", "unnamed"]);
-      expect(exported.find((span) => span.name === "pg.connect")?.parentSpanContext?.spanId).toBe(
-        exported.find((span) => span.name === "unnamed")?.spanContext().spanId,
-      );
-      expect(JSON.stringify(exported)).not.toContain(CANARY);
-      const dropped = await metricNamed(installed, "telemetry.scrub.dropped");
-      expect(dropped?.dataPoints.map((point) => [point.attributes["telemetry.signal"], point.attributes["telemetry.reason"], point.value])).toEqual([
-        ["span", "unknown", 1],
-      ]);
-    },
-  );
+  it.each([
+    ["pg.query:SELECT qp", "pg.query:SELECT"],
+    ["pg.query:INSERT questionnaire_platform", "pg.query:INSERT"],
+    [`pg.query:SELECT ${CANARY}`, "pg.query:SELECT"],
+    [`pg.query:SELECT ${CANARY.toLowerCase()}`, "pg.query:SELECT"],
+  ])("exports the pg query span %s without its database slot, as %s, and counts no drop", async (name, exported) => {
+    const installed = install();
+    trace.getTracer("third-party").startSpan(name).end();
+    expect(installed.spans().map((span) => span.name)).toEqual([exported]);
+    expect(await metricNamed(installed, "telemetry.scrub.dropped")).toBeUndefined();
+  });
+
+  it.each([
+    CANARY,
+    CANARY.toLowerCase(),
+    `handler - ${CANARY} and more`,
+    `handler - ${CANARY}`,
+    `handler - ${CANARY.toLowerCase()}`,
+    "handler - has_underscore",
+    "handler - Capitalised",
+    "handler - two words",
+    "handler - fastify -> @fastify/cors",
+    "GET /sessions/abc",
+    "pg.query:SELECT * FROM t",
+    `pg.query:${CANARY}`,
+    `pg.query:${CANARY.toLowerCase()}`,
+    "pg.query:select",
+    "pg.query:UNKNOWNVERB",
+    `pg.query:${CANARY}\n`,
+    "",
+    "handler - ",
+  ])("exports a span named %j as unnamed, keeps the span and counts the name as unknown", async (name) => {
+    const installed = install();
+    const outer = trace.getTracer("third-party").startSpan(name);
+    trace.getTracer("third-party").startSpan("pg.connect", {}, trace.setSpan(context.active(), outer)).end();
+    outer.end();
+    const exported = installed.spans();
+    expect(exported.map((span) => span.name).sort()).toEqual(["pg.connect", "unnamed"]);
+    expect(exported.find((span) => span.name === "pg.connect")?.parentSpanContext?.spanId).toBe(
+      exported.find((span) => span.name === "unnamed")?.spanContext().spanId,
+    );
+    expect(JSON.stringify(exported).toLowerCase()).not.toContain(CANARY.toLowerCase());
+    const dropped = await metricNamed(installed, "telemetry.scrub.dropped");
+    expect(dropped?.dataPoints.map((point) => [point.attributes["telemetry.signal"], point.attributes["telemetry.reason"], point.value])).toEqual([
+      ["span", "unknown", 1],
+    ]);
+  });
 
   it("exports each name a caller can declare through withSpan unchanged", async () => {
     const installed = install();

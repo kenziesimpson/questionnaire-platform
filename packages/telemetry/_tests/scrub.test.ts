@@ -203,3 +203,16 @@ describe("scrubAttributes: the logger's module name is one of a closed list", ()
     expect(result.dropped.invalid).toBe(1);
   });
 });
+
+describe("scrubAttributes: exception.type is a class name or an error code, whichever OpenTelemetry records", () => {
+  it.each(["Error", "TypeError", "InvariantViolation", "ECONNREFUSED", "23505", "QP001", "FST_ERR_VALIDATION", "ERR_INVALID_ARG_TYPE"])("keeps %s", (value) => {
+    expect(scrubAttributes({ "exception.type": value }, "span").attributes).toEqual({ "exception.type": value });
+  });
+
+  it.each(["error", "diabetes", CANARY, CANARY.toLowerCase(), "type-2", "2026-01-01", "two words", "12345678", ""])("drops %j", (value) => {
+    const result = scrubAttributes({ "exception.type": value }, "span");
+
+    expect(result.attributes).toEqual({});
+    expect(result.dropped.invalid).toBe(1);
+  });
+});

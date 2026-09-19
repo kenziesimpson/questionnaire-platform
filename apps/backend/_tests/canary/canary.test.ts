@@ -1,4 +1,4 @@
-import { withSpan, type SignalKind } from "@qp/telemetry";
+import { logger, withSpan, type SignalKind } from "@qp/telemetry";
 import { expectCleanRun, plantThirdPartyCounter } from "@qp/telemetry/canary";
 import { describe, expect, it } from "vitest";
 import { useTestDatabase } from "../db/fixtures.js";
@@ -11,6 +11,10 @@ const testDatabase = useTestDatabase();
 
 const INSTRUMENTED = { autoInstrumentation: true };
 
+const log = logger("execution");
+
+const PLANTS_THIRD_PARTY_SPANS = "auto-instrumentation";
+
 const runFlow = (flow: BackendCanaryFlow) => runOnCanaryApp(testDatabase, flow, INSTRUMENTED);
 
 describe("TELEMETRY CANARY (CI gate): a planted answer value reaches no log, span or metric", () => {
@@ -22,7 +26,12 @@ describe("TELEMETRY CANARY (CI gate): a planted answer value reaches no log, spa
   });
 
   it.each(CANARY_FLOWS.map((flow) => [flow.name, flow] as const))("canary flow: %s", async (_name, flow) => {
-    expectCleanRun(flow.name, await runFlow(flow));
+    const run = await runFlow(flow);
+
+    expectCleanRun(flow.name, run);
+    if (!flow.name.startsWith(PLANTS_THIRD_PARTY_SPANS)) {
+      expect(run.spanNames, "a real span was exported under the unnamed placeholder").not.toContain("unnamed");
+    }
   });
 });
 
@@ -40,6 +49,22 @@ describe("TELEMETRY CANARY (CI gate): the pipeline it runs is the instrumented o
     expect(run.spanNames).toContain("handler - handler");
     expect(run.spanNames).not.toContain("unnamed");
   });
+
+  it("names every real span the health probes and an unknown route produce, so none is exported as unnamed", async () => {
+    const run = await runFlow({
+      name: "the health probes and an unknown route",
+      run: async ({ app }) => {
+        const statuses = [];
+        for (const url of ["/health", "/health/live", "/health/ready", "/nope"]) {
+          statuses.push((await app.inject({ method: "GET", url })).statusCode);
+        }
+        expect(statuses).toEqual([200, 200, 200, 404]);
+      },
+    });
+
+    expect(run.spanNames).toEqual(expect.arrayContaining(["request", "handler - alive", "handler - ready", "notFoundHandler - replyNotFound"]));
+    expect(run.spanNames).not.toContain("unnamed");
+  });
 });
 
 interface NegativeControl {
@@ -55,8 +80,8 @@ const NEGATIVE_CONTROLS: readonly NegativeControl[] = [
     flow: {
       name: "leaks through a log message",
       run: async (_world, sentinel) => {
-        // eslint-disable-next-line no-restricted-syntax -- the negative control: a cast is the one way past the literal-only message type
-        canaryLog.info(sentinel as "message");
+        // eslint-disable-next-line local/no-cast-into-telemetry-text -- the negative control: a cast is the one way past the literal-only message type
+        log.info(sentinel as "message");
       },
     },
   },

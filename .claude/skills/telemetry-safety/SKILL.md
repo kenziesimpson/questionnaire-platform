@@ -19,7 +19,7 @@ and decision O2. Error bodies are covered by the same rule
 | Layer | Where it lives | Catches | Does not catch |
 | --- | --- | --- | --- |
 | 0 — `Sensitive<T>` | `packages/shared/src/sensitive.ts` | Anything that serializes an answer: `JSON.stringify`, a template, `String()`, `util.inspect`, an OTel attribute. Each returns `[redacted]` | An answer that was never wrapped, or one pulled out with `.unwrap()` |
-| 0 — literal-only message | `LiteralMessage` in `packages/telemetry/src/logger.ts`, and the `no-restricted-syntax` selectors in `eslint.config.mjs` | `` log.info(`rejected ${text}`) `` and a `string` variable as a message, at compile time; a cast into a literal type, `never` or `any` as a message, a `logger(...)` module name or a `withSpan(...)` name, as a lint warning | A cast the selectors do not name, such as `as SomeAlias`. The lint is a warning, and CI has no `--max-warnings`, so it is advice, not a gate |
+| 0 — literal-only message | `LiteralMessage` in `packages/telemetry/src/logger.ts`, and the `local/no-cast-into-telemetry-text` rule in `eslint.config.mjs` | `` log.info(`rejected ${text}`) `` and a `string` variable as a message, at compile time; a cast into a literal type, `never` or `any` as a message, a `logger(...)` module name or a `withSpan(...)` name, as a lint error, which fails `npm run lint` and CI | The false negatives listed under hole 1: the rule matches syntax, not types |
 | 1 — one boundary | `packages/telemetry`, plus the `telemetryOnly` rule in `eslint.config.mjs` | Any other workspace importing `pino`, `pino-*`, `@opentelemetry/*` or `@fastify/otel` | Nothing else writes telemetry, so this is the whole surface |
 | 1 — closed registry | `FIELDS` in `packages/telemetry/src/fields.ts` | An unknown context key, at compile time via `TelemetryContext` | A known key holding the wrong content — see below |
 | 1 — the scrub | `packages/telemetry/src/scrub.ts`, at call time in `logger.ts`, `spans.ts` and, for counter labels, `events.ts` (`boundedDimensionsOf`), and again at export time in `exporters.ts` and the pino formatter in `pipeline.ts` | Unregistered keys, values failing their `accepts` check, free text, objects, a `Sensitive`, unbounded attributes on a metric, a span name outside `SPAN_NAMES` or the instrumentations' shapes, a logger module outside `LOG_MODULES`. Drops are counted in `telemetry.scrub.dropped{signal,reason}`, never by key | A value that passes its field's shape check |
@@ -33,17 +33,25 @@ Layer 4, the advisory agent review on the PR, is documented and not built. Layer
 These are real and not fixed. The canary's negative controls in
 `apps/backend/_tests/canary/canary.test.ts` each target one of them, so the gate is shown to fail.
 
-1. **The log message is guarded by its type and a lint warning only.** `LiteralMessage` is erased at
-   runtime and a message is written as given, so `log.info(value as "message")` puts the string
-   straight into the output. The `no-restricted-syntax` selectors warn on that cast; a warning is
-   advice, and only a reviewer or the canary stops it. Never cast into a message. If you need a
+1. **The log message is guarded by its type and a syntactic lint rule only.** `LiteralMessage` is
+   erased at runtime and a message is written as given, so `log.info(value as "message")` puts the
+   string straight into the output. `local/no-cast-into-telemetry-text` is a lint error on a cast to a
+   literal, a union of literals, `never`, `any`, `LiteralMessage`, `LogModule` or `SpanName` as the
+   first argument of `logger(...)`, `withSpan(...)` or a `debug`/`info`/`warn`/`error` call on a logger
+   the same file created with `logger(...)`, both imported from `@qp/telemetry`. It matches syntax, so
+   it does not see: a cast hoisted into a variable, a cast through a type alias, a computed call
+   (`log["info"](...)`), a logger held under another name, a wrapper around the logger, a call through a
+   namespace import, a logger created in another file, or a cast in a later argument. Only a reviewer
+   or the canary stops those. Never cast into a message. If you need a
    variable message, you need a field instead. Closed since the first version of this list: the span
    name (`SPAN_NAMES`, checked in `withSpan` and again at export) and the logger's module name
    (`LOG_MODULES`).
 2. **Slug- and route-shaped fields cannot tell an answer from an id.** `itemId` and `lastItemId` accept
    any slug (`^[a-z][a-z0-9_]{0,63}$`), so a one-word lower-case answer such as `diabetes` put in one
-   passes. `route` accepts any lower-case literal path segment, so `/diabetes` passes; the scrub
-   cannot know a static segment from a word. `constraint` accepts any lower-case snake-case name
+   passes. `route` accepts any lower-case literal path segment, so `/diabetes` passes, as do `/90210`
+   and `/2026-01-01`, since a literal segment may hold digits and dots; the scrub cannot know a static
+   segment from a word. It also rejects two things Fastify allows, `/:a-:b` and `/:id.json`, so a route
+   written that way is dropped and counted. `constraint` accepts any lower-case snake-case name
    with an underscore, so `type_2_diabetes` passes. Ids and routes come from the database, the route
    table or the author's definition. Never from an answer, a label or anything a respondent typed.
    Closed since the first version of this list: `sessionId`, `questionnaireId`,
@@ -51,15 +59,28 @@ These are real and not fixed. The canary's negative controls in
    no longer passes.
 3. **Other fields are shaped, not closed.** `errorType` accepts any capitalised alphanumeric name
    (`Diabetes`), `errorCode` any five characters from `0-9A-Z` (`12345`, a US zip code), `invariant` any
-   dotted lower-case name (`a.b`) and `db.name`, `db.namespace` and `server.address` any token. Same
-   rule: none of them comes from an answer.
+   dotted lower-case name (`a.b`), `exception.type` (what OpenTelemetry records for an exception, its
+   `code` if it has one, else its `name`) a class name, an `ERR_` or `FST_ERR_` code or a five-character
+   SQLSTATE, and `db.name`, `db.namespace` and `server.address` any token. Same rule: none of them
+   comes from an answer. `errorType` is a class name, so a raw `pg` `DatabaseError`, whose `name` is
+   the lower-case `error`, loses its `errorType`; Drizzle wraps it today and the SQLSTATE and
+   constraint name are still recorded.
 4. **Strings the exporter copies through unscrubbed.** A span event's name, a metric's name,
    description and unit, the instrumentation scope's name and version, and the resource attributes all
    reach export as written. They are code constants in our code and in the instrumentations, so no
    answer reaches them today, but nothing checks them, and the canary would only see one if a flow
-   planted it there. Only the span name is checked. The exporter also accepts an auto-instrumented span
-   name by shape (`handler - <function name>`), so a hook function named after data would pass. If a
-   change lets a variable reach any of these, it needs a runtime check first.
+   planted it there. If a change lets a variable reach any of these, it needs a runtime check first.
+   Span names are checked, and what still passes is precise: `request`; `<hook> - <name>`, where the
+   hook is one of Fastify's lifecycle hooks, `handler`, or `notFoundHandler` (alone or with
+   `preValidation` or `preHandler`), and the name is a camel-case identifier (`[a-z][A-Za-z0-9]*`,
+   which includes `anonymous`) or the literal plugin fallback `fastify -> @fastify/otel`; and
+   `pg.query`, `pg.query:<verb>` with the verb from a closed list, `pg.connect` and `pg-pool.connect`.
+   The database slot of `pg.query:<verb> <db>` is never exported: the exporter rewrites it to
+   `pg.query:<verb>`, so a planted `pg.query:SELECT <sentinel>` in any case is clean. What remains is
+   the `<name>` slot: a one-word lower-case camel-case name such as `handler - diabetes` passes, and
+   the exporter cannot tell it from a function name. Function names are source identifiers, not data.
+   The canary plants the sentinel in a handler slot in upper and lower case, and both are rejected
+   only because the sentinel contains an underscore.
 5. **The stack check is a shape check.** `stackFramesOf` drops the `Error` header by the message's own
    line count and records nothing if the stack does not line up, which closed the case of a
    multi-line message with a frame-shaped line. What remains passes if it looks like a frame
@@ -141,7 +162,9 @@ objects and projects them through `FIELDS[…].accepts`, keeping `method`, `rout
 (`questionnaire.publish`, `rule.evaluate`, `session.submit`); a new span name is one more member of
 that array in `packages/telemetry/src/spans.ts`. A name outside the array never throws: `withSpan` runs
 `fn` with no span and counts a `span/unknown` drop. The exporter applies the same list, and renames any
-span whose name is neither declared nor an instrumentation's own to `unnamed`. Context goes through the
+span whose name is neither declared nor one of the instrumentation shapes in hole 4 to `unnamed`. Name
+route handlers and hook functions: an anonymous one is named after its plugin by `@fastify/otel`, and a
+name outside those shapes shows up as `unnamed` and a `span/unknown` drop on every request. Context goes through the
 registry and is scrubbed like a log line. On a throw the span gets `error.type` and `ERROR` status with
 no status message.
 
@@ -251,7 +274,8 @@ the file's purpose is to prove the gate can fail.
    table has its row.
 2. Every id field is filled from the database, the route or a generator — never from an answer, a
    label or user text.
-3. No cast into a log message, a logger module name or a span name, anywhere in the diff.
+3. No cast into a log message, a logger module name or a span name, anywhere in the diff, including the
+   forms the lint rule cannot see.
 4. No `.unwrap()` outside validation and persistence.
 5. No body, problem `title`/`detail`/`instance`, `error.message`, URL, query string or cursor in any
    signal; no spread of a caller-supplied object into a context.

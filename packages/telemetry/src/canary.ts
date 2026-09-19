@@ -119,7 +119,15 @@ export function plantThirdPartyTelemetry(sentinel: string): void {
   span.setStatus({ code: SpanStatusCode.ERROR, message: `failed ${sentinel}` });
   span.end();
   trace.getTracer("third-party").startSpan(sentinel).end();
-  trace.getTracer("third-party").startSpan(`handler - ${sentinel}`).end();
+  for (const name of [
+    `handler - ${sentinel}`,
+    `handler - ${sentinel.toLowerCase()}`,
+    `pg.query:${sentinel}`,
+    `pg.query:SELECT ${sentinel}`,
+    `pg.query:SELECT ${sentinel.toLowerCase()}`,
+  ]) {
+    trace.getTracer("third-party").startSpan(name).end();
+  }
   metrics.getMeter("third-party").createCounter("third_party.requests").add(1, { answer: sentinel, "url.path": sentinel });
 }
 

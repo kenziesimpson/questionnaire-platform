@@ -35,12 +35,14 @@ describe("telemetry boundary: only packages/telemetry imports pino or OpenTeleme
   });
 });
 
-async function restrictedSyntax(filePath: string, code: string) {
-  return (await lintAs(filePath, code)).filter((m) => m.ruleId === "no-restricted-syntax");
+const RULE = "local/no-cast-into-telemetry-text";
+
+async function castMessages(filePath: string, code: string) {
+  return (await lintAs(filePath, code)).filter((m) => m.ruleId === RULE);
 }
 
-describe("telemetry text: a cast into a log message, logger module or span name is flagged", () => {
-  const PREAMBLE = `import { logger, withSpan, type SpanName } from "@qp/telemetry";\nconst log = logger("http");\ndeclare const value: string;\n`;
+describe("telemetry text: a cast into a log message, logger module or span name is an error", () => {
+  const PREAMBLE = `import { logger, withSpan, type LiteralMessage, type SpanName } from "@qp/telemetry";\nconst log = logger("http");\ndeclare const value: string;\n`;
 
   it.each([
     ["a cast to a string literal in a log message", `log.info(value as "message");`],
@@ -49,42 +51,75 @@ describe("telemetry text: a cast into a log message, logger module or span name 
     ["a cast to any", `log.debug(value as any);`],
     ["an angle-bracket cast", `log.info(<"message">value);`],
     ["a cast to LiteralMessage", `log.info(value as LiteralMessage<"x">);`],
+    ["a cast on a call chained straight off logger()", `logger("http").info(value as "message");`],
     ["a cast in the logger module name", `logger(value as "http");`],
     ["a cast to SpanName", `void withSpan(value as SpanName, {}, async () => 1);`],
     ["a cast to a span name literal", `void withSpan(value as "session.submit", {}, async () => 1);`],
-  ])("warns on %s", async (_, statement) => {
-    const messages = await restrictedSyntax(EXAMPLE_BACKEND, `${PREAMBLE}${statement}`);
+  ])("reports %s", async (_, statement) => {
+    const messages = await castMessages(EXAMPLE_BACKEND, `${PREAMBLE}${statement}`);
 
     expect(messages).toHaveLength(1);
-    expect(messages[0]?.severity).toBe(1);
+    expect(messages[0]?.severity).toBe(2);
+  });
+
+  it("follows a renamed import of logger and withSpan", async () => {
+    const code = `import { logger as makeLogger, withSpan as span } from "@qp/telemetry";\ndeclare const value: string;\nconst log = makeLogger("http");\nlog.info(value as "x");\nvoid span(value as "x", {}, async () => 1);`;
+
+    expect(await castMessages(EXAMPLE_BACKEND, code)).toHaveLength(2);
   });
 
   it.each([
     ["a literal message", `log.info("session submitted", { sessionId: value });`],
     ["a const assertion", `log.info("session submitted" as const);`],
     ["a cast in the context argument", `log.info("session submitted", { itemId: value as string });`],
-    ["a cast in the error argument", `log.error("submit failed", {}, value as unknown as Error);`],
     ["a plain module name", `logger("http");`],
-    ["a cast on something other than a logger call", `console.log(value as "message");`],
     ["a literal span name", `void withSpan("session.submit", {}, async () => 1);`],
+    ["a cast into another object's error method", `declare const toast: { error(text: string): void };\ntoast.error(value as any);`],
+    ["a cast into console.error", `console.error(value as "x");`],
   ])("allows %s", async (_, statement) => {
-    const messages = await restrictedSyntax(EXAMPLE_BACKEND, `${PREAMBLE}${statement}`);
-
-    expect(messages.filter((message) => message.message.startsWith("A cast into a"))).toEqual([]);
+    expect(await castMessages(EXAMPLE_BACKEND, `${PREAMBLE}${statement}`)).toEqual([]);
   });
 
-  it("warns in every workspace, including tests", async () => {
+  it("ignores a logger and a withSpan that do not come from @qp/telemetry", async () => {
+    const code = `import { logger, withSpan } from "./somewhere-else.js";\nconst log = logger("x");\ndeclare const value: string;\nlog.info(value as "x");\nvoid withSpan(value as "x");`;
+
+    expect(await castMessages(EXAMPLE_BACKEND, code)).toEqual([]);
+  });
+
+  it.each([
+    ["a cast hoisted into a variable", `const message = value as "x";\nlog.info(message);`],
+    ["a cast through a type alias", `type Message = "x";\nlog.info(value as Message);`],
+    ["a computed method call", `log["info"](value as "x");`],
+    ["a logger held under another name", `const alias = log;\nalias.info(value as "x");`],
+    ["a wrapper around the logger", `const wrapper = { info: (text: "x") => log.info(text) };\nwrapper.info(value as "x");`],
+    ["a logger reached through a namespace import", `import * as telemetry from "@qp/telemetry";\ntelemetry.logger("http").info(value as "x");`],
+    ["a logger created in another file", `declare const shared: ReturnType<typeof logger>;\nshared.info(value as "x");`],
+    ["a cast in the second argument of a call", `log.info("x", value as "y" as never);`],
+  ])("does not see %s, a known false negative", async (_, statement) => {
+    expect(await castMessages(EXAMPLE_BACKEND, `${PREAMBLE}${statement}`)).toEqual([]);
+  });
+
+  it("applies in every workspace, including tests", async () => {
     const code = `${PREAMBLE}log.info(value as "message");`;
 
-    expect(await restrictedSyntax("packages/telemetry/src/example.ts", code)).toHaveLength(1);
-    expect(await restrictedSyntax("apps/backend/_tests/example.test.ts", code)).toHaveLength(1);
-    expect(await restrictedSyntax("apps/admin/src/example.tsx", code)).toHaveLength(1);
+    expect(await castMessages("packages/telemetry/src/example.ts", code)).toHaveLength(1);
+    expect(await castMessages("apps/backend/_tests/example.test.ts", code)).toHaveLength(1);
+    expect(await castMessages("apps/admin/src/example.tsx", code)).toHaveLength(1);
   });
 
   it("accepts a disable comment carrying a reason, and it counts as used", async () => {
-    const code = `${PREAMBLE}// eslint-disable-next-line no-restricted-syntax -- the negative control\nlog.info(value as "message");`;
+    const code = `${PREAMBLE}// eslint-disable-next-line ${RULE} -- the negative control\nlog.info(value as "message");`;
 
-    expect((await restrictedSyntax(EXAMPLE_BACKEND, code)).filter((message) => message.message.startsWith("A cast into a"))).toEqual([]);
+    expect(await lintAs(EXAMPLE_BACKEND, code)).toEqual([]);
+  });
+
+  it("fails an unused disable comment, so the rule cannot be disabled by habit", async () => {
+    const code = `${PREAMBLE}// eslint-disable-next-line ${RULE} -- nothing to disable\nlog.info("message");`;
+
+    const messages = await lintAs(EXAMPLE_BACKEND, code);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.message).toContain("Unused eslint-disable directive");
   });
 });
 
