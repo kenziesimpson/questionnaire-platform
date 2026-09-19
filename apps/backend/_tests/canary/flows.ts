@@ -2,7 +2,10 @@ import { sensitive } from "@qp/shared";
 import { INTAKE_ITEM_IDS, INTAKE_OPTION_IDS, INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { emitDomainEvent, FIELDS, logger, withSpan, type DomainEvent, type FieldName, type TelemetryContext } from "@qp/telemetry";
 import { plantThirdPartyTelemetry, type CanaryFlow } from "@qp/telemetry/canary";
+import { DrizzleQueryError } from "drizzle-orm";
 import { expect } from "vitest";
+import { SQLSTATE } from "../../src/db/errors.js";
+import { InvariantViolation } from "../../src/invariant.js";
 import { answersNo, answersYes, executionUrl, seedIntakeV1, startedSessionId, submit } from "../modules/execution/fixtures.js";
 import { listSessionsUrl, sessionDetailUrl } from "../modules/reporting/fixtures.js";
 import type { CanaryWorld } from "./harness.js";
@@ -92,13 +95,36 @@ export const CANARY_FLOWS: readonly BackendCanaryFlow[] = [
     },
   },
   {
-    name: "errors: an Error whose message is the bare sentinel, logged and thrown inside withSpan",
+    name: "errors: Errors whose message is the bare sentinel or a frame-shaped line, logged and thrown inside withSpan",
     run: async (_world, sentinel) => {
       canaryLog.error("bare message", { sessionId: "s-1" }, new Error(sentinel));
       canaryLog.error("bare type error", undefined, new TypeError(sentinel));
+      canaryLog.error("frame-shaped line", undefined, new Error(`header\n    at ${sentinel} (secret.txt:1:1)`));
       await withSpan("session.submit", { sessionId: "s-1" }, async () => {
         throw new Error(sentinel);
       }).catch(() => undefined);
+    },
+  },
+  {
+    name: "500 path: unhandled errors carrying the sentinel in their message, driver detail, frame-shaped lines and query parameters",
+    run: async (world, sentinel) => {
+      const frameShaped = `header\n    at ${sentinel} (secret.txt:1:1)`;
+      const cause = Object.assign(new Error("duplicate"), { code: SQLSTATE.uniqueViolation, constraint: "response_pkey" });
+      const failures = [
+        new Error(sentinel),
+        new TypeError(`bad value ${sentinel}`),
+        Object.assign(new Error(`duplicate key value, Key (answer)=(${sentinel})`), {
+          code: SQLSTATE.uniqueViolation,
+          constraint: "response_pkey",
+          detail: `Key (answer)=(${sentinel}) already exists.`,
+        }),
+        new Error(frameShaped),
+        new DrizzleQueryError("insert into response (text_value) values (?)", [frameShaped], cause),
+        InvariantViolation.of("session.not-marked-submitted", { sessionId: "s-1", questionnaireVersion: 2 }),
+      ];
+      for (const failure of failures) {
+        expect(await world.injectFailure(failure, sentinel), "the queued failure must surface as a 500").toBe(500);
+      }
     },
   },
   {

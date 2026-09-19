@@ -30,26 +30,27 @@ Layer 4, the advisory agent review on the PR, is documented and not built. Layer
 
 ## Known holes
 
-These are real, they are in the T0a code, and they are not fixed yet. The canary's negative controls
-in `apps/backend/_tests/canary/canary.test.ts` exist because the first three are otherwise unguarded.
+These are real, they are in the T0a and T0b code, and they are not fixed. The canary's negative
+controls in `apps/backend/_tests/canary/canary.test.ts` exist because the first two are otherwise unguarded.
 
 1. **The log message and the span name are types only, with no runtime check.** `LiteralMessage`
    and the `SpanName` union are erased at runtime, so `log.info(value as "message")` and
    `withSpan(value as SpanName, …)` both put the string straight into the output. Never cast into
    a message or a span name. If you need a variable message, you need a field instead.
 2. **Identifier fields accept any whitespace-free token up to 128 characters.** `sessionId`,
-   `itemId`, `questionId`, `requestId`, `questionnaireId` and `lastItemId` all use the same
-   `IDENTIFIER` regex. A one-word answer, `diabetes`, put in one of them passes the scrub and is
+   `itemId`, `questionId`, `requestId`, `questionnaireId` and `lastItemId` and
+   `questionnaireVersionId` all use the same `IDENTIFIER` regex. A one-word answer, `diabetes`, put in one of them passes the scrub and is
    exported. Ids come from the database, the route, or a generator. Never from an answer, a label
    or anything a respondent typed.
-3. **Other fields are shaped, not closed.** `errorType` and `errorCode` accept any token, `route`
-   accepts any string that starts with `/` and uses path characters, and the `module` attribute
-   behind `logger("<module>")` accepts any lowercase token, because the literal is a type only.
-   Same rule: none of them comes from an answer.
-4. **`error.stack` is checked by shape.** An `Error` whose multi-line message contains lines that look
-   like stack frames (`    at name (file:1:2)`) passes the frame check and is exported as
-   `error.stack`. Never build an error message from an answer, and never construct an `Error` from
-   one.
+3. **Other fields are shaped, not closed.** `errorType`, `errorCode` and `constraint` accept any
+   token, `invariant` any lowercase token, `route` any string that starts with `/` and uses path
+   characters, and the `module` attribute behind `logger("<module>")` any lowercase token, because
+   the literal is a type only. Same rule: none of them comes from an answer.
+4. **The stack check is a shape check.** `stackFramesOf` drops the `Error` header by the message's own
+   line count and records nothing if the stack does not line up, which closed the case of a
+   multi-line message with a frame-shaped line. What remains passes if it looks like a frame
+   (`    at name (file:1:2)`). Never build an error message from an answer, and never construct an
+   `Error` from one. The canary's `errors` and `500 path` flows keep the closed case closed.
 5. **The canary cannot see everything it plants.** It matches a string sentinel, in any case, by text.
    A numeric or date answer put in `elapsedSeconds`, `durationMs` or a similar number field is not
    detectable by it. A value that was truncated, hashed, encoded or split before it was logged is not
@@ -144,8 +145,9 @@ attribute from a metric with reason `unbounded`. Ids belong in traces and logs o
 - A request or response body, or any part of one.
 - A problem's `title`, `detail` or `instance`. `instance` is the full URL and carries a session id;
   `detail` is free text; and a problem must never echo an answer to begin with
-  ([[7-application-boundary#5.5 Error bodies must not echo answers]]). Log the slug, the status, the
-  item codes and item ids instead (O8).
+  ([[7-application-boundary#5.5 Error bodies must not echo answers]]). Log a problem through
+  `problemTelemetry(body)` from `@qp/telemetry`, which keeps the slug, status, item codes and item ids
+  (O8); `sendProblem` in `apps/backend/src/http/problems.ts` already does.
 - `error.message`. Class name and stack frames only.
 - URLs, query strings and pagination cursors. `http.route` only. The responses-list `cursor` encodes
   a session id, which is exactly why (O13, O19).
