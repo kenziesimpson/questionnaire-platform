@@ -91,6 +91,34 @@ npm run dev:admin       # Vite on :5174 at /admin/, proxies /api to :3000
 npm test            # every workspace (vitest projects)
 ```
 
+## Telemetry
+
+Answers never enter telemetry: not a log, a span, a metric or an error body. The design is in
+[`docs/6-observability.md`](docs/6-observability.md), the package in [`packages/telemetry`](packages/telemetry/README.md),
+and the build status by pull request in the [implementation plan](docs/4-implementation-plan.md#wave-3b--observability-and-pipeline).
+
+What runs today:
+
+- **Structured JSON logs** on the backend's stdout, one line per event, with the trace and span id inside a span. `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`) sets the threshold. Logs are pretty-printed when `NODE_ENV=development`.
+- **Health probes:** `/health/live` (the process is up) and `/health/ready` (each database pool answers).
+- **A closed field registry.** A log line or span carries only registered fields, whose types cannot hold free text; anything else is dropped and counted. `.claude/skills/telemetry-safety/SKILL.md` says how to add a field or a signal.
+- **The sentinel leak test**, which plants a value where an answer would be and fails if it reaches any log, span or metric. Run it with `npm run test:leak-test`; CI runs it as its own job, "Response telemetry leak test".
+
+OpenTelemetry export is off unless you point the backend at an OTLP/HTTP receiver. Set these in the backend's environment:
+
+| Variable | Effect | Default |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL of the receiver. Traces go to `<endpoint>/v1/traces` and metrics to `<endpoint>/v1/metrics`, both through the scrub. Unset or empty: nothing is exported | unset |
+| `OTEL_SERVICE_NAME` | The `service.name` on exported telemetry | `qp-backend` |
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 npm run dev:backend
+```
+
+Docker Compose passes neither variable through yet, and the repository ships no receiver, so point the backend at one you run yourself.
+
+Coming: an OpenTelemetry Collector and an opt-in `observability` Compose profile (P1 in the plan).
+
 ## Useful scripts
 
 | Command | What it does |
