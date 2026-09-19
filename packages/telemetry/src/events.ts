@@ -1,7 +1,7 @@
 import type { ResponseType, SubmissionItemCode } from "@qp/shared";
 import type { Outcome, TelemetryContext } from "./fields.js";
 import { guarded } from "./guard.js";
-import { incrementCounter, recordSessionDuration } from "./instruments.js";
+import { incrementCounter, recordSessionDuration, reportDropped } from "./instruments.js";
 import { logger } from "./logger.js";
 import { scrubContext, type ScrubbedAttributes } from "./scrub.js";
 
@@ -52,10 +52,16 @@ type PayloadOf<N extends DomainEventName> = NonNullable<(typeof DOMAIN_EVENTS)[N
 
 export type DomainEvent = { [N in DomainEventName]: { readonly name: N } & Readonly<PayloadOf<N>> }[DomainEventName];
 
+function labelsOf(labels: TelemetryContext): ScrubbedAttributes {
+  const scrubbed = scrubContext(labels);
+  reportDropped("metric", scrubbed.dropped);
+  return scrubbed.attributes;
+}
+
 function boundedDimensionsOf(event: DomainEvent): ScrubbedAttributes {
-  if (event.name === "session.question_answered") return scrubContext({ questionType: event.questionType }).attributes;
-  if (event.name === "session.answer_rejected") return scrubContext({ reason: event.reason }).attributes;
-  if (event.name === "session.submit_finished") return scrubContext({ outcome: event.outcome }).attributes;
+  if (event.name === "session.question_answered") return labelsOf({ questionType: event.questionType });
+  if (event.name === "session.answer_rejected") return labelsOf({ reason: event.reason });
+  if (event.name === "session.submit_finished") return labelsOf({ outcome: event.outcome });
   return {};
 }
 

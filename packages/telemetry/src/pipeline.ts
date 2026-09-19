@@ -10,7 +10,7 @@ import { BatchSpanProcessor, NoopSpanProcessor, SimpleSpanProcessor, type SpanEx
 import pino, { type DestinationStream } from "pino";
 import pretty from "pino-pretty";
 import { scrubbingMetricExporter, scrubbingSpanExporter } from "./exporters.js";
-import { resetInstruments } from "./instruments.js";
+import { reportDropped, resetInstruments } from "./instruments.js";
 import { configureLogging, resetLogging, type LogLevel, type LogSink } from "./logger.js";
 import { scrubAttributes } from "./scrub.js";
 
@@ -45,7 +45,11 @@ function pinoSink(options: PipelineOptions): LogSink {
       timestamp: options.prettyLogs ? true : pino.stdTimeFunctions.isoTime,
       formatters: {
         ...(options.prettyLogs ? {} : { level: (label: string) => ({ level: label }) }),
-        log: (object) => ({ ...scrubAttributes(object, "log").attributes }),
+        log: (object) => {
+          const scrubbed = scrubAttributes(object, "log");
+          reportDropped("log", scrubbed.dropped);
+          return { ...scrubbed.attributes };
+        },
       },
     },
     output,

@@ -2,7 +2,7 @@ import { metrics, type Counter, type Histogram } from "@opentelemetry/api";
 import { totalDropped, type DropCounts, type ScrubbedAttributes } from "./scrub.js";
 import { DROP_REASONS, INSTRUMENTATION_SCOPE, SCRUB_ATTRIBUTES, type DropReason, type SignalKind } from "./vocabulary.js";
 
-const DROPPED_COUNTER = "telemetry.scrub.dropped";
+export const DROPPED_COUNTER = "telemetry.scrub.dropped";
 
 const SESSION_DURATION = "questionnaire.session.duration";
 
@@ -62,9 +62,7 @@ export function recordSessionDuration(milliseconds: number): void {
 
 export function reportDropped(kind: SignalKind, dropped: DropCounts): void {
   if (totalDropped(dropped) === 0) return;
-  let failures = 0;
   for (const reason of DROP_REASONS) {
-    if (dropped[reason] > 0 && !addDropped(kind, reason, dropped[reason])) failures += 1;
+    if (dropped[reason] > 0) addDropped(kind, reason, dropped[reason]);
   }
-  if (failures > 0) addDropped(kind, "internal", failures);
 }

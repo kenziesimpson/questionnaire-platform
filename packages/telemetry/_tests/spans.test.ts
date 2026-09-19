@@ -161,6 +161,92 @@ describe("withSpan never throws or hangs because of the SDK", () => {
   });
 });
 
+async function endCallsFor(callback: () => Promise<unknown>, arrange: () => void): Promise<number> {
+  installFaultyMeter();
+  const span = stubbedSpan();
+  const end = vi.spyOn(span, "end");
+  arrange();
+  await withSpan("session.submit", {}, callback).catch(() => undefined);
+  return end.mock.calls.length;
+}
+
+const ENDING_PATHS: [string, () => Promise<unknown>, () => void][] = [
+  ["a callback that resolves", async () => "done", () => undefined],
+  [
+    "a callback that throws synchronously",
+    () => {
+      throw new Error("sync failure");
+    },
+    () => undefined,
+  ],
+  [
+    "a callback that rejects",
+    async () => {
+      throw new Error("async failure");
+    },
+    () => undefined,
+  ],
+  [
+    "a context manager that throws",
+    async () => "done",
+    () => {
+      vi.spyOn(context, "with").mockImplementation(() => {
+        throw new Error("no context");
+      });
+    },
+  ],
+];
+
+describe("withSpan and what a callback throws", () => {
+  it("rethrows a callback that throws synchronously, unchanged, and runs it once", async () => {
+    installFaultyMeter();
+    stubbedSpan();
+    const failure = new Error("sync failure");
+    let calls = 0;
+    await expect(
+      withSpan("session.submit", {}, () => {
+        calls += 1;
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
+    expect(calls).toBe(1);
+  });
+
+  it.each([
+    ["a string", "x"],
+    ["undefined", undefined],
+  ])("rethrows %s thrown by the callback, unchanged", async (_name, thrown) => {
+    installFaultyMeter();
+    stubbedSpan();
+    await expect(
+      withSpan("session.submit", {}, async () => {
+        throw thrown;
+      }),
+    ).rejects.toBe(thrown);
+  });
+
+  it.each(ENDING_PATHS)("ends the span exactly once for %s", async (_name, callback, arrange) => {
+    expect(await endCallsFor(callback, arrange)).toBe(1);
+  });
+
+  it("keeps the span active across an await, so a later child span and the trace id belong to it", async () => {
+    telemetry = installTestTelemetry();
+    let traceIdAfterAwait: string | undefined;
+    await withSpan("session.submit", {}, async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      traceIdAfterAwait = activeTraceId();
+      await withSpan("rule.evaluate", {}, async () => undefined);
+    });
+    const parent = telemetry.spans().find((span) => span.name === "session.submit");
+    const child = telemetry.spans().find((span) => span.name === "rule.evaluate");
+    expect(parent).toBeDefined();
+    expect(child?.parentSpanContext?.spanId).toBe(parent?.spanContext().spanId);
+    expect(traceIdAfterAwait).toBe(parent?.spanContext().traceId);
+  });
+});
+
 describe("the active-span helpers never throw", () => {
   it("activeTraceId is undefined when reading the active span throws", () => {
     const recorded = installFaultyMeter();

@@ -155,7 +155,7 @@ A value is dropped for one of four reasons, in `DROP_REASONS`:
 | `unknown` | The key is not in the registry or the infrastructure allowlist |
 | `invalid` | The key is known but the value fails its check: free text, wrong type, an object, a `Sensitive` |
 | `unbounded` | A metric carried an attribute that is not bounded |
-| `internal` | Telemetry itself failed: a scrub met an input it could not read, a sink, instrument or span call threw, or an exporter could not scrub a batch. The signal is dropped whole, never emitted partly scrubbed |
+| `internal` | Telemetry itself failed: a scrub met an input it could not read, a sink, instrument or span call threw, or an exporter could not scrub a batch. Nothing partial is emitted. It counts calls, one per failure, where the other three reasons count fields |
 
 Drops are counted in the `telemetry.scrub.dropped` counter, labelled by signal (`log`, `span`,
 `metric`) and reason, and never by key.
@@ -190,13 +190,19 @@ business action may fail that action. `logger(...).debug/info/warn/error`, `emit
 normally whatever their sink, instrument or input does: a sink that throws, a `getMeter` or an
 instrument that throws, and a context with a throwing getter, `Proxy` or `toString`. `withSpan` returns the
 callback's value and rethrows the callback's own error, and never throws or hangs because the SDK or a
-scrub failed; the callback runs exactly once, with or without a span. On a failure the signal is dropped
-whole, never emitted partly scrubbed, and counted in `telemetry.scrub.dropped` with reason `internal`
-and the signal it belonged to. A telemetry failure's own error is discarded, so its message cannot reach a signal. If
-the meter itself is what failed, the count cannot be made and nothing is recorded. The export
-decorators in `exporters.ts` do the same: a batch they cannot scrub is dropped and the exporter's
-callback is called with a failed result. Startup (`startTelemetry`) and the handle's `flush` and
-`shutdown` are lifecycle calls, not business-path calls, and still reject on failure.
+scrub failed; the callback runs exactly once, with or without a span. On a failure nothing partial is
+emitted: a log line whose scrub or sink failed is not written, a scrub of a hostile input returns no
+attributes, and a span whose context could not be scrubbed exports with no attributes. The failure is
+counted in `telemetry.scrub.dropped` with reason `internal` and the signal it belonged to. A telemetry
+failure's own error is discarded, so its message cannot reach a signal. If the meter itself is what
+failed, the count cannot be made and nothing is recorded. When `problemTelemetry` fails it returns
+`[]`, so the "problem response" line for that request is not written and only the counter records the
+failure. `guarded` in `guard.ts` is the shared wrapper; `scrub.ts` and `instruments.ts` carry their own
+`try`/`catch` because `guard.ts` imports `instruments.ts`. The export decorators in `exporters.ts` fail
+a batch they cannot scrub and call the exporter's callback with a failed result. Startup
+(`startTelemetry`) and the handle's `flush` and `shutdown` are lifecycle calls, not business-path
+calls, and still reject on failure. A drop the pino formatter and a domain event's counter labels
+find is counted too, through `reportDropped`.
 
 ## Spans
 
@@ -359,8 +365,8 @@ const { exposures, observed } = await runLeakFlow(flow, world);
 
 | Export | Returns |
 | --- | --- |
-| `runLeakFlow(flow, world, options?)` | Installs test telemetry (`options.autoInstrumentation` turns on the Fastify and `pg` instrumentations), runs the flow, and returns `exposures` (signal and name of each leak), `observed` (how many logs, spans and metrics the flow emitted) and `spanNames` (the exported span names). Fastify's instrumentation only patches an app created after it starts, so a flow that needs real spans builds its app inside `run`. It shuts the pipeline down even when the flow throws |
-| `expectCleanRun(name, run)` | Throws a plain `Error` if the run has an exposure, or if the flow emitted nothing |
+| `runLeakFlow(flow, world, options?)` | Installs test telemetry (`options.autoInstrumentation` turns on the Fastify and `pg` instrumentations), runs the flow, and returns `exposures` (signal and name of each leak), `observed` (how many logs, spans and metrics the flow emitted, not counting `telemetry.scrub.dropped`), `internalDrops` (how many telemetry calls failed and were swallowed) and `spanNames` (the exported span names). Fastify's instrumentation only patches an app created after it starts, so a flow that needs real spans builds its app inside `run`. It shuts the pipeline down even when the flow throws |
+| `expectCleanRun(name, run, sentinel?, options?)` | Throws a plain `Error` if the run has an exposure, if the flow emitted nothing, or if a telemetry call in it failed and was swallowed (`run.internalDrops` above zero, reason `internal`); `options.allowInternalDrops` opts a flow that forces such a failure on purpose out of the last check. The `telemetry.scrub.dropped` counter is not counted as the flow's own telemetry |
 | `expectEmitted(name, run, messages)` | Throws a plain `Error` if the run did not write a log line for each of these messages (`run.logMessages`), so a flow that declares `emits` fails as vacuous when the code it was written for did not run |
 | `plantThirdPartyTelemetry(sentinel)` | Emits spans, one named for the sentinel, and a counter carrying the sentinel the way a third-party instrumentation would, to exercise the export-time scrub |
 | `plantThirdPartyCounter(labels)` | Emits a counter with exactly these labels, so a negative control can put a shaped value on a bounded metric label |
@@ -390,7 +396,7 @@ The flows live with the code they exercise. The backend's registry is
 | `src/exporters.ts` | The scrubbing decorators for span and metric exporters |
 | `src/pipeline.ts` | Builds the SDK, the pino sink and the exporters |
 | `src/node.ts` | `startTelemetry`, `runningTelemetry` |
-| `src/testing.ts` | `installTestTelemetry` |
+| `src/testing.ts` | `installTestTelemetry` (its `internalDrops()` reads the swallowed-failure count), `internalDropCount` |
 | `src/leak-test.ts` | `LEAK_SENTINEL`, `LeakFlow`, `runLeakFlow`, `expectCleanRun`, `exposuresOf`, `plantThirdPartyTelemetry`, `plantThirdPartyCounter` |
 
 ## Scripts

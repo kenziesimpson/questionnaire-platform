@@ -1,9 +1,9 @@
 import { createNoopMeter, metrics, type Attributes, type Counter, type Histogram } from "@opentelemetry/api";
 import { vi } from "vitest";
-import { resetInstruments } from "../src/instruments.js";
+import { DROPPED_COUNTER, resetInstruments } from "../src/instruments.js";
 import type { TestTelemetry } from "../src/testing.js";
 
-export const DROPPED_COUNTER = "telemetry.scrub.dropped";
+export { DROPPED_COUNTER } from "../src/instruments.js";
 
 export interface RecordedMeasurement {
   readonly name: string;

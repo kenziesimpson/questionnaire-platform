@@ -39,6 +39,47 @@ describe("guarded", () => {
   });
 });
 
+const THROWN: [string, unknown][] = [
+  ["undefined", undefined],
+  ["a string", "x"],
+  ["an object with no prototype", Object.create(null)],
+  [
+    "a proxy whose traps throw",
+    new Proxy(
+      {},
+      {
+        get: () => {
+          throw new Error("hostile get");
+        },
+        getPrototypeOf: () => {
+          throw new Error("hostile prototype");
+        },
+      },
+    ),
+  ],
+];
+
+describe("what an action throws", () => {
+  it.each(THROWN)("guarded swallows %s and counts one internal drop", (_name, thrown) => {
+    const recorded = installFaultyMeter();
+    expect(() =>
+      guarded("log", () => {
+        throw thrown;
+      }),
+    ).not.toThrow();
+    expect(internalDropsOf(recorded)).toEqual(["log"]);
+  });
+
+  it.each(THROWN)("guardedOr returns its fallback for %s", (_name, thrown) => {
+    installFaultyMeter();
+    expect(
+      guardedOr("metric", "fallback", (): string => {
+        throw thrown;
+      }),
+    ).toBe("fallback");
+  });
+});
+
 describe("guardedOr", () => {
   it("returns the action's value", () => {
     installFaultyMeter();
