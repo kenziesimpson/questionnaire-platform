@@ -992,6 +992,40 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 | Concurrent callers for one version share one in-flight load, and a failed load is not cached | `_tests/modules/execution/published-definitions.test.ts` | A cold cache on a 20-row page costs one snapshot query per distinct version, not one per row | — conventions |
 | `buildApp` mounts the reporting module at `/api/reporting` | `_tests/app.test.ts` | The third plugin is mounted beside the other two | — conventions |
 
+**Backend — `apps/backend`, cursor and response-row mapping**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| A session cursor round-trips both directions to the millisecond, is url-safe, and does not show the session id in the clear | `_tests/db/reporting/cursor.test.ts` | A page boundary survives the trip through the query string exactly (#88) | — conventions |
+| A cursor with too few or too many fields, an unknown direction, an unparseable or empty `startedAt` or an empty id decodes to no cursor | `_tests/db/reporting/cursor.test.ts` | A hand-edited token never reaches the keyset query as a half-built position | — conventions |
+| Each stored response shape (text, number with and without a unit, date, single choice with and without other text, multiple choice in stored order) is read back as its `ResponseRow`, with no key for a value that was not stored | `_tests/db/reporting/responses.test.ts` | The typed columns map back to the wire shape one-to-one | — conventions |
+| `answersFromResponseRows` turns rows into client answers keyed by item id for all five types, carries other text only when stored, and does not alias the option array | `_tests/db/reporting/responses.test.ts` | The shared evaluator sees the answers exactly as a respondent's client would have held them | Path re-evaluation uses the pinned definition |
+
+**Shared contract — `packages/shared`, the reporting wire types**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| The two reporting routes are `GET`s under `/api/reporting` with problem bodies for 4xx and 5xx, and the list query accepts only `version`, `status` and `cursor` | `_tests/api/reporting.test.ts` | The browser can only read, and only filter by version and status (#89) | — conventions |
+| A session summary, a page and a detail accept the documented shapes and reject unknown fields, negative counts, version 0 and a missing cursor | `_tests/domain/session-report.test.ts` | An answer value cannot ride along on a list row, and the page carries no total | — conventions |
+
+**Frontend component — `apps/admin`, the responses screens, Vitest + RTL in jsdom, `fetch` stubbed**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| A row shows the 8-character session id (full id only in its `title`), version, status pill, both times with a dash for an unsubmitted session, and the answered summary with its hidden clause | `_tests/screens/responses-list.test.tsx` | The list is raw, one row per session, and does not put the bearer-capability id on screen | — conventions |
+| Started is marked as the descending sort, no other column is, and no header is a control | `_tests/screens/responses-list.test.tsx` | The order is the server's keyset order, so nothing on the screen pretends to re-sort it | — conventions |
+| The version and status filters send exactly their query parameter, write it to the URL, combine, reset to the first page, start from the URL, and ignore an invalid search | `_tests/screens/responses-list.test.tsx` | Server-side filtering is limited to those two, and a hand-edited URL cannot reach the API as a `400` | — conventions |
+| Newer and Older are enabled from the cursors alone, follow them one page at a time, keep the filters, and both disable when everything fits one page | `_tests/screens/responses-list.test.tsx` | Keyset paging in both directions with no total (#88) | — conventions |
+| An empty questionnaire says "No sessions yet."; an empty filtered result says no session matches; loading, not-found and a retryable failure each render their own state | `_tests/screens/responses-list.test.tsx` | Every fetch outcome has a screen | — conventions |
+| The answered, hidden-by-rules, not-answered and not-stored-until-submit states each render distinctly, and an in-progress session never reports an item hidden | `_tests/screens/response-detail.test.tsx` | Hidden is a derived state, and nothing is stored before submit | Path re-evaluation uses the pinned definition |
+| A session on version 2 shows version 2's own labels, and the version pin note appears only when a later version exists | `_tests/screens/response-detail.test.tsx` | An admin reads a response in the words the respondent saw | Response meaning preserved across a republish |
+| Newer and Older session follow the page the session was opened from, keeping the filters, and disable at either edge and when the session is not on the page | `_tests/screens/response-detail.test.tsx` | Moving between sessions never escapes the filtered list | — conventions |
+| The Session panel and title show the 8-character id and never the full one; a missing, non-uuid or failing session renders not-found or a retryable error | `_tests/screens/response-detail.test.tsx` | The bearer-capability id stays off the screen | — conventions |
+| A text, number (with a unit), date, single choice, multiple choice and Other answer each render with the label and the id it is stored as; an option missing from the pinned question falls back to its id; a date is never shifted a day by the viewer's time zone | `_tests/screens/response-detail/answer-display.test.tsx` | The stored value is always visible beside its label | — conventions |
+| The status label, the answered summary and the 8-character id are pure and small | `_tests/screens/responses-list/display.test.ts` | — | — conventions |
+| A calendar day formats as that day whatever the viewer's zone | `_tests/lib/dates.test.ts` | A stored date does not move | — conventions |
+| Version history offers Raw responses once a version is published and not otherwise; the questionnaire list offers Responses on the same condition and opens the list | `_tests/screens/version-history.test.tsx`, `_tests/screens/questionnaire-list.test.tsx` | The browser is reachable only where there is something published to read | — conventions |
+
 **End-to-end — Playwright against the composed stack**
 
 | Case | File | Invariant defended | §3 row |

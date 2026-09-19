@@ -94,12 +94,27 @@ describe("the questionnaire list", () => {
     expect(within(rowOf("Patient Intake")).getByText("Open-ended")).toBeInTheDocument();
     expect(within(rowOf("Post-visit Follow-up")).getByText("Never published")).toBeInTheDocument();
     expect(within(rowOf("Post-visit Follow-up")).queryByRole("link", { name: /History/ })).not.toBeInTheDocument();
+    expect(within(rowOf("Post-visit Follow-up")).queryByRole("link", { name: /Responses/ })).not.toBeInTheDocument();
     expect(within(rowOf("Flu Season Screening")).getByText("Closed at v3")).toBeInTheDocument();
     expect(within(rowOf("Flu Season Screening")).getByRole("button", { name: "Reopen Flu Season Screening" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "History of Patient Intake" })).toHaveAttribute(
       "href",
       `/admin/questionnaires/${INTAKE_QUESTIONNAIRE_ID}/versions`,
     );
+    expect(screen.getByRole("link", { name: "Responses of Patient Intake" })).toHaveAttribute(
+      "href",
+      `/admin/questionnaires/${INTAKE_QUESTIONNAIRE_ID}/responses`,
+    );
+    expect(screen.getByRole("link", { name: "Responses of Flu Season Screening" })).toBeInTheDocument();
+  });
+
+  it("opens a published questionnaire's responses from its Responses action", async () => {
+    const { router } = renderList({ [`GET ${LIST_URL}`]: () => jsonResponse(200, [intake]) });
+    await screen.findByRole("table");
+
+    await userEvent.click(screen.getByRole("link", { name: "Responses of Patient Intake" }));
+
+    expect(router.state.location.pathname).toBe(`/questionnaires/${INTAKE_QUESTIONNAIRE_ID}/responses`);
   });
 
   it("links the name to the questionnaire, and lets you copy that link", async () => {
