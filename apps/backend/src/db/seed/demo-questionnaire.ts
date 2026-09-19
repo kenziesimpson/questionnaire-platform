@@ -72,7 +72,7 @@ export async function seedDemoQuestionnaire(db: Database): Promise<DemoSeedOutco
       createdBy: SEED_ACTOR,
       traceId: null,
     });
-    const opened = mustExist(await readOpenDraft(tx, INTAKE_QUESTIONNAIRE_ID), "the demo draft just created");
+    const opened = mustExist(await readOpenDraft(tx, INTAKE_QUESTIONNAIRE_ID), "demo-draft.unreadable-after-create", { questionnaireId: INTAKE_QUESTIONNAIRE_ID });
     const edited = await replaceDraft(tx, {
       questionnaireId: INTAKE_QUESTIONNAIRE_ID,
       precondition: { versionId: opened.id, draftRevision: opened.draftRevision },

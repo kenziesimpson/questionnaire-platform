@@ -11,6 +11,7 @@ import {
 } from "@qp/shared";
 import { and, eq } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
+import { InvariantViolation } from "../../invariant.js";
 import type { Database, Transaction } from "../client.js";
 import { questionnaire, response, session } from "../schema.js";
 import type { PublishedDefinitions } from "./published-definitions.js";
@@ -91,7 +92,7 @@ async function markSubmitted(tx: Transaction, sessionId: string, digest: Uint8Ar
     .where(and(eq(session.id, sessionId), eq(session.status, "in_progress")))
     .returning({ id: session.id });
   if (updated.length !== 1) {
-    throw new Error("a locked in-progress session could not be marked submitted");
+    throw InvariantViolation.of("session.not-marked-submitted", { sessionId });
   }
 }
 

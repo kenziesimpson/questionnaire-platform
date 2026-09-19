@@ -34,7 +34,7 @@ async function readLatestQuestions(executor: Executor, filter: SQL | undefined):
 
   const loaded = await readQuestionVersions(executor, questionVersionIn(rows));
   return rows.map((row) => {
-    const latest = mustExist(loaded.get(questionVersionKey(row)), `question version ${questionVersionKey(row)}`);
+    const latest = mustExist(loaded.get(questionVersionKey(row)), "question.latest-version-not-loaded", { questionId: row.questionId });
     return {
       questionId: row.questionId,
       key: row.key,
@@ -102,5 +102,5 @@ export async function listQuestionUsage(executor: Executor, questionId: string):
     .innerJoin(questionnaireVersion, eq(questionnaireVersion.id, versionQuestionIndex.questionnaireVersionId))
     .where(and(eq(versionQuestionIndex.questionId, questionId), isPublishedVersion()))
     .orderBy(asc(questionnaireVersion.questionnaireId), desc(questionnaireVersion.version));
-  return rows.map((row) => ({ ...row, version: mustExist(row.version, "a published version's version") }));
+  return rows.map((row) => ({ ...row, version: mustExist(row.version, "published-version.missing-version", { questionnaireId: row.questionnaireId }) }));
 }

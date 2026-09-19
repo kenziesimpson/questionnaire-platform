@@ -196,7 +196,7 @@ The rule: **high-cardinality identifiers live in traces and logs; metrics carry 
 - Candidate SLIs: availability and p95 latency of questionnaire delivery; submission success rate; publish success rate.
 - Alert on **symptoms and error-budget burn**, not causes. Nobody should be paged for CPU; they should be paged because respondents can't submit.
 - Distinguish paging alerts (user-visible, needs action now) from ticketing alerts (degradation, handle in hours).
-- Health endpoints are separate from metrics and needed regardless: `/health/live` (process up) and `/health/ready` (DB reachable, migrations applied) feed the Kubernetes probes stubbed in [[2-design-doc#13. Deployment]] §13.2.
+- Health endpoints are separate from metrics and needed regardless: `/health/live` (process up) and `/health/ready` (`SELECT 1` on the definition, execution and reporting pools; the migrate Job, not the probe, gates migrations) feed the Kubernetes probes stubbed in [[2-design-doc#13. Deployment]] §13.2.
 - Backups are listed under Operations in the brief: backup success/age needs to be a monitored metric, and a restore drill is the only evidence a backup works. Deferred with SLOs.
 
 ## 9. Correctness and invariant monitoring

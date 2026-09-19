@@ -1,5 +1,7 @@
 import type { ClientAnswers, ClientAnswerValue, ResponseRow } from "@qp/shared";
+import type { LiteralMessage } from "@qp/telemetry";
 import { and, inArray } from "drizzle-orm";
+import { InvariantViolation, type InvariantIds } from "../../invariant.js";
 import type { Executor } from "../client.js";
 import { response } from "../schema.js";
 
@@ -17,9 +19,9 @@ const responseColumns = {
   otherText: response.otherText,
 };
 
-function requireValue<V>(value: V | null, column: string, itemId: string): V {
+function requireValue<V, N extends string>(value: V | null, invariant: LiteralMessage<N>, ids: InvariantIds): V {
   if (value === null) {
-    throw new Error(`response row for item "${itemId}" is missing its ${column} value`);
+    throw InvariantViolation.of(invariant, ids);
   }
   return value;
 }
@@ -42,18 +44,18 @@ function responseRowOf(row: StoredResponseRow): ResponseRow {
   const head = { itemId: row.itemId, questionId: row.questionId, questionVersion: row.questionVersion };
   switch (row.questionType) {
     case "text":
-      return { ...head, type: "text", text: requireValue(row.textValue, "text_value", row.itemId) };
+      return { ...head, type: "text", text: requireValue(row.textValue, "response.missing-text-value", { sessionId: row.sessionId, itemId: row.itemId }) };
     case "number":
       return {
         ...head,
         type: "number",
-        number: requireValue(row.numberValue, "number_value", row.itemId),
+        number: requireValue(row.numberValue, "response.missing-number-value", { sessionId: row.sessionId, itemId: row.itemId }),
         ...(row.numberUnit === null ? {} : { unit: row.numberUnit }),
       };
     case "date":
-      return { ...head, type: "date", date: requireValue(row.dateValue, "date_value", row.itemId) };
+      return { ...head, type: "date", date: requireValue(row.dateValue, "response.missing-date-value", { sessionId: row.sessionId, itemId: row.itemId }) };
     case "single_choice": {
-      const optionIds = requireValue(row.optionIds, "option_ids", row.itemId);
+      const optionIds = requireValue(row.optionIds, "response.missing-option-ids", { sessionId: row.sessionId, itemId: row.itemId });
       return {
         ...head,
         type: "single_choice",
@@ -65,7 +67,7 @@ function responseRowOf(row: StoredResponseRow): ResponseRow {
       return {
         ...head,
         type: "multiple_choice",
-        optionIds: requireValue(row.optionIds, "option_ids", row.itemId),
+        optionIds: requireValue(row.optionIds, "response.missing-option-ids", { sessionId: row.sessionId, itemId: row.itemId }),
         ...(row.otherText === null ? {} : { otherText: row.otherText }),
       };
   }
@@ -118,7 +120,7 @@ function clientAnswerValueOf(row: ResponseRow): ClientAnswerValue {
     case "single_choice":
       return {
         type: "single_choice",
-        optionId: requireValue(row.optionIds[0] ?? null, "option_ids[0]", row.itemId),
+        optionId: requireValue(row.optionIds[0] ?? null, "response.missing-option-id", { itemId: row.itemId }),
         ...(row.otherText === undefined ? {} : { otherText: row.otherText }),
       };
     case "multiple_choice":

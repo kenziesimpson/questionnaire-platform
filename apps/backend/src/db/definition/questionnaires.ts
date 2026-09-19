@@ -45,7 +45,7 @@ async function selectQuestionnaireSummaries(executor: Executor, filter?: SQL): P
     closesAt: row.closesAt?.toISOString() ?? null,
     hasDraft: row.hasDraft,
     createdAt: row.createdAt.toISOString(),
-    updatedAt: mustExist(row.updatedAt, `the latest version of questionnaire ${row.questionnaireId}`).toISOString(),
+    updatedAt: mustExist(row.updatedAt, "questionnaire.missing-updated-at", { questionnaireId: row.questionnaireId }).toISOString(),
   }));
 }
 
@@ -99,7 +99,7 @@ export async function createQuestionnaire(
       summary: null,
       traceId: command.traceId,
     });
-    const summary = mustExist(await readQuestionnaireSummary(tx, questionnaireId), "the questionnaire just created");
+    const summary = mustExist(await readQuestionnaireSummary(tx, questionnaireId), "questionnaire.unreadable-after-create", { questionnaireId });
     return { questionnaireId, summary };
   });
 }
@@ -131,7 +131,9 @@ export async function setClosesAt(executor: Executor, command: SetClosesAtComman
       traceId: command.traceId,
     });
 
-    const summary = mustExist(await readQuestionnaireSummary(tx, command.questionnaireId), "the questionnaire just updated");
+    const summary = mustExist(await readQuestionnaireSummary(tx, command.questionnaireId), "questionnaire.unreadable-after-update", {
+      questionnaireId: command.questionnaireId,
+    });
     return { outcome: "updated", questionnaire: summary };
   });
 }

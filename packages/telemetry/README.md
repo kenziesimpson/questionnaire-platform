@@ -23,11 +23,11 @@ Three layers hold it here:
 | Import | Use it for | Loads |
 | --- | --- | --- |
 | `@qp/telemetry` | `logger`, `withSpan`, `emitDomainEvent`, the field registry and its types | `@opentelemetry/api` only; safe for a browser bundle |
-| `@qp/telemetry/node` | `startTelemetry`: starts the SDK, pino and the auto-instrumentation | the Node SDK, exporters, pino |
+| `@qp/telemetry/node` | `startTelemetry`: starts the SDK, pino and the auto-instrumentation; `runningTelemetry`: the handle it returned, until that handle shuts down | the Node SDK, exporters, pino |
 | `@qp/telemetry/testing` | `installTestTelemetry`: in-memory exporters for tests | the Node SDK |
 
-Application code imports the first. Only the process entry point (`apps/backend/src/instrumentation.ts`)
-imports the second, and only tests import the third.
+Application code imports the first. Only the backend's `src/telemetry.ts` (used by the preload and the entry point) imports
+the second, and only tests import the third.
 
 ## Write a log line
 
@@ -55,12 +55,16 @@ context key with an attribute name, a runtime check and a `bounded` flag.
 
 | Key | Attribute | Accepts | Bounded |
 | --- | --- | --- | --- |
-| `sessionId`, `questionnaireId`, `itemId`, `lastItemId`, `questionId`, `requestId` | `questionnaire.session_id`, `questionnaire.id`, … | a token with no whitespace, at most 128 characters | no |
+| `sessionId`, `questionnaireId`, `questionnaireVersionId`, `itemId`, `lastItemId`, `questionId`, `requestId` | `questionnaire.session_id`, `questionnaire.id`, … | a token with no whitespace, at most 128 characters | no |
 | `questionnaireVersion`, `elapsedSeconds`, `durationMs`, `questionCount`, `responseTimeMs` | `questionnaire.version`, … | a finite number | no |
 | `questionType`, `outcome`, `reason`, `method`, `signal` | `questionnaire.question_type`, … | a member of a closed list | yes |
 | `status` | `http.response.status_code` | an integer from 100 to 599 | yes |
 | `route` | `http.route` | a route template starting with `/` | yes |
 | `errorType`, `errorCode` | `error.type`, `error.code` | an identifier-shaped token | yes |
+| `invariant` | `error.invariant` | a lower-case dotted or dashed name | yes |
+| `constraint` | `db.constraint` | a Postgres constraint name | yes |
+| `problem`, `problemCode` | `problem.slug`, `problem.code` | a problem slug; a question rule, draft item, submission item or known schema code | yes |
+| `pool` | `db.pool` | `definition`, `execution` or `reporting` | yes |
 | `errorStack` | `error.stack` | stack frames only; set from the `Error` argument, not by callers | no |
 
 **Bounded** means safe as a metric label. Identifiers are not: each distinct value would be a new
@@ -115,6 +119,22 @@ await withSpan("session.submit", { sessionId }, async () => submit());
 - On a throw the span is marked `ERROR` with `error.type` only, no status message, and the error is
   rethrown.
 - Logs written inside the callback carry its `trace_id` and `span_id`.
+
+## Problem outcomes
+
+```ts
+for (const fields of problemTelemetry(body)) log.info("problem response", { ...request, ...fields });
+```
+
+`problemTelemetry(problem)` projects a problem body into registry fields: its slug, its status and, for
+a problem that carries `items` or `errors`, one entry per finding with its code and, for items, its
+item id. It never reads `title`, `detail`, `instance`, a pointer or any other member, and it caps a
+problem at 20 entries. A schema code outside the known list (`SCHEMA_CODES`) becomes `schema/other`, so
+the wire contract stays open and the code stays safe as a metric label
+([`docs/6-observability.md`](../../docs/6-observability.md) O8, L3).
+
+`activeTraceId()` returns the trace id of the active span, and `annotateActiveSpan(context, error?)`
+adds scrubbed fields, and the error's class name, to it.
 
 ## Domain events
 
@@ -185,9 +205,10 @@ preload:
 node --import ./dist/instrumentation.js dist/index.js
 ```
 
-`apps/backend/src/instrumentation.ts` reads `config.ts` (the only place `process.env` is read) and
-calls `startTelemetry`. `npm start`, `npm run dev` and the backend `Dockerfile` all use it. A process
-started without it has no sink, so it logs and exports nothing.
+`apps/backend/src/instrumentation.ts` calls `startBackendTelemetry` in `src/telemetry.ts`, which reads `config.ts` (the
+only place `process.env` is read) and calls `startTelemetry`. `npm start`, `npm run dev` and the backend `Dockerfile` all use it. A process
+started without it has no auto-instrumentation: `src/index.ts` finds no `runningTelemetry()`, starts telemetry itself so
+logs and manual spans still work, and logs a warning.
 
 ## Testing
 
@@ -221,12 +242,13 @@ It runs the real pipeline with in-memory exporters, so a test sees what an expor
 | `src/vocabulary.ts` | Constants shared by more than one module: the instrumentation scope, signal kinds, drop reasons and the attribute names the pipeline writes about itself |
 | `src/scrub.ts` | `scrubContext`, `scrubAttributes` |
 | `src/logger.ts` | `logger`, `LOG_LEVELS`, `LiteralMessage`, the sink and threshold |
-| `src/spans.ts` | `withSpan`, `SpanName` |
+| `src/spans.ts` | `withSpan`, `SpanName`, `activeTraceId`, `annotateActiveSpan` |
+| `src/problems.ts` | `problemTelemetry`, `PROBLEM_CODES`, `SCHEMA_CODES` |
 | `src/events.ts` | `DOMAIN_EVENTS` (each event's name, payload and counter), `DomainEvent`, `emitDomainEvent` |
 | `src/instruments.ts` | The counter and histogram primitives, the session-duration histogram and the drop counter |
 | `src/exporters.ts` | The scrubbing decorators for span and metric exporters |
 | `src/pipeline.ts` | Builds the SDK, the pino sink and the exporters |
-| `src/node.ts` | `startTelemetry` |
+| `src/node.ts` | `startTelemetry`, `runningTelemetry` |
 | `src/testing.ts` | `installTestTelemetry` |
 
 ## Scripts

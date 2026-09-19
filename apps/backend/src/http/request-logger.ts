@@ -1,9 +1,9 @@
 import { FIELDS, logger, type LogLevel, type TelemetryContext } from "@qp/telemetry";
-import type { FastifyBaseLogger } from "fastify";
+import type { FastifyBaseLogger, FastifyRequest } from "fastify";
 
 const http = logger("http");
 
-const KNOWN_MESSAGES = ["incoming request", "request completed", "unhandled request error"] as const;
+const KNOWN_MESSAGES = ["incoming request", "request completed"] as const;
 
 const FALLBACK_MESSAGE = "fastify log";
 
@@ -30,6 +30,14 @@ function contextOf(fields: Record<string, unknown>): TelemetryContext {
     responseTimeMs: typeof fields.responseTime === "number" ? fields.responseTime : undefined,
     errorType: accepted(FIELDS.errorType, fields.errorName),
     errorCode: accepted(FIELDS.errorCode, fields.errorCode),
+  };
+}
+
+export function requestContextOf(request: FastifyRequest): TelemetryContext {
+  return {
+    requestId: accepted(FIELDS.requestId, String(request.id)),
+    method: accepted(FIELDS.method, request.method),
+    route: accepted(FIELDS.route, request.routeOptions.url),
   };
 }
 

@@ -1,4 +1,5 @@
 import type { FastifyRequest } from "fastify";
+import { InvariantViolation } from "../../invariant.js";
 
 export const AUTHOR_PLACEHOLDER = "prototype-author";
 
@@ -11,7 +12,7 @@ export async function authenticateAuthor(request: FastifyRequest): Promise<void>
 export function authorOf(request: FastifyRequest): string {
   const author = authenticatedAuthors.get(request);
   if (author === undefined) {
-    throw new Error("authorOf read a request that did not pass through the definition module's author hook");
+    throw InvariantViolation.of("author.read-outside-author-hook");
   }
   return author;
 }

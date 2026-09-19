@@ -18,7 +18,7 @@ export {
 } from "./domain/question.js";
 export { Condition, OPERATORS_BY_TYPE, Predicate, conditionsOf, referencedOptionIds, type ConditionOf } from "./domain/condition.js";
 export { FORMAT_VERSION, Item, PublishedDefinition, VersionSummary } from "./domain/definition.js";
-export { readStoredDefinition } from "./domain/stored-definition.js";
+export { readStoredDefinition, UnsupportedSnapshotError } from "./domain/stored-definition.js";
 export { DraftItem, QuestionnaireDraft, QuestionnaireSummary, draftForValidation, draftItemOf } from "./domain/draft.js";
 export { ClientAnswerValue, ClientAnswers, ResponseRow, answerFor, type ClientAnswerValueOf } from "./domain/answer.js";
 export { Receipt, Session, SessionStatus } from "./domain/session.js";
@@ -36,6 +36,7 @@ export {
 export {
   DRAFT_ITEM_CODES,
   PROBLEM_CONTENT_TYPE,
+  PROBLEM_SLUGS,
   ProblemDetails,
   QUESTION_RULE_CODES,
   SUBMISSION_ITEM_CODES,

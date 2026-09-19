@@ -14,6 +14,7 @@ export const PROBLEMS = {
   "submission/invalid": { status: 422, title: "The submission failed validation" },
   "question/version-conflict": { status: 409, title: "The question was saved concurrently" },
   internal: { status: 500, title: "Internal error" },
+  "service/unavailable": { status: 503, title: "The service is not ready to accept requests" },
 } as const satisfies Record<string, { status: number; title: string }>;
 
 export type ProblemSlug = keyof typeof PROBLEMS;

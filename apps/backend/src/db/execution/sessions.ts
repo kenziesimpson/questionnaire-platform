@@ -1,6 +1,7 @@
 import type { PublishedDefinition, Receipt, Session } from "@qp/shared";
 import { eq } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
+import { InvariantViolation } from "../../invariant.js";
 import type { Executor } from "../client.js";
 import { questionnaire, session } from "../schema.js";
 import type { PublishedDefinitions } from "./published-definitions.js";
@@ -89,7 +90,7 @@ export async function startSession(
     })
     .returning(sessionColumns);
   if (started === undefined) {
-    throw new Error("session insert returned no row");
+    throw InvariantViolation.of("session.insert-returned-no-row", { questionnaireId, questionnaireVersion: target.currentVersion });
   }
   return { outcome: "found", session: started, definition };
 }

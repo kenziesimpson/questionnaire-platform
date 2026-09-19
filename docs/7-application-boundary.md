@@ -287,7 +287,8 @@ A standard beats a bespoke envelope here for one reason worth more than familiar
 | `session/already-submitted` | 409 | Submit with a different digest |
 | `submission/invalid` | 422 | Required, unreachable or constraint-violating answers |
 | `question/version-conflict` | 409 | Two saves of one question raced past the row lock |
-| `internal` | 500 | Unhandled; `detail` is a correlation id, never a stack |
+| `internal` | 500 | Unhandled; `detail` is the trace id (the request id when no span is active), never a message or stack |
+| `service/unavailable` | 503 | Readiness failed; `detail` names the failing database pools by role |
 
 Five cases the union is easy to read as not covering, resolved rather than left to a handler:
 

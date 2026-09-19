@@ -11,6 +11,7 @@ import { Value } from "typebox/value";
 import { recordAudit } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
 import { mustExist } from "../errors.js";
+import { InvariantViolation } from "../../invariant.js";
 import { questionnaireVersion } from "../schema.js";
 import { itemsWithQuestionContent, readDraftContents, type DraftInvalidItem } from "./draft-contents.js";
 import { withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
@@ -55,7 +56,7 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
         return { outcome: "invalid", items: validation.items };
       }
       if (!Value.Check(PublishedDefinition, definition)) {
-        throw new Error("serialized snapshot does not match the PublishedDefinition schema");
+        throw InvariantViolation.of("snapshot.fails-published-schema", { questionnaireId: command.questionnaireId, questionnaireVersion: version });
       }
 
       const promoted = await tx.execute<{ version: number }>(
@@ -63,7 +64,7 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
         sql`SELECT definition.promote_draft(${draft.id}::uuid, ${JSON.stringify(definition)}::jsonb) AS version`,
       );
       if (promoted.rows[0]?.version !== version) {
-        throw new Error("promote_draft assigned a different version than the snapshot names");
+        throw InvariantViolation.of("promote-draft.version-mismatch", { questionnaireId: command.questionnaireId, questionnaireVersion: version });
       }
 
       await recordAudit(tx, {
@@ -76,7 +77,10 @@ export async function publishDraft(executor: Executor, command: PublishDraftComm
         traceId: command.traceId,
       });
 
-      const summary = mustExist(await readVersionSummary(tx, command.questionnaireId, version), "the version just published");
+      const summary = mustExist(await readVersionSummary(tx, command.questionnaireId, version), "version.unreadable-after-publish", {
+        questionnaireId: command.questionnaireId,
+        questionnaireVersion: version,
+      });
       return { outcome: "published", summary };
     }),
   );

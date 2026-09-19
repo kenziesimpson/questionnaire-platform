@@ -104,7 +104,7 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
 - [x] `src/http/problems.ts`:
   - `sendProblem`
   - `requestValidatorCompiler`: path and query strings coerced to their schema types, headers and body exact, additional properties rejected rather than stripped
-  - `replyWithProblem`: schema failures → `400 request/invalid` with a `schema/<keyword>` code per error; any other `4xx` → `400`; everything else → `500 internal`, with the request id as `detail`
+  - `replyWithProblem`: schema failures → `400 request/invalid` with a `schema/<keyword>` code per error; any other `4xx` → `400`; everything else → `500 internal`, with the trace id as `detail` (the request id when no span is active, T0b)
   - `replyNotFound`
 
   `src/http/database-errors.ts` reads the SQLSTATE and constraint name through drizzle's wrapped `cause` chain

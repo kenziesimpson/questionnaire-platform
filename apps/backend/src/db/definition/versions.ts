@@ -3,6 +3,7 @@ import { desc, sql } from "drizzle-orm";
 import { Value } from "typebox/value";
 import type { Executor } from "../client.js";
 import { mustExist } from "../errors.js";
+import { InvariantViolation } from "../../invariant.js";
 import { questionnaireVersion } from "../schema.js";
 import { isPublishedVersionOf } from "./questionnaire-version-rows.js";
 import { questionnaireExists } from "./questionnaire-rows.js";
@@ -30,11 +31,17 @@ async function selectVersionSummaries(executor: Executor, questionnaireId: strin
 
   return rows.map((row) => ({
     questionnaireId: row.questionnaireId,
-    version: mustExist(row.version, "a published version's version"),
-    publishedAt: mustExist(row.publishedAt, "a published version's publishedAt").toISOString(),
+    version: mustExist(row.version, "published-version.missing-version", { questionnaireId: row.questionnaireId }),
+    publishedAt: mustExist(row.publishedAt, "published-version.missing-published-at", {
+      questionnaireId: row.questionnaireId,
+      questionnaireVersion: row.version,
+    }).toISOString(),
     publishedBy: PUBLISHER_IS_NOT_RECORDED,
     itemCount: Number(row.itemCount),
-    formatVersion: mustExist(row.formatVersion, "a published version's formatVersion"),
+    formatVersion: mustExist(row.formatVersion, "published-version.missing-format-version", {
+      questionnaireId: row.questionnaireId,
+      questionnaireVersion: row.version,
+    }),
   }));
 }
 
@@ -66,9 +73,10 @@ export async function readPublishedSnapshot(
   if (row === undefined) {
     return undefined;
   }
-  const definition = mustExist(row.snapshot, "a published version's snapshot");
+  const ids = { questionnaireId, questionnaireVersion: version };
+  const definition = mustExist(row.snapshot, "published-version.missing-snapshot", ids);
   if (!Value.Check(PublishedDefinition, definition)) {
-    throw new Error("a published snapshot does not match any known format");
+    throw InvariantViolation.of("published-snapshot.unknown-format", ids);
   }
-  return { formatVersion: mustExist(row.formatVersion, "a published version's formatVersion"), definition };
+  return { formatVersion: mustExist(row.formatVersion, "published-version.missing-format-version", ids), definition };
 }
