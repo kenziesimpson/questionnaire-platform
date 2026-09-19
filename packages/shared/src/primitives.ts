@@ -1,5 +1,6 @@
 import Type from "typebox";
 
+export const UUID_PATTERN = "^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$";
 export const Uuid = Type.String({ format: "uuid" });
 
 export const SLUG_PATTERN = "^[a-z][a-z0-9_]{0,63}$";

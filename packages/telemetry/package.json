@@ -9,7 +9,7 @@
     ".": "./dist/index.js",
     "./node": "./dist/node.js",
     "./testing": "./dist/testing.js",
-    "./canary": "./dist/canary.js"
+    "./leak-test": "./dist/leak-test.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

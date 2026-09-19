@@ -12,6 +12,10 @@ export interface ScrubResult {
 
 const NO_DROPS: DropCounts = { unknown: 0, invalid: 0, unbounded: 0 };
 
+export function oneDropped(reason: DropReason): DropCounts {
+  return { ...NO_DROPS, [reason]: 1 };
+}
+
 export function totalDropped(dropped: DropCounts): number {
   return dropped.unknown + dropped.invalid + dropped.unbounded;
 }

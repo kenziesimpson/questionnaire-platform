@@ -126,6 +126,30 @@ describe("L11: production code does not import @qp/ui/testing", () => {
   });
 });
 
+describe("L11: production code does not import @qp/telemetry/testing or @qp/telemetry/leak-test", () => {
+  it.each([
+    "apps/backend/src/app.ts",
+    "apps/backend/src/telemetry.ts",
+    "apps/admin/src/app.tsx",
+    "apps/respondent/src/api/request.ts",
+    "packages/ui/src/questionnaire/questionnaire-form.tsx",
+    "packages/shared/src/index.ts",
+    "packages/telemetry/src/index.ts",
+  ])("rejects both entry points in %s", async (filePath) => {
+    expect(await testSupportImports(filePath, `import { installTestTelemetry } from "@qp/telemetry/testing";`)).toHaveLength(1);
+    expect(await testSupportImports(filePath, `import { runLeakFlow } from "@qp/telemetry/leak-test";`)).toHaveLength(1);
+  });
+
+  it("allows tests, the package's own relative imports, and the production entry points", async () => {
+    expect(await testSupportImports(BACKEND_TEST, `import { runLeakFlow } from "@qp/telemetry/leak-test";`)).toEqual([]);
+    expect(await testSupportImports("apps/backend/_tests/leak-test/harness.ts", `import { installTestTelemetry } from "@qp/telemetry/testing";`)).toEqual([]);
+    expect(await testSupportImports(TELEMETRY_TEST, `import { runLeakFlow } from "../src/leak-test.js";`)).toEqual([]);
+    expect(await testSupportImports("packages/telemetry/src/leak-test.ts", `import { installTestTelemetry } from "./testing.js";`)).toEqual([]);
+    expect(await testSupportImports("apps/backend/src/telemetry.ts", `import { startTelemetry } from "@qp/telemetry/node";`)).toEqual([]);
+    expect(await testSupportImports("apps/admin/src/app.tsx", `import { logger } from "@qp/telemetry";`)).toEqual([]);
+  });
+});
+
 describe("L11 restates what each _tests block inherits, because flat config replaces rule options", () => {
   it("keeps admin's and the respondent's library split in their tests", async () => {
     const query = `import { useQuery } from "@tanstack/react-query";`;

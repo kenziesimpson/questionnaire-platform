@@ -99,13 +99,13 @@ export class Sensitive<T> {
 
 Anything that accidentally serializes one — `JSON.stringify` in a log call, template interpolation, `String()`, `console.log`, `util.inspect`, an error message, an OTel attribute — gets the redaction instead of the value. This inverts the problem: static analysis no longer has to recognise "any expression that might be an answer," it only has to find `.unwrap()` outside the persistence and validation layers, which is a small and enumerable surface.
 
-**Layer 0 also reaches the log message itself.** `log()`'s message parameter is typed so that only a string *literal* satisfies it: `string` and an interpolated template both widen to a type a literal cannot be distinguished from, so both are rejected by the same type-level check that makes an accidental `` `rejected ${reason}` `` a compile error rather than a review comment. Domain data has exactly one way in, the closed `context` object.
+**Layer 0 also reaches the log message itself.** `log()`'s message parameter is typed so that only a string *literal* satisfies it: `string` and an interpolated template both widen to a type a literal cannot be distinguished from, so both are rejected by the same type-level check that makes an accidental `` `rejected ${reason}` `` a compile error rather than a review comment. Domain data has exactly one way in, the closed `context` object. A message is the one telemetry string no runtime check can vet, since a legitimate message and an answer look alike, so a cast that defeats the type (`value as "message"`, `as never`) is also an ESLint error, from a syntactic rule that misses a hoisted cast, a type alias, a wrapper or an aliased logger; the same rule covers the logger's module name and a span name, both of which are additionally checked against closed lists at runtime.
 
 **Layer 1 — a single telemetry boundary.** One module (`packages/telemetry`) is the only place in the codebase permitted to import `pino` or `@opentelemetry/api`. It exposes functions taking a **typed context object with a closed field set** — no `...rest`, no `Record<string, unknown>`, no `any`. Enforced by an ESLint `no-restricted-imports` rule with a path exception for that module: roughly three lines of config, and very hard to violate by accident.
 
 Belt and braces at the exit: a `SpanExporter` decorator that copies each span with non-allowlisted attributes stripped before delegating to OTLP, and a pino formatter doing the same for log objects. This catches what the type system can't — a third-party instrumentation package deciding to attach a request or response body, for instance.
 
-**Layer 2 — a test that asserts the property.** The layer most often skipped and the most convincing one to show a reviewer. The test harness installs an in-memory span exporter and an in-memory pino destination, runs the full branching flow with a sentinel answer value (`CANARY_DIABETES_8F3A`), and asserts that string appears in **zero** spans, **zero** log records and **zero** metric attributes.
+**Layer 2 — a test that asserts the property.** The layer most often skipped and the most convincing one to show a reviewer. The test harness installs an in-memory span exporter and an in-memory pino destination, runs the full branching flow with a sentinel answer value (`LEAK_DIABETES_8F3A`), and asserts that string appears in **zero** spans, **zero** log records and **zero** metric attributes.
 
 One test, and it covers every code path the integration suite already exercises — including paths added later, which is the property grep-based checks lack.
 
@@ -121,7 +121,7 @@ One test, and it covers every code path the integration suite already exercises 
 | --- | --- |
 | 0 — `Sensitive<T>` wrapper | Yes |
 | 1 — telemetry boundary module + lint rule + exporter scrub | Yes |
-| 2 — canary sentinel test | Yes — see [[2-design-doc#15. Testing]] |
+| 2 — sentinel leak test | Yes — see [[2-design-doc#15. Testing]] |
 | 3 — pre-commit + CI | Yes (cheap) |
 | 4 — agent PR review | Documented; implement if time allows |
 | 5 — `telemetry-safety` skill | Yes (cheap, and it protects the rest of the build) |
@@ -239,7 +239,7 @@ The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the ob
 **Noted as production practice; out of scope for the prototype.**
 
 - Deploy and migration markers annotated onto dashboards — most incidents are change-caused, and "what changed at 14:02" is the first question in every one of them.
-- A synthetic canary completing the medical-condition demo questionnaire end to end every few minutes: the only signal that proves the *workflow* works rather than that the processes are up. Cheap to build here because the demo questionnaire already exists, which is why it's worth mentioning even while deferring it.
+- A synthetic leak test completing the medical-condition demo questionnaire end to end every few minutes: the only signal that proves the *workflow* works rather than that the processes are up. Cheap to build here because the demo questionnaire already exists, which is why it's worth mentioning even while deferring it.
 
 ## 13. Decisions and open questions
 
@@ -248,7 +248,7 @@ The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the ob
 | # | Decision |
 | --- | --- |
 | O1 | OpenTelemetry as the single instrumentation standard; Collector as the vendor seam; `@fastify/otel` on the backend |
-| O2 | Respondent answer values never enter telemetry, enforced by the ladder in §3 — `Sensitive<T>` type, single telemetry boundary + lint rule, exporter scrub, canary sentinel test, CI gate, advisory agent review, `telemetry-safety` skill |
+| O2 | Respondent answer values never enter telemetry, enforced by the ladder in §3 — `Sensitive<T>` type, single telemetry boundary + lint rule, exporter scrub, sentinel leak test, CI gate, advisory agent review, `telemetry-safety` skill |
 | O3 | Domain events (§4) as a first-class stream, emitted as paired log + counter |
 | O4 | Audit trail lives in the database, append-only, in an `audit` schema owned by a `NOLOGIN` role and reachable only through a `SECURITY DEFINER` function, so immutability is enforced by Postgres and the write shares the publish transaction; separate database + outbox, and eventually a standalone audit service, are the documented future extraction |
 | O5 | Client-side traces and logs, batched to a backend `/telemetry` endpoint, flushed with `sendBeacon` |
@@ -266,7 +266,7 @@ The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the ob
 | O17 | Unknown telemetry fields are dropped, not rejected. The `/telemetry` endpoint keeps each event, strips any field outside the registry (O8) and counts it in `telemetry.ingest.dropped{reason}`; the Collector's redaction processor does the same. Fields change expand-then-contract: a new field is allowed in the Collector before any build sends it, and removed from the Collector only after no deployed build sends it. A browser tab left open across a deploy then loses one field rather than all its telemetry. Amends §6's "validates against the same closed schema": the closed schema decides what is kept, not whether the batch is. 2026-09-18 |
 | O18 | The admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18), landed in #115) is the one surface that returns raw answers, so O14 applies to it precisely. `GET /api/reporting/questionnaires/:id/responses/:sessionId` (`getSessionDetail`) writes the `view_response` audit row. `GET /api/reporting/questionnaires/:id/responses` (`listSessions`) returns `SessionSummary` rows, which carry only counts, status and timestamps, and writes none; it is a metric and a log line like any other route. `qp_reporting` already exists with `SELECT` only (migrations `0016`, `0017`), so O14's change is a new migration after them that adds the `view_response` action and the `EXECUTE` grant on `audit.record`. The module's "cannot write" property in [[9-database-schema]] becomes "cannot write except through `audit.record`". 2026-09-18 |
 | O19 | The list endpoint's pagination `cursor` is `base64url(direction\|startedAt\|sessionId)`, so it carries a session id in the query string and O13 covers it: spans keep `http.route` only, and nginx's access log masks the `cursor` parameter as well as ids in paths. Telemetry from the admin browser names a screen by its route template (`/questionnaires/$questionnaireId/responses/$sessionId`), never by the URL, and the admin's `/telemetry` events carry no answer text, cursor or query string. The response-detail screen renders answers, so the admin error boundary and any React Query devtools or cache dump stay out of telemetry: a component error reports its type and stack frames only (O8). 2026-09-18 |
-| O20 | The sentinel canary (M7) plants its value in a real stored response and reads it back through `getSessionDetail` and `listSessions`, then asserts it is absent from every exporter, the pino output and the `/telemetry` ingest, in addition to the submit path. The admin's response-detail screen gets a component test that renders a planted answer and asserts nothing reaches the telemetry wrapper. `listSessions` is added to the `pg_stat_statements` and slow-query review: it is the one paged read over `execution.session`, backed by `session_by_questionnaire`, and a regression there shows first as latency on that route. No new alert; the O10 six stand. 2026-09-18 |
+| O20 | The sentinel leak test (M7) plants its value in a real stored response and reads it back through `getSessionDetail` and `listSessions`, then asserts it is absent from every exporter, the pino output and the `/telemetry` ingest, in addition to the submit path. The admin's response-detail screen gets a component test that renders a planted answer and asserts nothing reaches the telemetry wrapper. `listSessions` is added to the `pg_stat_statements` and slow-query review: it is the one paged read over `execution.session`, backed by `session_by_questionnaire`, and a regression there shows first as latency on that route. No new alert; the O10 six stand. 2026-09-18 |
 
 ### Considered and left out
 

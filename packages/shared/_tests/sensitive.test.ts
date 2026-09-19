@@ -2,10 +2,10 @@ import { format, inspect } from "node:util";
 import { describe, expect, it } from "vitest";
 import { Sensitive, sensitive } from "../src/sensitive.js";
 
-const CANARY = "CANARY_DIABETES_8F3A";
+const LEAK = "LEAK_DIABETES_8F3A";
 
 describe("Sensitive<T>", () => {
-  const answer = sensitive(CANARY);
+  const answer = sensitive(LEAK);
 
   it.each<[string, () => string]>([
     ["JSON.stringify, nested", () => JSON.stringify({ itemId: "itm_02", answer })],
@@ -19,11 +19,11 @@ describe("Sensitive<T>", () => {
     ["Object.entries", () => JSON.stringify(Object.entries(answer))],
   ])("redacts under %s", (_, render) => {
     const out = render();
-    expect(out).not.toContain(CANARY);
+    expect(out).not.toContain(LEAK);
   });
 
   it("unwrap() is the only way out", () => {
-    expect(answer.unwrap()).toBe(CANARY);
+    expect(answer.unwrap()).toBe(LEAK);
     expect(sensitive({ optionIds: ["opt_diabetes"] }).unwrap()).toEqual({ optionIds: ["opt_diabetes"] });
     expect(answer).toBeInstanceOf(Sensitive);
   });

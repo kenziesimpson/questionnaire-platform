@@ -9,3 +9,6 @@ export type DropReason = (typeof DROP_REASONS)[number];
 export const SCRUB_ATTRIBUTES = { signal: "telemetry.signal", reason: "telemetry.reason" } as const;
 
 export const LOG_ATTRIBUTES = { traceId: "trace_id", spanId: "span_id", module: "module" } as const;
+
+export const LOG_MODULES = ["backend", "definition", "events", "execution", "http"] as const;
+export type LogModule = (typeof LOG_MODULES)[number];

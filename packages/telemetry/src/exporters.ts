@@ -2,8 +2,68 @@ import type { ExportResult } from "@opentelemetry/core";
 import { DataPointType, type DataPoint, type MetricData, type PushMetricExporter, type ResourceMetrics } from "@opentelemetry/sdk-metrics";
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace";
 import { reportDropped } from "./instruments.js";
-import { scrubAttributes, type ScrubbedAttributes } from "./scrub.js";
+import { oneDropped, scrubAttributes, type ScrubbedAttributes } from "./scrub.js";
+import { isSpanName } from "./spans.js";
 import type { SignalKind } from "./vocabulary.js";
+
+const UNNAMED_SPAN = "unnamed";
+
+const FASTIFY_SPAN_PREFIXES = [
+  "onRequest",
+  "preParsing",
+  "preValidation",
+  "preHandler",
+  "preSerialization",
+  "onSend",
+  "onResponse",
+  "onError",
+  "handler",
+  "notFoundHandler",
+  "notFoundHandler - preValidation",
+  "notFoundHandler - preHandler",
+];
+
+const FASTIFY_PLUGIN_NAME_FALLBACK = "fastify -> @fastify/otel";
+
+const PG_COMMANDS = [
+  "SELECT",
+  "INSERT",
+  "UPDATE",
+  "DELETE",
+  "WITH",
+  "BEGIN",
+  "COMMIT",
+  "ROLLBACK",
+  "SAVEPOINT",
+  "RELEASE",
+  "SET",
+  "SHOW",
+  "CALL",
+  "EXPLAIN",
+  "TRUNCATE",
+  "LOCK",
+  "COPY",
+  "VALUES",
+  "DO",
+];
+
+const EXPORTED_AS_WRITTEN: readonly RegExp[] = [
+  /^request$/,
+  new RegExp(`^(?:${FASTIFY_SPAN_PREFIXES.join("|")}) - (?:[a-z][A-Za-z0-9]{0,63}|${FASTIFY_PLUGIN_NAME_FALLBACK})$`),
+  new RegExp(`^pg\\.query(?::(?:${PG_COMMANDS.join("|")}))?$`),
+  /^pg\.connect$/,
+  /^pg-pool\.connect$/,
+];
+
+const PG_QUERY_WITH_DATABASE = new RegExp(`^pg\\.query:(${PG_COMMANDS.join("|")}) \\S{1,63}$`);
+
+function exportedNameOf(name: string): string {
+  if (isSpanName(name) || EXPORTED_AS_WRITTEN.some((shape) => shape.test(name))) return name;
+  const command = PG_QUERY_WITH_DATABASE.exec(name)?.[1];
+  if (command !== undefined) return `pg.query:${command}`;
+  reportDropped("span", oneDropped("unknown"));
+  return UNNAMED_SPAN;
+}
 
 function cleaned(attributes: unknown, kind: SignalKind): ScrubbedAttributes {
   const result = scrubAttributes(attributes, kind);
@@ -13,7 +73,7 @@ function cleaned(attributes: unknown, kind: SignalKind): ScrubbedAttributes {
 
 function scrubbedSpan(span: ReadableSpan): ReadableSpan {
   return {
-    name: span.name,
+    name: exportedNameOf(span.name),
     kind: span.kind,
     spanContext: () => span.spanContext(),
     parentSpanContext: span.parentSpanContext,

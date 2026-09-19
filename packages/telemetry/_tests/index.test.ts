@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { emitDomainEvent, logger, withSpan } from "../src/index.js";
+import { SESSION_ID, QUESTION_ID } from "./fixtures.js";
 
 const log = logger("definition");
 
 describe("telemetry boundary signature", () => {
   it("accepts literal messages with closed context", async () => {
-    log.info("session submitted", { sessionId: "s", questionnaireVersion: 2, outcome: "accepted" });
+    log.info("session submitted", { sessionId: SESSION_ID, questionnaireVersion: 2, outcome: "accepted" });
     log.error("submit failed", { status: 500, route: "/sessions/:sessionId/submit", errorType: "Error" }, new Error("x"));
-    emitDomainEvent({ name: "session.answer_rejected", sessionId: "s", itemId: "itm_03", questionId: "q", reason: "date/in-future" });
-    await expect(withSpan("session.submit", { sessionId: "s" }, async () => 42)).resolves.toBe(42);
+    emitDomainEvent({ name: "session.answer_rejected", sessionId: SESSION_ID, itemId: "itm_03", questionId: QUESTION_ID, reason: "date/in-future" });
+    await expect(withSpan("session.submit", { sessionId: SESSION_ID }, async () => 42)).resolves.toBe(42);
   });
 
   it("offers debug, info, warn and error and no fatal", () => {
@@ -16,15 +17,17 @@ describe("telemetry boundary signature", () => {
   });
 
   it("refuses the shapes an answer value could ride in on", () => {
-    const answer = "CANARY_DIABETES_8F3A" as string;
+    const answer = "LEAK_DIABETES_8F3A" as string;
     // @ts-expect-error — an interpolated message is a pattern type, not a literal
     log.warn(`rejected ${answer}`);
     // @ts-expect-error — nor is a message held in a `string` variable
     log.warn(answer);
     // @ts-expect-error — nor is a module name held in a `string` variable
     logger(answer);
+    // @ts-expect-error — a module name is one of a closed list, not any literal
+    logger("diabetes");
     // @ts-expect-error — context is a closed field set
-    log.info("answer received", { sessionId: "s", value: answer });
+    log.info("answer received", { sessionId: SESSION_ID, value: answer });
     // @ts-expect-error — a field's value has the field's type: a status is a number
     log.info("answered", { status: answer });
     // @ts-expect-error — a closed enum takes its members, not any string
@@ -32,7 +35,7 @@ describe("telemetry boundary signature", () => {
     // @ts-expect-error — a log call has no fatal level
     expect(() => log.fatal("boom")).toThrow(TypeError);
     // @ts-expect-error — domain events carry codes, never values
-    emitDomainEvent({ name: "session.answer_rejected", sessionId: "s", itemId: "i", questionId: "q", reason: answer });
+    emitDomainEvent({ name: "session.answer_rejected", sessionId: SESSION_ID, itemId: "i", questionId: QUESTION_ID, reason: answer });
     // @ts-expect-error — span names are closed
     void withSpan("custom.span", {}, async () => undefined);
     expect(true).toBe(true);

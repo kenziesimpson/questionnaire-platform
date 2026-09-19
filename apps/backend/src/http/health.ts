@@ -58,7 +58,7 @@ export function registerHealthRoutes(app: FastifyInstance, probes: ReadinessProb
   const failingPools = failingPoolsOf(singleFlight(probes));
   app.get(HEALTH_PATH, alive);
   app.get(LIVE_PATH, alive);
-  app.get(READY_PATH, async (_request, reply) => {
+  app.get(READY_PATH, async function ready(_request, reply) {
     reply.header("cache-control", "no-store");
     const failing = await failingPools();
     if (failing.length > 0) {

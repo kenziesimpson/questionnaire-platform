@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { scrubContext } from "@qp/telemetry";
 import { describe, expect, it } from "vitest";
 import { InvariantViolation } from "../src/invariant.js";
+import { SESSION_ID } from "./http/fixtures.js";
 
 const SOURCE_DIRECTORY = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -67,12 +68,12 @@ describe("every invariant name in src", () => {
 
 describe("InvariantViolation", () => {
   it("carries its literal name and the ids it was given, and is an Error named for its class", () => {
-    const violation = InvariantViolation.of("session.not-marked-submitted", { sessionId: "s-1", questionnaireVersion: 2 });
+    const violation = InvariantViolation.of("session.not-marked-submitted", { sessionId: SESSION_ID, questionnaireVersion: 2 });
 
     expect(violation).toBeInstanceOf(Error);
     expect(violation.name).toBe("InvariantViolation");
     expect(violation.invariant).toBe("session.not-marked-submitted");
-    expect(violation.ids).toEqual({ sessionId: "s-1", questionnaireVersion: 2 });
+    expect(violation.ids).toEqual({ sessionId: SESSION_ID, questionnaireVersion: 2 });
     expect(violation.message).toBe("session.not-marked-submitted");
   });
 
@@ -81,7 +82,7 @@ describe("InvariantViolation", () => {
   });
 
   it("refuses a name built at runtime and a field that is not an id", () => {
-    const value = "CANARY_DIABETES_8F3A" as string;
+    const value = "LEAK_DIABETES_8F3A" as string;
     // @ts-expect-error — an interpolated name is a pattern type, not a literal
     InvariantViolation.of(`row ${value} is missing`);
     // @ts-expect-error — nor is a name held in a `string` variable

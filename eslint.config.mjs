@@ -441,6 +441,14 @@ const testSupportMessage =
 
 const theTestSupportPackage = { group: ["@qp/ui/testing", "@qp/ui/testing/*"], message: testSupportMessage };
 
+const telemetryTestSupportMessage =
+  "@qp/telemetry/testing and @qp/telemetry/leak-test are test support: they install in-memory exporters and plant a sentinel answer to prove none escapes. They are shared by every workspace's tests, so they live in the package, but production code never imports them; tests do, from _tests/.";
+
+const theTelemetryTestSupport = {
+  group: ["@qp/telemetry/testing", "@qp/telemetry/testing/*", "@qp/telemetry/leak-test", "@qp/telemetry/leak-test/*"],
+  message: telemetryTestSupportMessage,
+};
+
 const theTestSupportDirectory = { regex: "^(\\.{1,2}/+)+([^/]+/+)*testing(/|$)", message: testSupportMessage };
 
 const uiEntryPoints = ["questionnaire", "testing", "icons"];
@@ -493,6 +501,70 @@ const noProseComments = {
     },
   },
 };
+
+const castIntoTelemetryTextMessage =
+  "A cast into a log message, logger module name or span name defeats the literal-only type that keeps an answer out of telemetry ([[6-observability#3.1 Enforcement ladder]]). Use a literal, or put the value in a registered field. If a test must plant a value there, disable this line with a reason: // eslint-disable-next-line local/no-cast-into-telemetry-text -- <reason>";
+
+const castTypeKinds = new Set(["TSLiteralType", "TSUnionType", "TSNeverKeyword", "TSAnyKeyword"]);
+
+const castTypeNames = new Set(["SpanName", "LogModule", "LiteralMessage"]);
+
+const logLevels = new Set(["debug", "info", "warn", "error"]);
+
+const telemetryHomes = /^(@qp\/telemetry|\.{1,2}\/(.*\/)?(logger|spans|index)\.js)$/;
+
+function isCastIntoText(node) {
+  if (node === undefined || (node.type !== "TSAsExpression" && node.type !== "TSTypeAssertion")) return false;
+  const type = node.typeAnnotation;
+  return castTypeKinds.has(type.type) || (type.type === "TSTypeReference" && type.typeName.type === "Identifier" && castTypeNames.has(type.typeName.name));
+}
+
+const noCastIntoTelemetryText = {
+  rules: {
+    "no-cast-into-telemetry-text": {
+      meta: { type: "problem", docs: { description: castIntoTelemetryTextMessage } },
+      create(context) {
+        const loggerFactories = new Set();
+        const spanStarters = new Set();
+        const loggers = new Set();
+        const report = (node) => context.report({ node, message: castIntoTelemetryTextMessage });
+        return {
+          ImportDeclaration(node) {
+            if (!telemetryHomes.test(String(node.source.value))) return;
+            for (const specifier of node.specifiers) {
+              if (specifier.type !== "ImportSpecifier" || specifier.imported.type !== "Identifier") continue;
+              if (specifier.imported.name === "logger") loggerFactories.add(specifier.local.name);
+              if (specifier.imported.name === "withSpan") spanStarters.add(specifier.local.name);
+            }
+          },
+          VariableDeclarator(node) {
+            const { id, init } = node;
+            if (id.type === "Identifier" && init?.type === "CallExpression" && init.callee.type === "Identifier" && loggerFactories.has(init.callee.name)) {
+              loggers.add(id.name);
+            }
+          },
+          CallExpression(node) {
+            const { callee } = node;
+            const first = node.arguments[0];
+            const namesAFactoryOrSpan = callee.type === "Identifier" && (loggerFactories.has(callee.name) || spanStarters.has(callee.name));
+            const isLoggerValue = (object) =>
+              (object.type === "Identifier" && loggers.has(object.name)) ||
+              (object.type === "CallExpression" && object.callee.type === "Identifier" && loggerFactories.has(object.callee.name));
+            const isLogCall =
+              callee.type === "MemberExpression" &&
+              !callee.computed &&
+              isLoggerValue(callee.object) &&
+              callee.property.type === "Identifier" &&
+              logLevels.has(callee.property.name);
+            if ((namesAFactoryOrSpan || isLogCall) && isCastIntoText(first)) report(first);
+          },
+        };
+      },
+    },
+  },
+};
+
+const localRules = { rules: { ...noProseComments.rules, ...noCastIntoTelemetryText.rules } };
 
 export default tseslint.config(
   {
@@ -862,24 +934,32 @@ export default tseslint.config(
     rules: { "no-restricted-imports": ["error", { patterns: [...testSupportLibrariesAway, anotherDirectorysHarness] }] },
   },
   {
-    name: "L11: @qp/ui/testing stays out of production code",
+    name: "L11: @qp/ui/testing, @qp/telemetry/testing and @qp/telemetry/leak-test stay out of production code",
     files: everySourceFile,
     ignores: ["packages/ui/src/testing/**"],
     plugins: { "@typescript-eslint": tseslint.plugin },
-    rules: { "@typescript-eslint/no-restricted-imports": ["error", { patterns: [theTestSupportPackage] }] },
+    rules: { "@typescript-eslint/no-restricted-imports": ["error", { patterns: [theTestSupportPackage, theTelemetryTestSupport] }] },
   },
   {
     name: "L11: packages/ui/src reaches its testing directory by neither name",
     files: ["packages/ui/src/**"],
     ignores: ["packages/ui/src/testing/**"],
-    rules: { "@typescript-eslint/no-restricted-imports": ["error", { patterns: [theTestSupportPackage, theTestSupportDirectory] }] },
+    rules: {
+      "@typescript-eslint/no-restricted-imports": ["error", { patterns: [theTestSupportPackage, theTelemetryTestSupport, theTestSupportDirectory] }],
+    },
   },
   {
     name: "L5: no prose comments",
     files: everyFile,
     ignores: theToolConfigFiles,
-    plugins: { local: noProseComments },
+    plugins: { local: localRules },
     rules: { "local/no-prose-comments": "error" },
+  },
+  {
+    name: "telemetry text: no cast into a log message, logger module or span name",
+    files: everyFile,
+    plugins: { local: localRules },
+    rules: { "local/no-cast-into-telemetry-text": "error" },
   },
   {
     name: "L13: backend sources require the compiled .js extension",

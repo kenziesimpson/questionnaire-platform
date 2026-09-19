@@ -2,7 +2,7 @@ import { trace } from "@opentelemetry/api";
 import { stackFramesOf, type TelemetryContext } from "./fields.js";
 import { reportDropped } from "./instruments.js";
 import { scrubAttributes, scrubContext, type ScrubbedAttributes } from "./scrub.js";
-import { LOG_ATTRIBUTES } from "./vocabulary.js";
+import { LOG_ATTRIBUTES, type LogModule } from "./vocabulary.js";
 
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 
@@ -64,7 +64,7 @@ function emit(level: LogLevel, module: string, message: string, context: unknown
   sink({ level, message, attributes: record.attributes });
 }
 
-export function logger<N extends string>(module: LiteralMessage<N>): Logger {
+export function logger(module: LogModule): Logger {
   const method =
     (level: LogLevel): LogMethod =>
     (message, context, error) => {
