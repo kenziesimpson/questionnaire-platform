@@ -11,6 +11,8 @@ export const SPAN_NAMES = [
   "questionnaire.open_draft",
   "questionnaire.publish",
   "questionnaire.retire",
+  "reporting.list_sessions",
+  "reporting.session_detail",
   "rule.evaluate",
   "session.submit",
   "telemetry.ingest",
