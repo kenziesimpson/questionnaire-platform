@@ -23,7 +23,7 @@
       "entry": ["src/index.ts", "src/demo/intake.ts"]
     },
     "packages/telemetry": {
-      "entry": ["src/index.ts", "src/node.ts", "src/testing.ts", "src/leak-test.ts"]
+      "entry": ["src/index.ts", "src/browser.ts", "src/node.ts", "src/testing.ts", "src/leak-test.ts"]
     }
   }
 }
