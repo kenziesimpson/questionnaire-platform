@@ -1,5 +1,5 @@
 import { definitionOfAttribute, FIELDS, isFieldName } from "./fields.js";
-import type { DropReason, SignalKind } from "./vocabulary.js";
+import { DROP_REASONS, type DropReason, type SignalKind } from "./vocabulary.js";
 
 export type ScrubbedAttributes = Readonly<Record<string, string | number | boolean>>;
 
@@ -10,14 +10,14 @@ export interface ScrubResult {
   readonly dropped: DropCounts;
 }
 
-const NO_DROPS: DropCounts = { unknown: 0, invalid: 0, unbounded: 0 };
+const NO_DROPS: DropCounts = { unknown: 0, invalid: 0, unbounded: 0, internal: 0 };
 
 export function oneDropped(reason: DropReason): DropCounts {
   return { ...NO_DROPS, [reason]: 1 };
 }
 
 export function totalDropped(dropped: DropCounts): number {
-  return dropped.unknown + dropped.invalid + dropped.unbounded;
+  return DROP_REASONS.reduce((total, reason) => total + dropped[reason], 0);
 }
 
 function isScalar(value: unknown): value is string | number | boolean {
@@ -28,7 +28,11 @@ function entriesOf(input: unknown): [string, unknown][] {
   return typeof input === "object" && input !== null ? Object.entries(input) : [];
 }
 
-export function scrubContext(context: unknown): ScrubResult {
+function failedScrub(): ScrubResult {
+  return { attributes: {}, dropped: oneDropped("internal") };
+}
+
+function scrubbedContext(context: unknown): ScrubResult {
   const attributes: Record<string, string | number | boolean> = {};
   const dropped = { ...NO_DROPS };
   for (const [key, value] of entriesOf(context)) {
@@ -47,7 +51,7 @@ export function scrubContext(context: unknown): ScrubResult {
   return { attributes, dropped };
 }
 
-export function scrubAttributes(input: unknown, kind: SignalKind): ScrubResult {
+function scrubbedAttributes(input: unknown, kind: SignalKind): ScrubResult {
   const attributes: Record<string, string | number | boolean> = {};
   const dropped = { ...NO_DROPS };
   for (const [key, value] of entriesOf(input)) {
@@ -64,4 +68,20 @@ export function scrubAttributes(input: unknown, kind: SignalKind): ScrubResult {
     }
   }
   return { attributes, dropped };
+}
+
+export function scrubContext(context: unknown): ScrubResult {
+  try {
+    return scrubbedContext(context);
+  } catch {
+    return failedScrub();
+  }
+}
+
+export function scrubAttributes(input: unknown, kind: SignalKind): ScrubResult {
+  try {
+    return scrubbedAttributes(input, kind);
+  } catch {
+    return failedScrub();
+  }
 }

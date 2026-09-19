@@ -48,7 +48,7 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
   const flushIntervalMs = positiveIntegerOr(options.flushIntervalMs, DEFAULT_FLUSH_INTERVAL_MS);
   const pending: QueuedEvent[] = [];
   const droppedEvents: Record<EventDropReason, number> = { overflow: 0, undelivered: 0, internal: 0, level: 0 };
-  const droppedFields: Record<DropReason, number> = { unknown: 0, invalid: 0, unbounded: 0 };
+  const droppedFields: Record<DropReason, number> = { unknown: 0, invalid: 0, unbounded: 0, internal: 0 };
   let sent = 0;
   let inFlight = false;
   let closed = false;

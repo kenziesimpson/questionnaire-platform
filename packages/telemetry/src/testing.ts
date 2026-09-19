@@ -1,13 +1,16 @@
 import { Writable } from "node:stream";
 import { AggregationTemporality, InMemoryMetricExporter, type MetricData } from "@opentelemetry/sdk-metrics";
 import { InMemorySpanExporter, type ReadableSpan } from "@opentelemetry/sdk-trace";
+import { DROPPED_COUNTER } from "./instruments.js";
 import type { LogLevel } from "./logger.js";
 import { startPipeline } from "./pipeline.js";
+import { SCRUB_ATTRIBUTES } from "./vocabulary.js";
 
 export interface TestTelemetry {
   spans(): readonly ReadableSpan[];
   logs(): readonly Record<string, unknown>[];
   metrics(): Promise<readonly MetricData[]>;
+  internalDrops(): Promise<number>;
   reset(): void;
   shutdown(): Promise<void>;
 }
@@ -15,6 +18,17 @@ export interface TestTelemetry {
 export interface TestTelemetryOptions {
   readonly logLevel?: LogLevel;
   readonly autoInstrumentation?: boolean;
+}
+
+export function internalDropCount(flushed: readonly MetricData[]): number {
+  let total = 0;
+  for (const metric of flushed) {
+    if (metric.descriptor.name !== DROPPED_COUNTER) continue;
+    for (const point of metric.dataPoints) {
+      if (point.attributes[SCRUB_ATTRIBUTES.reason] === "internal" && typeof point.value === "number") total += point.value;
+    }
+  }
+  return total;
 }
 
 function parsedLines(text: string): Record<string, unknown>[] {
@@ -47,14 +61,17 @@ export function installTestTelemetry(options: TestTelemetryOptions = {}): TestTe
     loaderHook: false,
   });
 
+  const flushedMetrics = async (): Promise<readonly MetricData[]> => {
+    await handle.flush();
+    const latest = metricExporter.getMetrics().at(-1);
+    return latest?.scopeMetrics.flatMap((scope) => scope.metrics) ?? [];
+  };
+
   return {
     spans: () => spanExporter.getFinishedSpans(),
     logs: () => parsedLines(written),
-    metrics: async () => {
-      await handle.flush();
-      const latest = metricExporter.getMetrics().at(-1);
-      return latest?.scopeMetrics.flatMap((scope) => scope.metrics) ?? [];
-    },
+    metrics: flushedMetrics,
+    internalDrops: async () => internalDropCount(await flushedMetrics()),
     reset: () => {
       spanExporter.reset();
       metricExporter.reset();

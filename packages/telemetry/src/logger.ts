@@ -1,5 +1,6 @@
 import { trace } from "@opentelemetry/api";
 import { stackFramesOf, type TelemetryContext } from "./fields.js";
+import { guarded } from "./guard.js";
 import { reportDropped } from "./instruments.js";
 import { scrubAttributes, scrubContext, type ScrubbedAttributes } from "./scrub.js";
 import { LOG_ATTRIBUTES, type LogModule } from "./vocabulary.js";
@@ -68,7 +69,9 @@ export function logger(module: LogModule): Logger {
   const method =
     (level: LogLevel): LogMethod =>
     (message, context, error) => {
-      emit(level, module, message, context, error);
+      guarded("log", () => {
+        emit(level, module, message, context, error);
+      });
     };
   return { debug: method("debug"), info: method("info"), warn: method("warn"), error: method("error") };
 }

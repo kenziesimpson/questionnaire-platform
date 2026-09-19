@@ -14,7 +14,7 @@ describe("scrubContext: only registered fields survive", () => {
       "questionnaire.question_type": "date",
       "questionnaire.outcome": "accepted",
     });
-    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0 });
+    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0, internal: 0 });
   });
 
   it("drops an unknown field and counts it", () => {
@@ -44,7 +44,7 @@ describe("scrubContext: only registered fields survive", () => {
   it("skips null and undefined without counting them", () => {
     const result = scrubContext({ lastItemId: null, sessionId: undefined });
     expect(result.attributes).toEqual({});
-    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0 });
+    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0, internal: 0 });
   });
 
   it("accepts nothing from a non-object", () => {
@@ -78,7 +78,7 @@ describe("scrubAttributes: the exporter allowlist", () => {
       "questionnaire.session_id",
       "trace_id",
     ]);
-    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0 });
+    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0, internal: 0 });
   });
 
   it("drops attributes a third-party instrumentation attaches and counts them", () => {
@@ -121,7 +121,7 @@ describe("scrubAttributes: the exporter allowlist", () => {
       "metric",
     );
     expect(result.attributes).toEqual({ "questionnaire.question_type": "text", "questionnaire.reason": "answer/required" });
-    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 2 });
+    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 2, internal: 0 });
   });
 
   it("never serializes a value it did not keep", () => {
@@ -180,7 +180,7 @@ describe("scrubContext: every token-shaped field rejects what an answer looks li
     const result = scrubContext({ [field]: value });
 
     expect(Object.values(result.attributes)).toEqual([value]);
-    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0 });
+    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0, internal: 0 });
   });
 
   it.each(SHAPES.flatMap(({ field, rejects }) => rejects.map((value) => [field, value] as const)))("%s drops %j", (field, value) => {
@@ -214,5 +214,69 @@ describe("scrubAttributes: exception.type is a class name or an error code, whic
 
     expect(result.attributes).toEqual({});
     expect(result.dropped.invalid).toBe(1);
+  });
+});
+
+describe("the scrub never throws and never emits a partly scrubbed result", () => {
+  const INTERNAL_DROP = { unknown: 0, invalid: 0, unbounded: 0, internal: 1 };
+
+  function hostileInputs(): [string, unknown][] {
+    return [
+      [
+        "a throwing getter after a valid field",
+        {
+          sessionId: SESSION_ID,
+          get itemId(): string {
+            throw new Error(`hostile ${LEAK}`);
+          },
+        },
+      ],
+      [
+        "a proxy whose ownKeys trap throws",
+        new Proxy(
+          {},
+          {
+            ownKeys: () => {
+              throw new Error("hostile");
+            },
+          },
+        ),
+      ],
+      [
+        "a proxy whose getOwnPropertyDescriptor trap throws",
+        new Proxy(
+          { sessionId: SESSION_ID },
+          {
+            getOwnPropertyDescriptor: () => {
+              throw new Error("hostile");
+            },
+          },
+        ),
+      ],
+    ];
+  }
+
+  it.each(hostileInputs())("scrubContext returns an empty result and one internal drop for %s", (_name, input) => {
+    expect(() => scrubContext(input)).not.toThrow();
+    expect(scrubContext(input)).toEqual({ attributes: {}, dropped: INTERNAL_DROP });
+  });
+
+  it.each(hostileInputs())("scrubAttributes returns an empty result and one internal drop for %s", (_name, input) => {
+    expect(() => scrubAttributes(input, "log")).not.toThrow();
+    expect(scrubAttributes(input, "log")).toEqual({ attributes: {}, dropped: INTERNAL_DROP });
+  });
+
+  it("never calls a throwing toString or toJSON on a value, and drops it as invalid", () => {
+    const hostile = {
+      toString: () => {
+        throw new Error("hostile");
+      },
+      toJSON: () => {
+        throw new Error("hostile");
+      },
+    };
+    const result = scrubContext({ sessionId: hostile, itemId: hostile });
+    expect(result).toEqual({ attributes: {}, dropped: { unknown: 0, invalid: 2, unbounded: 0, internal: 0 } });
+    expect(scrubAttributes({ "questionnaire.session_id": hostile }, "span").dropped.invalid).toBe(1);
   });
 });

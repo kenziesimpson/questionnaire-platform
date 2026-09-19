@@ -258,7 +258,7 @@ The work is split into lanes: Foundation (T0), Backend (B, A), Database (D), Fro
 | T0b | Foundation | Error handling (gh#16), trace id in 500 bodies, health probes `/health/live` and `/health/ready` (gh#91), shutdown flush, `problemTelemetry` | T0a | Merged (#126) |
 | T0c | Foundation | Sentinel leak test harness, the CI job, the `telemetry-safety` skill. Renamed from "canary" to "response telemetry leak test" in #129 | T0a | Merged (#127) |
 | T0a-hardening (#129) | Foundation | Closed span names, id-field shapes, the lint gate, a leak test on real spans | T0c | Merged (#129) |
-| T0d | Foundation | The telemetry package never throws into app code: `emitDomainEvent`, the logger methods, instrument recording and `problemTelemetry` swallow and count their own failures | T0a | Not started |
+| T0d | Foundation | The telemetry package never throws into app code: `emitDomainEvent`, the logger methods, instrument recording and `problemTelemetry` swallow and count their own failures | T0a | Open (#139) |
 | B1 | Backend | Execution spans, events (O11) and metrics; the `replayed` outcome and the `answer_rejected` cap; a small cleanup commit so `evaluateVisibility` runs once per submit | T0c | Open (#132, review fixes in) |
 | B2 | Backend | `/api/telemetry` ingest, lenient (O17): closed per-event browser field lists and a strict stack-frame shape (`BROWSER_STACK_FRAME`), `trustProxy` 1 and a per-address limiter (O21), and the client wire schema in `packages/shared` | B1 | Open (#133, review fixes in) |
 | B3 | Backend | Definition spans, events after commit, audit trace ids | B2 | Open (#134, review fixes in) |

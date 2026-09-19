@@ -13,7 +13,8 @@ import {
   type LeakFlow,
   type CapturedTelemetry,
 } from "../src/leak-test.js";
-import { logger, withSpan } from "../src/index.js";
+import { emitDomainEvent, logger, withSpan } from "../src/index.js";
+import { configureLogging } from "../src/logger.js";
 import { installTestTelemetry } from "../src/testing.js";
 import { SESSION_ID, QUESTIONNAIRE_ID } from "./fixtures.js";
 
@@ -214,22 +215,88 @@ describe("leak-test runner: runLeakFlow", () => {
 });
 
 describe("leak-test assertion: expectCleanRun", () => {
-  const clean = { exposures: [], observed: { log: 1, span: 0, metric: 0 }, spanNames: [], logMessages: [] };
+  const clean = { exposures: [], observed: { log: 1, span: 0, metric: 0 }, internalDrops: 0, spanNames: [], logMessages: [] };
 
   it("passes a run that emitted telemetry and leaked nothing", () => {
     expect(() => expectCleanRun("clean", clean)).not.toThrow();
   });
 
   it("throws a plain Error naming the flow, the signal and the leaking item", () => {
-    const leaky = { exposures: [{ signal: "span" as const, name: "GET" }], observed: { log: 0, span: 1, metric: 0 }, spanNames: ["GET"], logMessages: [] };
+    const leaky = { exposures: [{ signal: "span" as const, name: "GET" }], observed: { log: 0, span: 1, metric: 0 }, internalDrops: 0, spanNames: ["GET"], logMessages: [] };
 
     expect(() => expectCleanRun("leaky flow", leaky)).toThrow(/TELEMETRY LEAK TEST FAILED: "leaky flow".*span: GET/);
   });
 
   it("throws for a run that emitted nothing, so a silent flow cannot pass", () => {
-    const silent = { exposures: [], observed: { log: 0, span: 0, metric: 0 }, spanNames: [], logMessages: [] };
+    const silent = { exposures: [], observed: { log: 0, span: 0, metric: 0 }, internalDrops: 0, spanNames: [], logMessages: [] };
 
     expect(() => expectCleanRun("silent flow", silent)).toThrow(/TELEMETRY LEAK TEST VACUOUS: "silent flow"/);
+  });
+
+  it("throws for a run in which a telemetry call failed and was swallowed, unless the flow opts in", () => {
+    const broken = { ...clean, internalDrops: 2 };
+
+    expect(() => expectCleanRun("broken flow", broken)).toThrow(/TELEMETRY LEAK TEST VACUOUS: "broken flow" had 2 telemetry call/);
+    expect(() => expectCleanRun("broken flow", broken, LEAK_SENTINEL, { allowInternalDrops: true })).not.toThrow();
+  });
+});
+
+describe("leak-test control: a flow whose real telemetry call failed", () => {
+  const failing: LeakFlow<object> = {
+    name: "the log sink throws while a span is emitted",
+    run: async () => {
+      configureLogging({
+        level: "debug",
+        sink: () => {
+          throw new Error("sink failed");
+        },
+      });
+      logger("execution").info("swallowed line", { sessionId: SESSION_ID });
+      emitDomainEvent({ name: "questionnaire.created", questionnaireId: QUESTIONNAIRE_ID });
+      await withSpan("session.submit", {}, async () => undefined);
+    },
+  };
+
+  it("counts the swallowed failures apart from the flow's own telemetry", async () => {
+    const run = await runLeakFlow(failing, {});
+
+    expect(run.internalDrops).toBe(2);
+    expect(run.observed).toEqual({ log: 0, span: 1, metric: 1 });
+    expect(run.exposures).toEqual([]);
+  });
+
+  it("fails expectCleanRun even though the run emitted a span and a counter, and passes only when the flow opts in", async () => {
+    const run = await runLeakFlow(failing, {});
+
+    expect(() => expectCleanRun(failing.name, run)).toThrow(/TELEMETRY LEAK TEST VACUOUS.*2 telemetry call/);
+    expect(() => expectCleanRun(failing.name, run, LEAK_SENTINEL, { allowInternalDrops: true })).not.toThrow();
+  });
+
+  it("does not count the drop counter itself as the flow's telemetry, so a flow that only fails is vacuous", async () => {
+    const onlyFails: LeakFlow<object> = {
+      name: "only a failing log",
+      run: async () => {
+        configureLogging({
+          level: "debug",
+          sink: () => {
+            throw new Error("sink failed");
+          },
+        });
+        logger("execution").info("swallowed line");
+      },
+    };
+
+    const run = await runLeakFlow(onlyFails, {});
+
+    expect(run.internalDrops).toBe(1);
+    expect(run.observed).toEqual({ log: 0, span: 0, metric: 0 });
+    expect(() => expectCleanRun(onlyFails.name, run, LEAK_SENTINEL, { allowInternalDrops: true })).toThrow(/TELEMETRY LEAK TEST VACUOUS.*emitted no telemetry/);
+  });
+
+  it("reports no internal drops for a flow whose telemetry all succeeded", async () => {
+    const run = await runLeakFlow({ name: "clean", run: async () => logger("execution").info("clean line") }, {});
+
+    expect(run.internalDrops).toBe(0);
   });
 });
 

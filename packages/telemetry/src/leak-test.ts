@@ -1,5 +1,6 @@
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
-import { installTestTelemetry } from "./testing.js";
+import { DROPPED_COUNTER } from "./instruments.js";
+import { installTestTelemetry, internalDropCount } from "./testing.js";
 import type { SignalKind } from "./vocabulary.js";
 
 export const LEAK_SENTINEL = "LEAK_DIABETES_8F3A";
@@ -37,6 +38,7 @@ export interface LeakRunOptions {
 export interface LeakRun {
   readonly exposures: readonly LeakExposure[];
   readonly observed: Readonly<Record<SignalKind, number>>;
+  readonly internalDrops: number;
   readonly spanNames: readonly string[];
   readonly logMessages: readonly string[];
 }
@@ -90,7 +92,12 @@ export async function runLeakFlow<World>(
     const flushed = await telemetry.metrics();
     return {
       exposures: await exposuresOf({ logs: telemetry.logs, spans: telemetry.spans, metrics: async () => flushed }, sentinel),
-      observed: { log: telemetry.logs().length, span: telemetry.spans().length, metric: flushed.length },
+      observed: {
+        log: telemetry.logs().length,
+        span: telemetry.spans().length,
+        metric: flushed.filter((metric) => metric.descriptor.name !== DROPPED_COUNTER).length,
+      },
+      internalDrops: internalDropCount(flushed),
       spanNames: telemetry.spans().map((span) => span.name),
       logMessages: telemetry.logs().map(messageOf),
     };
@@ -99,10 +106,19 @@ export async function runLeakFlow<World>(
   }
 }
 
-export function expectCleanRun(flowName: string, run: LeakRun, sentinel: string = LEAK_SENTINEL): void {
+export interface CleanRunOptions {
+  readonly allowInternalDrops?: boolean;
+}
+
+export function expectCleanRun(flowName: string, run: LeakRun, sentinel: string = LEAK_SENTINEL, options: CleanRunOptions = {}): void {
   if (run.exposures.length > 0) {
     const leaks = run.exposures.map((exposure) => `${exposure.signal}: ${exposure.name}`).join("; ");
     throw new Error(`TELEMETRY LEAK TEST FAILED: "${flowName}" let the sentinel ${sentinel} reach telemetry (${leaks})`);
+  }
+  if (run.internalDrops > 0 && options.allowInternalDrops !== true) {
+    throw new Error(
+      `TELEMETRY LEAK TEST VACUOUS: "${flowName}" had ${run.internalDrops} telemetry call(s) fail and be swallowed (telemetry.scrub.dropped reason internal), so the signal it was written to check may never have been emitted`,
+    );
   }
   if (run.observed.log + run.observed.span + run.observed.metric === 0) {
     throw new Error(`TELEMETRY LEAK TEST VACUOUS: "${flowName}" emitted no telemetry, so it proves nothing`);

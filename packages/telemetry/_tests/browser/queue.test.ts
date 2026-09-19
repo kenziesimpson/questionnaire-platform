@@ -71,7 +71,7 @@ describe("createEventQueue: what is queued", () => {
     queue.flush();
 
     expect(batches[0]?.[0]?.attributes).toEqual({ "questionnaire.session_id": SESSION_ID });
-    expect(queue.stats().droppedFields).toEqual({ unknown: 2, invalid: 1, unbounded: 0 });
+    expect(queue.stats().droppedFields).toEqual({ unknown: 2, invalid: 1, unbounded: 0, internal: 0 });
   });
 
   it.each([
