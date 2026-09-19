@@ -1,8 +1,7 @@
 import { metrics, type Counter, type Histogram } from "@opentelemetry/api";
 import type { DomainEvent } from "./events.js";
-import { scrubContext, totalDropped, type DropCounts, type DropReason, type ScrubbedAttributes, type SignalKind } from "./scrub.js";
-
-const METER_NAME = "qp.telemetry";
+import { scrubContext, totalDropped, type DropCounts, type ScrubbedAttributes } from "./scrub.js";
+import { DROP_REASONS, INSTRUMENTATION_SCOPE, SCRUB_ATTRIBUTES, type SignalKind } from "./vocabulary.js";
 
 const EVENT_COUNTERS = {
   "questionnaire.created": "questionnaire.created",
@@ -33,13 +32,13 @@ export function resetInstruments(): void {
 function counter(name: string): Counter {
   const existing = counters.get(name);
   if (existing !== undefined) return existing;
-  const created = metrics.getMeter(METER_NAME).createCounter(name);
+  const created = metrics.getMeter(INSTRUMENTATION_SCOPE).createCounter(name);
   counters.set(name, created);
   return created;
 }
 
 function durationHistogram(): Histogram {
-  sessionDuration ??= metrics.getMeter(METER_NAME).createHistogram(SESSION_DURATION, { unit: "ms" });
+  sessionDuration ??= metrics.getMeter(INSTRUMENTATION_SCOPE).createHistogram(SESSION_DURATION, { unit: "ms" });
   return sessionDuration;
 }
 
@@ -58,10 +57,9 @@ export function countDomainEvent(event: DomainEvent): void {
 
 export function reportDropped(kind: SignalKind, dropped: DropCounts): void {
   if (totalDropped(dropped) === 0) return;
-  const reasons: readonly DropReason[] = ["unknown", "invalid", "unbounded"];
-  for (const reason of reasons) {
+  for (const reason of DROP_REASONS) {
     if (dropped[reason] > 0) {
-      counter(DROPPED_COUNTER).add(dropped[reason], { "telemetry.signal": kind, "telemetry.reason": reason });
+      counter(DROPPED_COUNTER).add(dropped[reason], { [SCRUB_ATTRIBUTES.signal]: kind, [SCRUB_ATTRIBUTES.reason]: reason });
     }
   }
 }

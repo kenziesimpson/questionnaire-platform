@@ -8,5 +8,6 @@ export {
   type TelemetryContext,
 } from "./fields.js";
 export { LOG_LEVELS, logger, type LiteralMessage, type LogLevel, type Logger, type LogMethod } from "./logger.js";
-export { scrubAttributes, scrubContext, type DropCounts, type DropReason, type ScrubResult, type SignalKind } from "./scrub.js";
+export { scrubAttributes, scrubContext, type DropCounts, type ScrubResult } from "./scrub.js";
 export { withSpan, type SpanName } from "./spans.js";
+export { DROP_REASONS, SIGNAL_KINDS, type DropReason, type SignalKind } from "./vocabulary.js";

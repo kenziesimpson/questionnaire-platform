@@ -11,7 +11,7 @@ import pino, { type DestinationStream } from "pino";
 import pretty from "pino-pretty";
 import { scrubbingMetricExporter, scrubbingSpanExporter } from "./exporters.js";
 import { resetInstruments } from "./instruments.js";
-import { configureLogging, type LogLevel, type LogSink } from "./logger.js";
+import { configureLogging, resetLogging, type LogLevel, type LogSink } from "./logger.js";
 import { scrubAttributes } from "./scrub.js";
 
 const LOADER_HOOK = "@opentelemetry/instrumentation/hook.mjs";
@@ -110,7 +110,7 @@ export function startPipeline(options: PipelineOptions): TelemetryHandle {
       await sdk.shutdown();
       disableGlobalRegistrations();
       resetInstruments();
-      configureLogging({ level: "info", sink: undefined });
+      resetLogging();
     },
   };
 }

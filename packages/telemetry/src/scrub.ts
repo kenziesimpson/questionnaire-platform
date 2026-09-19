@@ -1,8 +1,5 @@
 import { definitionOfAttribute, FIELDS, isFieldName } from "./fields.js";
-
-export type SignalKind = "log" | "span" | "metric";
-
-export type DropReason = "unknown" | "invalid" | "unbounded";
+import type { DropReason, SignalKind } from "./vocabulary.js";
 
 export type ScrubbedAttributes = Readonly<Record<string, string | number | boolean>>;
 

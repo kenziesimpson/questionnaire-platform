@@ -2,6 +2,7 @@ import { trace } from "@opentelemetry/api";
 import { stackFramesOf, type TelemetryContext } from "./fields.js";
 import { reportDropped } from "./instruments.js";
 import { scrubAttributes, scrubContext, type ScrubbedAttributes } from "./scrub.js";
+import { LOG_ATTRIBUTES } from "./vocabulary.js";
 
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 
@@ -28,28 +29,36 @@ export interface Logger {
   readonly error: LogMethod;
 }
 
-const RANK: Readonly<Record<LogLevel, number>> = { debug: 0, info: 1, warn: 2, error: 3 };
+const DEFAULT_LOG_LEVEL: LogLevel = "info";
 
-const state: { threshold: LogLevel; sink: LogSink | undefined } = { threshold: "info", sink: undefined };
+const state: { threshold: LogLevel; sink: LogSink | undefined } = { threshold: DEFAULT_LOG_LEVEL, sink: undefined };
 
 export function configureLogging(settings: { readonly level: LogLevel; readonly sink: LogSink | undefined }): void {
   state.threshold = settings.level;
   state.sink = settings.sink;
 }
 
+export function resetLogging(): void {
+  configureLogging({ level: DEFAULT_LOG_LEVEL, sink: undefined });
+}
+
+function isBelowThreshold(level: LogLevel): boolean {
+  return LOG_LEVELS.indexOf(level) < LOG_LEVELS.indexOf(state.threshold);
+}
+
 function correlation(): Record<string, string> {
   const context = trace.getActiveSpan()?.spanContext();
-  return context === undefined ? {} : { trace_id: context.traceId, span_id: context.spanId };
+  return context === undefined ? {} : { [LOG_ATTRIBUTES.traceId]: context.traceId, [LOG_ATTRIBUTES.spanId]: context.spanId };
 }
 
 function emit(level: LogLevel, module: string, message: string, context: unknown, error: Error | undefined): void {
   const sink = state.sink;
-  if (sink === undefined || RANK[level] < RANK[state.threshold]) return;
+  if (sink === undefined || isBelowThreshold(level)) return;
   const fields = scrubContext({
     ...(typeof context === "object" ? context : undefined),
     ...(error === undefined ? {} : { errorType: error.name, errorStack: stackFramesOf(error) }),
   });
-  const record = scrubAttributes({ ...fields.attributes, module, ...correlation() }, "log");
+  const record = scrubAttributes({ ...fields.attributes, [LOG_ATTRIBUTES.module]: module, ...correlation() }, "log");
   reportDropped("log", fields.dropped);
   reportDropped("log", record.dropped);
   sink({ level, message, attributes: record.attributes });

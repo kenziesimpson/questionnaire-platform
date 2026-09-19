@@ -1,4 +1,5 @@
 import { RESPONSE_TYPES, SUBMISSION_ITEM_CODES } from "@qp/shared";
+import { DROP_REASONS, LOG_ATTRIBUTES, SCRUB_ATTRIBUTES, SIGNAL_KINDS } from "./vocabulary.js";
 
 export const OUTCOMES = ["accepted", "rejected_validation", "rejected_conflict", "failed"] as const;
 export type Outcome = (typeof OUTCOMES)[number];
@@ -17,6 +18,9 @@ const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const ROUTE = /^\/[A-Za-z0-9_.:*{}/-]{0,200}$/;
 const TYPE_NAME = /^[A-Za-z_$][A-Za-z0-9_$.-]{0,127}$/;
 const ERROR_CODE = /^[A-Za-z0-9_]{1,32}$/;
+const DB_SYSTEM = /^[a-z][a-z0-9_.]{0,31}$/;
+const DB_OPERATION = /^[A-Za-z_]{1,32}$/;
+const HOST_NAME = /^[A-Za-z0-9_.-]{1,255}$/;
 const STACK_FRAME = /^ {4}at (?:.+ \((?:[^\s()]+:\d+:\d+|<anonymous>|native)\)|[^\s()]+:\d+:\d+)$/;
 const MAX_STACK_FRAMES = 40;
 
@@ -94,31 +98,33 @@ export function isFieldName(key: string): key is FieldName {
   return Object.hasOwn(FIELDS, key);
 }
 
-const FIELD_ATTRIBUTES: ReadonlyMap<string, FieldDefinition<unknown>> = new Map(
-  Object.values(FIELDS).map((definition): [string, FieldDefinition<unknown>] => [definition.attribute, definition]),
-);
+function indexedByAttribute(definitions: readonly FieldDefinition<unknown>[]): ReadonlyMap<string, FieldDefinition<unknown>> {
+  return new Map(definitions.map((definition) => [definition.attribute, definition]));
+}
 
-const INFRASTRUCTURE: ReadonlyMap<string, FieldDefinition<unknown>> = new Map<string, FieldDefinition<unknown>>([
-  ["trace_id", matching("trace_id", /^[0-9a-f]{32}$/, false)],
-  ["span_id", matching("span_id", /^[0-9a-f]{16}$/, false)],
-  ["module", matching("module", /^[a-z][a-z0-9_-]{0,63}$/, true)],
-  ["exception.type", matching("exception.type", TYPE_NAME, true)],
-  ["otel.status_code", oneOf("otel.status_code", ["OK", "ERROR"])],
-  ["telemetry.signal", oneOf("telemetry.signal", ["log", "span", "metric"])],
-  ["telemetry.reason", oneOf("telemetry.reason", ["unknown", "invalid", "unbounded"])],
-  ["db.system", matching("db.system", /^[a-z][a-z0-9_.]{0,31}$/, true)],
-  ["db.system.name", matching("db.system.name", /^[a-z][a-z0-9_.]{0,31}$/, true)],
-  ["db.operation", matching("db.operation", /^[A-Za-z_]{1,32}$/, true)],
-  ["db.operation.name", matching("db.operation.name", /^[A-Za-z_]{1,32}$/, true)],
-  ["db.sql.table", matching("db.sql.table", /^[A-Za-z_][A-Za-z0-9_.]{0,127}$/, true)],
-  ["db.name", matching("db.name", IDENTIFIER, true)],
-  ["db.namespace", matching("db.namespace", IDENTIFIER, true)],
-  ["server.address", matching("server.address", /^[A-Za-z0-9_.-]{1,255}$/, true)],
-  ["server.port", portNumber("server.port")],
-  ["net.peer.name", matching("net.peer.name", /^[A-Za-z0-9_.-]{1,255}$/, true)],
-  ["net.peer.port", portNumber("net.peer.port")],
-  ["fastify.type", matching("fastify.type", /^[a-z][a-z-]{0,31}$/, true)],
-  ["fastify.root", matching("fastify.root", /^@[a-z]+\/[a-z]+$/, true)],
+const FIELD_ATTRIBUTES = indexedByAttribute(Object.values(FIELDS));
+
+const INFRASTRUCTURE = indexedByAttribute([
+  matching(LOG_ATTRIBUTES.traceId, /^[0-9a-f]{32}$/, false),
+  matching(LOG_ATTRIBUTES.spanId, /^[0-9a-f]{16}$/, false),
+  matching(LOG_ATTRIBUTES.module, /^[a-z][a-z0-9_-]{0,63}$/, true),
+  matching("exception.type", TYPE_NAME, true),
+  oneOf("otel.status_code", ["OK", "ERROR"]),
+  oneOf(SCRUB_ATTRIBUTES.signal, SIGNAL_KINDS),
+  oneOf(SCRUB_ATTRIBUTES.reason, DROP_REASONS),
+  matching("db.system", DB_SYSTEM, true),
+  matching("db.system.name", DB_SYSTEM, true),
+  matching("db.operation", DB_OPERATION, true),
+  matching("db.operation.name", DB_OPERATION, true),
+  matching("db.sql.table", /^[A-Za-z_][A-Za-z0-9_.]{0,127}$/, true),
+  matching("db.name", IDENTIFIER, true),
+  matching("db.namespace", IDENTIFIER, true),
+  matching("server.address", HOST_NAME, true),
+  portNumber("server.port"),
+  matching("net.peer.name", HOST_NAME, true),
+  portNumber("net.peer.port"),
+  matching("fastify.type", /^[a-z][a-z-]{0,31}$/, true),
+  matching("fastify.root", /^@[a-z]+\/[a-z]+$/, true),
 ]);
 
 function portNumber(attribute: string): FieldDefinition<number> {

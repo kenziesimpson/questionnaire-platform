@@ -2,7 +2,8 @@ import type { ExportResult } from "@opentelemetry/core";
 import { DataPointType, type DataPoint, type MetricData, type PushMetricExporter, type ResourceMetrics } from "@opentelemetry/sdk-metrics";
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace";
 import { reportDropped } from "./instruments.js";
-import { scrubAttributes, type ScrubbedAttributes, type SignalKind } from "./scrub.js";
+import { scrubAttributes, type ScrubbedAttributes } from "./scrub.js";
+import type { SignalKind } from "./vocabulary.js";
 
 function cleaned(attributes: unknown, kind: SignalKind): ScrubbedAttributes {
   const result = scrubAttributes(attributes, kind);
