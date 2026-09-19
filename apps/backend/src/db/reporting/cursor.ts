@@ -5,6 +5,8 @@ export interface SessionCursor {
 }
 
 const FIELD_SEPARATOR = "|";
+const CANONICAL_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function encodeCursor(cursor: SessionCursor): string {
   const encoded = [cursor.direction, cursor.startedAt.toISOString(), cursor.id].join(FIELD_SEPARATOR);
@@ -22,8 +24,9 @@ export function decodeCursor(raw: string): SessionCursor | undefined {
   if (parts.length !== 3) return undefined;
   const [direction, startedAtIso, id] = parts;
   if (direction !== "older" && direction !== "newer") return undefined;
-  if (startedAtIso === undefined || id === undefined || id === "") return undefined;
+  if (startedAtIso === undefined || id === undefined) return undefined;
+  if (!CANONICAL_INSTANT.test(startedAtIso) || !UUID.test(id)) return undefined;
   const startedAt = new Date(startedAtIso);
-  if (Number.isNaN(startedAt.getTime())) return undefined;
+  if (Number.isNaN(startedAt.getTime()) || startedAt.toISOString() !== startedAtIso) return undefined;
   return { direction, startedAt, id };
 }

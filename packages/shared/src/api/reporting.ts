@@ -13,7 +13,7 @@ const SessionListQuery = Type.Object(
   {
     version: Type.Optional(PositiveInt),
     status: Type.Optional(SessionStatus),
-    cursor: Type.Optional(Type.String({ minLength: 1 })),
+    cursor: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
   },
   strict,
 );

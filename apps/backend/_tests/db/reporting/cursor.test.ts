@@ -36,6 +36,11 @@ describe("session cursors", () => {
     ["a startedAt that is not a date", encoded(`older|yesterday|${cursor.id}`)],
     ["an empty startedAt", encoded(`older||${cursor.id}`)],
     ["an empty id", encoded("older|2026-09-10T09:03:04.567Z|")],
+    ["an id that is not a uuid", encoded("older|2026-09-10T09:03:04.567Z|not-a-uuid")],
+    ["an id carrying SQL", encoded("older|2026-09-10T09:03:04.567Z|' OR 1=1 --")],
+    ["a startedAt that is not in the canonical form", encoded(`older|2026-09-10|${cursor.id}`)],
+    ["a startedAt with an extended year", encoded(`older|+275760-09-13T00:00:00.000Z|${cursor.id}`)],
+    ["a startedAt that names a day that does not exist", encoded(`older|2026-02-31T00:00:00.000Z|${cursor.id}`)],
   ])("reads %s as no cursor", (_, raw) => {
     expect(decodeCursor(raw)).toBeUndefined();
   });

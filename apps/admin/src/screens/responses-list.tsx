@@ -8,7 +8,6 @@ import { Link, getRouteApi, useNavigate } from "@tanstack/react-router";
 import { isProblem } from "../api/problem-error";
 import { questionnaireQueries, responseQueries } from "../api/queries";
 import { BackToQuestionnaires } from "../components/back-to-questionnaires";
-import { Notice } from "../components/notice";
 import { Panel } from "../components/panel";
 import { Pill } from "../components/pill";
 import { QuestionnaireNotFound } from "../components/questionnaire-not-found";
@@ -34,11 +33,8 @@ function ResponsesHeader({ questionnaireId, name }: { questionnaireId: string; n
         <div className="flex items-center gap-2">
           <BackToQuestionnaires />
           <h1 className="text-xl font-semibold tracking-tight">Responses</h1>
-          <Pill className="border-dashed text-muted-foreground">Raw · not aggregated</Pill>
         </div>
-        <p className="pl-9 text-sm text-muted-foreground">
-          {name === undefined ? "Loading…" : `${name} · one row per session, newest started first`}
-        </p>
+        <p className="pl-9 text-sm text-muted-foreground">{name ?? "Loading…"}</p>
       </div>
       <Button asChild variant="outline">
         <Link to="/questionnaires/$questionnaireId/versions" params={{ questionnaireId }}>
@@ -46,17 +42,6 @@ function ResponsesHeader({ questionnaireId, name }: { questionnaireId: string; n
         </Link>
       </Button>
     </header>
-  );
-}
-
-function RawDataNotice() {
-  return (
-    <Notice>
-      <p className="text-sm text-muted-foreground">
-        These are individual session records, not a report: no totals, percentages, or charts. Counts below are per
-        session only.
-      </p>
-    </Notice>
   );
 }
 
@@ -208,7 +193,9 @@ function PageNav({
 }) {
   return (
     <nav aria-label="Pages of sessions" className="flex items-center justify-between gap-4">
-      <p className="text-xs text-muted-foreground">{itemCount} sessions on this page</p>
+      <p className="text-xs text-muted-foreground">
+        {itemCount} {itemCount === 1 ? "session" : "sessions"} on this page
+      </p>
       <div className="flex gap-2">
         <Button variant="outline" size="sm" disabled={newerCursor === null} onClick={() => onNavigate(newerCursor ?? undefined)}>
           <ArrowLeftIcon size={14} />
@@ -279,7 +266,6 @@ export function ResponsesListScreen() {
   return (
     <section className="flex flex-col gap-5">
       <ResponsesHeader questionnaireId={questionnaireId} name={summary?.name} />
-      <RawDataNotice />
       <div className="flex items-center gap-5">
         <VersionFilter
           versions={versions.data ?? []}

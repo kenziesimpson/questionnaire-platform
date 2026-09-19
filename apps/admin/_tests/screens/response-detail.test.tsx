@@ -233,7 +233,7 @@ describe("the response detail screen", () => {
       await findItems();
 
       expect(screen.getByText("Patient Intake · version 2")).toBeInTheDocument();
-      expect(screen.getByText("Raw · not aggregated")).toBeInTheDocument();
+      expect(screen.queryByText(/not aggregated/i)).not.toBeInTheDocument();
       expect(within(sessionPanel()).getByRole("link", { name: "Version 2" })).toHaveAttribute(
         "href",
         `/admin/questionnaires/${QUESTIONNAIRE_ID}/versions/2`,

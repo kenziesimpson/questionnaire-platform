@@ -161,15 +161,15 @@ describe("the responses list screen", () => {
     expect(router.state.location.pathname).toBe(RESPONSES_PATH);
   });
 
-  it("names the questionnaire and says the rows are raw, not aggregated, with a way to the version history", async () => {
+  it("names the questionnaire, with a way to the version history", async () => {
     renderList(serve());
 
     await findRows();
 
     expect(screen.getByRole("heading", { level: 1, name: "Responses" })).toBeInTheDocument();
-    expect(await screen.findByText("Patient Intake · one row per session, newest started first")).toBeInTheDocument();
-    expect(screen.getByText("Raw · not aggregated")).toBeInTheDocument();
-    expect(screen.getByText(/not a report: no totals, percentages, or charts/)).toBeInTheDocument();
+    expect(await screen.findByText("Patient Intake")).toBeInTheDocument();
+    expect(screen.queryByText(/not aggregated/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not a report/i)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Version history" })).toHaveAttribute(
       "href",
       `/admin/questionnaires/${QUESTIONNAIRE_ID}/versions`,
@@ -302,6 +302,14 @@ describe("the responses list screen", () => {
       expect(newerButton()).toBeDisabled();
       expect(olderButton()).toBeEnabled();
       expect(screen.getByText("3 sessions on this page")).toBeInTheDocument();
+    });
+
+    it("counts a single session in the singular", async () => {
+      renderList(serve({ pages: { "": SECOND_PAGE } }));
+
+      await findRows();
+
+      expect(screen.getByText("1 session on this page")).toBeInTheDocument();
     });
 
     it("enables Newer and disables Older on the last page", async () => {

@@ -553,10 +553,9 @@ export default tseslint.config(
     rules: { "no-restricted-imports": restrict(otherModule("definition"), otherModule("reporting"), definitionDbLayer, reportingDbLayer) },
   },
   {
-    // Reporting is a third, narrower surface over execution's own data (gh#18): it may read
-    // db/execution's PublishedDefinitions loader through the execution pool's existing grant on
-    // definition.published_questionnaire_version, rather than taking a new grant of its own, but
-    // it still shares nothing from the authoring side.
+    // Reporting is a third, narrower surface over execution's own data (gh#18): it may reuse
+    // db/execution's PublishedDefinitions loader code, but always over its own qp_reporting pool
+    // (grants in migration 0018), never execution's, and it shares nothing from the authoring side.
     name: "module boundary: reporting",
     files: ["apps/backend/src/modules/reporting/**"],
     rules: { "no-restricted-imports": restrict(otherModule("definition"), definitionDbLayer) },

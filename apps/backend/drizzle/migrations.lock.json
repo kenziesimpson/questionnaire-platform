@@ -16,6 +16,6 @@
   "0014_no_public_execute_on_functions.sql": "29dd94df8cef95d4125dbde308f44e0e532958a2fb640516b2848eaed15ab833",
   "0015_other_option_id_reserved.sql": "65a5d321e5754dbdcf5666f4f262062e39879e89930aafa70f29ae472437bdc5",
   "0016_add_session_by_questionnaire_index.sql": "abd8ec02935f2d46fd7ca70387d006a969c743c8698aa17ef3c4d942cb6603cd",
-  "0017_reporting_role_grant.sql": "ba882a3493a04def35dcf1aab7fbb692e919628810cceb13b3132866fc9f4b55",
+  "0017_reporting_role_grant.sql": "e28bb2bfc97f069a473281caece7c97310f85e4657fd24d6b19cfe6d0f7a5c68",
   "0018_reporting_reads_published_versions_only.sql": "a6bc3adc93db79dcd5fb74a6b9f9883d7546c1b35949f95636885651f3340494"
 }

@@ -42,6 +42,7 @@ describe("the sessions list query", () => {
     ["a fractional version", { version: 1.5 }],
     ["an unknown status", { status: "abandoned" }],
     ["an empty cursor", { cursor: "" }],
+    ["a cursor longer than any the server issues", { cursor: "a".repeat(129) }],
     ["a page size, which is fixed", { limit: 5 }],
     ["a sort order, which is fixed", { sort: "asc" }],
   ])("rejects %s", (_, extra) => {

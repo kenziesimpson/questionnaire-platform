@@ -27,7 +27,6 @@ test.describe("E26 — the admin responses screens show a real submitted session
     await admin.responsesLink(name).click();
     await expect(admin.heading(ADMIN_HEADINGS.responses)).toBeVisible();
     await expect(page.getByText("No sessions yet.", { exact: true })).toBeVisible();
-    await expect(page.getByText("Raw · not aggregated", { exact: true })).toBeVisible();
 
     await admin.openVersionHistory(demo.questionnaireId);
     await admin.rawResponsesLink().click();

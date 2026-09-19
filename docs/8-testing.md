@@ -997,7 +997,7 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 | Case | File | Invariant defended | §3 row |
 | --- | --- | --- | --- |
 | A session cursor round-trips both directions to the millisecond, is url-safe, and does not show the session id in the clear | `_tests/db/reporting/cursor.test.ts` | A page boundary survives the trip through the query string exactly (#88) | — conventions |
-| A cursor with too few or too many fields, an unknown direction, an unparseable or empty `startedAt` or an empty id decodes to no cursor | `_tests/db/reporting/cursor.test.ts` | A hand-edited token never reaches the keyset query as a half-built position | — conventions |
+| A cursor with too few or too many fields, an unknown direction, a `startedAt` that is not a real instant in the canonical `YYYY-MM-DDTHH:mm:ss.sssZ` form (extended years and impossible days included) or an id that is not a uuid decodes to no cursor | `_tests/db/reporting/cursor.test.ts` | The token is client-controlled and unsigned, so what it decodes to is checked before it reaches the keyset query's `::uuid` and `::timestamptz` casts; a forged cursor otherwise turns into a Postgres cast error and a 500 | — conventions |
 | Each stored response shape (text, number with and without a unit, date, single choice with and without other text, multiple choice in stored order) is read back as its `ResponseRow`, with no key for a value that was not stored | `_tests/db/reporting/responses.test.ts` | The typed columns map back to the wire shape one-to-one | — conventions |
 | `answersFromResponseRows` turns rows into client answers keyed by item id for all five types, carries other text only when stored, and does not alias the option array | `_tests/db/reporting/responses.test.ts` | The shared evaluator sees the answers exactly as a respondent's client would have held them | Path re-evaluation uses the pinned definition |
 
@@ -1005,7 +1005,7 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 
 | Case | File | Invariant defended | §3 row |
 | --- | --- | --- | --- |
-| The two reporting routes are `GET`s under `/api/reporting` with problem bodies for 4xx and 5xx, and the list query accepts only `version`, `status` and `cursor` | `_tests/api/reporting.test.ts` | The browser can only read, and only filter by version and status (#89) | — conventions |
+| The two reporting routes are `GET`s under `/api/reporting` with problem bodies for 4xx and 5xx, and the list query accepts only `version`, `status` and a `cursor` of at most 128 characters | `_tests/api/reporting.test.ts` | The browser can only read, and only filter by version and status (#89) | — conventions |
 | A session summary, a page and a detail accept the documented shapes and reject unknown fields, negative counts, version 0 and a missing cursor | `_tests/domain/session-report.test.ts` | An answer value cannot ride along on a list row, and the page carries no total | — conventions |
 
 **Frontend component — `apps/admin`, the responses screens, Vitest + RTL in jsdom, `fetch` stubbed**

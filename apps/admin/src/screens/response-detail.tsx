@@ -126,7 +126,6 @@ function DetailHeader({
           <Pill className={detail.status === "in_progress" ? "border-dashed text-muted-foreground" : ""}>
             {statusLabel(detail.status)}
           </Pill>
-          <Pill className="border-dashed text-muted-foreground">Raw · not aggregated</Pill>
         </div>
         <p className="pl-9 text-sm text-muted-foreground">
           {detail.questionnaireTitle} · version {detail.version}
@@ -145,8 +144,7 @@ function VersionPinNote({ questionnaireId, detail }: { questionnaireId: string; 
     <div role="note" className="flex items-start gap-2.5 rounded-xl border border-border px-4 py-3 text-sm">
       <InfoIcon className="mt-0.5 shrink-0 text-muted-foreground" />
       <p>
-        This session is pinned to version {detail.version}. The questionnaire has since moved to version {latest}, but
-        responses collected under version {detail.version} keep that version's questions and labels.
+        This session is pinned to version {detail.version}. The questionnaire has since moved to version {latest}.
       </p>
     </div>
   );
