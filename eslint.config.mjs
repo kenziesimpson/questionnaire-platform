@@ -151,6 +151,23 @@ const doubleAssertionThrough = (keyword, spelling) =>
 
 const doubleAssertions = [...doubleAssertionThrough("TSUnknownKeyword", "unknown"), ...doubleAssertionThrough("TSAnyKeyword", "any")];
 
+const castTypes = "TSLiteralType|TSUnionType|TSNeverKeyword|TSAnyKeyword";
+
+const castTypeNames = "SpanName|LogModule|LiteralMessage";
+
+const castIntoTelemetryText = [
+  { callee: "callee.property.name=/^(debug|info|warn|error)$/", text: "log message" },
+  { callee: 'callee.name="logger"', text: "logger module name" },
+  { callee: 'callee.name="withSpan"', text: "span name" },
+].flatMap(({ callee, text }) =>
+  ["TSAsExpression", "TSTypeAssertion"].flatMap((assertion) =>
+    [`typeAnnotation.type=/^(${castTypes})$/`, `typeAnnotation.typeName.name=/^(${castTypeNames})$/`].map((annotation) => ({
+      selector: `CallExpression[${callee}][arguments.0.type="${assertion}"][arguments.0.${annotation}]`,
+      message: `A cast into a ${text} defeats the literal-only type that keeps an answer out of telemetry ([[6-observability#3.1 Enforcement ladder]]). Use a literal, or put the value in a registered field. If a test must plant a value there, disable this line with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>`,
+    })),
+  ),
+);
+
 const appLibraries = [
   {
     home: "apps/admin",
@@ -259,7 +276,7 @@ const sharedVocabulary = ["TSTypeAliasDeclaration", "VariableDeclarator", "Funct
     "This name is shared vocabulary, declared once in packages/shared/src/domain or packages/shared/src/primitives.ts. Import it from @qp/shared; a local copy drifts, as the three definitions of the \"other\" option did ([[2-design-doc#17. Decisions Log]] #82).",
 }));
 
-const syntaxOutsideTheRoutePathHelper = [...doubleAssertions, routePathLiteral, unnamedReExport];
+const syntaxOutsideTheRoutePathHelper = [...doubleAssertions, ...castIntoTelemetryText, routePathLiteral, unnamedReExport];
 
 const syntaxDeclaringTheSharedVocabulary = (...selectors) => ["warn", ...syntaxOutsideTheRoutePathHelper, noDefaultExport, ...selectors];
 

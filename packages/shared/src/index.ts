@@ -1,4 +1,4 @@
-export { IsoDateTime, PositiveInt, SLUG_PATTERN, Uuid, strict } from "./primitives.js";
+export { IsoDateTime, PositiveInt, SLUG_PATTERN, UUID_PATTERN, Uuid, strict } from "./primitives.js";
 export {
   OTHER_OPTION_ID,
   Option,

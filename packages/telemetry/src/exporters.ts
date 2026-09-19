@@ -2,8 +2,40 @@ import type { ExportResult } from "@opentelemetry/core";
 import { DataPointType, type DataPoint, type MetricData, type PushMetricExporter, type ResourceMetrics } from "@opentelemetry/sdk-metrics";
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace";
 import { reportDropped } from "./instruments.js";
-import { scrubAttributes, type ScrubbedAttributes } from "./scrub.js";
+import { oneDropped, scrubAttributes, type ScrubbedAttributes } from "./scrub.js";
+import { isSpanName } from "./spans.js";
 import type { SignalKind } from "./vocabulary.js";
+
+const UNNAMED_SPAN = "unnamed";
+
+const FASTIFY_SPAN_PREFIXES = [
+  "onRequest",
+  "preParsing",
+  "preValidation",
+  "preHandler",
+  "preSerialization",
+  "onSend",
+  "onResponse",
+  "onError",
+  "handler",
+  "notFoundHandler",
+  "notFoundHandler - preValidation",
+  "notFoundHandler - preHandler",
+];
+
+const INSTRUMENTED_SPAN_NAMES: readonly RegExp[] = [
+  /^request$/,
+  new RegExp(`^(?:${FASTIFY_SPAN_PREFIXES.join("|")}) - [a-z@][A-Za-z0-9_$.@/-]{0,63}$`),
+  /^pg\.query(?::[A-Za-z_]{1,32}(?: [A-Za-z0-9_-]{1,63})?)?$/,
+  /^pg\.connect$/,
+  /^pg-pool\.connect$/,
+];
+
+function exportedNameOf(name: string): string {
+  if (isSpanName(name) || INSTRUMENTED_SPAN_NAMES.some((shape) => shape.test(name))) return name;
+  reportDropped("span", oneDropped("unknown"));
+  return UNNAMED_SPAN;
+}
 
 function cleaned(attributes: unknown, kind: SignalKind): ScrubbedAttributes {
   const result = scrubAttributes(attributes, kind);
@@ -13,7 +45,7 @@ function cleaned(attributes: unknown, kind: SignalKind): ScrubbedAttributes {
 
 function scrubbedSpan(span: ReadableSpan): ReadableSpan {
   return {
-    name: span.name,
+    name: exportedNameOf(span.name),
     kind: span.kind,
     spanContext: () => span.spanContext(),
     parentSpanContext: span.parentSpanContext,

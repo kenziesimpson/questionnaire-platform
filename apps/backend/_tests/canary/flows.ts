@@ -6,27 +6,42 @@ import { DrizzleQueryError } from "drizzle-orm";
 import { expect } from "vitest";
 import { SQLSTATE } from "../../src/db/errors.js";
 import { InvariantViolation } from "../../src/invariant.js";
+import { SESSION_ID } from "../http/fixtures.js";
 import { answersNo, answersYes, executionUrl, seedIntakeV1, startedSessionId, submit } from "../modules/execution/fixtures.js";
 import { listSessionsUrl, sessionDetailUrl } from "../modules/reporting/fixtures.js";
 import type { CanaryWorld } from "./harness.js";
 
 export type BackendCanaryFlow = CanaryFlow<CanaryWorld>;
 
-export const canaryLog = logger("canary");
+export const canaryLog = logger("execution");
 
-export function forgedContext(fields: Record<string, unknown>): TelemetryContext {
+function forgedContext(fields: Record<string, unknown>): TelemetryContext {
   return Object.assign<TelemetryContext, Record<string, unknown>>({}, fields);
 }
 
 function forgedEvent(fields: Record<string, unknown>): DomainEvent {
   return Object.assign<DomainEvent, Record<string, unknown>>(
-    { name: "session.started", sessionId: "s-1", questionnaireId: "q-1", questionnaireVersion: 1 },
+    { name: "session.started", sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID, questionnaireVersion: 1 },
     fields,
   );
 }
 
 function withWhitespace(sentinel: string): string {
   return `patient answered ${sentinel}`;
+}
+
+function lowerCased(sentinel: string): TelemetryContext {
+  const value = sentinel.toLowerCase();
+  return {
+    sessionId: value,
+    questionnaireId: value,
+    questionnaireVersionId: value,
+    questionId: value,
+    requestId: value,
+    errorType: value,
+    errorCode: value,
+    invariant: value,
+  };
 }
 
 function forgedRegistryContext(sentinel: string): TelemetryContext {
@@ -78,7 +93,7 @@ export const CANARY_FLOWS: readonly BackendCanaryFlow[] = [
     run: async (_world, sentinel) => {
       canaryLog.info("forged context", forgedRegistryContext(sentinel));
       canaryLog.debug("wrapped answers", forgedContext({ sessionId: sensitive(sentinel), answer: sensitive(sentinel) }));
-      canaryLog.warn("error message", { sessionId: "s-1" }, new Error(`answer was ${sentinel}`));
+      canaryLog.warn("error message", { sessionId: SESSION_ID }, new Error(`answer was ${sentinel}`));
       canaryLog.error("error cause", undefined, new Error("outer", { cause: new Error(sentinel) }));
     },
   },
@@ -95,12 +110,35 @@ export const CANARY_FLOWS: readonly BackendCanaryFlow[] = [
     },
   },
   {
+    name: "withSpan: a span name that is the sentinel, in either case, still runs the callback and exports no span",
+    run: async (_world, sentinel) => {
+      for (const name of [sentinel, sentinel.toLowerCase()]) {
+        let ran = false;
+        // @ts-expect-error — the name is a string, not a SpanName
+        await withSpan(name, { sessionId: SESSION_ID }, async () => {
+          ran = true;
+          canaryLog.info("inside the span", { sessionId: SESSION_ID });
+        });
+        expect(ran, "an unknown span name must still run the callback").toBe(true);
+      }
+    },
+  },
+  {
+    name: "logger and withSpan: the lower-cased sentinel in every uuid, error class, SQLSTATE and invariant field",
+    run: async (_world, sentinel) => {
+      canaryLog.info("lower-cased ids", lowerCased(sentinel));
+      await withSpan("session.submit", lowerCased(sentinel), async () => {
+        canaryLog.info("inside the span", lowerCased(sentinel));
+      });
+    },
+  },
+  {
     name: "errors: Errors whose message is the bare sentinel or a frame-shaped line, logged and thrown inside withSpan",
     run: async (_world, sentinel) => {
-      canaryLog.error("bare message", { sessionId: "s-1" }, new Error(sentinel));
+      canaryLog.error("bare message", { sessionId: SESSION_ID }, new Error(sentinel));
       canaryLog.error("bare type error", undefined, new TypeError(sentinel));
       canaryLog.error("frame-shaped line", undefined, new Error(`header\n    at ${sentinel} (secret.txt:1:1)`));
-      await withSpan("session.submit", { sessionId: "s-1" }, async () => {
+      await withSpan("session.submit", { sessionId: SESSION_ID }, async () => {
         throw new Error(sentinel);
       }).catch(() => undefined);
     },
@@ -120,7 +158,7 @@ export const CANARY_FLOWS: readonly BackendCanaryFlow[] = [
         }),
         new Error(frameShaped),
         new DrizzleQueryError("insert into response (text_value) values (?)", [frameShaped], cause),
-        InvariantViolation.of("session.not-marked-submitted", { sessionId: "s-1", questionnaireVersion: 2 }),
+        InvariantViolation.of("session.not-marked-submitted", { sessionId: SESSION_ID, questionnaireVersion: 2 }),
       ];
       for (const failure of failures) {
         expect(await world.injectFailure(failure, sentinel), "the queued failure must surface as a 500").toBe(500);

@@ -1,8 +1,8 @@
-import { withSpan, type SignalKind, type SpanName } from "@qp/telemetry";
-import { expectCleanRun, runCanaryFlow } from "@qp/telemetry/canary";
+import { withSpan, type SignalKind } from "@qp/telemetry";
+import { expectCleanRun, plantThirdPartyCounter, runCanaryFlow } from "@qp/telemetry/canary";
 import { describe, expect, it } from "vitest";
 import { useTestDatabase } from "../db/fixtures.js";
-import { canaryLog, CANARY_FLOWS, forgedContext, type BackendCanaryFlow } from "./flows.js";
+import { canaryLog, CANARY_FLOWS, type BackendCanaryFlow } from "./flows.js";
 import { useCanaryWorld } from "./harness.js";
 
 const testDatabase = useTestDatabase();
@@ -36,29 +36,42 @@ const NEGATIVE_CONTROLS: readonly NegativeControl[] = [
     flow: {
       name: "leaks through a log message",
       run: async (_world, sentinel) => {
+        // eslint-disable-next-line no-restricted-syntax -- the negative control: a cast is the one way past the literal-only message type
         canaryLog.info(sentinel as "message");
       },
     },
   },
   {
-    name: "a sentinel cast into a span name",
-    detectedIn: ["span"],
+    name: "a slug-shaped token placed in an item id",
+    detectedIn: ["log", "span"],
     flow: {
-      name: "leaks through a span name",
+      name: "leaks through an item id",
       run: async (_world, sentinel) => {
-        await withSpan(sentinel as SpanName, {}, async () => undefined);
+        await withSpan("session.submit", { itemId: sentinel.toLowerCase() }, async () => {
+          canaryLog.info("inside the span", { itemId: sentinel.toLowerCase() });
+        });
       },
     },
   },
   {
-    name: "an answer-shaped token placed in an id field",
+    name: "a route-shaped token placed in the route",
     detectedIn: ["log", "span"],
     flow: {
-      name: "leaks through an id field",
+      name: "leaks through a route",
       run: async (_world, sentinel) => {
-        await withSpan("session.submit", forgedContext({ sessionId: sentinel }), async () => {
-          canaryLog.info("inside the span", forgedContext({ sessionId: sentinel }));
+        await withSpan("session.submit", { route: `/${sentinel.toLowerCase()}` }, async () => {
+          canaryLog.info("inside the span", { route: `/${sentinel.toLowerCase()}` });
         });
+      },
+    },
+  },
+  {
+    name: "a constraint-shaped token placed on a metric label",
+    detectedIn: ["metric"],
+    flow: {
+      name: "leaks through a metric label",
+      run: async (_world, sentinel) => {
+        plantThirdPartyCounter({ "db.constraint": sentinel.toLowerCase() });
       },
     },
   },

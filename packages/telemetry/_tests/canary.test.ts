@@ -6,6 +6,7 @@ import {
   CANARY_SENTINEL,
   expectCleanRun,
   exposuresOf,
+  plantThirdPartyCounter,
   plantThirdPartyTelemetry,
   runCanaryFlow,
   type CanaryFlow,
@@ -13,6 +14,7 @@ import {
 } from "../src/canary.js";
 import { logger } from "../src/index.js";
 import { installTestTelemetry } from "../src/testing.js";
+import { SESSION_ID, QUESTIONNAIRE_ID } from "./fixtures.js";
 
 function captured(parts: Partial<{ logs: Record<string, unknown>[]; spans: object[]; metrics: object[] }> = {}): CapturedTelemetry {
   return {
@@ -25,8 +27,8 @@ function captured(parts: Partial<{ logs: Record<string, unknown>[]; spans: objec
 describe("canary detector: exposuresOf", () => {
   it("reports nothing for telemetry that never saw the sentinel", async () => {
     const clean = captured({
-      logs: [{ msg: "hello", "questionnaire.session_id": "s-1" }],
-      spans: [{ attributes: { "questionnaire.id": "q-1" } }],
+      logs: [{ msg: "hello", "questionnaire.session_id": SESSION_ID }],
+      spans: [{ attributes: { "questionnaire.id": QUESTIONNAIRE_ID } }],
       metrics: [{ dataPoints: [{ attributes: { "questionnaire.reason": "answer/required" }, value: 3 }] }],
     });
 
@@ -120,7 +122,7 @@ describe("canary runner: runCanaryFlow", () => {
   const cleanFlow: CanaryFlow<{ sessionId: string }> = {
     name: "logs a clean id",
     run: async ({ sessionId }) => {
-      logger("canary").info("clean line", { sessionId });
+      logger("execution").info("clean line", { sessionId });
     },
   };
 
@@ -133,14 +135,14 @@ describe("canary runner: runCanaryFlow", () => {
       },
     };
 
-    await runCanaryFlow(flow, { sessionId: "s-1" });
+    await runCanaryFlow(flow, { sessionId: SESSION_ID });
 
-    expect(seen).toEqual(["s-1", CANARY_SENTINEL]);
+    expect(seen).toEqual([SESSION_ID, CANARY_SENTINEL]);
   });
 
   it("counts what each signal observed, so a flow that emits nothing is visible", async () => {
     const silent = await runCanaryFlow({ name: "silent", run: async () => undefined }, {});
-    const logged = await runCanaryFlow(cleanFlow, { sessionId: "s-1" });
+    const logged = await runCanaryFlow(cleanFlow, { sessionId: SESSION_ID });
 
     expect(silent.observed).toEqual({ log: 0, span: 0, metric: 0 });
     expect(logged.observed).toEqual({ log: 1, span: 0, metric: 0 });
@@ -151,7 +153,8 @@ describe("canary runner: runCanaryFlow", () => {
     const leaky: CanaryFlow<object> = {
       name: "casts the sentinel into a message",
       run: async (_world, sentinel) => {
-        logger("canary").info(sentinel as "message");
+        // eslint-disable-next-line no-restricted-syntax -- the negative control: a cast is the one way past the literal-only message type
+        logger("execution").info(sentinel as "message");
       },
     };
 
@@ -229,6 +232,25 @@ describe("canary export-time scrub: a third-party span and counter that carry th
     expect(() => expectCleanRun(thirdParty.name, run)).not.toThrow();
   });
 
+  it("a bounded label that passes its shape check is exported, so the gate can see it leak", async () => {
+    const run = await runCanaryFlow(
+      { name: "labelled counter", run: async (_world, sentinel) => plantThirdPartyCounter({ "db.constraint": sentinel.toLowerCase() }) },
+      {},
+    );
+
+    expect(run.exposures.map((exposure) => exposure.signal)).toEqual(["metric"]);
+  });
+
+  it("a bounded label that fails its shape check is dropped", async () => {
+    const run = await runCanaryFlow(
+      { name: "labelled counter", run: async (_world, sentinel) => plantThirdPartyCounter({ "db.constraint": sentinel }) },
+      {},
+    );
+
+    expect(run.exposures).toEqual([]);
+    expect(run.observed.metric).toBeGreaterThan(0);
+  });
+
   it("mutation check: with the exporter scrub replaced by a pass-through, the same flow IS detected and the gate throws", async () => {
     vi.resetModules();
     vi.doMock("../src/exporters.js", async (importOriginal) => ({
@@ -240,7 +262,7 @@ describe("canary export-time scrub: a third-party span and counter that carry th
 
     const run = await mutated.runCanaryFlow({ name: thirdParty.name, run: async (_world, sentinel) => mutated.plantThirdPartyTelemetry(sentinel) }, {});
 
-    expect(run.exposures.map((exposure) => exposure.signal).sort()).toEqual(["metric", "span"]);
+    expect(run.exposures.map((exposure) => exposure.signal).sort()).toEqual(["metric", "span", "span", "span"]);
     expect(() => mutated.expectCleanRun(thirdParty.name, run)).toThrow(/TELEMETRY CANARY FAILED/);
   });
 });

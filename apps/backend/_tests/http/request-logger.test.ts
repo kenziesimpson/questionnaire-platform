@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyHttpDefaults, replyWithProblem } from "../../src/http/problems.js";
 import { requestLogger } from "../../src/http/request-logger.js";
+import { REQUEST_ID } from "./fixtures.js";
 
 const CANARY = "CANARY_DIABETES_8F3A";
 
@@ -11,7 +12,7 @@ let app: FastifyInstance;
 
 beforeEach(async () => {
   telemetry = installTestTelemetry();
-  app = Fastify({ loggerInstance: requestLogger("info") });
+  app = Fastify({ loggerInstance: requestLogger("info"), genReqId: () => REQUEST_ID });
   applyHttpDefaults(app, replyWithProblem);
   app.get("/sessions/:sessionId", async () => ({ ok: true }));
   app.get("/explode", async () => {
@@ -37,7 +38,7 @@ describe("the Fastify logger backed by the telemetry logger", () => {
       "http.route": "/sessions/:sessionId",
       "http.response.status_code": 200,
     });
-    expect(completed?.["http.request.id"]).toBe("req-1");
+    expect(completed?.["http.request.id"]).toBe(REQUEST_ID);
     expect(completed?.["http.server.request.duration_ms"]).toEqual(expect.any(Number));
     expect(JSON.stringify(telemetry.logs())).not.toContain(CANARY);
   });
@@ -60,10 +61,10 @@ describe("the Fastify logger backed by the telemetry logger", () => {
   });
 
   it("keeps a child logger's request id on every line", async () => {
-    const child = app.log.child({ reqId: "req-1" });
+    const child = app.log.child({ reqId: REQUEST_ID });
     child.info("incoming request");
     child.warn("incoming request");
 
-    expect(telemetry.logs().map((line) => line["http.request.id"])).toEqual(["req-1", "req-1"]);
+    expect(telemetry.logs().map((line) => line["http.request.id"])).toEqual([REQUEST_ID, REQUEST_ID]);
   });
 });

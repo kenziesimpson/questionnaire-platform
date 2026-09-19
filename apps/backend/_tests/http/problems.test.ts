@@ -11,6 +11,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { SQLSTATE } from "../../src/db/errors.js";
 import { applyHttpDefaults, notFoundProblem, replyWithProblem, sendProblem } from "../../src/http/problems.js";
 import { InvariantViolation } from "../../src/invariant.js";
+import { REQUEST_ID, SESSION_ID } from "./fixtures.js";
 
 const CANARY = "CANARY_DIABETES_8F3A";
 const TRACE_ID = /^[0-9a-f]{32}$/;
@@ -131,7 +132,7 @@ describe("the 500 problem and its telemetry", () => {
 
   beforeEach(async () => {
     telemetry = installTestTelemetry();
-    scoped = Fastify();
+    scoped = Fastify({ genReqId: () => REQUEST_ID });
     applyHttpDefaults(scoped, replyWithProblem);
     scoped.get("/plain/:sessionId", async () => {
       throw new TypeError(`bad value ${CANARY}`);
@@ -151,7 +152,7 @@ describe("the 500 problem and its telemetry", () => {
       throw new DrizzleQueryError("insert into response (text_value) values (?)", [`x\n    at ${CANARY} (secret.txt:1:1)`], cause);
     });
     scoped.get("/invariant", async () => {
-      throw InvariantViolation.of("session.not-marked-submitted", { sessionId: "s-1", questionnaireVersion: 2 });
+      throw InvariantViolation.of("session.not-marked-submitted", { sessionId: SESSION_ID, questionnaireVersion: 2 });
     });
     scoped.post<{ Body: { count: number } }>(
       "/things",
@@ -187,7 +188,7 @@ describe("the 500 problem and its telemetry", () => {
   it("falls back to the request id when no span is active", async () => {
     const response = await scoped.inject({ method: "GET", url: "/plain/x" });
 
-    expect(response.json().detail).toBe("req-1");
+    expect(response.json().detail).toBe(REQUEST_ID);
   });
 
   it("logs the error type, its stack frames and the route, and never the message or the URL", async () => {
@@ -198,7 +199,7 @@ describe("the 500 problem and its telemetry", () => {
       level: "error",
       module: "http",
       "error.type": "TypeError",
-      "http.request.id": "req-1",
+      "http.request.id": REQUEST_ID,
       "http.route": "/plain/:sessionId",
     });
     expect(failure?.["error.stack"]).toEqual(expect.stringMatching(/^ {4}at /));
@@ -235,12 +236,12 @@ describe("the 500 problem and its telemetry", () => {
       level: "error",
       "error.type": "InvariantViolation",
       "error.invariant": "session.not-marked-submitted",
-      "questionnaire.session_id": "s-1",
+      "questionnaire.session_id": SESSION_ID,
       "questionnaire.version": 2,
     });
     expect(telemetry.spans()[0]?.attributes).toMatchObject({
       "error.invariant": "session.not-marked-submitted",
-      "questionnaire.session_id": "s-1",
+      "questionnaire.session_id": SESSION_ID,
       "error.type": "InvariantViolation",
     });
   });
@@ -317,7 +318,7 @@ describe("with the real SDK and its Fastify instrumentation", () => {
     instrumented = Fastify();
     applyHttpDefaults(instrumented, replyWithProblem);
     instrumented.get("/sessions/:sessionId", async () => {
-      throw InvariantViolation.of("session.not-marked-submitted", { sessionId: "s-1" });
+      throw InvariantViolation.of("session.not-marked-submitted", { sessionId: SESSION_ID });
     });
     await instrumented.ready();
   });

@@ -1,6 +1,6 @@
-import { PROBLEM_SLUGS, RESPONSE_TYPES, SUBMISSION_ITEM_CODES } from "@qp/shared";
+import { PROBLEM_SLUGS, RESPONSE_TYPES, SLUG_PATTERN, SUBMISSION_ITEM_CODES, UUID_PATTERN } from "@qp/shared";
 import { PROBLEM_CODES } from "./problems.js";
-import { DROP_REASONS, LOG_ATTRIBUTES, SCRUB_ATTRIBUTES, SIGNAL_KINDS } from "./vocabulary.js";
+import { DROP_REASONS, LOG_ATTRIBUTES, LOG_MODULES, SCRUB_ATTRIBUTES, SIGNAL_KINDS } from "./vocabulary.js";
 
 export const OUTCOMES = ["accepted", "rejected_validation", "rejected_conflict", "failed"] as const;
 export type Outcome = (typeof OUTCOMES)[number];
@@ -17,12 +17,17 @@ export interface FieldDefinition<V> {
   readonly accepts: (value: unknown) => value is V;
 }
 
+const UUID = new RegExp(UUID_PATTERN);
+const SLUG = new RegExp(SLUG_PATTERN);
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
-const ROUTE = /^\/[A-Za-z0-9_.:*{}/-]{0,200}$/;
+const ROUTE_LITERAL = "[a-z0-9][a-z0-9_.-]*";
+const ROUTE_PARAMETER = "(?::[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*|\\{[A-Za-z_][A-Za-z0-9_]*\\}|\\*)";
+const ROUTE = new RegExp(`^(?=.{1,200}$)(?:/|(?:/(?:${ROUTE_LITERAL}|${ROUTE_PARAMETER}))+/?)$`);
+const ERROR_CLASS_NAME = /^[A-Z][A-Za-z0-9]{0,63}$/;
 const TYPE_NAME = /^[A-Za-z_$][A-Za-z0-9_$.-]{0,127}$/;
-const ERROR_CODE = /^[A-Za-z0-9_]{1,32}$/;
-const INVARIANT_NAME = /^[a-z][a-z0-9_.-]{0,63}$/;
-const CONSTRAINT_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+const SQLSTATE = /^[0-9A-Z]{5}$/;
+const INVARIANT_NAME = /^(?=.{1,64}$)[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/;
+const CONSTRAINT_NAME = /^(?=.{1,63}$)[a-z][a-z0-9]*(?:_+[a-z0-9]+)+$/;
 const DB_SYSTEM = /^[a-z][a-z0-9_.]{0,31}$/;
 const DB_OPERATION = /^[A-Za-z_]{1,32}$/;
 const HOST_NAME = /^[A-Za-z0-9_.-]{1,255}$/;
@@ -72,26 +77,26 @@ export function stackFramesOf(error: Error): string | undefined {
 }
 
 export const FIELDS = {
-  sessionId: matching("questionnaire.session_id", IDENTIFIER, false),
-  questionnaireId: matching("questionnaire.id", IDENTIFIER, false),
-  questionnaireVersionId: matching("questionnaire.version_id", IDENTIFIER, false),
+  sessionId: matching("questionnaire.session_id", UUID, false),
+  questionnaireId: matching("questionnaire.id", UUID, false),
+  questionnaireVersionId: matching("questionnaire.version_id", UUID, false),
   questionnaireVersion: quantity("questionnaire.version"),
-  itemId: matching("questionnaire.item_id", IDENTIFIER, false),
-  lastItemId: matching("questionnaire.last_item_id", IDENTIFIER, false),
-  questionId: matching("questionnaire.question_id", IDENTIFIER, false),
+  itemId: matching("questionnaire.item_id", SLUG, false),
+  lastItemId: matching("questionnaire.last_item_id", SLUG, false),
+  questionId: matching("questionnaire.question_id", UUID, false),
   questionType: oneOf("questionnaire.question_type", RESPONSE_TYPES),
   outcome: oneOf("questionnaire.outcome", OUTCOMES),
   reason: oneOf("questionnaire.reason", SUBMISSION_ITEM_CODES),
   elapsedSeconds: quantity("questionnaire.elapsed_seconds"),
   durationMs: quantity("questionnaire.duration_ms"),
   questionCount: quantity("questionnaire.question_count"),
-  requestId: matching("http.request.id", IDENTIFIER, false),
+  requestId: matching("http.request.id", UUID, false),
   method: oneOf("http.request.method", HTTP_METHODS),
   route: matching("http.route", ROUTE, true),
   status: statusCode("http.response.status_code"),
   responseTimeMs: quantity("http.server.request.duration_ms"),
-  errorType: matching("error.type", TYPE_NAME, true),
-  errorCode: matching("error.code", ERROR_CODE, true),
+  errorType: matching("error.type", ERROR_CLASS_NAME, true),
+  errorCode: matching("error.code", SQLSTATE, true),
   invariant: matching("error.invariant", INVARIANT_NAME, true),
   constraint: matching("db.constraint", CONSTRAINT_NAME, true),
   problem: oneOf("problem.slug", PROBLEM_SLUGS),
@@ -122,7 +127,7 @@ const FIELD_ATTRIBUTES = indexedByAttribute(Object.values(FIELDS));
 const INFRASTRUCTURE = indexedByAttribute([
   matching(LOG_ATTRIBUTES.traceId, /^[0-9a-f]{32}$/, false),
   matching(LOG_ATTRIBUTES.spanId, /^[0-9a-f]{16}$/, false),
-  matching(LOG_ATTRIBUTES.module, /^[a-z][a-z0-9_-]{0,63}$/, true),
+  oneOf(LOG_ATTRIBUTES.module, LOG_MODULES),
   matching("exception.type", TYPE_NAME, true),
   oneOf("otel.status_code", ["OK", "ERROR"]),
   oneOf(SCRUB_ATTRIBUTES.signal, SIGNAL_KINDS),

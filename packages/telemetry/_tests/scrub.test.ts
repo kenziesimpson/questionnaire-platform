@@ -1,14 +1,15 @@
 import { sensitive } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import { scrubAttributes, scrubContext } from "../src/index.js";
+import { SESSION_ID, QUESTIONNAIRE_ID } from "./fixtures.js";
 
 const CANARY = "CANARY_DIABETES_8F3A";
 
 describe("scrubContext: only registered fields survive", () => {
   it("maps registered fields to their attribute names", () => {
-    const result = scrubContext({ sessionId: "s-1", questionnaireVersion: 2, questionType: "date", outcome: "accepted" });
+    const result = scrubContext({ sessionId: SESSION_ID, questionnaireVersion: 2, questionType: "date", outcome: "accepted" });
     expect(result.attributes).toEqual({
-      "questionnaire.session_id": "s-1",
+      "questionnaire.session_id": SESSION_ID,
       "questionnaire.version": 2,
       "questionnaire.question_type": "date",
       "questionnaire.outcome": "accepted",
@@ -17,8 +18,8 @@ describe("scrubContext: only registered fields survive", () => {
   });
 
   it("drops an unknown field and counts it", () => {
-    const result = scrubContext({ sessionId: "s-1", value: CANARY, answer: CANARY });
-    expect(result.attributes).toEqual({ "questionnaire.session_id": "s-1" });
+    const result = scrubContext({ sessionId: SESSION_ID, value: CANARY, answer: CANARY });
+    expect(result.attributes).toEqual({ "questionnaire.session_id": SESSION_ID });
     expect(result.dropped.unknown).toBe(2);
   });
 
@@ -62,7 +63,7 @@ describe("scrubAttributes: the exporter allowlist", () => {
   it("keeps registered attributes and known infrastructure attributes", () => {
     const result = scrubAttributes(
       {
-        "questionnaire.session_id": "s-1",
+        "questionnaire.session_id": SESSION_ID,
         "http.route": "/questionnaires/:questionnaireId",
         "http.response.status_code": 200,
         "db.system": "postgresql",
@@ -88,11 +89,11 @@ describe("scrubAttributes: the exporter allowlist", () => {
         "http.request.body": CANARY,
         "db.statement": `select ${CANARY}`,
         "exception.message": CANARY,
-        "questionnaire.session_id": "s-1",
+        "questionnaire.session_id": SESSION_ID,
       },
       "span",
     );
-    expect(result.attributes).toEqual({ "questionnaire.session_id": "s-1" });
+    expect(result.attributes).toEqual({ "questionnaire.session_id": SESSION_ID });
     expect(result.dropped.unknown).toBe(5);
   });
 
@@ -116,7 +117,7 @@ describe("scrubAttributes: the exporter allowlist", () => {
 
   it("keeps only bounded dimensions on a metric and counts the rest as unbounded", () => {
     const result = scrubAttributes(
-      { "questionnaire.question_type": "text", "questionnaire.reason": "answer/required", "questionnaire.session_id": "s-1", "questionnaire.id": "q-1" },
+      { "questionnaire.question_type": "text", "questionnaire.reason": "answer/required", "questionnaire.session_id": SESSION_ID, "questionnaire.id": QUESTIONNAIRE_ID },
       "metric",
     );
     expect(result.attributes).toEqual({ "questionnaire.question_type": "text", "questionnaire.reason": "answer/required" });
@@ -124,8 +125,81 @@ describe("scrubAttributes: the exporter allowlist", () => {
   });
 
   it("never serializes a value it did not keep", () => {
-    const result = scrubAttributes({ secret: CANARY, "http.request.body": sensitive(CANARY), "questionnaire.id": "q-1" }, "span");
-    expect(JSON.stringify(result.attributes)).toBe(JSON.stringify({ "questionnaire.id": "q-1" }));
+    const result = scrubAttributes({ secret: CANARY, "http.request.body": sensitive(CANARY), "questionnaire.id": QUESTIONNAIRE_ID }, "span");
+    expect(JSON.stringify(result.attributes)).toBe(JSON.stringify({ "questionnaire.id": QUESTIONNAIRE_ID }));
     expect(result.dropped.unknown).toBe(2);
+  });
+});
+
+const LONG = "a".repeat(200);
+
+const SHAPES: readonly {
+  readonly field: string;
+  readonly accepts: readonly string[];
+  readonly rejects: readonly string[];
+}[] = [
+  ...["sessionId", "questionnaireId", "questionnaireVersionId", "questionId", "requestId"].map((field) => ({
+    field,
+    accepts: [SESSION_ID, SESSION_ID.toUpperCase(), "0195a3f2-7c1e-7b3a-9d4e-1f2a3b4c5d6e"],
+    rejects: ["diabetes", "s-1", "type-2-diabetes", "2026-01-01", "12345", CANARY, `${SESSION_ID} `, `${SESSION_ID}\n`, SESSION_ID.replaceAll("-", "")],
+  })),
+  ...["itemId", "lastItemId"].map((field) => ({
+    field,
+    accepts: ["diabetes", "itm_01", "q1"],
+    rejects: ["Diabetes", "type-2", "2026-01-01", "12345", "1st_item", CANARY, SESSION_ID, "two words", "a".repeat(65), "item\n"],
+  })),
+  {
+    field: "route",
+    accepts: ["/", "/health", "/health/live", "/api/run/sessions/:sessionId", "/api/run/sessions/:sessionId/", "/questionnaires/$questionnaireId/responses", "/a/{id}/b", "/files/*", "/v1.2/items"],
+    rejects: ["", "sessions", "//", "/x?answer=1", "/x#y", "/Diabetes", `/${CANARY}`, "/a b", "/a//b", "/:", "/a/:1", "/a/:b-c", `/${LONG}`, "/x\n"],
+  },
+  {
+    field: "errorType",
+    accepts: ["Error", "TypeError", "InvariantViolation", "DrizzleQueryError", "AbortError"],
+    rejects: ["diabetes", "type-2", CANARY, "Error: x", "two words", "", "Error\n", `E${LONG}`],
+  },
+  {
+    field: "errorCode",
+    accepts: ["23505", "QP001", "42501", "23514"],
+    rejects: ["diabetes", "2301", "230505", "qp001", "FST_ERR_X", CANARY, "2350 ", "abcde"],
+  },
+  {
+    field: "constraint",
+    accepts: ["response_pkey", "qv_addressable", "session_state", "question_version_option_question_version_fk"],
+    rejects: ["diabetes", "type-2", "Response_pkey", "_pkey", "response_", CANARY, "a b_c", "a_b\n", `a_${"b".repeat(63)}`],
+  },
+  {
+    field: "invariant",
+    accepts: ["session.not-marked-submitted", "author.read-outside-author-hook", "audit.record-returned-no-id"],
+    rejects: ["diabetes", "type-2-diabetes", "2026-01-01", "a.", ".a", "Session.x", "a_b.c", CANARY, "a.b c", `a.${"b".repeat(64)}`],
+  },
+];
+
+describe("scrubContext: every token-shaped field rejects what an answer looks like", () => {
+  it.each(SHAPES.flatMap(({ field, accepts }) => accepts.map((value) => [field, value] as const)))("%s keeps %j", (field, value) => {
+    const result = scrubContext({ [field]: value });
+
+    expect(Object.values(result.attributes)).toEqual([value]);
+    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0 });
+  });
+
+  it.each(SHAPES.flatMap(({ field, rejects }) => rejects.map((value) => [field, value] as const)))("%s drops %j", (field, value) => {
+    const result = scrubContext({ [field]: value });
+
+    expect(result.attributes).toEqual({});
+    expect(result.dropped.invalid).toBe(1);
+  });
+});
+
+describe("scrubAttributes: the logger's module name is one of a closed list", () => {
+  it.each(["backend", "definition", "events", "execution", "http"])("keeps module %s", (module) => {
+    expect(scrubAttributes({ module }, "log").attributes).toEqual({ module });
+  });
+
+  it.each(["diabetes", "canary", "Http", CANARY, "type-2", ""])("drops module %j", (module) => {
+    const result = scrubAttributes({ module }, "log");
+
+    expect(result.attributes).toEqual({});
+    expect(result.dropped.invalid).toBe(1);
   });
 });

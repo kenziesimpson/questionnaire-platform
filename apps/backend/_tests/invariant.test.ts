@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { scrubContext } from "@qp/telemetry";
 import { describe, expect, it } from "vitest";
 import { InvariantViolation } from "../src/invariant.js";
+import { SESSION_ID } from "./http/fixtures.js";
 
 const SOURCE_DIRECTORY = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -67,12 +68,12 @@ describe("every invariant name in src", () => {
 
 describe("InvariantViolation", () => {
   it("carries its literal name and the ids it was given, and is an Error named for its class", () => {
-    const violation = InvariantViolation.of("session.not-marked-submitted", { sessionId: "s-1", questionnaireVersion: 2 });
+    const violation = InvariantViolation.of("session.not-marked-submitted", { sessionId: SESSION_ID, questionnaireVersion: 2 });
 
     expect(violation).toBeInstanceOf(Error);
     expect(violation.name).toBe("InvariantViolation");
     expect(violation.invariant).toBe("session.not-marked-submitted");
-    expect(violation.ids).toEqual({ sessionId: "s-1", questionnaireVersion: 2 });
+    expect(violation.ids).toEqual({ sessionId: SESSION_ID, questionnaireVersion: 2 });
     expect(violation.message).toBe("session.not-marked-submitted");
   });
 

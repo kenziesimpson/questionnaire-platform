@@ -19,10 +19,10 @@ and decision O2. Error bodies are covered by the same rule
 | Layer | Where it lives | Catches | Does not catch |
 | --- | --- | --- | --- |
 | 0 — `Sensitive<T>` | `packages/shared/src/sensitive.ts` | Anything that serializes an answer: `JSON.stringify`, a template, `String()`, `util.inspect`, an OTel attribute. Each returns `[redacted]` | An answer that was never wrapped, or one pulled out with `.unwrap()` |
-| 0 — literal-only message | `LiteralMessage` in `packages/telemetry/src/logger.ts` | `` log.info(`rejected ${text}`) `` and a `string` variable as a message, at compile time | A cast. `sentinel as "message"` compiles |
+| 0 — literal-only message | `LiteralMessage` in `packages/telemetry/src/logger.ts`, and the `no-restricted-syntax` selectors in `eslint.config.mjs` | `` log.info(`rejected ${text}`) `` and a `string` variable as a message, at compile time; a cast into a literal type, `never` or `any` as a message, a `logger(...)` module name or a `withSpan(...)` name, as a lint warning | A cast the selectors do not name, such as `as SomeAlias`. The lint is a warning, and CI has no `--max-warnings`, so it is advice, not a gate |
 | 1 — one boundary | `packages/telemetry`, plus the `telemetryOnly` rule in `eslint.config.mjs` | Any other workspace importing `pino`, `pino-*`, `@opentelemetry/*` or `@fastify/otel` | Nothing else writes telemetry, so this is the whole surface |
 | 1 — closed registry | `FIELDS` in `packages/telemetry/src/fields.ts` | An unknown context key, at compile time via `TelemetryContext` | A known key holding the wrong content — see below |
-| 1 — the scrub | `packages/telemetry/src/scrub.ts`, at call time in `logger.ts`, `spans.ts` and, for counter labels, `events.ts` (`boundedDimensionsOf`), and again at export time in `exporters.ts` and the pino formatter in `pipeline.ts` | Unregistered keys, values failing their `accepts` check, free text, objects, a `Sensitive`, unbounded attributes on a metric. Drops are counted in `telemetry.scrub.dropped{signal,reason}`, never by key | A value that passes its field's shape check |
+| 1 — the scrub | `packages/telemetry/src/scrub.ts`, at call time in `logger.ts`, `spans.ts` and, for counter labels, `events.ts` (`boundedDimensionsOf`), and again at export time in `exporters.ts` and the pino formatter in `pipeline.ts` | Unregistered keys, values failing their `accepts` check, free text, objects, a `Sensitive`, unbounded attributes on a metric, a span name outside `SPAN_NAMES` or the instrumentations' shapes, a logger module outside `LOG_MODULES`. Drops are counted in `telemetry.scrub.dropped{signal,reason}`, never by key | A value that passes its field's shape check |
 | 2 — the canary | `apps/backend/_tests/canary/`, `packages/telemetry/_tests/canary.test.ts` | A planted `CANARY_SENTINEL` reaching any exported span, metric data point or pino line, on any registered flow, with Fastify's instrumentation on and a planted third-party span and counter, so the export-time scrub is exercised. Removing the exporter scrub fails the gate | A code path no flow runs, which is why extending it is mandatory. The holes listed below. The pino formatter in `pipeline.ts`, which runs the same function as the call-time scrub and cannot be reached separately; only `packages/telemetry/_tests/pipeline.test.ts` covers it |
 | 3 — CI as the gate | the `canary` job, displayed as "Telemetry canary", in `.github/workflows/ci.yml` | A red canary turns that job red on the PR | Nothing locally. There is no pre-commit hook yet, so CI is the only gate |
 
@@ -30,34 +30,50 @@ Layer 4, the advisory agent review on the PR, is documented and not built. Layer
 
 ## Known holes
 
-These are real, they are in the T0a and T0b code, and they are not fixed. The canary's negative
-controls in `apps/backend/_tests/canary/canary.test.ts` exist because the first two are otherwise unguarded.
+These are real and not fixed. The canary's negative controls in
+`apps/backend/_tests/canary/canary.test.ts` each target one of them, so the gate is shown to fail.
 
-1. **The log message and the span name are types only, with no runtime check.** `LiteralMessage`
-   and the `SpanName` union are erased at runtime, so `log.info(value as "message")` and
-   `withSpan(value as SpanName, …)` both put the string straight into the output. Never cast into
-   a message or a span name. If you need a variable message, you need a field instead.
-2. **Identifier fields accept any whitespace-free token up to 128 characters.** `sessionId`,
-   `itemId`, `questionId`, `requestId`, `questionnaireId` and `lastItemId` and
-   `questionnaireVersionId` all use the same `IDENTIFIER` regex. A one-word answer, `diabetes`, put in one of them passes the scrub and is
-   exported. Ids come from the database, the route, or a generator. Never from an answer, a label
-   or anything a respondent typed.
-3. **Other fields are shaped, not closed.** `errorType`, `errorCode` and `constraint` accept any
-   token, `invariant` any lowercase token, `route` any string that starts with `/` and uses path
-   characters, and the `module` attribute behind `logger("<module>")` any lowercase token, because
-   the literal is a type only. Same rule: none of them comes from an answer.
-4. **The stack check is a shape check.** `stackFramesOf` drops the `Error` header by the message's own
+1. **The log message is guarded by its type and a lint warning only.** `LiteralMessage` is erased at
+   runtime and a message is written as given, so `log.info(value as "message")` puts the string
+   straight into the output. The `no-restricted-syntax` selectors warn on that cast; a warning is
+   advice, and only a reviewer or the canary stops it. Never cast into a message. If you need a
+   variable message, you need a field instead. Closed since the first version of this list: the span
+   name (`SPAN_NAMES`, checked in `withSpan` and again at export) and the logger's module name
+   (`LOG_MODULES`).
+2. **Slug- and route-shaped fields cannot tell an answer from an id.** `itemId` and `lastItemId` accept
+   any slug (`^[a-z][a-z0-9_]{0,63}$`), so a one-word lower-case answer such as `diabetes` put in one
+   passes. `route` accepts any lower-case literal path segment, so `/diabetes` passes; the scrub
+   cannot know a static segment from a word. `constraint` accepts any lower-case snake-case name
+   with an underscore, so `type_2_diabetes` passes. Ids and routes come from the database, the route
+   table or the author's definition. Never from an answer, a label or anything a respondent typed.
+   Closed since the first version of this list: `sessionId`, `questionnaireId`,
+   `questionnaireVersionId`, `questionId` and `requestId` are UUIDs, and a word, phrase, date or number
+   no longer passes.
+3. **Other fields are shaped, not closed.** `errorType` accepts any capitalised alphanumeric name
+   (`Diabetes`), `errorCode` any five characters from `0-9A-Z` (`12345`, a US zip code), `invariant` any
+   dotted lower-case name (`a.b`) and `db.name`, `db.namespace` and `server.address` any token. Same
+   rule: none of them comes from an answer.
+4. **Names the exporter copies through.** A span event's name, a metric's name, description and unit,
+   the instrumentation scope's name and the resource attributes are code constants in our code and in
+   the instrumentations, and are not scrubbed. The exporter accepts an auto-instrumented span name by
+   shape (`handler - <function name>`), so a hook function named after data would pass.
+5. **The stack check is a shape check.** `stackFramesOf` drops the `Error` header by the message's own
    line count and records nothing if the stack does not line up, which closed the case of a
    multi-line message with a frame-shaped line. What remains passes if it looks like a frame
    (`    at name (file:1:2)`). Never build an error message from an answer, and never construct an
    `Error` from one. The canary's `errors` and `500 path` flows keep the closed case closed.
-5. **The canary cannot see everything it plants.** It matches a string sentinel, in any case, by text.
+6. **The canary cannot see everything it plants.** It matches a string sentinel, in any case, by text.
    A numeric or date answer put in `elapsedSeconds`, `durationMs` or a similar number field is not
    detectable by it. A value that was truncated, hashed, encoded or split before it was logged is not
    matched either. Review those by reading the diff, not by the canary.
 
-The scrub drops free text, wrong shapes and closed-list mismatches. It cannot tell an id-shaped
-answer from an id. Nothing downstream can either.
+The negative controls target holes 1 and 2 and the metric label of hole 3: a sentinel cast into a log
+message, a slug-shaped token in `itemId`, a route-shaped token in `route`, and a constraint-shaped token
+on a metric label. When one of them starts failing because the runtime now guards that channel, replace
+it with a channel that is still open; do not delete it.
+
+The scrub drops free text, wrong shapes and closed-list mismatches. It cannot tell a slug-shaped answer
+from a slug. Nothing downstream can either.
 
 ## Adding a field
 
@@ -92,7 +108,8 @@ log.warn("answer rejected", { sessionId, itemId, questionId, reason: "answer/req
 log.error("submit failed", { sessionId, status: 500 }, error);
 ```
 
-`logger("<module>")` takes a literal module name. Levels are `debug`, `info`, `warn`, `error`;
+`logger("<module>")` takes one of `LOG_MODULES` in `packages/telemetry/src/vocabulary.ts`; a new module
+is one more member. Levels are `debug`, `info`, `warn`, `error`;
 there is no `fatal`. The message is a literal. The context holds registry fields only. The third
 argument is an `Error`, and only `error.name` and its stack frames are recorded — never
 `error.message`, because a message can carry a value.
@@ -108,7 +125,7 @@ log.info("request done", { ...request.body, sessionId });
 The first two are compile errors. The third is not: a spread escapes excess-property checking, so it
 typechecks, and the scrub then drops the unknown keys and counts them. That is a backstop, not a
 design — if the body happened to carry a key named `itemId` holding a one-word answer, it would be
-exported. Never spread a caller-supplied object into a context.
+exported, because a slug cannot be told from a word. Never spread a caller-supplied object into a context.
 
 `apps/backend/src/http/request-logger.ts` is the worked example. It receives Fastify's `req`/`res`
 objects and projects them through `FIELDS[…].accepts`, keeping `method`, `route`, `status`,
@@ -117,10 +134,13 @@ objects and projects them through `FIELDS[…].accepts`, keeping `method`, `rout
 
 ## Adding a span, an event, a metric
 
-**Span.** `withSpan(name, context, fn)` from `@qp/telemetry`. `SpanName` is a closed union of
-`questionnaire.publish`, `rule.evaluate` and `session.submit`; a new span name is one more member of
-that union in `packages/telemetry/src/spans.ts`. Context goes through the registry and is scrubbed
-like a log line. On a throw the span gets `error.type` and `ERROR` status with no status message.
+**Span.** `withSpan(name, context, fn)` from `@qp/telemetry`. `SpanName` is derived from `SPAN_NAMES`
+(`questionnaire.publish`, `rule.evaluate`, `session.submit`); a new span name is one more member of
+that array in `packages/telemetry/src/spans.ts`. A name outside the array never throws: `withSpan` runs
+`fn` with no span and counts a `span/unknown` drop. The exporter applies the same list, and renames any
+span whose name is neither declared nor an instrumentation's own to `unnamed`. Context goes through the
+registry and is scrubbed like a log line. On a throw the span gets `error.type` and `ERROR` status with
+no status message.
 
 ```ts
 await withSpan("session.submit", { sessionId, questionnaireVersion }, async () => submit());
@@ -185,9 +205,11 @@ drives the real path — a real request through `app.inject`, a real stored row,
   `@qp/telemetry/canary` adds a span and a counter carrying the sentinel in `url.path`, a body
   attribute, an exception and a status message, the way an instrumentation would.
 - **Real-path flows plant the bare sentinel.** Forged-input flows, which prove the scrub drops what
-  the types would have stopped, give id fields a value containing whitespace — see `withWhitespace`
-  in `flows.ts` — because a bare sentinel in an id field passes the shape check and is a real leak,
-  not a forgery.
+  the types would have stopped, plant it in every registry field. A field whose shape would accept the
+  sentinel gets a value containing whitespace instead — see `withWhitespace` in `flows.ts` — because
+  a value the shape accepts is a real leak, not a forgery. The sentinel is upper case with
+  underscores, so no id, route, code or constraint field accepts it; `lowerCased` in `flows.ts` plants
+  the lower-case form in the fields that still reject that.
 - **A flow may live in another workspace's `_tests`** when the path does not run in the backend.
   Import `runCanaryFlow`, `expectCleanRun`, `CANARY_SENTINEL` and `CanaryFlow` from
   `@qp/telemetry/canary`, build your own world, and end the test with
@@ -211,8 +233,9 @@ the flow and the signal that carried the sentinel.
 **Never weaken the gate to get CI green.** Do not `.skip` a flow, delete one, loosen an assertion,
 narrow the detector, change the sentinel, or remove a negative control. A red canary means a value
 reached telemetry — find the leak. If a negative control starts failing because the runtime now
-guards that channel, replace it with a control for a channel that is still types-only; do not delete
-it, because the file's purpose is to prove the gate can fail.
+guards that channel, replace it with a control for a channel that is still open — one that passes its
+shape check — and keep at least one control per signal (log, span, metric); do not delete it, because
+the file's purpose is to prove the gate can fail.
 
 ## Before opening the PR
 
@@ -220,7 +243,7 @@ it, because the file's purpose is to prove the gate can fail.
    table has its row.
 2. Every id field is filled from the database, the route or a generator — never from an answer, a
    label or user text.
-3. No cast into a log message or a `SpanName`, anywhere in the diff.
+3. No cast into a log message, a logger module name or a span name, anywhere in the diff.
 4. No `.unwrap()` outside validation and persistence.
 5. No body, problem `title`/`detail`/`instance`, `error.message`, URL, query string or cursor in any
    signal; no spread of a caller-supplied object into a context.

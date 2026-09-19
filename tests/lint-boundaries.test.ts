@@ -7,6 +7,7 @@ async function restrictedImports(filePath: string, code: string): Promise<string
 
 const DEFINITION = "apps/backend/src/modules/definition/routes/publish.ts";
 const EXECUTION = "apps/backend/src/modules/execution/submit.ts";
+const EXAMPLE_BACKEND = "apps/backend/src/http/example.ts";
 
 describe("telemetry boundary: only packages/telemetry imports pino or OpenTelemetry", () => {
   it.each([
@@ -31,6 +32,59 @@ describe("telemetry boundary: only packages/telemetry imports pino or OpenTeleme
     expect(await restrictedImports("packages/telemetry/src/logger.ts", `import pino from "pino";`)).toEqual([]);
     expect(await restrictedImports("packages/telemetry/src/pipeline.ts", `import { FastifyOtelInstrumentation } from "@fastify/otel";`)).toEqual([]);
     expect(await restrictedImports("packages/telemetry/src/node.ts", `import { NodeSDK } from "@opentelemetry/sdk-node";`)).toEqual([]);
+  });
+});
+
+async function restrictedSyntax(filePath: string, code: string) {
+  return (await lintAs(filePath, code)).filter((m) => m.ruleId === "no-restricted-syntax");
+}
+
+describe("telemetry text: a cast into a log message, logger module or span name is flagged", () => {
+  const PREAMBLE = `import { logger, withSpan, type SpanName } from "@qp/telemetry";\nconst log = logger("http");\ndeclare const value: string;\n`;
+
+  it.each([
+    ["a cast to a string literal in a log message", `log.info(value as "message");`],
+    ["a cast to a union of literals", `log.warn(value as "a" | "b");`],
+    ["a cast to never", `log.error(value as never, { status: 500 });`],
+    ["a cast to any", `log.debug(value as any);`],
+    ["an angle-bracket cast", `log.info(<"message">value);`],
+    ["a cast to LiteralMessage", `log.info(value as LiteralMessage<"x">);`],
+    ["a cast in the logger module name", `logger(value as "http");`],
+    ["a cast to SpanName", `void withSpan(value as SpanName, {}, async () => 1);`],
+    ["a cast to a span name literal", `void withSpan(value as "session.submit", {}, async () => 1);`],
+  ])("warns on %s", async (_, statement) => {
+    const messages = await restrictedSyntax(EXAMPLE_BACKEND, `${PREAMBLE}${statement}`);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.severity).toBe(1);
+  });
+
+  it.each([
+    ["a literal message", `log.info("session submitted", { sessionId: value });`],
+    ["a const assertion", `log.info("session submitted" as const);`],
+    ["a cast in the context argument", `log.info("session submitted", { itemId: value as string });`],
+    ["a cast in the error argument", `log.error("submit failed", {}, value as unknown as Error);`],
+    ["a plain module name", `logger("http");`],
+    ["a cast on something other than a logger call", `console.log(value as "message");`],
+    ["a literal span name", `void withSpan("session.submit", {}, async () => 1);`],
+  ])("allows %s", async (_, statement) => {
+    const messages = await restrictedSyntax(EXAMPLE_BACKEND, `${PREAMBLE}${statement}`);
+
+    expect(messages.filter((message) => message.message.startsWith("A cast into a"))).toEqual([]);
+  });
+
+  it("warns in every workspace, including tests", async () => {
+    const code = `${PREAMBLE}log.info(value as "message");`;
+
+    expect(await restrictedSyntax("packages/telemetry/src/example.ts", code)).toHaveLength(1);
+    expect(await restrictedSyntax("apps/backend/_tests/example.test.ts", code)).toHaveLength(1);
+    expect(await restrictedSyntax("apps/admin/src/example.tsx", code)).toHaveLength(1);
+  });
+
+  it("accepts a disable comment carrying a reason, and it counts as used", async () => {
+    const code = `${PREAMBLE}// eslint-disable-next-line no-restricted-syntax -- the negative control\nlog.info(value as "message");`;
+
+    expect((await restrictedSyntax(EXAMPLE_BACKEND, code)).filter((message) => message.message.startsWith("A cast into a"))).toEqual([]);
   });
 });
 

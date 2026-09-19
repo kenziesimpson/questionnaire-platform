@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { logger, withSpan } from "../src/index.js";
 import { installTestTelemetry, type TestTelemetry } from "../src/testing.js";
+import { SESSION_ID } from "./fixtures.js";
 
 const CANARY = "CANARY_DIABETES_8F3A";
 
@@ -65,13 +66,13 @@ describe("logger level filtering", () => {
 describe("logger records", () => {
   it("writes the message, level, module and registered fields, and nothing else", () => {
     const installed = install();
-    log.info("session submitted", { sessionId: "s-1", questionnaireVersion: 2, outcome: "accepted" });
+    log.info("session submitted", { sessionId: SESSION_ID, questionnaireVersion: 2, outcome: "accepted" });
     const [line] = installed.logs();
     expect(line).toMatchObject({
       level: "info",
       msg: "session submitted",
       module: "execution",
-      "questionnaire.session_id": "s-1",
+      "questionnaire.session_id": SESSION_ID,
       "questionnaire.version": 2,
       "questionnaire.outcome": "accepted",
     });
@@ -89,15 +90,15 @@ describe("logger records", () => {
   it("drops a field outside the registry and keeps the line", () => {
     const installed = install();
     // @ts-expect-error — the closed context rejects an unknown field at compile time; the scrub is the runtime backstop
-    log.info("answer received", { sessionId: "s-1", value: CANARY });
+    log.info("answer received", { sessionId: SESSION_ID, value: CANARY });
     const [line] = installed.logs();
-    expect(line).toMatchObject({ msg: "answer received", "questionnaire.session_id": "s-1" });
+    expect(line).toMatchObject({ msg: "answer received", "questionnaire.session_id": SESSION_ID });
     expect(JSON.stringify(line)).not.toContain(CANARY);
   });
 
   it("carries the active span's trace and span ids", async () => {
     const installed = install();
-    await withSpan("session.submit", { sessionId: "s-1" }, async () => {
+    await withSpan("session.submit", { sessionId: SESSION_ID }, async () => {
       log.info("inside");
     });
     log.info("outside");

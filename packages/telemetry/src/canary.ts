@@ -116,5 +116,11 @@ export function plantThirdPartyTelemetry(sentinel: string): void {
   span.recordException(new Error(`failed ${sentinel}`));
   span.setStatus({ code: SpanStatusCode.ERROR, message: `failed ${sentinel}` });
   span.end();
+  trace.getTracer("third-party").startSpan(sentinel).end();
+  trace.getTracer("third-party").startSpan(`handler - ${sentinel}`).end();
   metrics.getMeter("third-party").createCounter("third_party.requests").add(1, { answer: sentinel, "url.path": sentinel });
+}
+
+export function plantThirdPartyCounter(labels: Readonly<Record<string, string>>): void {
+  metrics.getMeter("third-party").createCounter("third_party.labelled").add(1, labels);
 }
