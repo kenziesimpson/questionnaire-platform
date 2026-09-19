@@ -1,6 +1,6 @@
 import { trace } from "@opentelemetry/api";
 import { stackFramesOf, type TelemetryContext } from "./fields.js";
-import { guarded } from "./guard.js";
+import { guarded, guardedOr } from "./guard.js";
 import { reportDropped } from "./instruments.js";
 import { scrubAttributes, scrubContext, type ScrubbedAttributes } from "./scrub.js";
 import { LOG_ATTRIBUTES, type LogModule } from "./vocabulary.js";
@@ -63,6 +63,18 @@ function emit(level: LogLevel, module: string, message: string, context: unknown
   reportDropped("log", fields.dropped);
   reportDropped("log", record.dropped);
   sink({ level, message, attributes: record.attributes });
+}
+
+export function relayLog<M extends string>(
+  level: LogLevel,
+  module: LogModule,
+  message: LiteralMessage<M>,
+  context: Readonly<Record<string, unknown>>,
+): boolean {
+  return guardedOr("log", false, () => {
+    emit(level, module, message, context, undefined);
+    return true;
+  });
 }
 
 export function logger(module: LogModule): Logger {

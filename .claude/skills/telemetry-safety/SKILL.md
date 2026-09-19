@@ -22,7 +22,7 @@ and decision O2. Error bodies are covered by the same rule
 | 0 — literal-only message | `LiteralMessage` in `packages/telemetry/src/logger.ts`, and the `local/no-cast-into-telemetry-text` rule in `eslint.config.mjs` | `` log.info(`rejected ${text}`) `` and a `string` variable as a message, at compile time; a cast into a literal type, `never` or `any` as a message, a `logger(...)` module name or a `withSpan(...)` name, as a lint error, which fails `npm run lint` and CI | The false negatives listed under hole 1: the rule matches syntax, not types |
 | 1 — one boundary | `packages/telemetry`, plus the `telemetryOnly` rule in `eslint.config.mjs` | Any other workspace importing `pino`, `pino-*`, `@opentelemetry/*` or `@fastify/otel` | Nothing else writes telemetry, so this is the whole surface |
 | 1 — closed registry | `FIELDS` in `packages/telemetry/src/fields.ts` | An unknown context key, at compile time via `TelemetryContext` | A known key holding the wrong content — see below |
-| 1 — the scrub | `packages/telemetry/src/scrub.ts`, at call time in `logger.ts`, `spans.ts` and, for counter labels, `events.ts` (`boundedDimensionsOf`), and again at export time in `exporters.ts` and the pino formatter in `pipeline.ts` | Unregistered keys, values failing their `accepts` check, free text, objects, a `Sensitive`, unbounded attributes on a metric, a span name outside `SPAN_NAMES` or the instrumentations' shapes, a logger module outside `LOG_MODULES`. Drops, and telemetry's own swallowed failures (reason `internal`), are counted in `telemetry.scrub.dropped{signal,reason}`, never by key | A value that passes its field's shape check |
+| 1 — the scrub | `packages/telemetry/src/scrub.ts`, at call time in `logger.ts`, `spans.ts` and, for counter labels, `events.ts` (`labelsOf`), and again at export time in `exporters.ts` and the pino formatter in `pipeline.ts` | Unregistered keys, values failing their `accepts` check, free text, objects, a `Sensitive`, unbounded attributes on a metric, a span name outside `SPAN_NAMES` or the instrumentations' shapes, a logger module outside `LOG_MODULES`. Drops, and telemetry's own swallowed failures (reason `internal`), are counted in `telemetry.scrub.dropped{signal,reason}`, never by key | A value that passes its field's shape check |
 | 2 — the leak test | `apps/backend/_tests/leak-test/`, `packages/telemetry/_tests/leak-test.test.ts`, `packages/telemetry/_tests/browser/leak-test.browser.test.ts` (the browser queue, beacon and error capture) | A planted `LEAK_SENTINEL` reaching any exported span, metric data point or pino line, on any registered flow, with Fastify's instrumentation on and the app built after it, so the export-time scrub sees real `request` and handler spans, plus a planted third-party span and counter. Removing the exporter scrub fails the gate, on a real-app flow as well as the planted one | A code path no flow runs, which is why extending it is mandatory. The holes listed below. `pg` spans, which never appear under test: `pg` is imported before the instrumentation starts and there is no loader hook, so the driver is not patched and no query span is produced. The pino formatter in `pipeline.ts`, which runs the same function as the call-time scrub and cannot be reached separately; only `packages/telemetry/_tests/pipeline.test.ts` covers it |
 | 3 — CI as the gate | the `leak-test` job, displayed as "Response telemetry leak test", in `.github/workflows/ci.yml` | A red leak test turns that job red on the PR | Nothing locally. There is no pre-commit hook yet, so CI is the only gate |
 
@@ -214,6 +214,17 @@ O19). The rules are the server's rules, applied before anything is queued:
   plants the sentinel in an unknown field, a known field's value, an error message, a stack line, a
   screen and a domain event, and asserts it is in neither the sent batch nor the beacon.
 
+## The ingest door
+
+`POST /api/telemetry` (`modules/telemetry`, `ingestBatch` in `packages/telemetry/src/ingest.ts`) is the one place telemetry
+arrives from outside. It has no database and never logs a body. It accepts an event only if its name is a
+`CLIENT_LOG_EVENTS` member or a `DOMAIN_EVENTS` entry marked `browser: true`, keeps a field only if it is on that event's list in `BROWSER_FIELDS` and `FIELDS` accepts it (`errorStack` also has to pass the
+stricter `isBrowserStack`), and counts every drop in `telemetry.ingest.dropped{reason}`. Before adding a browser event, ask whether the server could emit it itself;
+an event the server owns stays off the allowlist, so a browser cannot move its counter. A client log line carries no message: its
+level is its name. Hole 2 applies in full: the ingest cannot tell a slug-shaped `itemId` or a route from a one-word answer, so a
+browser build must take them from the definition and the route template. Never log or count an ingested name, timestamp,
+traceparent or rejected value.
+
 ## Never in telemetry
 
 - An answer value in any form: raw, `JSON.stringify(answer)`, `` `${answer}` ``, `String(answer)`.
@@ -281,10 +292,11 @@ drives the real path — a real request through `app.inject`, a real stored row,
   selects by that word. `tests/leak-test-selection.test.ts` fails when such a test does not carry it,
   so a flow cannot quietly fall outside the gate step.
 
-Flows still owed, by the lane that builds each path: the `/telemetry` ingest; the apps' use of the
-browser SDK, both the admin response-detail screen and the respondent app, through their telemetry
-wrapper (O20); the
-`view_response` audit path (O14); and any new reporting read.
+Flows built so far: the submit, rejection, past-cutoff, skipped-item and replay paths of the execution
+module, and the `/api/telemetry` ingest, with a batch that carries the sentinel in a field, a nested
+object, an event name, a timestamp and a traceparent, and batches refused as not an envelope. Flows still owed, by the lane that builds each path: the apps' use of the
+browser SDK, both the admin response-detail screen and the respondent app, through their telemetry wrapper (O20);
+the definition operations; the `view_response` audit path (O14); and any new reporting read.
 
 ## The gate
 

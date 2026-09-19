@@ -1,8 +1,17 @@
 import { metrics, type Counter, type Histogram } from "@opentelemetry/api";
 import { totalDropped, type DropCounts, type ScrubbedAttributes } from "./scrub.js";
-import { DROP_REASONS, INSTRUMENTATION_SCOPE, SCRUB_ATTRIBUTES, type DropReason, type SignalKind } from "./vocabulary.js";
+import {
+  DROP_REASONS,
+  INSTRUMENTATION_SCOPE,
+  SCRUB_ATTRIBUTES,
+  type DropReason,
+  type IngestDropReason,
+  type SignalKind,
+} from "./vocabulary.js";
 
 export const DROPPED_COUNTER = "telemetry.scrub.dropped";
+
+const INGEST_DROPPED_COUNTER = "telemetry.ingest.dropped";
 
 const SESSION_DURATION = "questionnaire.session.duration";
 
@@ -64,5 +73,14 @@ export function reportDropped(kind: SignalKind, dropped: DropCounts): void {
   if (totalDropped(dropped) === 0) return;
   for (const reason of DROP_REASONS) {
     if (dropped[reason] > 0) addDropped(kind, reason, dropped[reason]);
+  }
+}
+
+export function reportIngestDropped(reason: IngestDropReason, count: number = 1): void {
+  if (count <= 0) return;
+  try {
+    counter(INGEST_DROPPED_COUNTER).add(count, { [SCRUB_ATTRIBUTES.ingestReason]: reason });
+  } catch {
+    addDropped("metric", "internal", 1);
   }
 }

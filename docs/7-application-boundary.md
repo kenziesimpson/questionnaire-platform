@@ -48,6 +48,8 @@ No cross-imports, enforced by ESLint `no-restricted-imports` with zone rules: `m
 
 **A third plugin joined this pattern in Wave 3a**: `modules/reporting`, mounted at `/api/reporting`, backing the admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18), design doc Decisions Log #89). The same zone rules apply to it — it shares nothing with `modules/definition` — with one deliberate, narrow exception: `db/reporting` (never the module itself) may import `db/execution`'s `PublishedDefinitions` loader, so that a session's pinned snapshot is parsed and cached by the one loader that already knows how, and is read through the reporting module's own `qp_reporting` pool rather than `qp_execution`'s (§3.2). The list route takes `version`, `status`, `sort` (`started` or `submitted`, default `started`), `order` (`asc` or `desc`, default `desc`) and an opaque `cursor`, and answers `previousCursor` / `nextCursor` beside its items; `sort` and `order` are strict enums that select fixed columns, and a cursor issued under another ordering, or a forged one, is read as no cursor rather than rejected (Decisions Log #90). §10.2 below is this surface's own open question, not a resolved design.
 
+**A fourth plugin, `modules/telemetry`, is mounted at `/api/telemetry`** for the browsers' log lines and abandonment events ([[6-observability#6. Client-side telemetry]]). It has no database: ESLint rejects any import of the `db` layer, `drizzle-orm` or `pg` there, and of every other module, so a hostile batch reaches nothing that stores answers. It is unauthenticated and rate-limited per address, and its body is capped at 64 KiB.
+
 ### 3.2 Database grants
 
 The barrier that survives a refactor. Three roles now, all distinct from the migration role that owns the schema:
@@ -278,6 +280,7 @@ A standard beats a bespoke envelope here for one reason worth more than familiar
 | Slug | Status | Meaning |
 | --- | --- | --- |
 | `request/invalid` | 400 | Failed schema validation |
+| `request/rate-limited` | 429 | The telemetry ingest's per-address rate limit; `Retry-After` names the seconds to wait |
 | `resource/not-found` | 404 | Unknown id, or a draft viewed from the public surface |
 | `questionnaire/draft-invalid` | 422 | Publish-time validation failed |
 | `questionnaire/draft-stale` | 409 | `If-Match` mismatch on a draft write |

@@ -92,7 +92,7 @@ log.info("session submitted", { sessionId, questionnaireVersion: 2, outcome: "ac
 log.error("submit failed", { status: 500 }, error);
 ```
 
-- `logger("<module>")` takes one of `LOG_MODULES` (`backend`, `definition`, `events`, `execution`,
+- `logger("<module>")` takes one of `LOG_MODULES` (`backend`, `browser`, `definition`, `events`, `execution`,
   `http`) and tags every line with it. A new module is one more member of that array. Methods are `debug`, `info`,
   `warn` and `error`. There is no `fatal`.
 - The message must be a literal. `` `rejected ${value}` `` and a `string` variable are compile errors,
@@ -125,6 +125,8 @@ context key with an attribute name, a runtime check and a `bounded` flag.
 | `constraint` | `db.constraint` | a lower-case snake-case Postgres constraint name with at least one underscore | yes |
 | `problem`, `problemCode` | `problem.slug`, `problem.code` | a problem slug; a question rule, draft item, submission item or known schema code | yes |
 | `pool` | `db.pool` | `definition`, `execution` or `reporting` | yes |
+| `source` | `telemetry.source` | `browser`; the ingest stamps it on what a browser sent, a server-native line carries none, and a browser cannot set it | yes |
+| `eventAgeMs` | `telemetry.event_age_ms` | a finite number; the ingest stamps the time between an event's own timestamp and its receipt, and a browser cannot set it | no |
 | `errorStack` | `error.stack` | stack frames only; set from the `Error` argument, not by callers | no |
 
 An id field takes a UUID or a slug, not "any token", because a one-word answer, a hyphenated phrase
@@ -210,7 +212,7 @@ find is counted too, through `reportDropped`.
 await withSpan("session.submit", { sessionId }, async () => submit());
 ```
 
-- `SpanName` is derived from `SPAN_NAMES` (`questionnaire.publish`, `rule.evaluate`, `session.submit`); a
+- `SpanName` is derived from `SPAN_NAMES` (`questionnaire.publish`, `rule.evaluate`, `session.submit`, `telemetry.ingest`); a
   new span is one more member of that array. The backend wraps a submit in `session.submit` and its answer
   evaluation in `rule.evaluate`, and adds `outcome` to the first once it is known.
 - A name outside `SPAN_NAMES`, which only a cast or an untyped caller can pass, does not throw: `withSpan`
@@ -278,7 +280,55 @@ table, so adding an event is one entry.
 | `session.submit_finished` | `questionnaire.submissions`, labelled by `outcome` (`accepted`, `replayed`, `rejected_validation`, `rejected_conflict`, `failed`); `questionnaireId` and `questionnaireVersion` are `null` for `failed`, which is known only by the session id |
 
 `session.completed` also records `questionnaire.session.duration`, a histogram in milliseconds with explicit bucket boundaries from one second to a day.
-Counters carry bounded labels only.
+Counters carry bounded labels only, named per event in its `labels`. The ingest stamps `source: "browser"` on the ones a browser
+sends; `emitDomainEvent` stamps nothing, since the browser SDK routes it into its own queue too.
+
+## The ingest
+
+`ingestBatch(events, receivedAt)` is what `POST /api/telemetry` runs
+([`docs/6-observability.md`](../../docs/6-observability.md) O5, O17, L4). The backend plugin owns the wire contract, the rate
+limit and the body cap; this function owns what is kept. It takes each event as `unknown` and never rejects a batch:
+
+1. An event that is not an object, or has no string `name`, no parseable `at` timestamp or `fields` that are not an object, is dropped
+   as `malformed`.
+2. A name outside the allowlist is dropped as `unknown_event`. The allowlist is `CLIENT_LOG_EVENTS` (`client.info`, `client.warn`,
+   `client.error`, one per level O8 lets a browser send) plus the `DOMAIN_EVENTS` entries marked `browser: true`, which is
+   `session.abandoned` alone. The events the server emits, `session.item_skipped` among them (O11), are not on it, so a browser
+   cannot move `questionnaire.published` or the session-duration histogram. A client log line carries no message: its level is
+   its name and its meaning is its fields.
+3. Each event has its own closed list of browser-eligible fields (`BROWSER_FIELDS` in `ingest.ts`, typed against `FieldName`): the
+   ids and counts a browser knows, `errorType`, `errorStack`, `route` and `method`. A field is kept only if it is on its event's
+   list and its value passes the field's check. Everything else, the server-owned fields (`constraint`, `invariant`, `errorCode`,
+   `requestId`, `problem`, `pool`, `signal`, `status`, `source`, `eventAgeMs` and the rest), is dropped, counted as
+   `unknown_field` or `invalid_field`, and the rest of the event is kept. `errorStack` is held to a stricter shape than the
+   registry's own: every line must be a frame with an identifier-path function name and a bare script file with line and column, or
+   an `<anonymous>` or `native` marker (`BROWSER_STACK_FRAME` and `isBrowserStack` in `frame-shape.ts`, at most 40 lines of 200
+   characters). The browser SDK's `frames.ts` sanitises to the same shape and should import it. The file-name slot still accepts
+   any `name.js`, since hashed bundle names contain underscores.
+4. An optional `traceparent` (`00-<32 hex>-<16 hex>-<2 hex>`) puts the event's log line under the browser's trace and span. An
+   invalid one is dropped as `invalid_trace`. Without one, the line takes the trace of the request that carried it.
+5. The event is re-emitted with `source: "browser"` and `eventAgeMs`, through `relayLog` for a client log line (module `browser`)
+   or `relayBrowserEvent` for a domain event, which write the same log line and counter as `emitDomainEvent`, then pass the scrub
+   at call time and again at export.
+6. Events past `MAX_TELEMETRY_EVENTS` are dropped as `over_limit`.
+
+Every drop is one increment of `telemetry.ingest.dropped`, labelled `telemetry.ingest_reason` with a member of
+`INGEST_DROP_REASONS` (`malformed`, `unknown_event`, `unknown_field`, `invalid_field`, `invalid_trace`, `over_limit`). Field drops
+are not event drops: the receipt's `dropped` counts events only. An event's name, timestamp, traceparent and rejected values are
+counted and never logged.
+
+A new browser event is one more `browser: true` entry in `DOMAIN_EVENTS`, or one more `CLIENT_LOG_EVENTS` member with its level in
+`ingest.ts`, and a row in `BROWSER_FIELDS`. A new field is one `FIELDS` entry, and one entry in the event's list if a browser may
+send it. Both go expand-then-contract (O17): the server accepts a name or field before any
+build sends it and stops accepting it only after no deployed build does.
+
+The plugin around it (`apps/backend/src/modules/telemetry`) answers a batch that is not an envelope, is not JSON or carries a
+`__proto__` or `constructor.prototype` key anywhere as a `400` `request/invalid` problem for the whole batch, since Fastify refuses
+the body before the ingest sees it. A body over 64 KiB is a `413` that the error handler answers as `request/invalid`. The
+per-address rate limit (300 a minute, one bucket per IPv4 address or IPv6 `/64`) is keyed on `request.ip`, and `buildApp` sets
+`trustProxy: 1` for the one nginx hop, so each browser has its own bucket ([`docs/6-observability.md`](../../docs/6-observability.md)
+O21). The browser must cap its batch bytes below the limit and send a beacon as a `Blob` typed `application/json`, because a plain
+string goes as `text/plain`, which is a `400`.
 
 ## Sinks
 
@@ -389,10 +439,12 @@ The flows live with the code they exercise. The backend's registry is
 | `src/guard.ts` | `guarded`, `guardedOr`: run a telemetry action, swallow a failure and count it as `internal` |
 | `src/logger.ts` | `logger`, `LOG_LEVELS`, `LiteralMessage`, the sink and threshold |
 | `src/spans.ts` | `withSpan`, `SPAN_NAMES`, `SpanName`, `activeTraceId`, `annotateActiveSpan` |
-| `src/problems.ts` | `projectProblem`, `PROBLEM_CODES`, `SCHEMA_CODES` |
+| `src/problems.ts` | `projectProblem`, `PROBLEM_CODES`, `SCHEMA_CODES`, `MAX_FINDINGS` |
 | `src/problem-telemetry.ts` | `problemTelemetry`: `projectProblem` behind the never-throw guard |
-| `src/events.ts` | `DOMAIN_EVENTS` (each event's name, payload and counter), `DomainEvent`, `emitDomainEvent` |
-| `src/instruments.ts` | The counter and histogram primitives, the session-duration histogram and the drop counter; each swallows and counts its own failure |
+| `src/events.ts` | `DOMAIN_EVENTS` (each event's name, payload, counter, counter labels and whether a browser may send it), `DomainEvent`, `emitDomainEvent`, `relayBrowserEvent` |
+| `src/ingest.ts` | `ingestBatch`: the `/api/telemetry` ingest's event allowlist, field filter, trace context and drop counting, behind the never-throw guard |
+| `src/frame-shape.ts` | `BROWSER_STACK_FRAME`, `isBrowserStack`: the strict stack-frame shape the ingest accepts |
+| `src/instruments.ts` | The counter and histogram primitives, the session-duration histogram, the scrub drop counter and the ingest drop counter; each swallows and counts its own failure |
 | `src/exporters.ts` | The scrubbing decorators for span and metric exporters |
 | `src/pipeline.ts` | Builds the SDK, the pino sink and the exporters |
 | `src/node.ts` | `startTelemetry`, `runningTelemetry` |

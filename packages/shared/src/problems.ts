@@ -4,6 +4,7 @@ import { Slug, strict } from "./primitives.js";
 
 export const PROBLEMS = {
   "request/invalid": { status: 400, title: "The request failed validation" },
+  "request/rate-limited": { status: 429, title: "Too many requests" },
   "resource/not-found": { status: 404, title: "Resource not found" },
   "questionnaire/draft-invalid": { status: 422, title: "The draft failed publish validation" },
   "questionnaire/draft-stale": { status: 409, title: "The draft has changed since it was read" },

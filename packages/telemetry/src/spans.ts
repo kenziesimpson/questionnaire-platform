@@ -5,7 +5,7 @@ import { reportDropped } from "./instruments.js";
 import { oneDropped, scrubContext } from "./scrub.js";
 import { INSTRUMENTATION_SCOPE } from "./vocabulary.js";
 
-export const SPAN_NAMES = ["questionnaire.publish", "rule.evaluate", "session.submit"] as const;
+export const SPAN_NAMES = ["questionnaire.publish", "rule.evaluate", "session.submit", "telemetry.ingest"] as const;
 export type SpanName = (typeof SPAN_NAMES)[number];
 
 export function isSpanName(name: unknown): name is SpanName {

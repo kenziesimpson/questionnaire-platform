@@ -88,3 +88,4 @@ export { formatDraftEtag, isDraftEtagFor, parseDraftEtag, snapshotEtag, type Dra
 export * as definitionApi from "./api/definition.js";
 export * as executionApi from "./api/execution.js";
 export * as reportingApi from "./api/reporting.js";
+export * as telemetryApi from "./api/telemetry.js";

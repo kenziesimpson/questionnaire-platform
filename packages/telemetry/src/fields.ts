@@ -1,6 +1,14 @@
 import { PROBLEM_SLUGS, RESPONSE_TYPES, SLUG_PATTERN, SUBMISSION_ITEM_CODES, UUID_PATTERN } from "@qp/shared";
 import { PROBLEM_CODES } from "./problems.js";
-import { DROP_REASONS, LOG_ATTRIBUTES, LOG_MODULES, SCRUB_ATTRIBUTES, SIGNAL_KINDS } from "./vocabulary.js";
+import {
+  DROP_REASONS,
+  EVENT_SOURCES,
+  INGEST_DROP_REASONS,
+  LOG_ATTRIBUTES,
+  LOG_MODULES,
+  SCRUB_ATTRIBUTES,
+  SIGNAL_KINDS,
+} from "./vocabulary.js";
 
 export const OUTCOMES = ["accepted", "replayed", "rejected_validation", "rejected_conflict", "failed"] as const;
 export type Outcome = (typeof OUTCOMES)[number];
@@ -104,6 +112,8 @@ export const FIELDS = {
   pool: oneOf("db.pool", DATABASE_POOLS),
   errorStack: { attribute: "error.stack", bounded: false, accepts: isStackTrace },
   signal: oneOf("process.signal", SIGNALS),
+  source: oneOf("telemetry.source", EVENT_SOURCES),
+  eventAgeMs: quantity("telemetry.event_age_ms"),
 } as const satisfies Record<string, FieldDefinition<unknown>>;
 
 export type FieldName = keyof typeof FIELDS;
@@ -132,6 +142,7 @@ const INFRASTRUCTURE = indexedByAttribute([
   oneOf("otel.status_code", ["OK", "ERROR"]),
   oneOf(SCRUB_ATTRIBUTES.signal, SIGNAL_KINDS),
   oneOf(SCRUB_ATTRIBUTES.reason, DROP_REASONS),
+  oneOf(SCRUB_ATTRIBUTES.ingestReason, INGEST_DROP_REASONS),
   matching("db.system", DB_SYSTEM, true),
   matching("db.system.name", DB_SYSTEM, true),
   matching("db.operation", DB_OPERATION, true),

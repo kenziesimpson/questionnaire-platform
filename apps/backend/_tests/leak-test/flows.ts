@@ -1,4 +1,4 @@
-import { sensitive } from "@qp/shared";
+import { sensitive, telemetryApi } from "@qp/shared";
 import { INTAKE_ITEM_IDS, INTAKE_OPTION_IDS, INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { emitDomainEvent, FIELDS, logger, withSpan, type DomainEvent, type FieldName, type TelemetryContext } from "@qp/telemetry";
 import { plantThirdPartyTelemetry, type LeakFlow } from "@qp/telemetry/leak-test";
@@ -282,6 +282,64 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
       expect(malformed.statusCode).toBe(400);
       const unknown = await app.inject({ method: "GET", url: executionUrl(`/sessions/${sentinel}?answer=${sentinel}`) });
       expect(unknown.statusCode).toBeGreaterThanOrEqual(400);
+    },
+  },
+  {
+    name: "telemetry ingest: events carrying the sentinel in every registry field, a frame-shaped stack, a server-owned field, a nested object, an event name, a timestamp and a traceparent",
+    emits: ["client.error", "client.warn", "client.info", "session.abandoned"],
+    run: async ({ app }, sentinel) => {
+      const at = new Date().toISOString();
+      const forged = forgedRegistryContext(sentinel);
+      const lower = sentinel.toLowerCase();
+      const stack = (frame: string) => ({ name: "client.error", at, fields: { errorType: "Error", errorStack: frame } });
+      const response = await app.inject({
+        method: "POST",
+        url: telemetryApi.TELEMETRY_PREFIX,
+        payload: {
+          events: [
+            { name: "client.error", at, fields: forged },
+            { name: "client.warn", at, fields: { ...forged, [sentinel]: sentinel, nested: { deep: { sessionId: sentinel } }, list: [sentinel] } },
+            { name: "session.abandoned", at, fields: forged, traceparent: sentinel },
+            stack(`    at ${sentinel} patient answered yes (x.js:1:1)`),
+            stack(`    at Object.${sentinel} (x.js:1:2)`),
+            stack(`    at render (http://localhost/${sentinel}.js:1:2)`),
+            stack(`    at ${lower} (x.js:1:2)`),
+            { name: "client.info", at, fields: { constraint: lower, invariant: `${lower}.answer`, problem: lower, requestId: lower, status: 500 } },
+            { name: "session.item_skipped", at, fields: { sessionId: withWhitespace(sentinel), itemId: withWhitespace(sentinel) } },
+            { name: sentinel, at, fields: forged },
+            { name: sentinel.toLowerCase(), at, fields: forged },
+            { name: `client.info ${sentinel}`, at, fields: forged },
+            { name: { nested: sentinel }, at, fields: forged },
+            { name: "client.info", at: sentinel, fields: forged },
+            { name: "client.info", at, fields: sentinel },
+            { name: "client.info", at, fields: [sentinel] },
+            sentinel,
+            [sentinel],
+          ],
+        },
+      });
+      expect(response.statusCode, "the planted batch must be accepted for the flow to prove anything").toBe(202);
+      expect(response.json(), "the eight events that fail only in their fields or trace are kept, the ten malformed or unknown ones dropped").toEqual({
+        accepted: 8,
+        dropped: 10,
+      });
+    },
+  },
+  {
+    name: "telemetry ingest: batches refused as not an envelope, as malformed JSON, as a bare token and as over the size cap, each carrying the sentinel",
+    run: async ({ app }, sentinel) => {
+      const url = telemetryApi.TELEMETRY_PREFIX;
+      const headers = { "content-type": "application/json" };
+      const notAnEnvelope = await app.inject({ method: "POST", url, payload: { [sentinel]: sentinel, events: sentinel } });
+      const malformed = await app.inject({ method: "POST", url, headers, payload: `{"events": ["${sentinel}` });
+      const bareToken = await app.inject({ method: "POST", url, headers, payload: `{"events": ${sentinel}}` });
+      const oversized = await app.inject({
+        method: "POST",
+        url,
+        payload: { events: [{ name: "client.info", at: new Date().toISOString(), fields: { text: `${sentinel}${"x".repeat(telemetryApi.MAX_TELEMETRY_BODY_BYTES)}` } }] },
+      });
+      const plainText = await app.inject({ method: "POST", url, headers: { "content-type": "text/plain" }, payload: sentinel });
+      expect([notAnEnvelope, malformed, bareToken, oversized, plainText].map((response) => response.statusCode)).toEqual([400, 400, 400, 400, 400]);
     },
   },
   {

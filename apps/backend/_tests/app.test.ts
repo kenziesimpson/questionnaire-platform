@@ -57,6 +57,34 @@ describe("buildApp", () => {
     expect(routes).toEqual(["/api/definition/questionnaires"]);
   });
 
+  it("trusts one proxy hop, so a request's address is the one nginx forwarded and not a value the client spoofed further left", async () => {
+    const proxied = await buildApp({
+      definition: { database: testDatabase.database("definition") },
+      execution: { database: testDatabase.database("execution") },
+      reporting: { reporting: testDatabase.database("reporting") },
+    });
+    proxied.get("/ip-probe", async (request) => request.ip);
+
+    const forwarded = await proxied.inject({ method: "GET", url: "/ip-probe", remoteAddress: "10.0.0.1", headers: { "x-forwarded-for": "203.0.113.5" } });
+    const spoofed = await proxied.inject({
+      method: "GET",
+      url: "/ip-probe",
+      remoteAddress: "10.0.0.1",
+      headers: { "x-forwarded-for": "198.51.100.9, 203.0.113.6" },
+    });
+    const direct = await proxied.inject({ method: "GET", url: "/ip-probe", remoteAddress: "10.0.0.1" });
+    await proxied.close();
+
+    expect([forwarded.body, spoofed.body, direct.body]).toEqual(["203.0.113.5", "203.0.113.6", "10.0.0.1"]);
+  });
+
+  it("mounts the telemetry ingest at /api/telemetry", async () => {
+    const response = await app.inject({ method: "POST", url: "/api/telemetry", payload: { events: [] } });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual({ accepted: 0, dropped: 0 });
+  });
+
   it("mounts the definition module at /api/definition", async () => {
     const response = await app.inject({ method: "GET", url: "/api/definition/questionnaires" });
 
