@@ -413,6 +413,8 @@ CREATE TABLE execution.session (
 );
 CREATE INDEX session_by_version  ON execution.session (questionnaire_version_id, started_at);
 CREATE INDEX session_by_questionnaire ON execution.session (questionnaire_id, started_at, id);
+CREATE INDEX session_by_questionnaire_submitted_asc  ON execution.session (questionnaire_id, submitted_at, id);
+CREATE INDEX session_by_questionnaire_submitted_desc ON execution.session (questionnaire_id, submitted_at DESC NULLS LAST, id DESC);
 CREATE INDEX session_in_progress ON execution.session (questionnaire_id, last_activity_at)
   WHERE status = 'in_progress';
 ```
@@ -559,7 +561,8 @@ Every index below exists for a named query or a named invariant. Nothing is inde
 | `vqi_reverse` | "which published versions contain question X" ([[2-design-doc#12. Database]] §12.1) |
 | `session` PK | resume — `GET /sessions/:sessionId`, a point lookup |
 | `session_by_version` | "sessions started against version N", for the republish story and analytics |
-| `session_by_questionnaire (questionnaire_id, started_at, id)` | the admin responses list (Decisions Log #88): one questionnaire's sessions, newest first, paged by keyset. The predicate is the row comparison `(started_at, id) < ($1, $2)`, which a btree seeks to directly; the equivalent `OR` form is only a filter and re-walks every earlier page |
+| `session_by_questionnaire (questionnaire_id, started_at, id)` | the admin responses list sorted by Started (Decisions Log #88, #90): one questionnaire's sessions in either direction, paged by keyset. `started_at` is `NOT NULL`, so this one index is scanned forward for ascending and backward for descending, and its backward scan is the previous page. The predicate is the row comparison `(started_at, id) < ($1, $2)`, which a btree seeks to directly; the equivalent `OR` form is only a filter and re-walks every earlier page |
+| `session_by_questionnaire_submitted_asc (questionnaire_id, submitted_at, id)` and `session_by_questionnaire_submitted_desc (questionnaire_id, submitted_at DESC NULLS LAST, id DESC)` | the same list sorted by Submitted (Decisions Log #90, migration `0019`). In-progress sessions have a `NULL` `submitted_at` and sort last in both directions, so the order is `(submitted_at NULLS LAST, id)` ascending or descending. **Two indexes, not one, because a btree scanned backward reverses its `NULL` placement:** the default index serves ascending-`NULLS LAST` forward and descending-`NULLS FIRST` backward, and descending-`NULLS LAST`, with its own reverse for the previous page, needs the second definition. One index would serve both only under `NULLS FIRST` for descending, which puts every unfinished session above the newest submission. The cost is two more entries per session insert and per submit, on a submit `UPDATE` that was already not heap-only. Row comparison does not work over a `NULL`, so the keyset is explicit: `(submitted_at, id) > ($1, $2)` for the non-null run, then `submitted_at IS NULL`, and inside the tail `submitted_at IS NULL AND id > $2`, each an `Index Cond` on these indexes; backward paging from the tail adds `submitted_at IS NOT NULL`. A page that needs both segments reads them in one `REPEATABLE READ` read-only transaction |
 | `session_in_progress` (partial) | abandonment analytics; partial because submitted sessions are the majority and are never the subject of this query |
 | `session_pinned_version_key (id, questionnaire_version_id)` | the target of `response`'s composite foreign key (§6.3); an invariant, not an access path |
 | `response_by_session (session_id, created_at)` | idempotent replay, with partition pruning (§6.4) |

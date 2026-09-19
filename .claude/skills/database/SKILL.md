@@ -97,8 +97,18 @@ check instead, the change is wrong.
   which can write. A test enumerates the role's privileges, so a widening fails loudly.
 - **Read `response` with its partition key.** Filter on `created_at` as well as `session_id` (a submitted session's
   `submitted_at` *is* its rows' `created_at`), or the read scans all 36 partitions. Keyset pages compare the row,
-  `(started_at, id) < ($1, $2)`, never `a < $1 OR (a = $1 AND b < $2)`: only the row form is an index seek on
-  `session_by_questionnaire`.
+  `(col, id) < ($1, $2)`, never `a < $1 OR (a = $1 AND b < $2)`: only the row form is an index seek.
+- **The sessions list sorts by `started_at` or `submitted_at`, either way (Decisions Log #90).** The column and direction
+  come from a closed enum mapped to fixed columns and fixed SQL fragments in `db/reporting/keyset.ts`; nothing a client
+  sends is interpolated. `started_at` is `NOT NULL`, so `session_by_questionnaire` serves both directions. `submitted_at` is
+  `NULL` for an in-progress session and **`NULL`s sort last in both directions**. Row comparison is never true over a
+  `NULL`, so the keyset is written out: the row form for the non-null run, then `IS NULL`, and `IS NULL AND id …` inside the
+  tail, one statement per segment. **A btree scanned backward flips its `NULL` placement, so ascending-`NULLS LAST`
+  and descending-`NULLS LAST` need two indexes** (`session_by_questionnaire_submitted_asc` / `_desc`, migration `0019`); an
+  `ORDER BY` whose `NULLS` clause does not match an index is a `Sort` node, not a scan, even on a `NOT NULL` column. A change to
+  the query or the indexes is checked by `_tests/db/reporting/sessions.test.ts`, which `EXPLAIN`s every sort, order and
+  direction and fails on a `Sort` node or a keyset that is not an `Index Cond`. Cursors carry sort and order and are
+  validated field by field; a mismatched or forged one reads as no cursor.
 - **Take the lock first.** Three operations need a row lock as their *first* statement:
 
   | Operation | Lock |

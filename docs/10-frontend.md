@@ -8,7 +8,7 @@ Two audiences with opposite profiles, and one thing genuinely in common.
 
 The **respondent app** is anonymous, potentially high volume, and consists of a single flow: receive a published definition, render the items that apply, collect answers, submit once. It is the surface that would sit behind a CDN, and the one where a vulnerability would be reached ([[7-application-boundary#8. Deployment topology]]), so it stays small and dependency-light on purpose.
 
-The **admin app** is the opposite: low volume, eventually authenticated, and five screens of genuine editing — a question bank, a draft editor with ordering and branching, publishing, version history — plus, as of Wave 3a, a two-screen unaggregated responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)) reading through its own `qp_reporting` role. Complexity here is expected and affordable.
+The **admin app** is the opposite: low volume, eventually authenticated, and five screens of genuine editing — a question bank, a draft editor with ordering and branching, publishing, version history — plus, as of Wave 3a, a two-screen unaggregated responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)), sortable by its Started and Submitted columns (Decisions Log #90), reading through its own `qp_reporting` role. Complexity here is expected and affordable.
 
 What they share is **rendering a questionnaire**. The respondent renders it to answer it; the admin renders it to preview a published version. That shared surface is the reason `packages/ui` exists and is the only thing that crosses between them.
 
