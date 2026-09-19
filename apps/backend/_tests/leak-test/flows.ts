@@ -175,10 +175,19 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
         forgedEvent({ name: "session.completed", sessionId: ids.sessionId, durationMs: sentinel, questionCount: sentinel }),
       );
       emitDomainEvent(forgedEvent({ name: "session.started", answer: sensitive(sentinel) }));
+      emitDomainEvent(
+        forgedEvent({ name: "session.submit_finished", sessionId: ids.sessionId, questionnaireId: sentinel, outcome: sentinel, answer: sentinel }),
+      );
+      emitDomainEvent(
+        forgedEvent({ name: "session.answer_rejected", sessionId: ids.sessionId, itemId: null, questionId: null, reason: sentinel, answer: sentinel }),
+      );
+      emitDomainEvent(forgedEvent({ name: "session.item_skipped", ...ids, answer: sentinel }));
+      emitDomainEvent(forgedEvent({ name: "session.rejected_past_cutoff", sessionId: ids.sessionId, questionnaireId: sentinel, answer: sentinel }));
     },
   },
   {
     name: "execution: a real submit whose text answer is the sentinel",
+    emits: ["session.started", "session.question_answered", "session.completed", "session.submit_finished"],
     run: async (world, sentinel) => {
       await submitPlantedResponse(world, sentinel);
     },
@@ -200,16 +209,21 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
     },
   },
   {
-    name: "execution: a submit rejected with 422 for a known item and for an unknown item key that is the lower-cased sentinel",
+    name: "execution: a submit rejected with 422 for a known item, an unknown item key that is the lower-cased sentinel and a hundred more unknown keys",
+    emits: ["session.answer_rejected", "session.submit_finished"],
     run: async ({ app, testDatabase }, sentinel) => {
       await seedIntakeV1(testDatabase);
       const sessionId = await startedSessionId(app);
+      const manyUnknownKeys = Object.fromEntries(
+        Array.from({ length: 100 }, (_unused, index) => [`${sentinel.toLowerCase()}_${index}`, { type: "text", text: sentinel } as const]),
+      );
       const response = await submit(
         app,
         sessionId,
         answersYes({
           [INTAKE_ITEM_IDS.whichCondition]: { type: "single_choice", optionId: INTAKE_OPTION_IDS.hypertension, otherText: sentinel },
           [sentinel.toLowerCase()]: { type: "text", text: sentinel },
+          ...manyUnknownKeys,
         }),
       );
       expect(response.statusCode, "the planted submit must be rejected for the flow to prove anything").toBe(422);
@@ -218,6 +232,7 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
   },
   {
     name: "execution: a submit that skips the items an answer hides and carries the sentinel in the one it answers",
+    emits: ["session.item_skipped", "session.question_answered", "session.completed"],
     run: async (world, sentinel) => {
       await seedIntakeV1(world.testDatabase);
       const sessionId = await startedSessionId(world.app);
@@ -227,7 +242,8 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
     },
   },
   {
-    name: "execution: a submit after the questionnaire's cutoff, carrying the sentinel",
+    name: "execution: a submit after the questionnaire's cutoff; a path-coverage flow, since the cutoff path never sees the answers",
+    emits: ["session.rejected_past_cutoff", "session.submit_finished"],
     run: async ({ app, testDatabase }, sentinel) => {
       await seedIntakeV1(testDatabase);
       const sessionId = await startedSessionId(app);
@@ -242,6 +258,7 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
   },
   {
     name: "execution: a session resumed, submitted and then replayed with the same answers and with different ones",
+    emits: ["session.started", "session.resumed", "session.completed", "session.submit_finished"],
     run: async ({ app, testDatabase }, sentinel) => {
       await seedIntakeV1(testDatabase);
       const sessionId = await startedSessionId(app);

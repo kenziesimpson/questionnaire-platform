@@ -35,7 +35,12 @@ const DOMAIN_EVENTS = {
   "session.rejected_past_cutoff": event<{ sessionId: string; questionnaireId: string; questionnaireVersion: number }>(
     "questionnaire.sessions.rejected_past_cutoff",
   ),
-  "session.submit_finished": event<{ sessionId: string; questionnaireId: string; questionnaireVersion: number; outcome: Outcome }>(
+  "session.submit_finished": event<{
+    sessionId: string;
+    questionnaireId: string | null;
+    questionnaireVersion: number | null;
+    outcome: Outcome;
+  }>(
     "questionnaire.submissions",
   ),
 };

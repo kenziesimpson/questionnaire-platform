@@ -29,7 +29,7 @@ Three layers hold it here:
 | `@qp/telemetry/browser` | `createEventQueue`, `startBrowserTelemetry`, `installErrorCapture`, `injectTraceHeaders`, `afterFirstPaint`: the browser SDK | the core, `@opentelemetry/api`, `@opentelemetry/sdk-trace-web`; no Node built-in, `pino`, `./node`, `./testing` or `./leak-test` |
 | `@qp/telemetry/node` | `startTelemetry`: starts the SDK, pino and the auto-instrumentation; `runningTelemetry`: the handle it returned, until that handle shuts down | the Node SDK, exporters, pino |
 | `@qp/telemetry/testing` | `installTestTelemetry`: in-memory exporters for tests | the Node SDK |
-| `@qp/telemetry/leak-test` | `LEAK_SENTINEL`, `runLeakFlow`, `expectCleanRun`, `exposuresOf`, `plantThirdPartyTelemetry`, `plantThirdPartyCounter`: the sentinel leak test's detector, runner and assertion | the Node SDK |
+| `@qp/telemetry/leak-test` | `LEAK_SENTINEL`, `runLeakFlow`, `expectCleanRun`, `exposuresOf`, `expectEmitted`, `plantThirdPartyTelemetry`, `plantThirdPartyCounter`: the sentinel leak test's detector, runner and assertions | the Node SDK |
 
 Application code imports the first, and a browser app also the second. Only the backend's `src/telemetry.ts` (used by the preload and the entry point) imports
 `./node`, and only tests import `./testing` and `./leak-test`.
@@ -238,8 +238,9 @@ type and its counter name on one entry. `DomainEvent` and the counter lookup are
 table, so adding an event is one entry.
 
 ```ts
-"session.answer_rejected": event<{ sessionId: string; itemId: string; questionId: string; reason: SubmissionItemCode }>(
+"session.answer_rejected": event<{ sessionId: string; itemId: string | null; questionId: string | null; reason: SubmissionItemCode }>(
   "questionnaire.answers.rejected",
+  { labels: ["reason"] },
 ),
 ```
 
@@ -248,12 +249,12 @@ table, so adding an event is one entry.
 | `questionnaire.created`, `.published`, `.retired` | `questionnaire.created`, `.published`, `.retired` |
 | `session.started`, `.resumed`, `.abandoned`, `.completed` | `questionnaire.sessions.started`, `.resumed`, `.abandoned`, `.completed` |
 | `session.question_answered` | `questionnaire.answers.accepted`, labelled by `questionType` |
-| `session.answer_rejected` | `questionnaire.answers.rejected`, labelled by `reason`; `itemId` and `questionId` are `null` for an unknown item key, which came from the respondent |
+| `session.answer_rejected` | `questionnaire.answers.rejected`, labelled by `reason`; `itemId` and `questionId` are `null` for an unknown item key, which came from the respondent; the backend emits at most `MAX_FINDINGS` (20) per submit |
 | `session.item_skipped` | `questionnaire.items.skipped` |
 | `session.rejected_past_cutoff` | `questionnaire.sessions.rejected_past_cutoff` |
-| `session.submit_finished` | `questionnaire.submissions`, labelled by `outcome` |
+| `session.submit_finished` | `questionnaire.submissions`, labelled by `outcome` (`accepted`, `replayed`, `rejected_validation`, `rejected_conflict`, `failed`); `questionnaireId` and `questionnaireVersion` are `null` for `failed`, which is known only by the session id |
 
-`session.completed` also records `questionnaire.session.duration`, a histogram in milliseconds.
+`session.completed` also records `questionnaire.session.duration`, a histogram in milliseconds with explicit bucket boundaries from one second to a day.
 Counters carry bounded labels only.
 
 ## Sinks
@@ -343,6 +344,7 @@ const { exposures, observed } = await runLeakFlow(flow, world);
 | --- | --- |
 | `runLeakFlow(flow, world, options?)` | Installs test telemetry (`options.autoInstrumentation` turns on the Fastify and `pg` instrumentations), runs the flow, and returns `exposures` (signal and name of each leak), `observed` (how many logs, spans and metrics the flow emitted) and `spanNames` (the exported span names). Fastify's instrumentation only patches an app created after it starts, so a flow that needs real spans builds its app inside `run`. It shuts the pipeline down even when the flow throws |
 | `expectCleanRun(name, run)` | Throws a plain `Error` if the run has an exposure, or if the flow emitted nothing |
+| `expectEmitted(name, run, messages)` | Throws a plain `Error` if the run did not write a log line for each of these messages (`run.logMessages`), so a flow that declares `emits` fails as vacuous when the code it was written for did not run |
 | `plantThirdPartyTelemetry(sentinel)` | Emits spans, one named for the sentinel, and a counter carrying the sentinel the way a third-party instrumentation would, to exercise the export-time scrub |
 | `plantThirdPartyCounter(labels)` | Emits a counter with exactly these labels, so a negative control can put a shaped value on a bounded metric label |
 | `exposuresOf(telemetry)` | Every log line, span and metric whose serialised form contains the sentinel, keys included, in any case |

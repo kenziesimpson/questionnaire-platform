@@ -1,4 +1,4 @@
-import { annotateActiveSpan, emitDomainEvent, type Outcome } from "@qp/telemetry";
+import { annotateActiveSpan, emitDomainEvent, MAX_FINDINGS, type Outcome } from "@qp/telemetry";
 import type { SessionRow } from "../../db/execution/sessions.js";
 import type { SessionFacts, SubmitOutcome } from "../../db/execution/submit.js";
 
@@ -9,6 +9,11 @@ function elapsedSecondsSince(startedAt: Date, now: Date): number {
 function finished(facts: SessionFacts, outcome: Outcome): void {
   annotateActiveSpan({ ...facts, outcome });
   emitDomainEvent({ name: "session.submit_finished", ...facts, outcome });
+}
+
+export function reportSubmitFailed(sessionId: string): void {
+  annotateActiveSpan({ sessionId, outcome: "failed" });
+  emitDomainEvent({ name: "session.submit_finished", sessionId, questionnaireId: null, questionnaireVersion: null, outcome: "failed" });
 }
 
 export function reportSessionStarted(session: SessionRow): void {
@@ -36,7 +41,7 @@ export function reportSubmit(submitted: SubmitOutcome): void {
     case "not-found":
       return;
     case "replayed":
-      finished(submitted.facts, "accepted");
+      finished(submitted.facts, "replayed");
       return;
     case "already-submitted":
       finished(submitted.facts, "rejected_conflict");
@@ -46,7 +51,7 @@ export function reportSubmit(submitted: SubmitOutcome): void {
       finished(submitted.facts, "rejected_conflict");
       return;
     case "invalid":
-      for (const { itemId, questionId, code } of submitted.rejections) {
+      for (const { itemId, questionId, code } of submitted.rejections.slice(0, MAX_FINDINGS)) {
         emitDomainEvent({ name: "session.answer_rejected", sessionId: submitted.facts.sessionId, itemId, questionId, reason: code });
       }
       finished(submitted.facts, "rejected_validation");

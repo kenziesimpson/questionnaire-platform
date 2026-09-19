@@ -1,6 +1,11 @@
+import { executionApi } from "@qp/shared";
 import { INTAKE_ITEM_IDS, INTAKE_QUESTION_IDS, INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
+import { MAX_FINDINGS } from "@qp/telemetry";
 import { installTestTelemetry, type TestTelemetry } from "@qp/telemetry/testing";
+import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Database } from "../../../src/db/client.js";
+import { executionModule } from "../../../src/modules/execution/plugin.js";
 import { useTestDatabase } from "../../db/fixtures.js";
 import { answersNo, answersYes, getSession, seedIntakeV1, startedSessionId, submit } from "./fixtures.js";
 import { freezeTimeAt, NOW, useExecutionApp } from "./harness.js";
@@ -11,14 +16,45 @@ const executionApp = useExecutionApp(testDatabase);
 const SESSION = "questionnaire.session_id";
 
 let telemetry: TestTelemetry;
+let extraApp: FastifyInstance | undefined;
 
 beforeEach(() => {
   telemetry = installTestTelemetry();
 });
 
 afterEach(async () => {
+  await extraApp?.close();
+  extraApp = undefined;
   await telemetry.shutdown();
 });
+
+function failingTransactions(database: Database, when: "before" | "after"): Database {
+  return new Proxy(database, {
+    get(target, property) {
+      if (property !== "transaction") {
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+      return async (work: Parameters<Database["transaction"]>[0], config?: Parameters<Database["transaction"]>[1]) => {
+        if (when === "before") {
+          throw new Error("the connection was lost");
+        }
+        return target.transaction(async (tx) => {
+          await work(tx);
+          throw new Error("the commit failed");
+        }, config);
+      };
+    },
+  });
+}
+
+async function appOver(database: Database): Promise<FastifyInstance> {
+  const instance = Fastify();
+  extraApp = instance;
+  await instance.register(executionModule, { database, prefix: executionApi.EXECUTION_PREFIX });
+  await instance.ready();
+  return instance;
+}
 
 function eventLines(name: string) {
   return telemetry.logs().filter((line) => line.msg === name);
@@ -137,7 +173,45 @@ describe("a submit that is accepted", () => {
     expect(replay.statusCode).toBe(200);
     expect(eventLines("session.completed")).toEqual([]);
     expect(eventLines("session.question_answered")).toEqual([]);
-    expect(eventLines("session.submit_finished")).toMatchObject([{ [SESSION]: sessionId, "questionnaire.outcome": "accepted" }]);
+    expect(eventLines("session.submit_finished")).toMatchObject([{ [SESSION]: sessionId, "questionnaire.outcome": "replayed" }]);
+    expect(await metricPoints("questionnaire.submissions")).toEqual([{ value: 1, attributes: { "questionnaire.outcome": "replayed" } }]);
+  });
+});
+
+describe("a submit that throws", () => {
+  it("is counted as failed with no answer event when the transaction cannot start, and its span is an error", async () => {
+    await seedIntakeV1(testDatabase);
+    const sessionId = await startedSessionId(executionApp());
+    const instance = await appOver(failingTransactions(testDatabase.database("execution"), "before"));
+
+    const response = await submit(instance, sessionId, answersNo());
+
+    expect(response.statusCode).toBe(500);
+    expect(eventLines("session.submit_finished")).toMatchObject([{ [SESSION]: sessionId, "questionnaire.outcome": "failed" }]);
+    expect(eventLines("session.submit_finished")[0]).not.toHaveProperty("questionnaire.id");
+    for (const name of ["session.question_answered", "session.item_skipped", "session.completed", "session.answer_rejected"]) {
+      expect(eventLines(name), name).toEqual([]);
+    }
+    expect(await metricPoints("questionnaire.submissions")).toEqual([{ value: 1, attributes: { "questionnaire.outcome": "failed" } }]);
+    const span = telemetry.spans().find((candidate) => candidate.name === "session.submit");
+    expect(span?.attributes).toMatchObject({ [SESSION]: sessionId, "questionnaire.outcome": "failed", "error.type": "Error" });
+  });
+
+  it("emits no answer or completion event when the transaction rolls back after its work, and stores nothing", async () => {
+    await seedIntakeV1(testDatabase);
+    const sessionId = await startedSessionId(executionApp());
+    const instance = await appOver(failingTransactions(testDatabase.database("execution"), "after"));
+
+    const response = await submit(instance, sessionId, answersNo());
+
+    expect(response.statusCode).toBe(500);
+    for (const name of ["session.question_answered", "session.item_skipped", "session.completed"]) {
+      expect(eventLines(name), name).toEqual([]);
+    }
+    expect(eventLines("session.submit_finished")).toMatchObject([{ "questionnaire.outcome": "failed" }]);
+    const execution = await testDatabase.connect("execution");
+    const stored = await execution.query("SELECT (SELECT count(*)::int FROM execution.response) AS responses, (SELECT status FROM execution.session WHERE id = $1) AS status", [sessionId]);
+    expect(stored.rows[0]).toEqual({ responses: 0, status: "in_progress" });
   });
 });
 
@@ -172,6 +246,40 @@ describe("a submit that is refused", () => {
       { value: 1, attributes: { "questionnaire.outcome": "rejected_validation" } },
     ]);
     expect(eventLines("session.completed")).toEqual([]);
+  });
+
+  it("emits at most the shared findings cap of answer_rejected events, however many unknown keys are sent", async () => {
+    await seedIntakeV1(testDatabase);
+    const app = executionApp();
+    const sessionId = await startedSessionId(app);
+    const unknownKeys = Object.fromEntries(Array.from({ length: 120 }, (_unused, index) => [`itm_x${index}`, { type: "text", text: "x" } as const]));
+
+    const response = await submit(app, sessionId, answersNo(unknownKeys));
+
+    expect(response.statusCode).toBe(422);
+    expect(eventLines("session.answer_rejected")).toHaveLength(MAX_FINDINGS);
+    expect(await metricPoints("questionnaire.answers.rejected")).toEqual([
+      { value: MAX_FINDINGS, attributes: { "questionnaire.reason": "answer/unknown-item" } },
+    ]);
+    expect(await metricPoints("questionnaire.submissions")).toEqual([
+      { value: 1, attributes: { "questionnaire.outcome": "rejected_validation" } },
+    ]);
+  });
+
+  it("counts a submit with different answers after the session was submitted as a conflict, with no answer events", async () => {
+    await seedIntakeV1(testDatabase);
+    const app = executionApp();
+    const sessionId = await startedSessionId(app);
+    await submit(app, sessionId, answersNo());
+    telemetry.reset();
+
+    const response = await submit(app, sessionId, answersYes());
+
+    expect(response.statusCode).toBe(409);
+    expect(eventLines("session.submit_finished")).toMatchObject([{ [SESSION]: sessionId, "questionnaire.outcome": "rejected_conflict" }]);
+    for (const name of ["session.question_answered", "session.completed", "session.rejected_past_cutoff"]) {
+      expect(eventLines(name), name).toEqual([]);
+    }
   });
 
   it("counts a submit after the cutoff as rejected past the cutoff and as a conflict, and emits no answer events", async () => {

@@ -38,7 +38,7 @@ Auto-instrumented via `@fastify/otel` (incoming HTTP) plus `@opentelemetry/instr
 | `questionnaire.version` | int | Which immutable version the session is pinned to |
 | `questionnaire.question_id` | uuid | The question being served/answered |
 | `questionnaire.question_type` | `single_choice` | Type only — never the value |
-| `questionnaire.outcome` | `accepted` / `rejected_validation` | |
+| `questionnaire.outcome` | `accepted`, `replayed`, `rejected_validation`, `rejected_conflict`, `failed` | Set on `session.submit` once the outcome is known; a replay is `replayed`, so `accepted` counts first submissions only |
 
 ### 2.2 Metrics
 
@@ -49,9 +49,13 @@ RED per endpoint comes free from the HTTP instrumentation (`http.server.request.
 - `questionnaire.sessions.started` (counter)
 - `questionnaire.sessions.completed` (counter)
 - `questionnaire.sessions.resumed` (counter)
-- `questionnaire.answers.rejected` (counter, by `reason`)
+- `questionnaire.answers.rejected` (counter, by `reason`; at most 20 per submit)
+- `questionnaire.answers.accepted` (counter, by `questionType`)
+- `questionnaire.items.skipped` (counter)
+- `questionnaire.submissions` (counter, by `outcome`: `accepted`, `replayed`, `rejected_validation`, `rejected_conflict`, `failed`)
+- `questionnaire.sessions.rejected_past_cutoff` (counter; see §9)
 - `questionnaire.publish.total` (counter, by outcome)
-- `questionnaire.session.duration` (histogram)
+- `questionnaire.session.duration` (histogram in milliseconds, with explicit buckets from one second to a day)
 
 **Saturation metrics** — the real early-warning signals under load, none of which any framework emits by default:
 
@@ -138,10 +142,10 @@ Request telemetry tells us the API returned 200. It does not tell us that 40% of
 | `session.started` | Respondent begins | session id, questionnaire id, version |
 | `session.resumed` | Incomplete session reopened | + elapsed since the session started (the server keeps no last-activity time) |
 | `session.question_answered` | Answer accepted | + question id, question type |
-| `session.answer_rejected` | Validation failure | + question id, reason (never the value) |
+| `session.answer_rejected` | Validation failure; one per item code, at most 20 per submit; item and question id are absent for an unknown item key, which the respondent chose | + question id, reason (never the value) |
 | `session.item_skipped` | A visibility predicate evaluated false and hid an item | + item id, question id |
 | `session.rejected_past_cutoff` | A submit refused because the questionnaire had closed | session id, questionnaire id, version |
-| `session.submit_finished` | A submit decided: accepted, rejected for validation, or rejected for a conflict | + outcome |
+| `session.submit_finished` | A submit decided: accepted, replayed, rejected for validation, rejected for a conflict, or failed | + outcome |
 | `session.abandoned` | Inactivity threshold passed, or tab closed | + last question id |
 | `session.completed` | Submitted | + duration, question count |
 
@@ -179,7 +183,7 @@ The SPA receives the whole questionnaire and evaluates branching rules in the br
 **Decision: instrument the client.** Traces and logs from the browser, correlated with the backend.
 
 - `@opentelemetry/sdk-trace-web`, propagating `traceparent` on API calls. Each app adds the header by hand in its one `fetch` wrapper, with `injectTraceHeaders` from `@qp/telemetry/browser`, rather than through `@opentelemetry/instrumentation-fetch` patching the global `fetch` (O12). Because the nginx proxy keeps the app single-origin ([[2-design-doc#13. Deployment]]), this needs no CORS header allowances — a small dividend of that deployment choice.
-- Domain events from §4 that occur client-side (`session.item_skipped`, `session.abandoned`) are emitted from the browser.
+- Domain events from §4 that only the browser can see (`session.abandoned`) are emitted from the browser. The server emits `session.item_skipped` and `session.question_answered` for submitted sessions (O11).
 - **Events batch to a backend `/telemetry` endpoint rather than shipping directly to a Collector.** Three reasons: no publicly exposed unauthenticated collector; the server can stamp trusted server-side context onto client-reported events; and the client path runs through the *same* allowlist filter from §3, so a careless client event cannot leak an answer either: the browser queue applies it before anything is queued (`@qp/telemetry/browser`), and the endpoint applies it again. The endpoint is rate-limited, and the closed schema decides which fields are kept, not whether the batch is (O17).
 - **`navigator.sendBeacon` on `visibilitychange`/`pagehide`** to flush pending events when the tab closes. Without it the abandonment event — the one we most want — is the one most likely to be lost, since abandonment and tab-closing are the same user action.
 
@@ -215,7 +219,7 @@ A class of failure produces **HTTP 200 with a plausible-looking body**. No excep
 
 One metric is worth adding **now** rather than deferring, because it measures the cost of a decision already taken:
 
-- `questionnaire.sessions.rejected_past_cutoff` — sessions started before `closes_at` and submitted after it, i.e. respondents who lost completed work to the hard cutoff ([[2-design-doc#8.1 Questionnaire lifecycle and retirement]]). That count is the whole argument for or against making `cutoffMode` configurable, and right now that open question would be settled on intuition instead.
+- `questionnaire.sessions.rejected_past_cutoff` — sessions started before `closes_at` and submitted after it, i.e. respondents who lost completed work to the hard cutoff ([[2-design-doc#8.1 Questionnaire lifecycle and retirement]]). It counts submit attempts refused as closed, not distinct sessions: a respondent who retries is counted each time, and one session can be counted more than once. That count is the whole argument for or against making `cutoffMode` configurable, and right now that open question would be settled on intuition instead.
 
 Two things were separated during this discussion and are worth keeping separate:
 

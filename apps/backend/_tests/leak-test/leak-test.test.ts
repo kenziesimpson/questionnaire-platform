@@ -1,5 +1,5 @@
 import { logger, withSpan, type SignalKind } from "@qp/telemetry";
-import { expectCleanRun, plantThirdPartyCounter } from "@qp/telemetry/leak-test";
+import { expectCleanRun, expectEmitted, plantThirdPartyCounter } from "@qp/telemetry/leak-test";
 import { describe, expect, it } from "vitest";
 import { useTestDatabase } from "../db/fixtures.js";
 import { SESSION_ID } from "../http/fixtures.js";
@@ -29,6 +29,7 @@ describe("TELEMETRY LEAK (CI gate): a planted answer value reaches no log, span 
     const run = await runFlow(flow);
 
     expectCleanRun(flow.name, run);
+    expectEmitted(flow.name, run, flow.emits ?? []);
     if (!flow.name.startsWith(PLANTS_THIRD_PARTY_SPANS)) {
       expect(run.spanNames, "a real span was exported under the unnamed placeholder").not.toContain("unnamed");
     }

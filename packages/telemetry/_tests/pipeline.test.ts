@@ -241,6 +241,7 @@ describe("emitDomainEvent against the real SDK", () => {
     emitDomainEvent({ name: "session.completed", sessionId: SESSION_ID, durationMs: 1200, questionCount: 6 });
     const duration = await metricNamed(installed, "questionnaire.session.duration");
     expect(duration?.dataPoints).toHaveLength(1);
+    expect(duration?.dataPoints[0]?.value).toMatchObject({ buckets: { boundaries: expect.arrayContaining([60_000, 3_600_000, 86_400_000]) } });
     const completed = await metricNamed(installed, "questionnaire.sessions.completed");
     expect(completed?.dataPoints.map((point) => point.value)).toEqual([1]);
   });
@@ -258,6 +259,18 @@ describe("emitDomainEvent against the real SDK", () => {
     expect(installed.logs()[0]).not.toHaveProperty("questionnaire.question_id");
     const rejected = await metricNamed(installed, "questionnaire.answers.rejected");
     expect(rejected?.dataPoints.map((point) => point.attributes)).toEqual([{ "questionnaire.reason": "answer/unknown-item" }]);
+  });
+
+  it("logs a failed submit with no questionnaire, and counts it apart from a replay", async () => {
+    const installed = install();
+    emitDomainEvent({ name: "session.submit_finished", sessionId: SESSION_ID, questionnaireId: null, questionnaireVersion: null, outcome: "failed" });
+    emitDomainEvent({ name: "session.submit_finished", sessionId: SESSION_ID, questionnaireId: QUESTIONNAIRE_ID, questionnaireVersion: 1, outcome: "replayed" });
+    expect(installed.logs()[0]).not.toHaveProperty("questionnaire.id");
+    const submissions = await metricNamed(installed, "questionnaire.submissions");
+    expect(submissions?.dataPoints.map((point) => point.attributes)).toEqual([
+      { "questionnaire.outcome": "failed" },
+      { "questionnaire.outcome": "replayed" },
+    ]);
   });
 
   it("counts a submit by its outcome and a past-cutoff rejection with no label", async () => {

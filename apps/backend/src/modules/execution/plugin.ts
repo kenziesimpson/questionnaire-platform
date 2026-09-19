@@ -7,7 +7,7 @@ import { resumeSession, sessionView, startSession, type SessionWithDefinitionOut
 import { submitSession, type SubmitOutcome } from "../../db/execution/submit.js";
 import { applyHttpDefaults, notFoundProblem, replyWithProblem } from "../../http/problems.js";
 import { registerRoute } from "../../http/routes.js";
-import { reportSessionResumed, reportSessionStarted, reportSubmit } from "./session-events.js";
+import { reportSessionResumed, reportSessionStarted, reportSubmit, reportSubmitFailed } from "./session-events.js";
 
 export interface ExecutionModuleOptions {
   readonly database: Database;
@@ -61,6 +61,9 @@ export async function executionModule(scope: FastifyInstance, { database }: Exec
         sessionId: request.params.sessionId,
         answers: sensitive(request.body.answers),
         now: new Date(),
+      }).catch((error: unknown) => {
+        reportSubmitFailed(request.params.sessionId);
+        throw error;
       });
       reportSubmit(outcome);
       return outcome;
