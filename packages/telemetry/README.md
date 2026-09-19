@@ -188,7 +188,8 @@ await withSpan("session.submit", { sessionId }, async () => submit());
 ```
 
 - `SpanName` is derived from `SPAN_NAMES` (`questionnaire.publish`, `rule.evaluate`, `session.submit`); a
-  new span is one more member of that array.
+  new span is one more member of that array. The backend wraps a submit in `session.submit` and its answer
+  evaluation in `rule.evaluate`, and adds `outcome` to the first once it is known.
 - A name outside `SPAN_NAMES`, which only a cast or an untyped caller can pass, does not throw: `withSpan`
   runs the callback with no span and counts one `span/unknown` drop.
 - Context becomes attributes through the registry, so it is scrubbed like a log line.
@@ -247,8 +248,10 @@ table, so adding an event is one entry.
 | `questionnaire.created`, `.published`, `.retired` | `questionnaire.created`, `.published`, `.retired` |
 | `session.started`, `.resumed`, `.abandoned`, `.completed` | `questionnaire.sessions.started`, `.resumed`, `.abandoned`, `.completed` |
 | `session.question_answered` | `questionnaire.answers.accepted`, labelled by `questionType` |
-| `session.answer_rejected` | `questionnaire.answers.rejected`, labelled by `reason` |
+| `session.answer_rejected` | `questionnaire.answers.rejected`, labelled by `reason`; `itemId` and `questionId` are `null` for an unknown item key, which came from the respondent |
 | `session.item_skipped` | `questionnaire.items.skipped` |
+| `session.rejected_past_cutoff` | `questionnaire.sessions.rejected_past_cutoff` |
+| `session.submit_finished` | `questionnaire.submissions`, labelled by `outcome` |
 
 `session.completed` also records `questionnaire.session.duration`, a histogram in milliseconds.
 Counters carry bounded labels only.

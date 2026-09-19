@@ -7,7 +7,7 @@ import { expect } from "vitest";
 import { SQLSTATE } from "../../src/db/errors.js";
 import { InvariantViolation } from "../../src/invariant.js";
 import { SESSION_ID } from "../http/fixtures.js";
-import { answersNo, answersYes, executionUrl, seedIntakeV1, startedSessionId, submit } from "../modules/execution/fixtures.js";
+import { answersNo, answersYes, executionUrl, getSession, seedIntakeV1, startedSessionId, submit } from "../modules/execution/fixtures.js";
 import { listSessionsUrl, sessionDetailUrl } from "../modules/reporting/fixtures.js";
 import type { LeakWorld } from "./harness.js";
 
@@ -197,6 +197,60 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
         }),
       );
       expect(response.statusCode, "the planted submit must be rejected for the flow to prove anything").toBe(422);
+    },
+  },
+  {
+    name: "execution: a submit rejected with 422 for a known item and for an unknown item key that is the lower-cased sentinel",
+    run: async ({ app, testDatabase }, sentinel) => {
+      await seedIntakeV1(testDatabase);
+      const sessionId = await startedSessionId(app);
+      const response = await submit(
+        app,
+        sessionId,
+        answersYes({
+          [INTAKE_ITEM_IDS.whichCondition]: { type: "single_choice", optionId: INTAKE_OPTION_IDS.hypertension, otherText: sentinel },
+          [sentinel.toLowerCase()]: { type: "text", text: sentinel },
+        }),
+      );
+      expect(response.statusCode, "the planted submit must be rejected for the flow to prove anything").toBe(422);
+      expect(response.body, "the rejection must name the unknown key for the flow to prove anything").toContain(sentinel.toLowerCase());
+    },
+  },
+  {
+    name: "execution: a submit that skips the items an answer hides and carries the sentinel in the one it answers",
+    run: async (world, sentinel) => {
+      await seedIntakeV1(world.testDatabase);
+      const sessionId = await startedSessionId(world.app);
+      const response = await submit(world.app, sessionId, answersNo({ [INTAKE_ITEM_IDS.pharmacy]: { type: "text", text: sentinel } }));
+      expect(response.statusCode, "the planted submit must be accepted for the flow to prove anything").toBe(200);
+      expect((await storedAnswer(world, sessionId, INTAKE_ITEM_IDS.pharmacy))?.text_value, "the sentinel must be a stored text answer").toBe(sentinel);
+    },
+  },
+  {
+    name: "execution: a submit after the questionnaire's cutoff, carrying the sentinel",
+    run: async ({ app, testDatabase }, sentinel) => {
+      await seedIntakeV1(testDatabase);
+      const sessionId = await startedSessionId(app);
+      const definition = await testDatabase.connect("definition");
+      await definition.query("UPDATE definition.questionnaire SET closes_at = $1 WHERE id = $2", [
+        new Date(Date.now() - 3_600_000),
+        INTAKE_QUESTIONNAIRE_ID,
+      ]);
+      const response = await submit(app, sessionId, answersYes({ [INTAKE_ITEM_IDS.pharmacy]: { type: "text", text: sentinel } }));
+      expect(response.statusCode, "the planted submit must be refused as closed for the flow to prove anything").toBe(409);
+    },
+  },
+  {
+    name: "execution: a session resumed, submitted and then replayed with the same answers and with different ones",
+    run: async ({ app, testDatabase }, sentinel) => {
+      await seedIntakeV1(testDatabase);
+      const sessionId = await startedSessionId(app);
+      expect((await getSession(app, sessionId)).statusCode).toBe(200);
+      const answers = answersYes({ [INTAKE_ITEM_IDS.pharmacy]: { type: "text", text: sentinel } });
+      expect((await submit(app, sessionId, answers)).statusCode, "the planted submit must be accepted").toBe(200);
+      expect((await submit(app, sessionId, answers)).statusCode, "the same answers replay").toBe(200);
+      const different = answersYes({ [INTAKE_ITEM_IDS.pharmacy]: { type: "text", text: `${sentinel} again` } });
+      expect((await submit(app, sessionId, different)).statusCode, "different answers conflict").toBe(409);
     },
   },
   {

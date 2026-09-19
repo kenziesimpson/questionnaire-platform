@@ -136,10 +136,12 @@ Request telemetry tells us the API returned 200. It does not tell us that 40% of
 | `questionnaire.published` | Version published | questionnaire id, version |
 | `questionnaire.retired` | Version retired | questionnaire id, version |
 | `session.started` | Respondent begins | session id, questionnaire id, version |
-| `session.resumed` | Incomplete session reopened | + elapsed since last activity |
+| `session.resumed` | Incomplete session reopened | + elapsed since the session started (the server keeps no last-activity time) |
 | `session.question_answered` | Answer accepted | + question id, question type |
 | `session.answer_rejected` | Validation failure | + question id, reason (never the value) |
 | `session.item_skipped` | A visibility predicate evaluated false and hid an item | + item id, question id |
+| `session.rejected_past_cutoff` | A submit refused because the questionnaire had closed | session id, questionnaire id, version |
+| `session.submit_finished` | A submit decided: accepted, rejected for validation, or rejected for a conflict | + outcome |
 | `session.abandoned` | Inactivity threshold passed, or tab closed | + last question id |
 | `session.completed` | Submitted | + duration, question count |
 

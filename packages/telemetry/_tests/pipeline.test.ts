@@ -250,6 +250,26 @@ describe("emitDomainEvent against the real SDK", () => {
     emitDomainEvent({ name: "session.abandoned", sessionId: SESSION_ID, lastItemId: null });
     expect(installed.logs()[0]).not.toHaveProperty("questionnaire.last_item_id");
   });
+
+  it("logs a rejection with no item or question as a line without those fields, and still counts its reason", async () => {
+    const installed = install();
+    emitDomainEvent({ name: "session.answer_rejected", sessionId: SESSION_ID, itemId: null, questionId: null, reason: "answer/unknown-item" });
+    expect(installed.logs()[0]).not.toHaveProperty("questionnaire.item_id");
+    expect(installed.logs()[0]).not.toHaveProperty("questionnaire.question_id");
+    const rejected = await metricNamed(installed, "questionnaire.answers.rejected");
+    expect(rejected?.dataPoints.map((point) => point.attributes)).toEqual([{ "questionnaire.reason": "answer/unknown-item" }]);
+  });
+
+  it("counts a submit by its outcome and a past-cutoff rejection with no label", async () => {
+    const installed = install();
+    const session = { sessionId: SESSION_ID, questionnaireId: QUESTIONNAIRE_ID, questionnaireVersion: 2 };
+    emitDomainEvent({ name: "session.submit_finished", ...session, outcome: "rejected_conflict" });
+    emitDomainEvent({ name: "session.rejected_past_cutoff", ...session });
+    const submissions = await metricNamed(installed, "questionnaire.submissions");
+    const pastCutoff = await metricNamed(installed, "questionnaire.sessions.rejected_past_cutoff");
+    expect(submissions?.dataPoints.map((point) => point.attributes)).toEqual([{ "questionnaire.outcome": "rejected_conflict" }]);
+    expect(pastCutoff?.dataPoints.map((point) => point.attributes)).toEqual([{}]);
+  });
 });
 
 async function everythingExported(installed: TestTelemetry): Promise<string> {

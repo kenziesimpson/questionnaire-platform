@@ -1,14 +1,18 @@
 import {
+  evaluateVisibility,
   responseDigest,
   serverDateContext,
   validateSubmission,
   type ClientAnswers,
   type ItemError,
+  type PublishedDefinition,
   type Receipt,
   type ResponseRow,
+  type ResponseType,
   type Sensitive,
   type SubmissionItemCode,
 } from "@qp/shared";
+import { withSpan } from "@qp/telemetry";
 import { and, eq } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { InvariantViolation } from "../../invariant.js";
@@ -23,13 +27,48 @@ export interface SubmitCommand {
   readonly now: Date;
 }
 
+export interface SessionFacts {
+  readonly sessionId: string;
+  readonly questionnaireId: string;
+  readonly questionnaireVersion: number;
+}
+
+interface AnsweredItem {
+  readonly itemId: string;
+  readonly questionId: string;
+  readonly questionType: ResponseType;
+}
+
+interface SkippedItem {
+  readonly itemId: string;
+  readonly questionId: string;
+}
+
+interface Rejection {
+  readonly itemId: string | null;
+  readonly questionId: string | null;
+  readonly code: SubmissionItemCode;
+}
+
 export type SubmitOutcome =
-  | { readonly outcome: "submitted"; readonly receipt: Receipt }
-  | { readonly outcome: "replayed"; readonly receipt: Receipt }
+  | {
+      readonly outcome: "submitted";
+      readonly receipt: Receipt;
+      readonly facts: SessionFacts;
+      readonly durationMs: number;
+      readonly answered: readonly AnsweredItem[];
+      readonly skipped: readonly SkippedItem[];
+    }
+  | { readonly outcome: "replayed"; readonly receipt: Receipt; readonly facts: SessionFacts }
   | { readonly outcome: "not-found" }
-  | { readonly outcome: "closed" }
-  | { readonly outcome: "already-submitted" }
-  | { readonly outcome: "invalid"; readonly items: readonly ItemError<SubmissionItemCode>[] };
+  | { readonly outcome: "closed"; readonly facts: SessionFacts }
+  | { readonly outcome: "already-submitted"; readonly facts: SessionFacts }
+  | {
+      readonly outcome: "invalid";
+      readonly items: readonly ItemError<SubmissionItemCode>[];
+      readonly facts: SessionFacts;
+      readonly rejections: readonly Rejection[];
+    };
 
 type ValueColumns = Pick<
   typeof response.$inferInsert,
@@ -48,6 +87,38 @@ function valueColumns(row: ResponseRow): ValueColumns {
     case "multiple_choice":
       return { optionIds: [...row.optionIds], otherText: row.otherText ?? null };
   }
+}
+
+function factsOf(row: SessionRow): SessionFacts {
+  return { sessionId: row.id, questionnaireId: row.questionnaireId, questionnaireVersion: row.version };
+}
+
+function evaluateAnswers(row: SessionRow, definition: PublishedDefinition, answers: Sensitive<ClientAnswers>, at: Date) {
+  return withSpan("rule.evaluate", factsOf(row), async () => {
+    const supplied = answers.unwrap();
+    return {
+      validation: validateSubmission(definition, supplied, serverDateContext(at)),
+      shown: evaluateVisibility(definition, supplied),
+    };
+  });
+}
+
+function rejectionsOf(definition: PublishedDefinition, items: readonly ItemError<SubmissionItemCode>[]): Rejection[] {
+  const questionIds = new Map(definition.items.map((item) => [item.itemId, item.question.questionId]));
+  return items.map(({ itemId, code }) => {
+    const questionId = questionIds.get(itemId);
+    return questionId === undefined ? { itemId: null, questionId: null, code } : { itemId, questionId, code };
+  });
+}
+
+function skippedItemsOf(definition: PublishedDefinition, shown: ReadonlySet<string>): SkippedItem[] {
+  return definition.items
+    .filter((item) => !shown.has(item.itemId))
+    .map((item) => ({ itemId: item.itemId, questionId: item.question.questionId }));
+}
+
+function answeredItemsOf(rows: readonly ResponseRow[]): AnsweredItem[] {
+  return rows.map((row) => ({ itemId: row.itemId, questionId: row.questionId, questionType: row.type }));
 }
 
 async function lockSession(tx: Transaction, sessionId: string) {
@@ -108,25 +179,34 @@ export async function submitSession(
     }
     const definition = await definitions.pinned(tx, locked.questionnaireVersionId);
 
+    const facts = factsOf(locked);
+
     if (locked.submittedAt !== null && locked.responseDigest !== null) {
-      const retry = validateSubmission(definition, command.answers.unwrap(), serverDateContext(locked.submittedAt));
+      const { validation: retry } = await evaluateAnswers(locked, definition, command.answers, locked.submittedAt);
       const sameAnswers = retry.valid && Buffer.from(await responseDigest(retry.rows)).equals(locked.responseDigest);
       return sameAnswers
-        ? { outcome: "replayed", receipt: receiptFor(locked, locked.submittedAt) }
-        : { outcome: "already-submitted" };
+        ? { outcome: "replayed", receipt: receiptFor(locked, locked.submittedAt), facts }
+        : { outcome: "already-submitted", facts };
     }
 
     if (isClosed(await closesAtOf(tx, locked.questionnaireId), command.now)) {
-      return { outcome: "closed" };
+      return { outcome: "closed", facts };
     }
 
-    const validation = validateSubmission(definition, command.answers.unwrap(), serverDateContext(command.now));
+    const { validation, shown } = await evaluateAnswers(locked, definition, command.answers, command.now);
     if (!validation.valid) {
-      return { outcome: "invalid", items: validation.items };
+      return { outcome: "invalid", items: validation.items, facts, rejections: rejectionsOf(definition, validation.items) };
     }
 
     await persistResponses(tx, locked, validation.rows, command.now);
     await markSubmitted(tx, locked.id, await responseDigest(validation.rows), command.now);
-    return { outcome: "submitted", receipt: receiptFor(locked, command.now) };
+    return {
+      outcome: "submitted",
+      receipt: receiptFor(locked, command.now),
+      facts,
+      durationMs: Math.max(0, command.now.getTime() - locked.startedAt.getTime()),
+      answered: answeredItemsOf(validation.rows),
+      skipped: skippedItemsOf(definition, shown),
+    };
   });
 }
