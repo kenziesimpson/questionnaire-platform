@@ -139,8 +139,11 @@ Request telemetry tells us the API returned 200. It does not tell us that 40% of
 | Event | Emitted when | Key attributes |
 | --- | --- | --- |
 | `questionnaire.created` | Draft created | questionnaire id |
-| `questionnaire.published` | Version published | questionnaire id, version |
-| `questionnaire.retired` | Version retired | questionnaire id, version |
+| `questionnaire.published` | Version published; emitted after the publish transaction commits, so a rolled-back publish emits nothing | questionnaire id, version |
+| `questionnaire.retired` | A close time set or moved (`retire` in the audit trail; clearing it is `reopen` and emits nothing) | questionnaire id |
+| `questionnaire.publish_finished` | A publish decided: accepted, rejected for validation, rejected as stale, or failed | questionnaire id, outcome |
+| `questionnaire.publish_rejected` | One per item a refused publish names | questionnaire id, item id, draft item code |
+| `questionnaire.draft_conflict` | A draft save or publish refused because the draft had changed | questionnaire id |
 | `session.started` | Respondent begins | session id, questionnaire id, version |
 | `session.resumed` | Incomplete session reopened | + elapsed since the session started (the server keeps no last-activity time) |
 | `session.question_answered` | Answer accepted | + question id, question type |

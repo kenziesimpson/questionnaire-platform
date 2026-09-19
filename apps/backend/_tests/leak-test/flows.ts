@@ -7,6 +7,7 @@ import { expect } from "vitest";
 import { SQLSTATE } from "../../src/db/errors.js";
 import { InvariantViolation } from "../../src/invariant.js";
 import { SESSION_ID } from "../http/fixtures.js";
+import { definitionUrl } from "../modules/definition/fixtures.js";
 import { answersNo, answersYes, executionUrl, getSession, seedIntakeV1, startedSessionId, submit } from "../modules/execution/fixtures.js";
 import { listSessionsUrl, sessionDetailUrl } from "../modules/reporting/fixtures.js";
 import type { LeakWorld } from "./harness.js";
@@ -282,6 +283,70 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
       expect(malformed.statusCode).toBe(400);
       const unknown = await app.inject({ method: "GET", url: executionUrl(`/sessions/${sentinel}?answer=${sentinel}`) });
       expect(unknown.statusCode).toBeGreaterThanOrEqual(400);
+    },
+  },
+  {
+    name: "definition: a draft saved, a stale save refused with 409, a publish refused with 422, then published and retired, with the sentinel in every title, prompt and option label",
+    run: async ({ app }, sentinel) => {
+      const post = (path: string, payload?: object) =>
+        app.inject({ method: "POST", url: definitionUrl(path), ...(payload === undefined ? {} : { payload }) });
+      const choice = await post("/questions", {
+        question: {
+          type: "single_choice",
+          prompt: sentinel,
+          options: [
+            { optionId: "yes", label: sentinel },
+            { optionId: "no", label: `${sentinel} no` },
+          ],
+        },
+      });
+      const text = await post("/questions", { question: { type: "text", prompt: `${sentinel} follow up` } });
+      const created = await post("/questionnaires", { name: sentinel, title: sentinel });
+      expect([choice.statusCode, text.statusCode, created.statusCode], "the planted questions and questionnaire must be stored").toEqual([201, 201, 201]);
+      const questionnaireId: string = created.json().questionnaireId;
+      const placement = (itemId: string, questionId: string, visibleWhen: object | null) => ({
+        itemId,
+        required: false,
+        visibleWhen,
+        questionId,
+        questionVersion: 1,
+      });
+      const save = (etag: string, items: object[]) =>
+        app.inject({
+          method: "PUT",
+          url: definitionUrl(`/questionnaires/${questionnaireId}/draft`),
+          headers: { "if-match": etag },
+          payload: { title: sentinel, items },
+        });
+      const forwardReference = { all: [{ type: "single_choice", itemId: "itm_02", op: "is", optionId: "yes" }] };
+
+      const opened = await app.inject({ method: "GET", url: definitionUrl(`/questionnaires/${questionnaireId}/draft`) });
+      const firstEtag = String(opened.headers.etag);
+      const invalid = await save(firstEtag, [
+        placement("itm_01", choice.json().questionId, forwardReference),
+        placement("itm_02", text.json().questionId, null),
+      ]);
+      const stale = await save(firstEtag, []);
+      const invalidEtag = String(invalid.headers.etag);
+      const refused = await app.inject({
+        method: "POST",
+        url: definitionUrl(`/questionnaires/${questionnaireId}/publish`),
+        headers: { "if-match": invalidEtag },
+      });
+      expect([invalid.statusCode, stale.statusCode, refused.statusCode], "the planted draft must be saved, the stale save and the publish refused").toEqual([200, 409, 422]);
+
+      const valid = await save(invalidEtag, [placement("itm_01", choice.json().questionId, null), placement("itm_02", text.json().questionId, null)]);
+      const published = await app.inject({
+        method: "POST",
+        url: definitionUrl(`/questionnaires/${questionnaireId}/publish`),
+        headers: { "if-match": String(valid.headers.etag) },
+      });
+      const retired = await app.inject({
+        method: "PUT",
+        url: definitionUrl(`/questionnaires/${questionnaireId}/closes-at`),
+        payload: { closesAt: "2026-10-01T00:00:00.000Z" },
+      });
+      expect([valid.statusCode, published.statusCode, retired.statusCode], "the planted draft must publish and retire").toEqual([200, 201, 200]);
     },
   },
   {

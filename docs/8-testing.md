@@ -1211,6 +1211,23 @@ The browser SDK (`@qp/telemetry/browser`) takes `window`, the transport and the 
 | --- | --- | --- | --- |
 | `modules/telemetry` rejects imports of the db layer, its subpaths, `drizzle-orm`, `pg` and the other modules; `@qp/shared`, `@qp/telemetry` and the http helpers pass | `tests/lint-boundaries.test.ts` | The ingest has no database access | No respondent answer in telemetry |
 
+### T8 — definition telemetry
+
+**Backend — `apps/backend`, the definition module's events, spans and audit trace ids, Testcontainers Postgres**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| Creating a questionnaire emits `questionnaire.created` and counts it, in a `questionnaire.create` span whose trace id is on the `create_draft` audit row | `_tests/modules/definition/definition-events.test.ts` | O3: the log line and the counter are one call; the audit row is joined to the trace | The telemetry |
+| A publish emits `questionnaire.published` with the version and counts `publish.total` as accepted, in a `questionnaire.publish` span that carries the version and the outcome, and the `publish` audit row has the span's trace id | `_tests/modules/definition/definition-events.test.ts` | O3, O6: bounded labels, ids in traces and logs only | The telemetry |
+| At the moment a publish's transaction commits no `questionnaire.published` line exists yet, and one exists after the response | `_tests/modules/definition/definition-events.test.ts` | The event is emitted after the commit | The telemetry |
+| A publish whose transaction rolls back after its work returns `500`, leaves no published version and no `publish` audit row, emits no `questionnaire.published` line, moves no `questionnaire.published` counter and is counted as failed | `_tests/modules/definition/definition-events.test.ts` | A rolled-back publish never emits an event | The telemetry |
+| A publish refused with `422` emits no `questionnaire.published`, one `questionnaire.publish_rejected` per item it names, counts each `publish.rejections` by its draft item code and `publish.total` as rejected for validation | `_tests/modules/definition/definition-events.test.ts` | `DraftItemCode` is a bounded label | The telemetry |
+| A draft save and a publish each refused as stale are counted in `draft.conflicts`, and the publish also as rejected for a conflict | `_tests/modules/definition/definition-events.test.ts` | Stale-draft `409`s are visible as a rate | The telemetry |
+| Setting or moving a close time emits `questionnaire.retired` and clearing it emits nothing, each in a `questionnaire.retire` span with a trace id on its audit row | `_tests/modules/definition/definition-events.test.ts` | `retire` is the audited action that ends a questionnaire's life | The telemetry |
+| Every audited definition route, run on an app built after the Fastify instrumentation starts (create, append and archive a question, create a questionnaire, save, publish, open a draft, retire, reopen), writes an audit row whose trace id is that of a `request` span | `_tests/modules/definition/definition-events.test.ts` | Every audit write carries the current trace id instead of `null` | The telemetry |
+| `auditTraceId` is `null` with no active span and the active span's trace id inside one | `_tests/modules/definition/trace.test.ts` | One place reads the trace id for every audit write | The telemetry |
+| A draft saved with the sentinel in the title, a prompt and an option label, a stale save refused `409`, a publish refused `422`, then a publish and a retirement: the sentinel reaches no exporter | `_tests/leak-test/leak-test.test.ts` | Authored text does not enter telemetry through the definition path | No respondent answer in telemetry |
+
 ## 8. Alternatives considered
 
 ### 8.1 Jest for the frontend
