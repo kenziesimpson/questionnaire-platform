@@ -274,6 +274,7 @@ export const AUDIT_ACTIONS = [
   "reopen",
   "archive_question",
   "create_question_version",
+  "view_response",
 ] as const;
 
 export const auditEvent = auditSchema.table(
@@ -293,7 +294,7 @@ export const auditEvent = auditSchema.table(
   (t) => [
     check(
       "event_action_check",
-      sql`action IN ('create_draft', 'edit_draft', 'publish', 'retire', 'reopen', 'archive_question', 'create_question_version')`,
+      sql`action IN ('create_draft', 'edit_draft', 'publish', 'retire', 'reopen', 'archive_question', 'create_question_version', 'view_response')`,
     ),
     index("audit_by_questionnaire").on(t.questionnaireId, t.occurredAt.desc()),
   ],

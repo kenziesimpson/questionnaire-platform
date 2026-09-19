@@ -15,6 +15,7 @@ import { and, eq, type SQL } from "drizzle-orm";
 import type { Database, Executor } from "../client.js";
 import { PublishedDefinitions } from "../execution/published-definitions.js";
 import { questionnaire, session } from "../schema.js";
+import { recordResponseView } from "./audit.js";
 import { decodeCursor, encodeCursor, type CursorDirection, type SessionCursor, type SessionOrdering } from "./cursor.js";
 import { keysetSegments, orderByFor } from "./keyset.js";
 import { answersFromResponseRows, responseRowsBySession, type SubmittedSessionRef } from "./responses.js";
@@ -189,18 +190,23 @@ export async function listSessionSummaries(
 
 export type SessionDetailOutcome = { readonly outcome: "found"; readonly detail: SessionDetail } | { readonly outcome: "not-found" };
 
-export async function getSessionDetail(
+interface DetailReader {
+  readonly actorId: string;
+  readonly traceId: string | null;
+}
+
+async function readSessionDetail(
   reporting: Executor,
   definitions: PublishedDefinitions,
   questionnaireId: string,
   sessionId: string,
-): Promise<SessionDetailOutcome> {
+): Promise<{ readonly row: SessionRow; readonly detail: SessionDetail } | undefined> {
   const [row]: SessionRow[] = await reporting
     .select(sessionColumns)
     .from(session)
     .where(and(eq(session.id, sessionId), eq(session.questionnaireId, questionnaireId)));
   if (row === undefined) {
-    return { outcome: "not-found" };
+    return undefined;
   }
 
   const definition = await definitions.pinned(reporting, row.questionnaireVersionId);
@@ -210,7 +216,7 @@ export async function getSessionDetail(
   const answerByItemId = new Map(responseRows.map((answer) => [answer.itemId, answer]));
 
   return {
-    outcome: "found",
+    row,
     detail: {
       sessionId: row.id,
       questionnaireId: row.questionnaireId,
@@ -229,4 +235,28 @@ export async function getSessionDetail(
       })),
     },
   };
+}
+
+export async function getSessionDetail(
+  reporting: Database,
+  definitions: PublishedDefinitions,
+  questionnaireId: string,
+  sessionId: string,
+  reader: DetailReader,
+): Promise<SessionDetailOutcome> {
+  return reporting.transaction(async (tx): Promise<SessionDetailOutcome> => {
+    const read = await readSessionDetail(tx, definitions, questionnaireId, sessionId);
+    if (read === undefined) {
+      return { outcome: "not-found" };
+    }
+    await recordResponseView(tx, {
+      questionnaireId: read.row.questionnaireId,
+      questionnaireVersionId: read.row.questionnaireVersionId,
+      version: read.row.version,
+      sessionId: read.row.id,
+      actorId: reader.actorId,
+      traceId: reader.traceId,
+    });
+    return { outcome: "found", detail: read.detail };
+  });
 }

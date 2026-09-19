@@ -1,6 +1,7 @@
 import {
   PROBLEM_CONTENT_TYPE,
   problemType,
+  reportingApi,
   RESPONSES_PAGE_SIZE,
   type SessionDetail,
   type SessionSort,
@@ -8,8 +9,13 @@ import {
   type SortOrder,
 } from "@qp/shared";
 import { INTAKE_ITEM_IDS, INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
-import { describe, expect, it } from "vitest";
+import { installTestTelemetry, type TestTelemetry } from "@qp/telemetry/testing";
+import Fastify from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PublishedDefinitions } from "../../../src/db/execution/published-definitions.js";
+import { encodeCursor } from "../../../src/db/reporting/cursor.js";
+import { AUTHOR_PLACEHOLDER } from "../../../src/modules/definition/author.js";
+import { reportingModule } from "../../../src/modules/reporting/plugin.js";
 import { aPublishedQuestionnaire, useTestDatabase, type PublishedFixture } from "../../db/fixtures.js";
 import { answersNo, answersYes, publishIntakeV2Relabel, seedIntakeV1 } from "../execution/fixtures.js";
 import {
@@ -635,5 +641,174 @@ describe("GET /questionnaires/:id/responses, sorted", () => {
       expect(response.statusCode, JSON.stringify(query)).toBe(400);
       expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
     }
+  });
+});
+
+const AUDIT_RECORD = "audit.record(text, uuid, uuid, int, text, jsonb, text)";
+
+async function withAuditRecordRevoked(work: () => Promise<void>): Promise<void> {
+  const owner = await testDatabase.connect("owner");
+  await owner.query("SET ROLE audit_owner");
+  await owner.query(`REVOKE EXECUTE ON FUNCTION ${AUDIT_RECORD} FROM qp_reporting`);
+  await owner.query("RESET ROLE");
+  try {
+    await work();
+  } finally {
+    await owner.query("SET ROLE audit_owner");
+    await owner.query(`GRANT EXECUTE ON FUNCTION ${AUDIT_RECORD} TO qp_reporting`);
+    await owner.query("RESET ROLE");
+  }
+}
+
+async function viewResponseRows() {
+  return (await testDatabase.readAuditEvents()).filter((event) => event.action === "view_response");
+}
+
+async function aSubmittedIntakeSession(): Promise<string> {
+  await seedIntakeV1(testDatabase);
+  const execution = executionDatabase();
+  const definitions = freshDefinitions();
+  const now = new Date();
+  const sessionId = await startedSessionId(execution, definitions, INTAKE_QUESTIONNAIRE_ID, now);
+  await submitFixtureAnswers(execution, definitions, sessionId, answersYes(), now);
+  return sessionId;
+}
+
+describe("the audit trail of reading a response", () => {
+  it("is one view_response row for a detail read: the questionnaire, the pinned version, the session id in the summary and the placeholder author, and no answer", async () => {
+    const sessionId = await aSubmittedIntakeSession();
+
+    const response = await sessionDetail(INTAKE_QUESTIONNAIRE_ID, sessionId);
+
+    expect(response.statusCode).toBe(200);
+    const views = await viewResponseRows();
+    expect(views).toEqual([
+      {
+        action: "view_response",
+        questionnaire_id: INTAKE_QUESTIONNAIRE_ID,
+        questionnaire_version_id: expect.any(String),
+        version: 1,
+        actor_id: AUTHOR_PLACEHOLDER,
+        summary: { sessionId },
+      },
+    ]);
+    expect(JSON.stringify(views)).not.toContain("Main Street");
+  });
+
+  it("is one row per read, and none for a session that is not found, under either questionnaire, or for the responses list, with or without a cursor", async () => {
+    const sessionId = await aSubmittedIntakeSession();
+    const other = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const cursor = encodeCursor({ sort: "started", order: "desc", direction: "forward", sortValue: new Date(Date.now() + 60_000), id: sessionId });
+
+    const statuses = [
+      (await listSessions(INTAKE_QUESTIONNAIRE_ID)).statusCode,
+      (await listSessions(INTAKE_QUESTIONNAIRE_ID, { cursor })).statusCode,
+      (await sessionDetail(INTAKE_QUESTIONNAIRE_ID, "00000000-0000-0000-0000-000000000000")).statusCode,
+      (await sessionDetail(other.questionnaireId, sessionId)).statusCode,
+    ];
+
+    expect(statuses).toEqual([200, 200, 404, 404]);
+    expect(await viewResponseRows()).toEqual([]);
+    await sessionDetail(INTAKE_QUESTIONNAIRE_ID, sessionId);
+    await sessionDetail(INTAKE_QUESTIONNAIRE_ID, sessionId);
+    expect(await viewResponseRows()).toHaveLength(2);
+  });
+
+  it("fails the read, and returns no answer, when the audit write fails", async () => {
+    const sessionId = await aSubmittedIntakeSession();
+
+    await withAuditRecordRevoked(async () => {
+      const response = await sessionDetail(INTAKE_QUESTIONNAIRE_ID, sessionId);
+
+      expect(response.statusCode).toBe(500);
+      expect(response.body).not.toContain("Main Street");
+    });
+
+    expect(await viewResponseRows()).toEqual([]);
+    expect((await sessionDetail(INTAKE_QUESTIONNAIRE_ID, sessionId)).statusCode).toBe(200);
+  });
+});
+
+describe("the telemetry of reading responses", () => {
+  let telemetry: TestTelemetry;
+
+  beforeEach(() => {
+    telemetry = installTestTelemetry();
+  });
+
+  afterEach(async () => {
+    await telemetry.shutdown();
+  });
+
+  function eventLines(name: string) {
+    return telemetry.logs().filter((line) => line.msg === name);
+  }
+
+  async function metricPoints(name: string) {
+    const all = await telemetry.metrics();
+    return all.find((metric) => metric.descriptor.name === name)?.dataPoints.map((point) => ({ value: point.value, attributes: point.attributes }));
+  }
+
+  it("emits response_viewed for a detail read, counts it, and gives the audit row the trace id of its span", async () => {
+    const sessionId = await aSubmittedIntakeSession();
+
+    await sessionDetail(INTAKE_QUESTIONNAIRE_ID, sessionId);
+
+    expect(eventLines("reporting.response_viewed")).toMatchObject([
+      { "questionnaire.id": INTAKE_QUESTIONNAIRE_ID, "questionnaire.session_id": sessionId, "telemetry.source": "server" },
+    ]);
+    expect(await metricPoints("questionnaire.responses.viewed")).toEqual([{ value: 1, attributes: {} }]);
+    const span = telemetry.spans().find((candidate) => candidate.name === "reporting.session_detail");
+    expect(span?.attributes).toEqual({ "questionnaire.id": INTAKE_QUESTIONNAIRE_ID, "questionnaire.session_id": sessionId });
+    const audited = (await testDatabase.readAuditTraceIds()).find((row) => row.action === "view_response");
+    expect(audited?.trace_id).toBe(span?.spanContext().traceId);
+  });
+
+  it("emits nothing for a detail read that finds no session", async () => {
+    await seedIntakeV1(testDatabase);
+
+    const response = await sessionDetail(INTAKE_QUESTIONNAIRE_ID, "00000000-0000-0000-0000-000000000000");
+
+    expect(response.statusCode).toBe(404);
+    expect(eventLines("reporting.response_viewed")).toEqual([]);
+    expect(await metricPoints("questionnaire.responses.viewed")).toBeUndefined();
+  });
+
+  it("emits responses_listed for a list read, in a span with the questionnaire id, and writes no audit row", async () => {
+    await aSubmittedIntakeSession();
+
+    const response = await listSessions(INTAKE_QUESTIONNAIRE_ID, { sort: "submitted", order: "asc" });
+
+    expect(response.statusCode).toBe(200);
+    expect(eventLines("reporting.responses_listed")).toMatchObject([{ "questionnaire.id": INTAKE_QUESTIONNAIRE_ID }]);
+    expect(await metricPoints("questionnaire.responses.listed")).toEqual([{ value: 1, attributes: {} }]);
+    const span = telemetry.spans().find((candidate) => candidate.name === "reporting.list_sessions");
+    expect(span?.attributes).toEqual({ "questionnaire.id": INTAKE_QUESTIONNAIRE_ID });
+    expect((await testDatabase.readAuditTraceIds()).filter((row) => row.action === "view_response")).toEqual([]);
+  });
+
+  it("keeps a cursor, and the session id it carries, out of every span, log line and metric of a list read on the instrumented app", async () => {
+    const sessionId = await aSubmittedIntakeSession();
+    await telemetry.shutdown();
+    telemetry = installTestTelemetry({ autoInstrumentation: true });
+    const app = Fastify();
+    await app.register(reportingModule, { reporting: testDatabase.database("reporting"), prefix: reportingApi.REPORTING_PREFIX });
+    await app.ready();
+    const cursor = encodeCursor({ sort: "started", order: "desc", direction: "forward", sortValue: new Date(Date.now() + 60_000), id: sessionId });
+
+    const response = await app.inject({ method: "GET", url: listSessionsUrl(INTAKE_QUESTIONNAIRE_ID, { cursor }) });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ items: { sessionId: string }[] }>().items.map((item) => item.sessionId)).toContain(sessionId);
+    const metricData = await telemetry.metrics();
+    const exported = JSON.stringify({
+      logs: telemetry.logs(),
+      spans: telemetry.spans().map((span) => ({ name: span.name, attributes: span.attributes, events: span.events, status: span.status })),
+      metrics: metricData.map((metric) => ({ descriptor: metric.descriptor, points: metric.dataPoints.map((point) => point.attributes) })),
+    });
+    expect(telemetry.spans().map((span) => span.name)).toEqual(expect.arrayContaining(["request", "reporting.list_sessions"]));
+    expect(exported).not.toContain(cursor);
+    expect(exported).not.toContain(sessionId);
   });
 });

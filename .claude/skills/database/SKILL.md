@@ -35,7 +35,7 @@ structural instead of a per-table list someone has to remember to extend.
 
 Roles: `qp_owner` owns everything and runs migrations. `qp_definition`, `qp_execution` and `qp_reporting`
 are the three application roles (three pools, three connection strings; the owner's makes four).
-`qp_reporting` is read-only and exists for the admin responses browser (Decisions Log #89).
+`qp_reporting` is read-only, apart from `audit.record`, and exists for the admin responses browser (Decisions Log #89).
 `audit_owner` owns the audit schema and the function that writes to it.
 
 ## Invariants — do not break these
@@ -64,13 +64,14 @@ check instead, the change is wrong.
    database has distinct `option_ids`.
 5. **Collected responses are immutable.** `qp_execution` has `SELECT, INSERT` on `response` and nothing
    else. `qp_reporting` is the only other role that can read `execution.*` — `SELECT` on `session` and
-   `response`, no write privilege on any relation — and `qp_definition` has no grant on either. A response's
+   `response`, no write privilege on any relation, and no other write than `audit.record` — and `qp_definition` has no grant on either. A response's
    `questionnaire_version_id` must match its session's pin (composite FK). **The only `DELETE` any
    application role holds is `qp_definition` on `questionnaire_item`**, bounded to drafts by the item guard.
    Do not grant another.
 6. **`audit.event` is append-only and unreachable directly.** Writes go through
    `audit.record(...)`, a `SECURITY DEFINER` function. `qp_definition` has no privilege on the table —
-   not even `SELECT` — and is the only role with `EXECUTE` on the function.
+   not even `SELECT`. `qp_definition` and `qp_reporting` are the only roles with `EXECUTE` on the
+   function, and the reporting repository's one audit function records `view_response` alone (`0020`).
 7. **Nothing is deleted; things are hidden.** Questionnaires retire via `closes_at`, questions archive
    via `archived_at`. Apply this to any new entity.
 
@@ -141,8 +142,11 @@ check instead, the change is wrong.
   so a session's rows share a partition and the replay read prunes to one.
 - **Map `QP001` to `409`** in one place in the Fastify error handler. Map `23505` on the
   question-version path to `409` too.
-- **Audit writes go through one repository function** that calls `audit.record(...)`, inside the same
-  transaction as the domain change. Never inline an audit write at a call site.
+- **Audit writes go through one repository function per side** that calls `audit.record(...)`, inside the same
+  transaction as the change or read it records: `recordAudit` in `db/audit.ts` for the definition side, and
+  `recordResponseView` in `db/reporting/audit.ts`, which can record `view_response` and nothing else, for the
+  responses browser. Never inline an audit write at a call site. `getSessionDetail` writes its row in the
+  transaction that reads the answers, so a failed audit write fails the read; `listSessions` writes none.
 
 ## Rules for migrations
 

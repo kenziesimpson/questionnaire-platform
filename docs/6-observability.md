@@ -154,6 +154,8 @@ Request telemetry tells us the API returned 200. It does not tell us that 40% of
 | `session.item_skipped` | A visibility predicate evaluated false and hid an item | + item id, question id |
 | `session.rejected_past_cutoff` | A submit refused because the questionnaire had closed | session id, questionnaire id, version |
 | `session.submit_finished` | A submit decided: accepted, replayed, rejected for validation, rejected for a conflict, or failed | + outcome |
+| `reporting.responses_listed` | An admin lists a questionnaire's sessions; no audit row | questionnaire id |
+| `reporting.response_viewed` | An admin opens a session's answers; the `view_response` audit row is written in the same transaction | questionnaire id, session id |
 | `session.abandoned` | Inactivity threshold passed, or tab closed | + last question id |
 | `session.completed` | Submitted | + duration, question count |
 
