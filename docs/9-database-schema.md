@@ -664,7 +664,7 @@ should be "simplified" later.
 
 ## 10. Grants
 
-The migrations build this up across several files (`0005`, `0007`, `0009`, `0010`, `0013`); the net result is:
+The migrations build this up across several files (`0005`, `0007`, `0009`, `0010`, `0013`, `0016`); the net result is:
 
 ```sql
 GRANT USAGE ON SCHEMA definition TO qp_definition;
@@ -688,13 +688,21 @@ GRANT SELECT, INSERT         ON execution.response TO qp_execution;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner IN SCHEMA definition
   GRANT SELECT, INSERT, UPDATE ON TABLES TO qp_definition;
+
+-- qp_reporting: the admin responses browser (gh#18, Decisions Log #88) — SELECT only, on exactly
+-- these two tables. It has no grant anywhere in definition or audit.
+GRANT USAGE ON SCHEMA execution TO qp_reporting;
+GRANT SELECT ON execution.session, execution.response TO qp_reporting;
 ```
 
 | Role | `definition` | `execution` | `audit` |
 | --- | --- | --- | --- |
 | `qp_definition` | `SELECT, INSERT` on every table; `UPDATE` on every table except `questionnaire_version` and `questionnaire`, which get only the columns above; `DELETE` on `questionnaire_item` only; `EXECUTE` on `promote_draft` | none | `EXECUTE` on `audit.record` only (§9.1) |
 | `qp_execution` | `SELECT` on `questionnaire`, `version_question_index` and the `published_questionnaire_version` view — not the base `questionnaire_version` table | `SELECT, INSERT, UPDATE` on `session`; `SELECT, INSERT` on `response` | none |
+| `qp_reporting` | none | `SELECT` on `session` and `response` only — no `INSERT`/`UPDATE`/`DELETE` anywhere | none |
 | `qp_owner` | owns every object | owns every object | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` (§9.1) |
+
+`qp_reporting` backs `/api/reporting`'s admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)), a narrow, later addition (Wave 3a) and not the wider "aggregate admin reporting" surface [[2-design-doc#18. Open Questions]] §8 still leaves open. It is deliberately not `qp_execution` with a different name and not a widened `qp_definition` — see Decisions Log #88 for why a fourth role rather than reusing either. Resolving a session's pinned `PublishedDefinition` for that screen reuses `qp_execution`'s own existing grant on `published_questionnaire_version` (a second, read-only use of the `qp_execution` pool from `modules/reporting`, not a grant on `qp_reporting` itself) rather than adding one.
 
 No function in `definition`, `execution` or `audit` keeps the default `EXECUTE` for `PUBLIC`: `audit.record` and
 `promote_draft` are executable only by `qp_definition`, and the trigger functions by no application role (a
@@ -794,7 +802,8 @@ inside a per-database migration is the wrong layer even without the secret.
 
 They go in a shell script instead, `db/init/01-roles.sh`, run by the one-shot `roles` compose
 service — not by the postgres entrypoint's `docker-entrypoint-initdb.d`, which the `db` service does not
-mount. Five identities, three connection strings:
+mount. Six identities, four connection strings (`qp_reporting` and `DATABASE_URL_REPORTING` joined the
+other five in Wave 3a, gh#18, Decisions Log #88):
 
 | Identity | Created by | Connects? |
 | --- | --- | --- |
@@ -802,6 +811,7 @@ mount. Five identities, three connection strings:
 | `qp_owner` | the `roles` service | Yes — the `migrate` service, `DATABASE_URL_OWNER` |
 | `qp_definition` | the `roles` service | Yes — backend authoring pool, `DATABASE_URL_DEFINITION` |
 | `qp_execution` | the `roles` service | Yes — backend execution pool, `DATABASE_URL_EXECUTION` |
+| `qp_reporting` | the `roles` service | Yes — backend reporting pool, `DATABASE_URL_REPORTING` |
 | `audit_owner` | the `roles` service, **`NOLOGIN`** | **No.** No password, no connection string |
 
 **The bootstrap superuser and `qp_owner` are different roles, deliberately.** `initdb` creates

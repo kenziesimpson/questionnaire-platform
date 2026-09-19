@@ -12,6 +12,7 @@ beforeAll(async () => {
   app = await buildApp({
     definition: { database: testDatabase.database("definition") },
     execution: { database: testDatabase.database("execution") },
+    reporting: { reporting: testDatabase.database("reporting"), snapshots: testDatabase.database("execution") },
   });
   await app.ready();
 });
@@ -42,6 +43,21 @@ describe("buildApp", () => {
     expect(response.json()).toMatchObject({
       type: problemType("request/invalid"),
       errors: [{ pointer: "/body/questionnaireId", code: "schema/required" }],
+    });
+  });
+
+  it("mounts the reporting module at /api/reporting", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/reporting/questionnaires/00000000-0000-0000-0000-000000000000/responses",
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.json()).toMatchObject({
+      type: problemType("resource/not-found"),
+      instance: "/api/reporting/questionnaires/00000000-0000-0000-0000-000000000000/responses",
     });
   });
 

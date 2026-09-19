@@ -12,6 +12,11 @@ export const queryKeys = {
     list: (includeArchived: boolean) => ["questions", "list", { includeArchived }] as const,
     usage: (questionId: string) => ["questions", questionId, "usage"] as const,
   },
+  responses: {
+    list: (questionnaireId: string, filters: { version?: number; status?: string }, cursor?: string) =>
+      ["responses", questionnaireId, "list", filters, cursor ?? null] as const,
+    session: (questionnaireId: string, sessionId: string) => ["responses", questionnaireId, "session", sessionId] as const,
+  },
 };
 
 export const draftWriteScope = (questionnaireId: string) => `draft-write:${questionnaireId}`;

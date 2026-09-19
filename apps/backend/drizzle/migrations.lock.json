@@ -14,5 +14,7 @@
   "0012_response_matches_session_pinned_version.sql": "be7c3e3eb75c9ec92649080dfe365a40050c25b2b9a6317c4862ea686a81fa75",
   "0013_publish_audit_written_by_application.sql": "bbeef27b8f78980b2523b4d483dc6f766de99126ea3cad6caa252e3b1990edb5",
   "0014_no_public_execute_on_functions.sql": "29dd94df8cef95d4125dbde308f44e0e532958a2fb640516b2848eaed15ab833",
-  "0015_other_option_id_reserved.sql": "65a5d321e5754dbdcf5666f4f262062e39879e89930aafa70f29ae472437bdc5"
+  "0015_other_option_id_reserved.sql": "65a5d321e5754dbdcf5666f4f262062e39879e89930aafa70f29ae472437bdc5",
+  "0016_add_session_by_questionnaire_index.sql": "abd8ec02935f2d46fd7ca70387d006a969c743c8698aa17ef3c4d942cb6603cd",
+  "0017_reporting_role_grant.sql": "ba882a3493a04def35dcf1aab7fbb692e919628810cceb13b3132866fc9f4b55"
 }

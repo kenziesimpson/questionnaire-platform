@@ -46,18 +46,23 @@ Each half is an encapsulated Fastify plugin with its own route tree, schemas and
 
 No cross-imports, enforced by ESLint `no-restricted-imports` with zone rules: `modules/execution/**` may not import `modules/definition/**` or vice versa. Everything either side needs from the other goes through `@qp/shared`. This is the same enforcement pattern already chosen for the telemetry boundary, so it is one rule family rather than a new idea.
 
+**A third plugin joined this pattern in Wave 3a**: `modules/reporting`, mounted at `/api/reporting`, backing the admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18), design doc Decisions Log #88). The same zone rules apply to it — it shares nothing with `modules/definition` — with one deliberate, narrow exception: it *is* allowed to import `db/execution`'s `PublishedDefinitions` loader, because it reuses the `qp_execution` pool's existing grant to resolve a session's pinned snapshot rather than taking a fresh grant of its own (§3.2). §10.2 below is this surface's own open question, not a resolved design.
+
 ### 3.2 Database grants
 
-The barrier that survives a refactor. Two roles, both distinct from the migration role that owns the schema:
+The barrier that survives a refactor. Three roles now, all distinct from the migration role that owns the schema:
 
 | Role | `SELECT` | `INSERT` / `UPDATE` |
 | --- | --- | --- |
 | `qp_definition` | question bank, question versions, questionnaires, draft items, published versions, `version_question_index` | all of the above, subject to the immutability triggers; on questionnaires and versions `UPDATE` is column-level and excludes status, snapshot and the current-version pointer, which change only through `definition.promote_draft`. `DELETE` on draft items only |
 | `qp_execution` | published versions through the `definition.published_questionnaire_version` view, `version_question_index`, questionnaires (for `closes_at`), sessions, responses | sessions, responses only |
+| `qp_reporting` | `execution.session`, `execution.response` — nothing else | none |
 
 `qp_execution` has no grant on any authoring table, and no grant on the base `questionnaire_version` table either — a draft row is not visible to it at all. Column lists and the full matrix: [[9-database-schema#10. Grants]]. `qp_definition` has **no grant on `response`** — the authoring surface is not a back door into answer data, which in this domain is medical history. Aggregate visibility for admins ("where do respondents give up") is a third, later surface with its own role reading the session record and domain events, never raw answers; see §10.
 
-This is the same technique as the audit role ([[6-observability#5.1 Isolation — separate schema with a restricted role]]): make the guarantee something Postgres enforces rather than something the service layer promises. In one process that means two pools with two connection strings. When the halves split into two services, it is already the right shape and nothing changes.
+**`qp_reporting` is that third surface's first, narrow slice** — the admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18), design doc Decisions Log #88), not the aggregate-visibility surface described above. It is read-only, and scoped to exactly the two tables gh#18 needs: no domain events, no `definition.*`, no write of any kind. Resolving a session's pinned `PublishedDefinition` for that screen reuses the `qp_execution` pool's own existing grant on `definition.published_questionnaire_version` (through `db/execution/published-definitions.ts`, shared read-only into `modules/reporting`) rather than granting `qp_reporting` a fresh one — see §3.1. The wider aggregate-visibility surface, with its own role over sessions and domain events, is still open; §10.2.
+
+This is the same technique as the audit role ([[6-observability#5.1 Isolation — separate schema with a restricted role]]): make the guarantee something Postgres enforces rather than something the service layer promises. In one process that means three pools with three connection strings — `qp_definition`, `qp_execution`, `qp_reporting`. When the halves split into services, it is already the right shape and nothing changes.
 
 ### 3.3 What stays shared
 
@@ -347,9 +352,9 @@ With real auth, the respondent surface gains an owner check and the capability p
 
 ## 8. Deployment topology
 
-### 8.1 Now — two plugins, one process
+### 8.1 Now — three plugins, one process
 
-Both halves register as encapsulated Fastify plugins in a single backend container, mounted at `/api/definition` and `/api/run`, with two connection pools bound to the two roles in §3.2. The `frontend` nginx proxies `/api/*` to it as today ([[2-design-doc#13. Deployment]]); no compose change.
+All three halves register as encapsulated Fastify plugins in a single backend container, mounted at `/api/definition`, `/api/run` and `/api/reporting`, with three connection pools bound to the three roles in §3.2 (`modules/reporting` additionally takes the `qp_execution` pool, read-only, per §3.2's note on `qp_reporting`'s scope). The `frontend` nginx proxies `/api/*` to it as today ([[2-design-doc#13. Deployment]]); no compose change.
 
 One process is right for the prototype: one container to run, one process to debug, one log stream, and `docker compose up` stays one command. The boundary being enforced by module graph, types and grants rather than by a network hop means the split is a deployment decision, not an architectural one — and can be deferred without being compromised.
 
@@ -418,7 +423,7 @@ Against that: a write on the hot side of the system, and a partial-answer store 
 ## 10. Open questions
 
 1. **Checkpoint endpoint — resolved: deferred** (Decisions Log #25). `PUT /sessions/:id/progress` does not ship in the prototype. Without auth the session id lives and dies in the same browser storage as the answers it would recover, so the cross-device-resume benefit is largely unavailable, and the operational half is already carried by domain events. Reasoning in §9.7; the table shape is recorded in [[9-database-schema#12. Open questions]] so adding it stays additive.
-2. **Admin reporting surface.** §3.2 denies the definition role any read on `response`, which is correct, and leaves "how do admins see aggregate results" unanswered. Expected shape is a third read-only surface with its own role over the session record and domain events, with raw answers behind an explicit, audited export. Not designed yet.
+2. **Admin reporting surface.** §3.2 denies the definition role any read on `response`, which is correct, and leaves "how do admins see aggregate results" unanswered. Expected shape is a third read-only surface with its own role over the session record and domain events, with raw answers behind an explicit, audited export. Not designed yet. **A narrower slice of the third-surface shape has shipped** — `qp_reporting` and the admin responses browser, [gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18), design doc Decisions Log #88 — but it does not answer this question: it has no domain-event access, no audited export, and no aggregation. It also opens its own smaller open questions, unresolved: who may read the screen at all (no auth exists anywhere in the prototype), whether opening a session should be audited (it is not today — an audited read would itself be a write, which gh#18's acceptance criteria ruled out), and how much of a session id belongs in a URL (today the full id, as every other admin route takes a full resource id, with only the first 8 characters ever displayed) — see the prototype canvas linked from gh#18.
 3. **Version diffing.** `GET /versions/:a/diff/:b` would make "what changed in v2" a first-class answer and is directly useful for the mandatory v2 demo. Deferred as additive — both snapshots are already retrievable and the admin app can diff client-side.
 4. **Rate limiting on the execution surface.** Unauthenticated `POST /sessions` is trivially abusable. `@fastify/rate-limit` is a small addition; whether it belongs in the prototype or is stated as an edge concern is open, and it interacts with where the split in §8.2 puts the public ingress.
 5. **A taken `key` on create — open, deferred 2026-09-13.** `POST /questions` and `POST /questionnaires` with a key already in use return `500 internal`, because no slug in §6.1 fits. Tracked in [issue #15](https://github.com/kenziesimpson/questionnaire-platform/issues/15); resolve before Track 6 ships key entry.

@@ -2,6 +2,7 @@ import {
   PROBLEM_CONTENT_TYPE,
   definitionApi,
   isDraftEtagFor,
+  reportingApi,
   routePath,
   routeSearch,
   successSchemaOf,
@@ -48,6 +49,10 @@ function definitionUrl(route: RouteDefinition, parts: Pick<LooseParts, "params" 
   return `${definitionApi.DEFINITION_PREFIX}${routePath(route.url, parts.params)}${routeSearch(parts.query)}`;
 }
 
+export function reportingUrl(route: RouteDefinition, parts: Pick<LooseParts, "params" | "query"> = {}): string {
+  return `${reportingApi.REPORTING_PREFIX}${routePath(route.url, parts.params)}${routeSearch(parts.query)}`;
+}
+
 async function jsonOf(response: Response): Promise<unknown> {
   const text = await response.text();
   if (text === "") return undefined;
@@ -58,12 +63,12 @@ async function jsonOf(response: Response): Promise<unknown> {
   }
 }
 
-async function checkedExchange(route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {
+async function checkedExchangeAt(urlOf: typeof definitionUrl, route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {
   const headers = new Headers({ accept: `application/json, ${PROBLEM_CONTENT_TYPE}` });
   if (parts.body !== undefined) headers.set("content-type", "application/json");
   if (parts.ifMatch !== undefined) headers.set("if-match", parts.ifMatch);
 
-  const response = await fetch(definitionUrl(route, parts), {
+  const response = await fetch(urlOf(route, parts), {
     method: route.method,
     headers,
     body: parts.body === undefined ? undefined : JSON.stringify(parts.body),
@@ -84,6 +89,10 @@ async function checkedExchange(route: RouteDefinition, parts: LooseParts): Promi
   return { status: response.status, body, headers: response.headers };
 }
 
+function checkedExchange(route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {
+  return checkedExchangeAt(definitionUrl, route, parts);
+}
+
 function exchange<R extends RouteWith<200>>(route: R, parts: RequestParts<R>): Promise<Exchange<SuccessBody<R, 200>>>;
 function exchange<R extends RouteWith<201>>(route: R, parts: RequestParts<R>): Promise<Exchange<SuccessBody<R, 201>>>;
 function exchange(route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {
@@ -100,6 +109,10 @@ export function callDefinition<R extends PlainDefinitionRoute & RouteWith<201>>(
 ): Promise<SuccessBody<R, 201>>;
 export async function callDefinition(route: RouteDefinition, parts: LooseParts): Promise<unknown> {
   return (await checkedExchange(route, parts)).body;
+}
+
+export async function callReporting<R extends RouteWith<200>>(route: R, parts: RequestParts<R>): Promise<SuccessBody<R, 200>> {
+  return ((await checkedExchangeAt(reportingUrl, route, parts)) as Exchange<SuccessBody<R, 200>>).body;
 }
 
 function versionedDraft({ status, body, headers }: Exchange<QuestionnaireDraft>): VersionedDraft {

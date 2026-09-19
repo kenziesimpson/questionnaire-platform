@@ -1,4 +1,4 @@
-import { Uuid } from "@qp/shared";
+import { Uuid, type SessionStatus } from "@qp/shared";
 import type { QueryClient } from "@tanstack/react-query";
 import {
   createRootRouteWithContext,
@@ -13,6 +13,8 @@ import { DraftEditorScreen } from "./screens/draft-editor";
 import { NotFoundScreen } from "./screens/not-found";
 import { QuestionBankScreen } from "./screens/question-bank";
 import { QuestionnaireListScreen } from "./screens/questionnaire-list";
+import { ResponseDetailScreen } from "./screens/response-detail";
+import { ResponsesListScreen } from "./screens/responses-list";
 import { VersionHistoryScreen } from "./screens/version-history";
 import { VersionPreviewScreen } from "./screens/version-preview";
 import { pageTitle } from "./page-title";
@@ -28,9 +30,29 @@ function titled(page: string) {
   return { meta: [{ title: pageTitle(page) }] };
 }
 
-function parseQuestionnaireId(raw: string): string {
+function parseUuid(raw: string): string {
   if (!Value.Check(Uuid, raw)) throw notFound();
   return raw;
+}
+
+const parseQuestionnaireId = parseUuid;
+
+export interface ResponsesSearch {
+  version?: number;
+  status?: SessionStatus;
+  cursor?: string;
+}
+
+function parseResponsesSearch(search: Record<string, unknown>): ResponsesSearch {
+  const rawVersion = search.version;
+  const version = typeof rawVersion === "string" || typeof rawVersion === "number" ? Number(rawVersion) : NaN;
+  const status = search.status === "submitted" || search.status === "in_progress" ? search.status : undefined;
+  const cursor = typeof search.cursor === "string" && search.cursor !== "" ? search.cursor : undefined;
+  return {
+    ...(Number.isInteger(version) && version >= 1 ? { version } : {}),
+    ...(status === undefined ? {} : { status }),
+    ...(cursor === undefined ? {} : { cursor }),
+  };
 }
 
 function parseVersion(raw: string): number {
@@ -101,6 +123,30 @@ const questionBankRoute = createRoute({
   component: QuestionBankScreen,
 });
 
+const responsesListRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/questionnaires/$questionnaireId/responses",
+  params: questionnaireParams,
+  validateSearch: parseResponsesSearch,
+  head: () => titled("Responses"),
+  component: ResponsesListScreen,
+});
+
+const responseDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/questionnaires/$questionnaireId/responses/$sessionId",
+  params: {
+    parse: ({ questionnaireId, sessionId }: { questionnaireId: string; sessionId: string }) => ({
+      questionnaireId: parseUuid(questionnaireId),
+      sessionId: parseUuid(sessionId),
+    }),
+    stringify: ({ questionnaireId, sessionId }: { questionnaireId: string; sessionId: string }) => ({ questionnaireId, sessionId }),
+  },
+  validateSearch: parseResponsesSearch,
+  head: () => titled("Session detail"),
+  component: ResponseDetailScreen,
+});
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   questionnaireListRoute,
@@ -108,6 +154,8 @@ export const routeTree = rootRoute.addChildren([
   versionHistoryRoute,
   versionPreviewRoute,
   questionBankRoute,
+  responsesListRoute,
+  responseDetailRoute,
 ]);
 
 export function createAppRouter({ queryClient, history }: { queryClient: QueryClient; history?: RouterHistory }) {

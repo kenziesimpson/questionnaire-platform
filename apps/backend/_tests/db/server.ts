@@ -1,6 +1,6 @@
 export const TEMPLATE_DATABASE = "qp_test_template";
 
-export type ApplicationRole = "owner" | "definition" | "execution";
+export type ApplicationRole = "owner" | "definition" | "execution" | "reporting";
 
 export type RolePasswords = Readonly<Record<ApplicationRole, string>>;
 
@@ -19,6 +19,7 @@ export const ROLE_NAMES: Readonly<Record<ApplicationRole, string>> = {
   owner: "qp_owner",
   definition: "qp_definition",
   execution: "qp_execution",
+  reporting: "qp_reporting",
 };
 
 export function withDatabase(connectionUrl: string, database: string): string {

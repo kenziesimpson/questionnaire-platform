@@ -12,6 +12,7 @@ const containerPasswords: RolePasswords = {
   owner: "qp_owner_test",
   definition: "qp_definition_test",
   execution: "qp_execution_test",
+  reporting: "qp_reporting_test",
 };
 
 function passwordsFromEnvironment(): RolePasswords {
@@ -19,6 +20,7 @@ function passwordsFromEnvironment(): RolePasswords {
     owner: process.env.QP_OWNER_PASSWORD ?? "qp_owner",
     definition: process.env.QP_DEFINITION_PASSWORD ?? "qp_definition",
     execution: process.env.QP_EXECUTION_PASSWORD ?? "qp_execution",
+    reporting: process.env.QP_REPORTING_PASSWORD ?? "qp_reporting",
   };
 }
 
@@ -34,6 +36,7 @@ async function startContainer(): Promise<{ server: TestDatabaseServer; stop: () 
       QP_OWNER_PASSWORD: containerPasswords.owner,
       QP_DEFINITION_PASSWORD: containerPasswords.definition,
       QP_EXECUTION_PASSWORD: containerPasswords.execution,
+      QP_REPORTING_PASSWORD: containerPasswords.reporting,
     },
   });
   if (roles.exitCode !== 0) {

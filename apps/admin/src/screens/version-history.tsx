@@ -50,14 +50,32 @@ function OpenNextDraft({ summary }: { summary: QuestionnaireSummary }) {
   );
 }
 
+function RawResponsesLink({ questionnaireId }: { questionnaireId: string }) {
+  return (
+    <Button asChild variant="outline">
+      <Link to="/questionnaires/$questionnaireId/responses" params={{ questionnaireId }}>
+        Raw responses
+      </Link>
+    </Button>
+  );
+}
+
 function HistoryHeader({ summary }: { summary: QuestionnaireSummary | undefined }) {
   const canOpenNextDraft = summary !== undefined && !summary.hasDraft && summary.currentVersion !== null;
+  const hasAPublishedVersionToBrowseResponsesFor = summary !== undefined && summary.currentVersion !== null;
   return (
     <ScreenHeader
       back={<BackToQuestionnaires />}
       title="Version history"
       meta={summary?.name}
-      trailing={canOpenNextDraft ? <OpenNextDraft summary={summary} /> : undefined}
+      trailing={
+        summary === undefined ? undefined : (
+          <div className="flex items-center gap-2">
+            {hasAPublishedVersionToBrowseResponsesFor ? <RawResponsesLink questionnaireId={summary.questionnaireId} /> : null}
+            {canOpenNextDraft ? <OpenNextDraft summary={summary} /> : null}
+          </div>
+        )
+      }
     />
   );
 }

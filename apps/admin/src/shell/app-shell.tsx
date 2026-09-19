@@ -27,7 +27,7 @@ export function AppShell() {
           <BookCheckIcon size={18} strokeWidth={1.8} aria-hidden="true" />
           <span className="text-sm font-semibold tracking-tight">Questionnaire admin</span>
         </div>
-        <span className="text-xs text-muted-foreground">No sign-in in this prototype · authoring surface</span>
+        <span className="text-xs text-muted-foreground">No sign-in in this prototype</span>
       </header>
       <div className="flex flex-1 items-stretch">
         <nav aria-label="Main" className="flex w-50 shrink-0 flex-col gap-1 border-r border-border px-3 py-4">

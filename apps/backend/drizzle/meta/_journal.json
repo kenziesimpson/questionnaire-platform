@@ -113,6 +113,20 @@
       "when": 1789698801439,
       "tag": "0015_other_option_id_reserved",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1789779647243,
+      "tag": "0016_add_session_by_questionnaire_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789779653430,
+      "tag": "0017_reporting_role_grant",
+      "breakpoints": true
     }
   ]
 }
