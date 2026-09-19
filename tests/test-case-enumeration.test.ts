@@ -55,7 +55,8 @@ function citedPaths(): CitedPath[] {
     const fileCell = cells[2];
     if (fileCell === undefined || fileCell.trim() === "File" || fileCell.trim() === "---") continue;
     for (const match of fileCell.matchAll(/`([^`]+)`/g)) {
-      const cell = match[1]!;
+      const cell = match[1];
+      if (cell === undefined) throw new Error("backtick-quoted match without its mandatory group");
       if (!cell.includes("/") || !(cell.endsWith(".ts") || cell.endsWith(".tsx"))) continue;
       if (workspace === undefined) throw new Error(`"${cell}" is cited before any workspace heading in §7`);
       cited.push({ cell, resolved: resolvePath(cell, workspace) });

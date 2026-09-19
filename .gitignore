@@ -24,6 +24,9 @@ npm-debug.log*
 # Test / coverage
 coverage/
 
+# ESLint's persistent cache (npm run lint --cache)
+.eslintcache
+
 # Cowork output folder (delivered files, not project source)
 Claude outputs/
 

@@ -22,7 +22,8 @@ export async function seedIntakeV1(testDatabase: TestDatabase): Promise<void> {
 export async function publishIntakeV2Relabel(testDatabase: TestDatabase): Promise<void> {
   const definition = testDatabase.database("definition");
   const v2 = intakeDefinition(2);
-  const relabelled = v2.items.find((item) => item.question.questionId === INTAKE_QUESTION_IDS.whichCondition)!;
+  const relabelled = v2.items.find((item) => item.question.questionId === INTAKE_QUESTION_IDS.whichCondition);
+  if (relabelled === undefined) throw new Error("intake v2 no longer has the whichCondition item");
   const appended = await appendQuestionVersion(definition, {
     questionId: INTAKE_QUESTION_IDS.whichCondition,
     content: questionInputOf(relabelled.question),

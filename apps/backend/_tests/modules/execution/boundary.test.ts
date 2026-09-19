@@ -80,7 +80,11 @@ describe("the execution module on its own", () => {
   it("imports from the schema only the execution tables, the questionnaire row it is granted, and the definition schema for the published view", async () => {
     const source = await executionSources();
     const schemaImports = [...source.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*"[./]*(?:db\/)?schema\.js"/g)]
-      .flatMap((match) => match[1]!.split(","))
+      .flatMap((match) => {
+        const names = match[1];
+        if (names === undefined) throw new Error("import statement matched without its named-imports group");
+        return names.split(",");
+      })
       .map((name) => name.trim())
       .filter((name) => name !== "");
 

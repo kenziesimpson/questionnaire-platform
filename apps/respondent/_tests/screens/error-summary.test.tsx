@@ -1,9 +1,41 @@
+import type { ClientAnswers } from "@qp/shared";
 import { axeViolations } from "@qp/ui/testing";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { ErrorSummary, type ErrorSummaryEntry } from "../../src/screens/error-summary";
+import { ErrorSummary, errorSummaryEntries, errorSummaryTitle, type ErrorSummaryEntry } from "../../src/screens/error-summary";
+import { intakeV1 } from "../fixtures";
+
+const yesBranch: ClientAnswers = { itm_01: { type: "single_choice", optionId: "yes" } };
+
+describe("errorSummaryEntries", () => {
+  it("lists shown items in form order with the catalogue message for their first code", () => {
+    const entries = errorSummaryEntries(intakeV1, yesBranch, {
+      itm_04: ["text/too-long", "answer/required"],
+      itm_02: ["answer/required"],
+    });
+
+    expect(entries).toEqual([
+      { itemId: "itm_02", prompt: "Which condition?", message: "Answer this question." },
+      { itemId: "itm_04", prompt: "Preferred pharmacy", message: "Enter no more than 120 characters." },
+    ]);
+  });
+
+  it("leaves out items the answers hide", () => {
+    expect(errorSummaryEntries(intakeV1, { itm_01: { type: "single_choice", optionId: "no" } }, { itm_03: ["date/in-future"] })).toEqual([]);
+  });
+});
+
+describe("errorSummaryTitle", () => {
+  it.each([
+    [0, "Your answers could not be submitted"],
+    [1, "1 answer needs attention"],
+    [3, "3 answers need attention"],
+  ])("titles %i entries as %s", (count, title) => {
+    expect(errorSummaryTitle(count)).toBe(title);
+  });
+});
 
 const entries: ErrorSummaryEntry[] = [
   { itemId: "itm_02", prompt: "Which condition?", message: "Answer this question." },

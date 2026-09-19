@@ -91,9 +91,13 @@ describe("PublishedDefinition", () => {
   it("accepts version 2: opt_hyperten relabelled, question version 4, nothing else changed (#26)", () => {
     const v2 = clone(documentedV1);
     v2.version = 2;
-    const which = v2.items[1]!.question as { questionVersion: number; options: { optionId: string; label: string }[] };
+    const item = v2.items[1];
+    if (item === undefined) throw new Error("the documented v1 fixture is missing its second item");
+    const which = item.question as { questionVersion: number; options: { optionId: string; label: string }[] };
     which.questionVersion = 4;
-    which.options[1]!.label = "High blood pressure (hypertension)";
+    const hypertension = which.options[1];
+    if (hypertension === undefined) throw new Error("the documented v1 fixture is missing its second option");
+    hypertension.label = "High blood pressure (hypertension)";
     expect(Value.Check(PublishedDefinition, v2)).toBe(true);
   });
 

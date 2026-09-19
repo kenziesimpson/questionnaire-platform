@@ -96,7 +96,7 @@ describe("POST /questions", () => {
         type: "single_choice",
         prompt: "Which condition?",
         createdBy: AUTHOR_PLACEHOLDER,
-        options: aChoiceQuestion.type === "single_choice" ? aChoiceQuestion.options : [],
+        options: aChoiceQuestion.options,
       },
     });
     expect(await testDatabase.readAuditEvents()).toEqual([
@@ -318,9 +318,9 @@ describe("POST /questions/:questionId/versions", () => {
       post(`/questions/${questionId}/versions`, { question: aChoiceQuestion }),
     ]);
 
-    expect(sameType?.statusCode).toBe(201);
-    expect(changedType?.statusCode).toBe(400);
-    expect(changedType?.json().errors).toEqual([{ pointer: "/body/question/type", code: "question/type-changed" }]);
+    expect(sameType.statusCode).toBe(201);
+    expect(changedType.statusCode).toBe(400);
+    expect(changedType.json().errors).toEqual([{ pointer: "/body/question/type", code: "question/type-changed" }]);
     expect((await get(`/questions/${questionId}/versions`)).json()).toMatchObject([
       { questionVersion: 2, type: "text" },
       { questionVersion: 1, type: "text" },

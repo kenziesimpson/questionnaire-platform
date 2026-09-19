@@ -35,6 +35,12 @@ function pageLinksMarkedCurrent() {
     .filter((link) => link.hasAttribute("aria-current"));
 }
 
+function rowContaining(cell: HTMLElement) {
+  const row = cell.closest("tr");
+  if (row === null) throw new Error(`expected "${cell.textContent}" to sit inside a <tr>`);
+  return row;
+}
+
 async function waitForPublishable() {
   const checks = await screen.findByRole("region", { name: "Publish checks" });
   await within(checks).findByText(/No problems found/);
@@ -101,9 +107,8 @@ describe("the authoring flow, across every screen", () => {
     await landOn("Version history");
     expect(path()).toBe(`/questionnaires/${questionnaireId}/versions`);
     expect(document.title).toBe("Version history · Questionnaire admin");
-    const version1 = (await screen.findByText("Version 1")).closest("tr");
-    expect(version1).not.toBeNull();
-    expect(within(version1!).getByText("2 questions")).toBeInTheDocument();
+    const version1 = rowContaining(await screen.findByText("Version 1"));
+    expect(within(version1).getByText("2 questions")).toBeInTheDocument();
     expect(currentNav()).toEqual(["Questionnaires"]);
     expect(pageLinksMarkedCurrent()).toEqual([]);
     await expectNoAxeViolations(container);
@@ -124,11 +129,10 @@ describe("the authoring flow, across every screen", () => {
 
     await userEvent.click(screen.getByRole("link", { name: "Back to questionnaires" }));
     await landOn("Questionnaires");
-    const row = (await screen.findByText("Smoking history")).closest("tr");
-    expect(row).not.toBeNull();
-    expect(within(row!).getByText("Published v1")).toBeInTheDocument();
-    expect(within(row!).getByText("Draft open")).toBeInTheDocument();
-    expect(within(row!).getByRole("link", { name: "History of Smoking history" })).toHaveAttribute(
+    const row = rowContaining(await screen.findByText("Smoking history"));
+    expect(within(row).getByText("Published v1")).toBeInTheDocument();
+    expect(within(row).getByText("Draft open")).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: "History of Smoking history" })).toHaveAttribute(
       "href",
       `/admin/questionnaires/${questionnaireId}/versions`,
     );

@@ -51,11 +51,18 @@ function renderHistory(handler: Reply) {
 async function findRows() {
   const table = await screen.findByRole("table", { name: /published versions/i });
   const [header, ...rows] = within(table).getAllByRole("row");
+  if (header === undefined) throw new Error("expected a header row");
   return { table, header, rows };
 }
 
 function cellsOf(row: HTMLElement) {
   return within(row).getAllByRole("cell");
+}
+
+function rowAt(rows: HTMLElement[], index: number) {
+  const row = rows[index];
+  if (row === undefined) throw new Error(`expected a row at index ${index}, only ${rows.length} rendered`);
+  return row;
 }
 
 describe("the version history screen", () => {
@@ -65,8 +72,9 @@ describe("the version history screen", () => {
     const { rows } = await findRows();
 
     expect(rows.map((row) => cellsOf(row)[0]?.textContent)).toEqual(["Version 2", "Version 1"]);
-    expect(cellsOf(rows[0]!)[1]).toHaveTextContent("4 questions");
-    expect(within(rows[0]!).getByRole("time")).toHaveAttribute("datetime", "2026-09-13T09:14:00.000Z");
+    const newestRow = rowAt(rows, 0);
+    expect(cellsOf(newestRow)[1]).toHaveTextContent("4 questions");
+    expect(within(newestRow).getByRole("time")).toHaveAttribute("datetime", "2026-09-13T09:14:00.000Z");
   });
 
   it("renders the absent publisher as a dash, keeping the column", async () => {
@@ -129,12 +137,12 @@ describe("the version history screen", () => {
     renderHistory(serve({ summaries: [aSummary({ hasDraft: true, updatedAt: "2026-09-14T08:30:00.000Z" })] }));
 
     const { rows } = await findRows();
-    const [draft] = rows;
 
     expect(rows).toHaveLength(3);
-    expect(cellsOf(draft!)[0]).toHaveTextContent("Draft");
-    expect(within(draft!).getByRole("time")).toHaveAttribute("datetime", "2026-09-14T08:30:00.000Z");
-    expect(within(draft!).getByRole("link", { name: "Edit the draft" })).toHaveAttribute(
+    const draft = rowAt(rows, 0);
+    expect(cellsOf(draft)[0]).toHaveTextContent("Draft");
+    expect(within(draft).getByRole("time")).toHaveAttribute("datetime", "2026-09-14T08:30:00.000Z");
+    expect(within(draft).getByRole("link", { name: "Edit the draft" })).toHaveAttribute(
       "href",
       `/admin/questionnaires/${QUESTIONNAIRE_ID}/draft`,
     );
@@ -236,7 +244,7 @@ describe("the version history screen", () => {
     const { rows } = await findRows();
 
     expect(rows).toHaveLength(2);
-    expect(cellsOf(rows[0]!)[0]).toHaveTextContent("Draft");
+    expect(cellsOf(rowAt(rows, 0))[0]).toHaveTextContent("Draft");
     expect(rows[1]).toHaveTextContent("Never published");
     expect(screen.queryByRole("link", { name: /^Preview/ })).not.toBeInTheDocument();
   });
