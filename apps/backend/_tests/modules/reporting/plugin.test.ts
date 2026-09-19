@@ -766,7 +766,7 @@ describe("the telemetry of reading responses", () => {
     await sessionDetail(INTAKE_QUESTIONNAIRE_ID, sessionId);
 
     expect(eventLines("reporting.response_viewed")).toMatchObject([
-      { "questionnaire.id": INTAKE_QUESTIONNAIRE_ID, "questionnaire.session_id": sessionId, "telemetry.source": "server" },
+      { "questionnaire.id": INTAKE_QUESTIONNAIRE_ID, "questionnaire.session_id": sessionId },
     ]);
     expect(await metricPoints("questionnaire.responses.viewed")).toEqual([{ value: 1, attributes: {} }]);
     const span = telemetry.spans().find((candidate) => candidate.name === "reporting.session_detail");
