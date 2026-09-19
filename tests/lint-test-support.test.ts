@@ -126,7 +126,7 @@ describe("L11: production code does not import @qp/ui/testing", () => {
   });
 });
 
-describe("L11: production code does not import @qp/telemetry/testing or @qp/telemetry/canary", () => {
+describe("L11: production code does not import @qp/telemetry/testing or @qp/telemetry/leak-test", () => {
   it.each([
     "apps/backend/src/app.ts",
     "apps/backend/src/telemetry.ts",
@@ -137,14 +137,14 @@ describe("L11: production code does not import @qp/telemetry/testing or @qp/tele
     "packages/telemetry/src/index.ts",
   ])("rejects both entry points in %s", async (filePath) => {
     expect(await testSupportImports(filePath, `import { installTestTelemetry } from "@qp/telemetry/testing";`)).toHaveLength(1);
-    expect(await testSupportImports(filePath, `import { runCanaryFlow } from "@qp/telemetry/canary";`)).toHaveLength(1);
+    expect(await testSupportImports(filePath, `import { runLeakFlow } from "@qp/telemetry/leak-test";`)).toHaveLength(1);
   });
 
   it("allows tests, the package's own relative imports, and the production entry points", async () => {
-    expect(await testSupportImports(BACKEND_TEST, `import { runCanaryFlow } from "@qp/telemetry/canary";`)).toEqual([]);
-    expect(await testSupportImports("apps/backend/_tests/canary/harness.ts", `import { installTestTelemetry } from "@qp/telemetry/testing";`)).toEqual([]);
-    expect(await testSupportImports(TELEMETRY_TEST, `import { runCanaryFlow } from "../src/canary.js";`)).toEqual([]);
-    expect(await testSupportImports("packages/telemetry/src/canary.ts", `import { installTestTelemetry } from "./testing.js";`)).toEqual([]);
+    expect(await testSupportImports(BACKEND_TEST, `import { runLeakFlow } from "@qp/telemetry/leak-test";`)).toEqual([]);
+    expect(await testSupportImports("apps/backend/_tests/leak-test/harness.ts", `import { installTestTelemetry } from "@qp/telemetry/testing";`)).toEqual([]);
+    expect(await testSupportImports(TELEMETRY_TEST, `import { runLeakFlow } from "../src/leak-test.js";`)).toEqual([]);
+    expect(await testSupportImports("packages/telemetry/src/leak-test.ts", `import { installTestTelemetry } from "./testing.js";`)).toEqual([]);
     expect(await testSupportImports("apps/backend/src/telemetry.ts", `import { startTelemetry } from "@qp/telemetry/node";`)).toEqual([]);
     expect(await testSupportImports("apps/admin/src/app.tsx", `import { logger } from "@qp/telemetry";`)).toEqual([]);
   });

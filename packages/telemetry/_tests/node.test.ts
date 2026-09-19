@@ -6,7 +6,7 @@ import { emitDomainEvent, logger, withSpan } from "../src/index.js";
 import { runningTelemetry, startTelemetry, type TelemetryHandle } from "../src/node.js";
 import { SESSION_ID, QUESTIONNAIRE_ID } from "./fixtures.js";
 
-const CANARY = "CANARY_DIABETES_8F3A";
+const LEAK = "LEAK_DIABETES_8F3A";
 
 interface Received {
   readonly path: string;
@@ -96,7 +96,7 @@ describe("startTelemetry with an endpoint configured", () => {
     expect(handle.exporting).toEqual({ traces: true, metrics: true });
 
     await withSpan("session.submit", { sessionId: SESSION_ID, outcome: "accepted" }, async () => {
-      trace.getTracer("third-party").startSpan("GET", { attributes: { "http.request.body": CANARY, "url.path": `/sessions/${CANARY}` } }).end();
+      trace.getTracer("third-party").startSpan("GET", { attributes: { "http.request.body": LEAK, "url.path": `/sessions/${LEAK}` } }).end();
     });
     emitDomainEvent({ name: "session.started", sessionId: SESSION_ID, questionnaireId: QUESTIONNAIRE_ID, questionnaireVersion: 1 });
     await handle.flush();
@@ -110,7 +110,7 @@ describe("startTelemetry with an endpoint configured", () => {
     expect(bodies).toContain("session.submit");
     expect(bodies).toContain("questionnaire.sessions.started");
     expect(bodies).toContain("qp-test");
-    expect(bodies).not.toContain(CANARY);
+    expect(bodies).not.toContain(LEAK);
     expect(bodies).not.toContain("http.request.body");
     expect(bodies).not.toContain("url.path");
   });

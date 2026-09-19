@@ -2,7 +2,7 @@ import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
 import { installTestTelemetry } from "./testing.js";
 import type { SignalKind } from "./vocabulary.js";
 
-export const CANARY_SENTINEL = "CANARY_DIABETES_8F3A";
+export const LEAK_SENTINEL = "LEAK_DIABETES_8F3A";
 
 interface Named {
   readonly name: string;
@@ -18,23 +18,23 @@ export interface CapturedTelemetry {
   metrics(): Promise<readonly NamedMetric[]>;
 }
 
-export interface CanaryExposure {
+export interface LeakExposure {
   readonly signal: SignalKind;
   readonly name: string;
 }
 
-export interface CanaryFlow<World> {
+export interface LeakFlow<World> {
   readonly name: string;
   run(world: World, sentinel: string): Promise<void>;
 }
 
-export interface CanaryRunOptions {
+export interface LeakRunOptions {
   readonly sentinel?: string;
   readonly autoInstrumentation?: boolean;
 }
 
-export interface CanaryRun {
-  readonly exposures: readonly CanaryExposure[];
+export interface LeakRun {
+  readonly exposures: readonly LeakExposure[];
   readonly observed: Readonly<Record<SignalKind, number>>;
   readonly spanNames: readonly string[];
 }
@@ -60,7 +60,7 @@ function carries(value: unknown, sentinel: string): boolean {
   return serialized(value).toLowerCase().includes(sentinel.toLowerCase());
 }
 
-function exposed<T>(signal: SignalKind, items: readonly T[], nameOf: (item: T) => string, sentinel: string): CanaryExposure[] {
+function exposed<T>(signal: SignalKind, items: readonly T[], nameOf: (item: T) => string, sentinel: string): LeakExposure[] {
   return items.filter((item) => carries(item, sentinel)).map((item) => ({ signal, name: nameOf(item) }));
 }
 
@@ -68,7 +68,7 @@ function messageOf(line: Record<string, unknown>): string {
   return typeof line.msg === "string" ? line.msg : "log line";
 }
 
-export async function exposuresOf(telemetry: CapturedTelemetry, sentinel: string = CANARY_SENTINEL): Promise<CanaryExposure[]> {
+export async function exposuresOf(telemetry: CapturedTelemetry, sentinel: string = LEAK_SENTINEL): Promise<LeakExposure[]> {
   return [
     ...exposed("log", telemetry.logs(), messageOf, sentinel),
     ...exposed("span", telemetry.spans(), (span) => span.name, sentinel),
@@ -76,12 +76,12 @@ export async function exposuresOf(telemetry: CapturedTelemetry, sentinel: string
   ];
 }
 
-export async function runCanaryFlow<World>(
-  flow: CanaryFlow<World>,
+export async function runLeakFlow<World>(
+  flow: LeakFlow<World>,
   world: World,
-  options: CanaryRunOptions = {},
-): Promise<CanaryRun> {
-  const sentinel = options.sentinel ?? CANARY_SENTINEL;
+  options: LeakRunOptions = {},
+): Promise<LeakRun> {
+  const sentinel = options.sentinel ?? LEAK_SENTINEL;
   const telemetry = installTestTelemetry({ autoInstrumentation: options.autoInstrumentation ?? false });
   try {
     await flow.run(world, sentinel);
@@ -96,13 +96,13 @@ export async function runCanaryFlow<World>(
   }
 }
 
-export function expectCleanRun(flowName: string, run: CanaryRun, sentinel: string = CANARY_SENTINEL): void {
+export function expectCleanRun(flowName: string, run: LeakRun, sentinel: string = LEAK_SENTINEL): void {
   if (run.exposures.length > 0) {
     const leaks = run.exposures.map((exposure) => `${exposure.signal}: ${exposure.name}`).join("; ");
-    throw new Error(`TELEMETRY CANARY FAILED: "${flowName}" let the sentinel ${sentinel} reach telemetry (${leaks})`);
+    throw new Error(`TELEMETRY LEAK TEST FAILED: "${flowName}" let the sentinel ${sentinel} reach telemetry (${leaks})`);
   }
   if (run.observed.log + run.observed.span + run.observed.metric === 0) {
-    throw new Error(`TELEMETRY CANARY VACUOUS: "${flowName}" emitted no telemetry, so it proves nothing`);
+    throw new Error(`TELEMETRY LEAK TEST VACUOUS: "${flowName}" emitted no telemetry, so it proves nothing`);
   }
 }
 

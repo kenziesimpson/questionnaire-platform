@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { problemTelemetry, scrubContext } from "../src/index.js";
 import { PROBLEM_CODES, SCHEMA_CODES } from "../src/problems.js";
 
-const CANARY = "CANARY_DIABETES_8F3A";
+const LEAK = "LEAK_DIABETES_8F3A";
 
 function projected(body: Problem) {
   return problemTelemetry(body);
@@ -38,7 +38,7 @@ describe("problemTelemetry", () => {
   it("projects a request error to its code and never its pointer", () => {
     const body = problem("request/invalid", {
       errors: [
-        { pointer: `/body/answers/${CANARY}`, code: "schema/required" },
+        { pointer: `/body/answers/${LEAK}`, code: "schema/required" },
         { pointer: "/body/question/max", code: "question/min-exceeds-max" },
       ],
     });
@@ -47,14 +47,14 @@ describe("problemTelemetry", () => {
       { problem: "request/invalid", status: 400, problemCode: "schema/required" },
       { problem: "request/invalid", status: 400, problemCode: "question/min-exceeds-max" },
     ]);
-    expect(JSON.stringify(fields)).not.toContain(CANARY);
+    expect(JSON.stringify(fields)).not.toContain(LEAK);
   });
 
   it("maps a schema code outside its known list to schema/other and keeps every other code", () => {
     const body = problem("request/invalid", {
       errors: [
         { pointer: "/body/a", code: "schema/madeUpKeyword" },
-        { pointer: "/body/b", code: `schema/${CANARY}` },
+        { pointer: "/body/b", code: `schema/${LEAK}` },
         { pointer: "/body/c", code: "schema/other" },
       ],
     });
@@ -64,7 +64,7 @@ describe("problemTelemetry", () => {
   it("leaves out the item id of answer/unknown-item, which the client chose", () => {
     const body = problem("submission/invalid", {
       items: [
-        { itemId: CANARY, code: "answer/unknown-item" },
+        { itemId: LEAK, code: "answer/unknown-item" },
         { itemId: "itm_01", code: "answer/not-visible" },
       ],
     });
@@ -72,7 +72,7 @@ describe("problemTelemetry", () => {
       { problem: "submission/invalid", status: 422, problemCode: "answer/unknown-item" },
       { problem: "submission/invalid", status: 422, itemId: "itm_01", problemCode: "answer/not-visible" },
     ]);
-    expect(JSON.stringify(projected(body))).not.toContain(CANARY);
+    expect(JSON.stringify(projected(body))).not.toContain(LEAK);
   });
 
   it("leaves out a code that is neither known nor a schema code, rather than calling it a schema code", () => {
@@ -83,12 +83,12 @@ describe("problemTelemetry", () => {
   it("never reads title, detail, instance or an extra member of the body", () => {
     const body = {
       ...problem("submission/invalid", { items: [{ itemId: "itm_01", code: "answer/required" }] }),
-      title: `title ${CANARY}`,
-      detail: `detail ${CANARY}`,
-      instance: `/sessions/${CANARY}`,
-      value: CANARY,
+      title: `title ${LEAK}`,
+      detail: `detail ${LEAK}`,
+      instance: `/sessions/${LEAK}`,
+      value: LEAK,
     };
-    expect(JSON.stringify(projected(body))).not.toContain(CANARY);
+    expect(JSON.stringify(projected(body))).not.toContain(LEAK);
   });
 
   it("caps the findings it projects", () => {
@@ -137,11 +137,11 @@ describe("the fields the error and health surfaces add", () => {
 
   it("drops free text and a pool outside the closed list", () => {
     const result = scrubContext({
-      invariant: `row ${CANARY} is missing`,
-      constraint: `Key (answer)=(${CANARY}) already exists`,
-      pool: CANARY,
-      problem: CANARY,
-      problemCode: CANARY,
+      invariant: `row ${LEAK} is missing`,
+      constraint: `Key (answer)=(${LEAK}) already exists`,
+      pool: LEAK,
+      problem: LEAK,
+      problemCode: LEAK,
     });
     expect(result.attributes).toEqual({});
     expect(result.dropped.invalid).toBe(5);

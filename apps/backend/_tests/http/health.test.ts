@@ -6,7 +6,7 @@ import { POOL_ROLES } from "../../src/config.js";
 import { applyHttpDefaults, replyWithProblem } from "../../src/http/problems.js";
 import { READINESS_CHECK_TIMEOUT_MS, registerHealthRoutes, type ReadinessProbes } from "../../src/http/health.js";
 
-const CANARY = "CANARY_DIABETES_8F3A";
+const LEAK = "LEAK_DIABETES_8F3A";
 
 let telemetry: TestTelemetry;
 let app: FastifyInstance | undefined;
@@ -79,10 +79,10 @@ describe("/health/ready", () => {
     const built = await appWith(
       probes({
         definition: async () => {
-          throw new Error(`connect ECONNREFUSED ${CANARY}`);
+          throw new Error(`connect ECONNREFUSED ${LEAK}`);
         },
         reporting: async () => {
-          throw new Error(`password authentication failed for user "${CANARY}"`);
+          throw new Error(`password authentication failed for user "${LEAK}"`);
         },
       }),
     );
@@ -99,14 +99,14 @@ describe("/health/ready", () => {
       detail: "definition, reporting",
       instance: "/health/ready",
     });
-    expect(response.body).not.toContain(CANARY);
+    expect(response.body).not.toContain(LEAK);
   });
 
   it("logs each failing pool by role and never the error message", async () => {
     const built = await appWith(
       probes({
         execution: async () => {
-          throw new Error(`connect ECONNREFUSED ${CANARY}`);
+          throw new Error(`connect ECONNREFUSED ${LEAK}`);
         },
       }),
     );
@@ -115,7 +115,7 @@ describe("/health/ready", () => {
 
     const warning = telemetry.logs().find((line) => line.msg === "readiness check failed");
     expect(warning).toMatchObject({ level: "warn", "db.pool": "execution", "error.type": "Error" });
-    expect(JSON.stringify(telemetry.logs())).not.toContain(CANARY);
+    expect(JSON.stringify(telemetry.logs())).not.toContain(LEAK);
   });
 
   it("counts a pool that does not answer in time as failing", async () => {

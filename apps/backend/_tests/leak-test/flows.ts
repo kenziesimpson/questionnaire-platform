@@ -1,7 +1,7 @@
 import { sensitive } from "@qp/shared";
 import { INTAKE_ITEM_IDS, INTAKE_OPTION_IDS, INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { emitDomainEvent, FIELDS, logger, withSpan, type DomainEvent, type FieldName, type TelemetryContext } from "@qp/telemetry";
-import { plantThirdPartyTelemetry, type CanaryFlow } from "@qp/telemetry/canary";
+import { plantThirdPartyTelemetry, type LeakFlow } from "@qp/telemetry/leak-test";
 import { DrizzleQueryError } from "drizzle-orm";
 import { expect } from "vitest";
 import { SQLSTATE } from "../../src/db/errors.js";
@@ -9,11 +9,11 @@ import { InvariantViolation } from "../../src/invariant.js";
 import { SESSION_ID } from "../http/fixtures.js";
 import { answersNo, answersYes, executionUrl, seedIntakeV1, startedSessionId, submit } from "../modules/execution/fixtures.js";
 import { listSessionsUrl, sessionDetailUrl } from "../modules/reporting/fixtures.js";
-import type { CanaryWorld } from "./harness.js";
+import type { LeakWorld } from "./harness.js";
 
-export type BackendCanaryFlow = CanaryFlow<CanaryWorld>;
+export type BackendLeakFlow = LeakFlow<LeakWorld>;
 
-export const canaryLog = logger("execution");
+export const leakLog = logger("execution");
 
 function forgedContext(fields: Record<string, unknown>): TelemetryContext {
   return Object.assign<TelemetryContext, Record<string, unknown>>({}, fields);
@@ -57,7 +57,7 @@ interface StoredAnswer {
   readonly other_text: string | null;
 }
 
-async function storedAnswer(world: CanaryWorld, sessionId: string, itemId: string): Promise<StoredAnswer | undefined> {
+async function storedAnswer(world: LeakWorld, sessionId: string, itemId: string): Promise<StoredAnswer | undefined> {
   const execution = await world.testDatabase.connect("execution");
   const stored = await execution.query<StoredAnswer>(
     "SELECT text_value, other_text FROM execution.response WHERE session_id = $1 AND item_id = $2",
@@ -70,7 +70,7 @@ function otherAnswer(sentinel: string) {
   return { type: "single_choice", optionId: INTAKE_OPTION_IDS.other, otherText: sentinel } as const;
 }
 
-async function submitPlantedResponse(world: CanaryWorld, sentinel: string): Promise<string> {
+async function submitPlantedResponse(world: LeakWorld, sentinel: string): Promise<string> {
   await seedIntakeV1(world.testDatabase);
   const sessionId = await startedSessionId(world.app);
   const response = await submit(
@@ -87,14 +87,14 @@ async function submitPlantedResponse(world: CanaryWorld, sentinel: string): Prom
   return sessionId;
 }
 
-export const CANARY_FLOWS: readonly BackendCanaryFlow[] = [
+export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
   {
     name: "logger: forged context, unknown keys, Sensitive values and errors that carry the sentinel",
     run: async (_world, sentinel) => {
-      canaryLog.info("forged context", forgedRegistryContext(sentinel));
-      canaryLog.debug("wrapped answers", forgedContext({ sessionId: sensitive(sentinel), answer: sensitive(sentinel) }));
-      canaryLog.warn("error message", { sessionId: SESSION_ID }, new Error(`answer was ${sentinel}`));
-      canaryLog.error("error cause", undefined, new Error("outer", { cause: new Error(sentinel) }));
+      leakLog.info("forged context", forgedRegistryContext(sentinel));
+      leakLog.debug("wrapped answers", forgedContext({ sessionId: sensitive(sentinel), answer: sensitive(sentinel) }));
+      leakLog.warn("error message", { sessionId: SESSION_ID }, new Error(`answer was ${sentinel}`));
+      leakLog.error("error cause", undefined, new Error("outer", { cause: new Error(sentinel) }));
     },
   },
   {
@@ -102,7 +102,7 @@ export const CANARY_FLOWS: readonly BackendCanaryFlow[] = [
     run: async (_world, sentinel) => {
       const context = forgedRegistryContext(sentinel);
       await withSpan("session.submit", context, async () => {
-        canaryLog.info("inside the span", context);
+        leakLog.info("inside the span", context);
       });
       await withSpan("rule.evaluate", forgedContext({ sessionId: sensitive(sentinel) }), async () => {
         throw new Error(`answer was ${sentinel}`);
@@ -117,7 +117,7 @@ export const CANARY_FLOWS: readonly BackendCanaryFlow[] = [
         // @ts-expect-error — the name is a string, not a SpanName
         await withSpan(name, { sessionId: SESSION_ID }, async () => {
           ran = true;
-          canaryLog.info("inside the span", { sessionId: SESSION_ID });
+          leakLog.info("inside the span", { sessionId: SESSION_ID });
         });
         expect(ran, "an unknown span name must still run the callback").toBe(true);
       }
@@ -126,18 +126,18 @@ export const CANARY_FLOWS: readonly BackendCanaryFlow[] = [
   {
     name: "logger and withSpan: the lower-cased sentinel in every uuid, error class, SQLSTATE and invariant field",
     run: async (_world, sentinel) => {
-      canaryLog.info("lower-cased ids", lowerCased(sentinel));
+      leakLog.info("lower-cased ids", lowerCased(sentinel));
       await withSpan("session.submit", lowerCased(sentinel), async () => {
-        canaryLog.info("inside the span", lowerCased(sentinel));
+        leakLog.info("inside the span", lowerCased(sentinel));
       });
     },
   },
   {
     name: "errors: Errors whose message is the bare sentinel or a frame-shaped line, logged and thrown inside withSpan",
     run: async (_world, sentinel) => {
-      canaryLog.error("bare message", { sessionId: SESSION_ID }, new Error(sentinel));
-      canaryLog.error("bare type error", undefined, new TypeError(sentinel));
-      canaryLog.error("frame-shaped line", undefined, new Error(`header\n    at ${sentinel} (secret.txt:1:1)`));
+      leakLog.error("bare message", { sessionId: SESSION_ID }, new Error(sentinel));
+      leakLog.error("bare type error", undefined, new TypeError(sentinel));
+      leakLog.error("frame-shaped line", undefined, new Error(`header\n    at ${sentinel} (secret.txt:1:1)`));
       await withSpan("session.submit", { sessionId: SESSION_ID }, async () => {
         throw new Error(sentinel);
       }).catch(() => undefined);

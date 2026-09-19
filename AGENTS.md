@@ -9,7 +9,7 @@ Instructions for coding agents working in this repository.
 - `docs/4-implementation-plan.md` — the build plan. Its **Standing rules** and **Stop and ask** sections are binding. Its **File ownership** section is deprecated; see [[11-structural-refactor#2. File ownership during the pass]] for current ownership.
 - `docs/2-design-doc.md` — the design index and the Decisions Log. Never invent a decision; if a load-bearing one is missing, stop and ask.
 - `docs/11-structural-refactor.md` — the conventions a structural-refactor pass established across the repo, and the lint rules (§4.1) that keep them enforced. Several are repeated below; consult it directly when a rule's exact reach is unclear.
-- `.claude/skills/telemetry-safety/SKILL.md` — before adding or changing a log line, span, metric, domain event or telemetry field, and for extending the sentinel canary, which every PR that adds a code path touching answers or telemetry must do.
+- `.claude/skills/telemetry-safety/SKILL.md` — before adding or changing a log line, span, metric, domain event or telemetry field, and for extending the sentinel leak test, which every PR that adds a code path touching answers or telemetry must do.
 
 ## Writing
 
@@ -52,9 +52,9 @@ A pull request that changes what `apps/admin`, `apps/respondent` or `packages/ui
 | Typecheck every workspace | `npm run typecheck` |
 | Lint, including the import boundaries | `npm run lint` |
 | Build | `npm run build` |
-| Telemetry canary only | `npm run test:canary` |
+| Telemetry leak test only | `npm run test:leak-test` |
 
-CI (`.github/workflows/ci.yml`) runs every command above on every push to `main` and every pull request; the telemetry canary also has its own job, "Telemetry canary", so a leak is its own red check. A PR is not ready for review until its CI jobs are green or skipped.
+CI (`.github/workflows/ci.yml`) runs every command above on every push to `main` and every pull request; the telemetry leak test also has its own job, "Response telemetry leak test", so a leak is its own red check. A PR is not ready for review until its CI jobs are green or skipped.
 
 Node 24 (`.nvmrc`). TypeScript 6 in every workspace.
 

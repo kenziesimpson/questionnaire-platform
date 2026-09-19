@@ -13,7 +13,7 @@ import { applyHttpDefaults, notFoundProblem, replyWithProblem, sendProblem } fro
 import { InvariantViolation } from "../../src/invariant.js";
 import { REQUEST_ID, SESSION_ID } from "./fixtures.js";
 
-const CANARY = "CANARY_DIABETES_8F3A";
+const LEAK = "LEAK_DIABETES_8F3A";
 const TRACE_ID = /^[0-9a-f]{32}$/;
 
 let app: FastifyInstance;
@@ -135,21 +135,21 @@ describe("the 500 problem and its telemetry", () => {
     scoped = Fastify({ genReqId: () => REQUEST_ID });
     applyHttpDefaults(scoped, replyWithProblem);
     scoped.get("/plain/:sessionId", async () => {
-      throw new TypeError(`bad value ${CANARY}`);
+      throw new TypeError(`bad value ${LEAK}`);
     });
     scoped.get("/database", async () => {
-      throw Object.assign(new Error(`duplicate key value violates unique constraint, Key (answer)=(${CANARY})`), {
+      throw Object.assign(new Error(`duplicate key value violates unique constraint, Key (answer)=(${LEAK})`), {
         code: SQLSTATE.uniqueViolation,
         constraint: "response_pkey",
-        detail: `Key (answer)=(${CANARY}) already exists.`,
+        detail: `Key (answer)=(${LEAK}) already exists.`,
       });
     });
     scoped.get("/multiline", async () => {
-      throw new Error(`line1\n    at ${CANARY} (secret.txt:1:1)`);
+      throw new Error(`line1\n    at ${LEAK} (secret.txt:1:1)`);
     });
     scoped.get("/drizzle", async () => {
       const cause = Object.assign(new Error("duplicate"), { code: SQLSTATE.uniqueViolation, constraint: "response_pkey" });
-      throw new DrizzleQueryError("insert into response (text_value) values (?)", [`x\n    at ${CANARY} (secret.txt:1:1)`], cause);
+      throw new DrizzleQueryError("insert into response (text_value) values (?)", [`x\n    at ${LEAK} (secret.txt:1:1)`], cause);
     });
     scoped.get("/invariant", async () => {
       throw InvariantViolation.of("session.not-marked-submitted", { sessionId: SESSION_ID, questionnaireVersion: 2 });
@@ -160,7 +160,7 @@ describe("the 500 problem and its telemetry", () => {
       async (request) => ({ count: request.body.count }),
     );
     scoped.get("/closed/:sessionId", async (_request, reply) =>
-      sendProblem(reply, { ...problem("questionnaire/closed"), title: `title ${CANARY}`, detail: `detail ${CANARY}` }),
+      sendProblem(reply, { ...problem("questionnaire/closed"), title: `title ${LEAK}`, detail: `detail ${LEAK}` }),
     );
     await scoped.ready();
   });
@@ -181,7 +181,7 @@ describe("the 500 problem and its telemetry", () => {
     expect(response.statusCode).toBe(500);
     expect(body.detail).toMatch(TRACE_ID);
     expect(body.detail).toBe(telemetry.spans()[0]?.spanContext().traceId);
-    expect(response.body).not.toContain(CANARY);
+    expect(response.body).not.toContain(LEAK);
     expect(body.title).toBe("Internal error");
   });
 
@@ -192,7 +192,7 @@ describe("the 500 problem and its telemetry", () => {
   });
 
   it("logs the error type, its stack frames and the route, and never the message or the URL", async () => {
-    await scoped.inject({ method: "GET", url: `/plain/${CANARY}?token=${CANARY}` });
+    await scoped.inject({ method: "GET", url: `/plain/${LEAK}?token=${LEAK}` });
 
     const failure = telemetry.logs().find((line) => line.msg === "unhandled request error");
     expect(failure).toMatchObject({
@@ -204,7 +204,7 @@ describe("the 500 problem and its telemetry", () => {
     });
     expect(failure?.["error.stack"]).toEqual(expect.stringMatching(/^ {4}at /));
     expect(String(failure?.["error.stack"]).split("\n")[0]).not.toContain("TypeError");
-    expect(await everythingEmitted()).not.toContain(CANARY);
+    expect(await everythingEmitted()).not.toContain(LEAK);
   });
 
   it.each(["/multiline", "/drizzle"])("logs no fragment of a multi-line message that imitates a stack frame (%s)", async (url) => {
@@ -213,8 +213,8 @@ describe("the 500 problem and its telemetry", () => {
     expect(response.statusCode).toBe(500);
     const failure = telemetry.logs().find((line) => line.msg === "unhandled request error");
     expect(failure?.["error.stack"]).toEqual(expect.stringMatching(/^ {4}at /));
-    expect(await everythingEmitted()).not.toContain(CANARY);
-    expect(response.body).not.toContain(CANARY);
+    expect(await everythingEmitted()).not.toContain(LEAK);
+    expect(response.body).not.toContain(LEAK);
   });
 
   it("logs a database error's SQLSTATE and constraint name and none of its text", async () => {
@@ -223,8 +223,8 @@ describe("the 500 problem and its telemetry", () => {
     expect(response.statusCode).toBe(500);
     const failure = telemetry.logs().find((line) => line.msg === "unhandled request error");
     expect(failure).toMatchObject({ "error.type": "Error", "error.code": SQLSTATE.uniqueViolation, "db.constraint": "response_pkey" });
-    expect(response.body).not.toContain(CANARY);
-    expect(await everythingEmitted()).not.toContain(CANARY);
+    expect(response.body).not.toContain(LEAK);
+    expect(await everythingEmitted()).not.toContain(LEAK);
   });
 
   it("logs an invariant violation's name and ids, and puts them on the active span", async () => {
@@ -247,15 +247,15 @@ describe("the 500 problem and its telemetry", () => {
   });
 
   it("logs a problem response as its slug, status and codes, never its pointer, detail, title or URL", async () => {
-    await scoped.inject({ method: "POST", url: "/things", payload: { [CANARY]: 1 } });
-    await scoped.inject({ method: "GET", url: `/closed/${CANARY}` });
+    await scoped.inject({ method: "POST", url: "/things", payload: { [LEAK]: 1 } });
+    await scoped.inject({ method: "GET", url: `/closed/${LEAK}` });
 
     const lines = telemetry.logs().filter((line) => line.msg === "problem response");
     expect(lines).toEqual([
       expect.objectContaining({ level: "info", "problem.slug": "request/invalid", "problem.code": "schema/required", "http.response.status_code": 400 }),
       expect.objectContaining({ level: "info", "problem.slug": "questionnaire/closed", "http.response.status_code": 409, "http.route": "/closed/:sessionId" }),
     ]);
-    expect(await everythingEmitted()).not.toContain(CANARY);
+    expect(await everythingEmitted()).not.toContain(LEAK);
   });
 
   it("logs a 500 problem response at error level", async () => {
@@ -330,7 +330,7 @@ describe("with the real SDK and its Fastify instrumentation", () => {
   it("continues the browser's trace from an incoming traceparent and answers a 500 with that trace id", async () => {
     const response = await instrumented.inject({
       method: "GET",
-      url: `/sessions/${CANARY}?cursor=${CANARY}`,
+      url: `/sessions/${LEAK}?cursor=${LEAK}`,
       headers: { traceparent: `00-${BROWSER_TRACE_ID}-${BROWSER_SPAN_ID}-01` },
     });
     await handle.flush();
@@ -343,12 +343,12 @@ describe("with the real SDK and its Fastify instrumentation", () => {
   });
 
   it("exports no URL, path, query or error message from the request span", async () => {
-    await instrumented.inject({ method: "GET", url: `/sessions/${CANARY}?cursor=${CANARY}` });
+    await instrumented.inject({ method: "GET", url: `/sessions/${LEAK}?cursor=${LEAK}` });
     await handle.flush();
 
     const traces = exported.filter((body) => body.startsWith("/v1/traces")).join("\n");
     expect(traces).toContain("http.route");
-    expect(traces).not.toContain(CANARY);
+    expect(traces).not.toContain(LEAK);
     expect(traces).not.toContain("url.path");
     expect(traces).not.toContain("url.full");
     expect(traces).not.toContain("exception.message");

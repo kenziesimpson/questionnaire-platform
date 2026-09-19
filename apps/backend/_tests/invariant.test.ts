@@ -82,7 +82,7 @@ describe("InvariantViolation", () => {
   });
 
   it("refuses a name built at runtime and a field that is not an id", () => {
-    const value = "CANARY_DIABETES_8F3A" as string;
+    const value = "LEAK_DIABETES_8F3A" as string;
     // @ts-expect-error — an interpolated name is a pattern type, not a literal
     InvariantViolation.of(`row ${value} is missing`);
     // @ts-expect-error — nor is a name held in a `string` variable

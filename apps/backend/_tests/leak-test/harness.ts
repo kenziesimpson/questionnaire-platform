@@ -1,16 +1,16 @@
-import { runCanaryFlow, type CanaryFlow, type CanaryRun, type CanaryRunOptions } from "@qp/telemetry/canary";
+import { runLeakFlow, type LeakFlow, type LeakRun, type LeakRunOptions } from "@qp/telemetry/leak-test";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
 import { requestLogger } from "../../src/http/request-logger.js";
 import type { TestDatabase } from "../db/fixtures.js";
 
-export interface CanaryWorld {
+export interface LeakWorld {
   readonly app: FastifyInstance;
   readonly testDatabase: TestDatabase;
   injectFailure(error: Error, urlSegment: string): Promise<number>;
 }
 
-async function buildCanaryWorld(testDatabase: TestDatabase): Promise<CanaryWorld> {
+async function buildLeakWorld(testDatabase: TestDatabase): Promise<LeakWorld> {
   let pendingFailure: Error | undefined;
   const app = await buildApp({
     logger: requestLogger("debug"),
@@ -18,7 +18,7 @@ async function buildCanaryWorld(testDatabase: TestDatabase): Promise<CanaryWorld
     execution: { database: testDatabase.database("execution") },
     reporting: { reporting: testDatabase.database("reporting") },
   });
-  app.get("/canary/fail/:sessionId", async () => {
+  app.get("/leak test/fail/:sessionId", async () => {
     throw pendingFailure ?? new Error("no failure was queued");
   });
   await app.ready();
@@ -27,21 +27,21 @@ async function buildCanaryWorld(testDatabase: TestDatabase): Promise<CanaryWorld
     testDatabase,
     injectFailure: async (error, urlSegment) => {
       pendingFailure = error;
-      const response = await app.inject({ method: "GET", url: `/canary/fail/${urlSegment}` });
+      const response = await app.inject({ method: "GET", url: `/leak test/fail/${urlSegment}` });
       return response.statusCode;
     },
   };
 }
 
-export function runOnCanaryApp(
+export function runOnLeakApp(
   testDatabase: TestDatabase,
-  flow: CanaryFlow<CanaryWorld>,
-  options: CanaryRunOptions = {},
-): Promise<CanaryRun> {
-  const buildsItsOwnApp: CanaryFlow<undefined> = {
+  flow: LeakFlow<LeakWorld>,
+  options: LeakRunOptions = {},
+): Promise<LeakRun> {
+  const buildsItsOwnApp: LeakFlow<undefined> = {
     name: flow.name,
     run: async (_none, sentinel) => {
-      const world = await buildCanaryWorld(testDatabase);
+      const world = await buildLeakWorld(testDatabase);
       try {
         await flow.run(world, sentinel);
       } finally {
@@ -49,5 +49,5 @@ export function runOnCanaryApp(
       }
     },
   };
-  return runCanaryFlow(buildsItsOwnApp, undefined, options);
+  return runLeakFlow(buildsItsOwnApp, undefined, options);
 }

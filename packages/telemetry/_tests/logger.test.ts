@@ -3,7 +3,7 @@ import { logger, withSpan } from "../src/index.js";
 import { installTestTelemetry, type TestTelemetry } from "../src/testing.js";
 import { SESSION_ID } from "./fixtures.js";
 
-const CANARY = "CANARY_DIABETES_8F3A";
+const LEAK = "LEAK_DIABETES_8F3A";
 
 const log = logger("execution");
 
@@ -90,10 +90,10 @@ describe("logger records", () => {
   it("drops a field outside the registry and keeps the line", () => {
     const installed = install();
     // @ts-expect-error — the closed context rejects an unknown field at compile time; the scrub is the runtime backstop
-    log.info("answer received", { sessionId: SESSION_ID, value: CANARY });
+    log.info("answer received", { sessionId: SESSION_ID, value: LEAK });
     const [line] = installed.logs();
     expect(line).toMatchObject({ msg: "answer received", "questionnaire.session_id": SESSION_ID });
-    expect(JSON.stringify(line)).not.toContain(CANARY);
+    expect(JSON.stringify(line)).not.toContain(LEAK);
   });
 
   it("carries the active span's trace and span ids", async () => {
@@ -110,59 +110,59 @@ describe("logger records", () => {
 
   it("records an error's type and stack frames but never its message", () => {
     const installed = install();
-    log.error("submit failed", { status: 500 }, new TypeError(`bad value ${CANARY}`));
+    log.error("submit failed", { status: 500 }, new TypeError(`bad value ${LEAK}`));
     const [line] = installed.logs();
     expect(line).toMatchObject({ "error.type": "TypeError", "http.response.status_code": 500 });
     expect(line?.["error.stack"]).toMatch(/^ {4}at /);
-    expect(JSON.stringify(line)).not.toContain(CANARY);
+    expect(JSON.stringify(line)).not.toContain(LEAK);
   });
 
   it("omits the stack when an error carries no frames", () => {
     const installed = install();
-    const bare = new Error(CANARY);
-    bare.stack = `Error: ${CANARY}`;
+    const bare = new Error(LEAK);
+    bare.stack = `Error: ${LEAK}`;
     log.error("failed", undefined, bare);
     const [line] = installed.logs();
     expect(line).toMatchObject({ "error.type": "Error" });
     expect(line).not.toHaveProperty("error.stack");
-    expect(JSON.stringify(line)).not.toContain(CANARY);
+    expect(JSON.stringify(line)).not.toContain(LEAK);
   });
 
   it("drops a stack line an error message forged", () => {
     const installed = install();
     const forged = new Error("x");
-    forged.stack = `Error: x\n    at ${CANARY} secret\n    at run (file:///app/dist/a.js:1:2)`;
+    forged.stack = `Error: x\n    at ${LEAK} secret\n    at run (file:///app/dist/a.js:1:2)`;
     log.error("failed", undefined, forged);
     const [line] = installed.logs();
     expect(line?.["error.stack"]).toBe("    at run (file:///app/dist/a.js:1:2)");
-    expect(JSON.stringify(line)).not.toContain(CANARY);
+    expect(JSON.stringify(line)).not.toContain(LEAK);
   });
 
   it("drops the whole header of a multi-line message, so a frame-shaped line in it is never recorded", () => {
     const installed = install();
-    log.error("failed", undefined, new Error(`line1\n    at ${CANARY} (secret.txt:1:1)\n    at ${CANARY}_2 (secret.txt:2:2)`));
+    log.error("failed", undefined, new Error(`line1\n    at ${LEAK} (secret.txt:1:1)\n    at ${LEAK}_2 (secret.txt:2:2)`));
     const [line] = installed.logs();
     expect(line).toMatchObject({ "error.type": "Error" });
     expect(line?.["error.stack"]).toMatch(/^ {4}at /);
-    expect(JSON.stringify(line)).not.toContain(CANARY);
+    expect(JSON.stringify(line)).not.toContain(LEAK);
   });
 
   it("records no stack when the stack's header does not line up with the message", () => {
     const installed = install();
     const mutated = new Error("original");
     void mutated.stack;
-    mutated.message = `changed\n    at ${CANARY} (secret.txt:1:1)`;
+    mutated.message = `changed\n    at ${LEAK} (secret.txt:1:1)`;
     log.error("failed", undefined, mutated);
     const [line] = installed.logs();
     expect(line).not.toHaveProperty("error.stack");
-    expect(JSON.stringify(line)).not.toContain(CANARY);
+    expect(JSON.stringify(line)).not.toContain(LEAK);
   });
 
   it("records the frames of an error whose name is set after construction", () => {
     const installed = install();
     class Named extends Error {
       constructor() {
-        super(`bad ${CANARY}`);
+        super(`bad ${LEAK}`);
         this.name = "Named";
       }
     }
@@ -170,6 +170,6 @@ describe("logger records", () => {
     const [line] = installed.logs();
     expect(line).toMatchObject({ "error.type": "Named" });
     expect(line?.["error.stack"]).toMatch(/^ {4}at /);
-    expect(JSON.stringify(line)).not.toContain(CANARY);
+    expect(JSON.stringify(line)).not.toContain(LEAK);
   });
 });

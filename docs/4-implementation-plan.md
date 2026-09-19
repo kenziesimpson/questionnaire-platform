@@ -250,7 +250,7 @@ Each PR adds its own [[8-testing#7. Test case enumeration]] rows with the featur
 
 **Track 8 — telemetry.** OTel end to end, the Collector seam, domain events as paired log+counter, the `/telemetry` ingest endpoint with `sendBeacon`, the opt-in compose profile. The safety boundary already landed in Wave 1a. The admin responses browser (Wave 3a, `/api/reporting`) is inside its scope: the `view_response` audit row and `audit.record` grant for `qp_reporting`, cursor and path masking, and the browser rules for the response screens ([[6-observability#13. Decisions and open questions]] O18–O20). → **M7**
 
-**Track 9 — end-to-end and CI.** Three Playwright specs, one command via Vitest `projects`, the end-to-end CI job alongside the Checks job from [[#Gate C — CI before Wave 2]], the sentinel canary gated. → **M8**, **M9**
+**Track 9 — end-to-end and CI.** Three Playwright specs, one command via Vitest `projects`, the end-to-end CI job alongside the Checks job from [[#Gate C — CI before Wave 2]], the sentinel leak test gated. → **M8**, **M9**
 
 ### File ownership
 
@@ -298,7 +298,7 @@ A wave is not done until its milestones are green.
 - [x] **M4** Definition API via `inject()`: bank CRUD, stale-ETag `409`, publish happy path, publish failures as `422`, archived question rejected at add time, version history, deterministic list order
 - [x] **M5** Execution API via `inject()`: session pins the snapshot and ignores a later publish; resume; submit; idempotent replay returns the original receipt; answer to an invisible item `422`; the v1/v2 predicate-tightening fixture; closed questionnaire `409`
 - [x] **M6** Cross-version aggregation: v1 and v2 responses aggregate on `opt_hyperten` while each renders through its own pinned `questionVersion`
-- [ ] **M7** Telemetry sentinel canary: a planted answer value reaches no exporter, on the submit path and when read back through `/api/reporting` (list and detail) and the admin response-detail screen
+- [ ] **M7** Telemetry sentinel leak test: a planted answer value reaches no exporter, on the submit path and when read back through `/api/reporting` (list and detail) and the admin response-detail screen
 - [ ] **M8** Three Playwright specs against the composed stack
 - [ ] **M9** Whole suite, one command, headless, both CI jobs green from a clean clone
 

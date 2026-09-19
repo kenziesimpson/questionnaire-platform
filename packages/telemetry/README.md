@@ -28,15 +28,15 @@ Three layers hold it here:
 | `@qp/telemetry` | `logger`, `withSpan`, `emitDomainEvent`, the field registry and its types | `@opentelemetry/api` only; safe for a browser bundle |
 | `@qp/telemetry/node` | `startTelemetry`: starts the SDK, pino and the auto-instrumentation; `runningTelemetry`: the handle it returned, until that handle shuts down | the Node SDK, exporters, pino |
 | `@qp/telemetry/testing` | `installTestTelemetry`: in-memory exporters for tests | the Node SDK |
-| `@qp/telemetry/canary` | `CANARY_SENTINEL`, `runCanaryFlow`, `expectCleanRun`, `exposuresOf`, `plantThirdPartyTelemetry`, `plantThirdPartyCounter`: the sentinel canary's detector, runner and assertion | the Node SDK |
+| `@qp/telemetry/leak-test` | `LEAK_SENTINEL`, `runLeakFlow`, `expectCleanRun`, `exposuresOf`, `plantThirdPartyTelemetry`, `plantThirdPartyCounter`: the sentinel leak test's detector, runner and assertion | the Node SDK |
 
 Application code imports the first. Only the backend's `src/telemetry.ts` (used by the preload and the entry point) imports
 the second, and only tests import the third and fourth.
 
-`./testing` and `./canary` sit in the package's `src/` rather than under a `_tests/` directory because they are shared test
-support. The canary builds on the real pipeline that `./testing` installs, and every workspace's canary flows import it, so a
+`./testing` and `./leak-test` sit in the package's `src/` rather than under a `_tests/` directory because they are shared test
+support. The leak test builds on the real pipeline that `./testing` installs, and every workspace's leak-test flows import it, so a
 copy under `apps/backend/_tests` could not serve the others without deep imports into this package. Production code never
-imports either: ESLint rejects `@qp/telemetry/testing` and `@qp/telemetry/canary` in every `src/` directory, and they are
+imports either: ESLint rejects `@qp/telemetry/testing` and `@qp/telemetry/leak-test` in every `src/` directory, and they are
 separate entry points, so the browser-safe `.` entry never loads them.
 
 ## Write a log line
@@ -280,23 +280,23 @@ await telemetry.shutdown();
 
 It runs the real pipeline with in-memory exporters, so a test sees what an exporter would receive.
 
-## The canary
+## The leak test
 
-`@qp/telemetry/canary` is the detector and runner behind the sentinel canary
-([`docs/8-testing.md`](../../docs/8-testing.md) §2.5). A flow plants `CANARY_SENTINEL` where an answer
+`@qp/telemetry/leak-test` is the detector and runner behind the sentinel leak test
+([`docs/8-testing.md`](../../docs/8-testing.md) §2.5). A flow plants `LEAK_SENTINEL` where an answer
 value would be and runs one code path; the runner then reports every span, metric data point and log
 line that carries it.
 
 ```ts
-import { CANARY_SENTINEL, runCanaryFlow, type CanaryFlow } from "@qp/telemetry/canary";
+import { LEAK_SENTINEL, runLeakFlow, type LeakFlow } from "@qp/telemetry/leak-test";
 
-const flow: CanaryFlow<World> = { name: "…", run: async (world, sentinel) => { … } };
-const { exposures, observed } = await runCanaryFlow(flow, world);
+const flow: LeakFlow<World> = { name: "…", run: async (world, sentinel) => { … } };
+const { exposures, observed } = await runLeakFlow(flow, world);
 ```
 
 | Export | Returns |
 | --- | --- |
-| `runCanaryFlow(flow, world, options?)` | Installs test telemetry (`options.autoInstrumentation` turns on the Fastify and `pg` instrumentations), runs the flow, and returns `exposures` (signal and name of each leak), `observed` (how many logs, spans and metrics the flow emitted) and `spanNames` (the exported span names). Fastify's instrumentation only patches an app created after it starts, so a flow that needs real spans builds its app inside `run`. It shuts the pipeline down even when the flow throws |
+| `runLeakFlow(flow, world, options?)` | Installs test telemetry (`options.autoInstrumentation` turns on the Fastify and `pg` instrumentations), runs the flow, and returns `exposures` (signal and name of each leak), `observed` (how many logs, spans and metrics the flow emitted) and `spanNames` (the exported span names). Fastify's instrumentation only patches an app created after it starts, so a flow that needs real spans builds its app inside `run`. It shuts the pipeline down even when the flow throws |
 | `expectCleanRun(name, run)` | Throws a plain `Error` if the run has an exposure, or if the flow emitted nothing |
 | `plantThirdPartyTelemetry(sentinel)` | Emits spans, one named for the sentinel, and a counter carrying the sentinel the way a third-party instrumentation would, to exercise the export-time scrub |
 | `plantThirdPartyCounter(labels)` | Emits a counter with exactly these labels, so a negative control can put a shaped value on a bounded metric label |
@@ -305,7 +305,7 @@ const { exposures, observed } = await runCanaryFlow(flow, world);
 `pg` spans do not appear under test: the driver is imported before the instrumentation starts and there is no loader hook, so it is not patched.
 
 The flows live with the code they exercise. The backend's registry is
-`apps/backend/_tests/canary/flows.ts`; `npm run test:canary` runs it and CI gates on it.
+`apps/backend/_tests/leak-test/flows.ts`; `npm run test:leak-test` runs it and CI gates on it.
 
 ## Layout
 
@@ -324,7 +324,7 @@ The flows live with the code they exercise. The backend's registry is
 | `src/pipeline.ts` | Builds the SDK, the pino sink and the exporters |
 | `src/node.ts` | `startTelemetry`, `runningTelemetry` |
 | `src/testing.ts` | `installTestTelemetry` |
-| `src/canary.ts` | `CANARY_SENTINEL`, `CanaryFlow`, `runCanaryFlow`, `expectCleanRun`, `exposuresOf`, `plantThirdPartyTelemetry`, `plantThirdPartyCounter` |
+| `src/leak-test.ts` | `LEAK_SENTINEL`, `LeakFlow`, `runLeakFlow`, `expectCleanRun`, `exposuresOf`, `plantThirdPartyTelemetry`, `plantThirdPartyCounter` |
 
 ## Scripts
 

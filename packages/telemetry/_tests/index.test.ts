@@ -17,7 +17,7 @@ describe("telemetry boundary signature", () => {
   });
 
   it("refuses the shapes an answer value could ride in on", () => {
-    const answer = "CANARY_DIABETES_8F3A" as string;
+    const answer = "LEAK_DIABETES_8F3A" as string;
     // @ts-expect-error — an interpolated message is a pattern type, not a literal
     log.warn(`rejected ${answer}`);
     // @ts-expect-error — nor is a message held in a `string` variable

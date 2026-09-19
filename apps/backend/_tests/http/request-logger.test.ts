@@ -5,7 +5,7 @@ import { applyHttpDefaults, replyWithProblem } from "../../src/http/problems.js"
 import { requestLogger } from "../../src/http/request-logger.js";
 import { REQUEST_ID } from "./fixtures.js";
 
-const CANARY = "CANARY_DIABETES_8F3A";
+const LEAK = "LEAK_DIABETES_8F3A";
 
 let telemetry: TestTelemetry;
 let app: FastifyInstance;
@@ -16,7 +16,7 @@ beforeEach(async () => {
   applyHttpDefaults(app, replyWithProblem);
   app.get("/sessions/:sessionId", async () => ({ ok: true }));
   app.get("/explode", async () => {
-    throw new TypeError(`bad value ${CANARY}`);
+    throw new TypeError(`bad value ${LEAK}`);
   });
   await app.ready();
 });
@@ -28,7 +28,7 @@ afterEach(async () => {
 
 describe("the Fastify logger backed by the telemetry logger", () => {
   it("logs a request's method, route template, status and duration, never its URL", async () => {
-    await app.inject({ method: "GET", url: `/sessions/${CANARY}?token=${CANARY}` });
+    await app.inject({ method: "GET", url: `/sessions/${LEAK}?token=${LEAK}` });
 
     const completed = telemetry.logs().find((line) => line.msg === "request completed");
     expect(completed).toMatchObject({
@@ -40,7 +40,7 @@ describe("the Fastify logger backed by the telemetry logger", () => {
     });
     expect(completed?.["http.request.id"]).toBe(REQUEST_ID);
     expect(completed?.["http.server.request.duration_ms"]).toEqual(expect.any(Number));
-    expect(JSON.stringify(telemetry.logs())).not.toContain(CANARY);
+    expect(JSON.stringify(telemetry.logs())).not.toContain(LEAK);
   });
 
   it("logs an unhandled failure as its error type, without its message", async () => {
@@ -49,15 +49,15 @@ describe("the Fastify logger backed by the telemetry logger", () => {
     expect(response.statusCode).toBe(500);
     const failure = telemetry.logs().find((line) => line.msg === "unhandled request error");
     expect(failure).toMatchObject({ level: "error", "error.type": "TypeError" });
-    expect(JSON.stringify(telemetry.logs())).not.toContain(CANARY);
+    expect(JSON.stringify(telemetry.logs())).not.toContain(LEAK);
   });
 
   it("replaces a message it does not know with a fixed one", async () => {
-    app.log.info({ req: { method: "GET", url: `/sessions/${CANARY}` } }, `free text ${CANARY}`);
+    app.log.info({ req: { method: "GET", url: `/sessions/${LEAK}` } }, `free text ${LEAK}`);
 
     const [line] = telemetry.logs();
     expect(line).toMatchObject({ msg: "fastify log", "http.request.method": "GET" });
-    expect(JSON.stringify(telemetry.logs())).not.toContain(CANARY);
+    expect(JSON.stringify(telemetry.logs())).not.toContain(LEAK);
   });
 
   it("keeps a child logger's request id on every line", async () => {

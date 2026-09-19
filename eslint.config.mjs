@@ -442,10 +442,10 @@ const testSupportMessage =
 const theTestSupportPackage = { group: ["@qp/ui/testing", "@qp/ui/testing/*"], message: testSupportMessage };
 
 const telemetryTestSupportMessage =
-  "@qp/telemetry/testing and @qp/telemetry/canary are test support: they install in-memory exporters and plant a sentinel answer to prove none escapes. They are shared by every workspace's tests, so they live in the package, but production code never imports them; tests do, from _tests/.";
+  "@qp/telemetry/testing and @qp/telemetry/leak-test are test support: they install in-memory exporters and plant a sentinel answer to prove none escapes. They are shared by every workspace's tests, so they live in the package, but production code never imports them; tests do, from _tests/.";
 
 const theTelemetryTestSupport = {
-  group: ["@qp/telemetry/testing", "@qp/telemetry/testing/*", "@qp/telemetry/canary", "@qp/telemetry/canary/*"],
+  group: ["@qp/telemetry/testing", "@qp/telemetry/testing/*", "@qp/telemetry/leak-test", "@qp/telemetry/leak-test/*"],
   message: telemetryTestSupportMessage,
 };
 
@@ -934,7 +934,7 @@ export default tseslint.config(
     rules: { "no-restricted-imports": ["error", { patterns: [...testSupportLibrariesAway, anotherDirectorysHarness] }] },
   },
   {
-    name: "L11: @qp/ui/testing, @qp/telemetry/testing and @qp/telemetry/canary stay out of production code",
+    name: "L11: @qp/ui/testing, @qp/telemetry/testing and @qp/telemetry/leak-test stay out of production code",
     files: everySourceFile,
     ignores: ["packages/ui/src/testing/**"],
     plugins: { "@typescript-eslint": tseslint.plugin },

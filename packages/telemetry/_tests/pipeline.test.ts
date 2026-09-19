@@ -6,7 +6,7 @@ import { SPAN_NAMES } from "../src/spans.js";
 import { installTestTelemetry, type TestTelemetry } from "../src/testing.js";
 import { SESSION_ID, QUESTIONNAIRE_ID, QUESTION_ID } from "./fixtures.js";
 
-const CANARY = "CANARY_DIABETES_8F3A";
+const LEAK = "LEAK_DIABETES_8F3A";
 
 let telemetry: TestTelemetry;
 
@@ -49,13 +49,13 @@ describe("withSpan against the real SDK", () => {
     const installed = install();
     await expect(
       withSpan("session.submit", { sessionId: SESSION_ID }, async () => {
-        throw new RangeError(`bad ${CANARY}`);
+        throw new RangeError(`bad ${LEAK}`);
       }),
     ).rejects.toThrow(RangeError);
     const [span] = installed.spans();
     expect(span?.status).toEqual({ code: SpanStatusCode.ERROR });
     expect(span?.attributes["error.type"]).toBe("RangeError");
-    expect(JSON.stringify(span)).not.toContain(CANARY);
+    expect(JSON.stringify(span)).not.toContain(LEAK);
   });
 });
 
@@ -63,7 +63,7 @@ describe("a span name outside the closed list", () => {
   it("runs the callback without a span, returns its value and counts one unknown span drop", async () => {
     const installed = install();
     // @ts-expect-error — not a SpanName
-    const value = await withSpan(CANARY, { sessionId: SESSION_ID }, async () => 7);
+    const value = await withSpan(LEAK, { sessionId: SESSION_ID }, async () => 7);
     expect(value).toBe(7);
     expect(installed.spans()).toEqual([]);
     const dropped = await metricNamed(installed, "telemetry.scrub.dropped");
@@ -84,7 +84,7 @@ describe("a span name outside the closed list", () => {
   it("rethrows what the callback throws, and never throws for the name itself", async () => {
     install();
     // @ts-expect-error — not a SpanName
-    await expect(withSpan(CANARY, {}, async () => Promise.reject(new RangeError("x")))).rejects.toThrow(RangeError);
+    await expect(withSpan(LEAK, {}, async () => Promise.reject(new RangeError("x")))).rejects.toThrow(RangeError);
     // @ts-expect-error — not a SpanName
     await expect(withSpan(undefined, {}, async () => 1)).resolves.toBe(1);
   });
@@ -95,25 +95,25 @@ describe("the exporter allowlist", () => {
     const installed = install();
     const span = trace.getTracer("third-party").startSpan("GET", {
       attributes: {
-        "url.path": `/sessions/${CANARY}`,
-        "http.request.body": CANARY,
+        "url.path": `/sessions/${LEAK}`,
+        "http.request.body": LEAK,
         "http.route": "/sessions/:sessionId",
       },
     });
-    span.recordException(new Error(`failed ${CANARY}`));
-    span.setStatus({ code: SpanStatusCode.ERROR, message: `failed ${CANARY}` });
+    span.recordException(new Error(`failed ${LEAK}`));
+    span.setStatus({ code: SpanStatusCode.ERROR, message: `failed ${LEAK}` });
     span.end();
     const [exported] = installed.spans();
     expect(exported?.attributes).toEqual({ "http.route": "/sessions/:sessionId" });
     expect(exported?.events.map((event) => event.name)).toEqual(["exception"]);
     expect(exported?.events[0]?.attributes).toEqual({ "exception.type": "Error" });
     expect(exported?.status).toEqual({ code: SpanStatusCode.ERROR });
-    expect(JSON.stringify(exported)).not.toContain(CANARY);
+    expect(JSON.stringify(exported)).not.toContain(LEAK);
   });
 
   it("counts what it drops in telemetry.scrub.dropped by signal and reason", async () => {
     const installed = install();
-    const span = trace.getTracer("third-party").startSpan("GET", { attributes: { "url.path": "/x", "http.request.body": CANARY } });
+    const span = trace.getTracer("third-party").startSpan("GET", { attributes: { "url.path": "/x", "http.request.body": LEAK } });
     span.end();
     metrics.getMeter("third-party").createCounter("orders").add(1, { "questionnaire.session_id": SESSION_ID, "questionnaire.outcome": "accepted" });
     await installed.metrics();
@@ -150,8 +150,8 @@ describe("the exporter allowlist", () => {
   it.each([
     ["pg.query:SELECT qp", "pg.query:SELECT"],
     ["pg.query:INSERT questionnaire_platform", "pg.query:INSERT"],
-    [`pg.query:SELECT ${CANARY}`, "pg.query:SELECT"],
-    [`pg.query:SELECT ${CANARY.toLowerCase()}`, "pg.query:SELECT"],
+    [`pg.query:SELECT ${LEAK}`, "pg.query:SELECT"],
+    [`pg.query:SELECT ${LEAK.toLowerCase()}`, "pg.query:SELECT"],
   ])("exports the pg query span %s without its database slot, as %s, and counts no drop", async (name, exported) => {
     const installed = install();
     trace.getTracer("third-party").startSpan(name).end();
@@ -160,22 +160,22 @@ describe("the exporter allowlist", () => {
   });
 
   it.each([
-    CANARY,
-    CANARY.toLowerCase(),
-    `handler - ${CANARY} and more`,
-    `handler - ${CANARY}`,
-    `handler - ${CANARY.toLowerCase()}`,
+    LEAK,
+    LEAK.toLowerCase(),
+    `handler - ${LEAK} and more`,
+    `handler - ${LEAK}`,
+    `handler - ${LEAK.toLowerCase()}`,
     "handler - has_underscore",
     "handler - Capitalised",
     "handler - two words",
     "handler - fastify -> @fastify/cors",
     "GET /sessions/abc",
     "pg.query:SELECT * FROM t",
-    `pg.query:${CANARY}`,
-    `pg.query:${CANARY.toLowerCase()}`,
+    `pg.query:${LEAK}`,
+    `pg.query:${LEAK.toLowerCase()}`,
     "pg.query:select",
     "pg.query:UNKNOWNVERB",
-    `pg.query:${CANARY}\n`,
+    `pg.query:${LEAK}\n`,
     "",
     "handler - ",
   ])("exports a span named %j as unnamed, keeps the span and counts the name as unknown", async (name) => {
@@ -188,7 +188,7 @@ describe("the exporter allowlist", () => {
     expect(exported.find((span) => span.name === "pg.connect")?.parentSpanContext?.spanId).toBe(
       exported.find((span) => span.name === "unnamed")?.spanContext().spanId,
     );
-    expect(JSON.stringify(exported).toLowerCase()).not.toContain(CANARY.toLowerCase());
+    expect(JSON.stringify(exported).toLowerCase()).not.toContain(LEAK.toLowerCase());
     const dropped = await metricNamed(installed, "telemetry.scrub.dropped");
     expect(dropped?.dataPoints.map((point) => [point.attributes["telemetry.signal"], point.attributes["telemetry.reason"], point.value])).toEqual([
       ["span", "unknown", 1],
@@ -264,7 +264,7 @@ async function everythingExported(installed: TestTelemetry): Promise<string> {
 describe("a Sensitive value never reaches an exporter", () => {
   it("is refused by the types and dropped at runtime in a log, a span and a domain event", async () => {
     const installed = install();
-    const answer = sensitive(CANARY);
+    const answer = sensitive(LEAK);
     const log = logger("execution");
 
     // @ts-expect-error — a Sensitive is not a registered field's type
@@ -274,21 +274,21 @@ describe("a Sensitive value never reaches an exporter", () => {
     // @ts-expect-error — nor as an event field
     emitDomainEvent({ name: "session.item_skipped", sessionId: answer, itemId: "itm_1", questionId: QUESTION_ID });
 
-    expect(await everythingExported(installed)).not.toContain(CANARY);
+    expect(await everythingExported(installed)).not.toContain(LEAK);
   });
 
   it("is dropped when a third-party span carries its string form", async () => {
     const installed = install();
-    const answer = sensitive(CANARY);
+    const answer = sensitive(LEAK);
     trace.getTracer("third-party").startSpan("GET", { attributes: { "questionnaire.item_id": String(answer) } }).end();
-    expect(await everythingExported(installed)).not.toContain(CANARY);
+    expect(await everythingExported(installed)).not.toContain(LEAK);
   });
 
   it("serializes as [redacted] when a caller stringifies it into a permitted field", async () => {
     const installed = install();
-    const answer = sensitive(CANARY);
+    const answer = sensitive(LEAK);
     logger("execution").info("answered", { itemId: `${answer}` });
-    expect(await everythingExported(installed)).not.toContain(CANARY);
+    expect(await everythingExported(installed)).not.toContain(LEAK);
   });
 });
 
@@ -308,9 +308,9 @@ describe("the active trace id", () => {
 describe("annotateActiveSpan", () => {
   it("adds registered fields and the error type to the active span and drops the rest", async () => {
     const installed = install();
-    const failure = new RangeError(`bad ${CANARY}`);
+    const failure = new RangeError(`bad ${LEAK}`);
     await withSpan("session.submit", {}, async () => {
-      annotateActiveSpan({ invariant: "session.not-marked-submitted", sessionId: SESSION_ID, errorCode: `bad ${CANARY}` }, failure);
+      annotateActiveSpan({ invariant: "session.not-marked-submitted", sessionId: SESSION_ID, errorCode: `bad ${LEAK}` }, failure);
     });
     const [span] = installed.spans();
     expect(span?.attributes).toEqual({
@@ -318,7 +318,7 @@ describe("annotateActiveSpan", () => {
       "questionnaire.session_id": SESSION_ID,
       "error.type": "RangeError",
     });
-    expect(JSON.stringify(span)).not.toContain(CANARY);
+    expect(JSON.stringify(span)).not.toContain(LEAK);
   });
 
   it("does nothing outside a span", () => {

@@ -117,8 +117,8 @@ jobs:
       - run: npm ci
       - run: npm test -- --shard=${{ matrix.shard }}/4
 
-  canary:
-    name: Telemetry canary
+  leak-test:
+    name: Response telemetry leak test
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
@@ -130,7 +130,7 @@ jobs:
             node-version-file: .nvmrc
             cache: npm
       - run: npm ci
-      - run: npm run test:canary
+      - run: npm run test:leak-test
 
   e2e:
     name: End-to-end

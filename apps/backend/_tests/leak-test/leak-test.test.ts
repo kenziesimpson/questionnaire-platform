@@ -1,11 +1,11 @@
 import { logger, withSpan, type SignalKind } from "@qp/telemetry";
-import { expectCleanRun, plantThirdPartyCounter } from "@qp/telemetry/canary";
+import { expectCleanRun, plantThirdPartyCounter } from "@qp/telemetry/leak-test";
 import { describe, expect, it } from "vitest";
 import { useTestDatabase } from "../db/fixtures.js";
 import { SESSION_ID } from "../http/fixtures.js";
 import { executionUrl } from "../modules/execution/fixtures.js";
-import { canaryLog, CANARY_FLOWS, type BackendCanaryFlow } from "./flows.js";
-import { runOnCanaryApp } from "./harness.js";
+import { leakLog, LEAK_FLOWS, type BackendLeakFlow } from "./flows.js";
+import { runOnLeakApp } from "./harness.js";
 
 const testDatabase = useTestDatabase();
 
@@ -15,17 +15,17 @@ const log = logger("execution");
 
 const PLANTS_THIRD_PARTY_SPANS = "auto-instrumentation";
 
-const runFlow = (flow: BackendCanaryFlow) => runOnCanaryApp(testDatabase, flow, INSTRUMENTED);
+const runFlow = (flow: BackendLeakFlow) => runOnLeakApp(testDatabase, flow, INSTRUMENTED);
 
-describe("TELEMETRY CANARY (CI gate): a planted answer value reaches no log, span or metric", () => {
+describe("TELEMETRY LEAK (CI gate): a planted answer value reaches no log, span or metric", () => {
   it("registers flows, each under its own name", () => {
-    const names = CANARY_FLOWS.map((flow) => flow.name);
+    const names = LEAK_FLOWS.map((flow) => flow.name);
 
-    expect(CANARY_FLOWS.length).toBeGreaterThan(0);
+    expect(LEAK_FLOWS.length).toBeGreaterThan(0);
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it.each(CANARY_FLOWS.map((flow) => [flow.name, flow] as const))("canary flow: %s", async (_name, flow) => {
+  it.each(LEAK_FLOWS.map((flow) => [flow.name, flow] as const))("leak-test flow: %s", async (_name, flow) => {
     const run = await runFlow(flow);
 
     expectCleanRun(flow.name, run);
@@ -35,7 +35,7 @@ describe("TELEMETRY CANARY (CI gate): a planted answer value reaches no log, spa
   });
 });
 
-describe("TELEMETRY CANARY (CI gate): the pipeline it runs is the instrumented one", () => {
+describe("TELEMETRY LEAK (CI gate): the pipeline it runs is the instrumented one", () => {
   it("exports the spans Fastify's instrumentation produces for a request on the real app, all under recognised names", async () => {
     const run = await runFlow({
       name: "a real request",
@@ -70,7 +70,7 @@ describe("TELEMETRY CANARY (CI gate): the pipeline it runs is the instrumented o
 interface NegativeControl {
   readonly name: string;
   readonly detectedIn: readonly SignalKind[];
-  readonly flow: BackendCanaryFlow;
+  readonly flow: BackendLeakFlow;
 }
 
 const NEGATIVE_CONTROLS: readonly NegativeControl[] = [
@@ -92,7 +92,7 @@ const NEGATIVE_CONTROLS: readonly NegativeControl[] = [
       name: "leaks through an item id",
       run: async (_world, sentinel) => {
         await withSpan("session.submit", { itemId: sentinel.toLowerCase() }, async () => {
-          canaryLog.info("inside the span", { itemId: sentinel.toLowerCase() });
+          leakLog.info("inside the span", { itemId: sentinel.toLowerCase() });
         });
       },
     },
@@ -104,7 +104,7 @@ const NEGATIVE_CONTROLS: readonly NegativeControl[] = [
       name: "leaks through a route",
       run: async (_world, sentinel) => {
         await withSpan("session.submit", { route: `/${sentinel.toLowerCase()}` }, async () => {
-          canaryLog.info("inside the span", { route: `/${sentinel.toLowerCase()}` });
+          leakLog.info("inside the span", { route: `/${sentinel.toLowerCase()}` });
         });
       },
     },
@@ -121,14 +121,14 @@ const NEGATIVE_CONTROLS: readonly NegativeControl[] = [
   },
 ];
 
-describe("TELEMETRY CANARY negative control: the gate fails when a value does leak", () => {
+describe("TELEMETRY LEAK TEST negative control: the gate fails when a value does leak", () => {
   it.each(NEGATIVE_CONTROLS.map((control) => [control.name, control] as const))(
     "negative control: %s IS detected and the gate assertion throws",
     async (_name, control) => {
       const run = await runFlow(control.flow);
 
       expect(new Set(run.exposures.map((exposure) => exposure.signal))).toEqual(new Set(control.detectedIn));
-      expect(() => expectCleanRun(control.flow.name, run)).toThrow(/TELEMETRY CANARY FAILED/);
+      expect(() => expectCleanRun(control.flow.name, run)).toThrow(/TELEMETRY LEAK TEST FAILED/);
     },
   );
 
@@ -136,6 +136,6 @@ describe("TELEMETRY CANARY negative control: the gate fails when a value does le
     const run = await runFlow({ name: "silent", run: async () => undefined });
 
     expect(run.exposures).toEqual([]);
-    expect(() => expectCleanRun("silent", run)).toThrow(/TELEMETRY CANARY VACUOUS/);
+    expect(() => expectCleanRun("silent", run)).toThrow(/TELEMETRY LEAK TEST VACUOUS/);
   });
 });

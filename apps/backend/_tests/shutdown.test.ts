@@ -2,7 +2,7 @@ import { installTestTelemetry } from "@qp/telemetry/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { shutDown, shutDownOnSignals, TELEMETRY_SHUTDOWN_TIMEOUT_MS, type ShutdownParts, type SignalSource } from "../src/shutdown.js";
 
-const CANARY = "CANARY_DIABETES_8F3A";
+const LEAK = "LEAK_DIABETES_8F3A";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -92,7 +92,7 @@ describe("shutDown", () => {
     const order: string[] = [];
     const broken = parts(order, {
       closePools: async () => {
-        throw new RangeError(`pool ${CANARY} refused to close`);
+        throw new RangeError(`pool ${LEAK} refused to close`);
       },
     });
 
@@ -100,7 +100,7 @@ describe("shutDown", () => {
 
     const failure = telemetry.logs().find((line) => line.msg === "closing the database pools failed");
     expect(failure).toMatchObject({ level: "error", "error.type": "RangeError" });
-    expect(JSON.stringify(telemetry.logs())).not.toContain(CANARY);
+    expect(JSON.stringify(telemetry.logs())).not.toContain(LEAK);
     expect(order).toEqual(["app", "flush", "telemetry"]);
     await telemetry.shutdown();
   });

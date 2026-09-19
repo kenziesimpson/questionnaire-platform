@@ -9,8 +9,6 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const ALLOWED_INTEGRATION_TESTS = [
   "apps/admin/_tests/authoring-flow.test.tsx",
   "apps/admin/_tests/screens/draft-editor/predicate-editor.test.tsx",
-  "apps/backend/_tests/canary/canary-mutation.test.ts",
-  "apps/backend/_tests/canary/canary.test.ts",
   "apps/backend/_tests/db/grants.test.ts",
   "apps/backend/_tests/db/hand-edits.test.ts",
   "apps/backend/_tests/db/immutability.test.ts",
@@ -22,6 +20,8 @@ const ALLOWED_INTEGRATION_TESTS = [
   "apps/backend/_tests/db/roles.test.ts",
   "apps/backend/_tests/db/schema-drift.test.ts",
   "apps/backend/_tests/db/server.test.ts",
+  "apps/backend/_tests/leak-test/leak-test-mutation.test.ts",
+  "apps/backend/_tests/leak-test/leak-test.test.ts",
   "apps/backend/_tests/modules/definition/definition-api.test.ts",
   "apps/backend/_tests/modules/execution/boundary.test.ts",
   "apps/backend/_tests/modules/execution/published-definitions.test.ts",
