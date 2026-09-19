@@ -292,21 +292,24 @@ limit and the body cap; this function owns what is kept. It takes each event as 
 1. An event that is not an object, or has no string `name`, no parseable `at` timestamp or `fields` that are not an object, is dropped
    as `malformed`.
 2. A name outside the allowlist is dropped as `unknown_event`. The allowlist is `CLIENT_LOG_EVENTS` (`client.info`, `client.warn`,
-   `client.error`, one per level O8 lets a browser send) plus the `DOMAIN_EVENTS` entries marked `browser: true`, which is
+   `client.error`, one per level O8 lets a browser send) plus `BROWSER_DOMAIN_EVENTS` (`wire-contract.ts`), which is
    `session.abandoned` alone. The events the server emits, `session.item_skipped` among them (O11), are not on it, so a browser
    cannot move `questionnaire.published` or the session-duration histogram. A client log line carries no message: its level is
    its name and its meaning is its fields.
-3. Each event has its own closed list of browser-eligible fields (`BROWSER_FIELDS` in `ingest.ts`, typed against `FieldName`): the
+3. Each event has its own closed list of browser-eligible fields (`BROWSER_FIELDS` in `wire-contract.ts`, typed against `FieldName`, shared with the SDK's wire mapping): the
    ids and counts a browser knows, `errorType`, `errorStack`, `route` and `method`. A field is kept only if it is on its event's
    list and its value passes the field's check. Everything else, the server-owned fields (`constraint`, `invariant`, `errorCode`,
    `requestId`, `problem`, `pool`, `signal`, `status`, `source`, `eventAgeMs` and the rest), is dropped, counted as
    `unknown_field` or `invalid_field`, and the rest of the event is kept. `errorStack` is held to a stricter shape than the
-   registry's own: every line must be a frame with an identifier-path function name and a bare script file with line and column, or
+   registry's own (`fields.ts` keeps its lax `STACK_FRAME`, the shape of a stack the server captures from its own errors, where a frame's
+   location is an absolute path or a URL, and `frame-shape.ts` is the strict shape of a stack that arrives from a browser, where a
+   location is a bare script file. They differ because the two are captured differently: tightening the server's shape would refuse every
+   server stack, and loosening the browser's would admit any path a client chose to send): every line must be a frame with an identifier-path function name and a bare script file with line and column, or
    an `<anonymous>` or `native` marker (`BROWSER_STACK_FRAME` and `isBrowserStack` in `frame-shape.ts`, at most 40 lines of 200
    characters, function names of at most 100). The browser SDK's `frames.ts` builds what it emits from the same definition, so the
    two cannot drift. The file-name slot still accepts any `name.js` of up to 80 characters, since hashed bundle names contain
    underscores.
-4. An optional `traceparent` (`00-<32 hex>-<16 hex>-<2 hex>`) puts the event's log line under the browser's trace and span. An
+4. An optional `traceparent` (`00-<32 hex>-<16 hex>-<2 hex>`, parsed by `parseTraceparent` in `trace-context.ts`, beside the `formatTraceparent` the SDK writes it with) puts the event's log line under the browser's trace and span. An
    invalid one is dropped as `invalid_trace`. Without one, the line takes the trace of the request that carried it.
 5. The event is re-emitted with `source: "browser"` and `eventAgeMs`, through `relayLog` for a client log line (module `browser`)
    or `relayBrowserEvent` for a domain event, which write the same log line and counter as `emitDomainEvent`, then pass the scrub
@@ -323,8 +326,8 @@ Every drop is one increment of `telemetry.ingest.dropped`, labelled `telemetry.i
 are not event drops: the receipt's `dropped` counts events only. An event's name, timestamp, traceparent and rejected values are
 counted and never logged.
 
-A new browser event is one more `browser: true` entry in `DOMAIN_EVENTS`, or one more `CLIENT_LOG_EVENTS` member with its level in
-`ingest.ts`, and a row in `BROWSER_FIELDS`. A new field is one `FIELDS` entry, and one entry in the event's list if a browser may
+A new browser event is one more `BROWSER_DOMAIN_EVENTS` member (typed against `DomainEventName`), or one more `CLIENT_LOG_EVENTS` member
+with its level in `CLIENT_LOG_LEVELS`, and a row in `BROWSER_FIELDS`, all in `vocabulary.ts` and `wire-contract.ts`. A new field is one `FIELDS` entry, and one entry in the event's list if a browser may
 send it. Both go expand-then-contract (O17): the server accepts a name or field before any
 build sends it and stops accepting it only after no deployed build does.
 
@@ -335,6 +338,33 @@ per-address rate limit (300 a minute, one bucket per IPv4 address or IPv6 `/64`)
 `trustProxy: 1` for the one nginx hop, so each browser has its own bucket ([`docs/6-observability.md`](../../docs/6-observability.md)
 O21). The browser must cap its batch bytes below the limit and send a beacon as a `Blob` typed `application/json`, because a plain
 string goes as `text/plain`, which is a `400`.
+
+## Sending to the ingest
+
+`src/browser/wire.ts` turns what the queue holds into what `POST /api/telemetry` reads, so the SDK and the ingest agree by construction
+and by test. It is the one home of that mapping; `_tests/browser/wire-contract.leak-test.test.ts` builds events with the real queue,
+`captureError` and `emitDomainEvent`, maps them with it and feeds them to the real `ingestBatch`, and fails on any event dropped or any
+`unknown_field`, `invalid_field`, `unknown_event`, `malformed` or `invalid_trace` count.
+
+- `toWireEvent(queuedEvent)` renames each attribute key to its registry field name through `FIELDS` (there is no second name table) and
+  drops every attribute with no registry entry, every field the event's own list in `BROWSER_FIELDS` does not name and every value
+  `acceptsFromBrowser` refuses, so a field the ingest would count as dropped is never sent. A client log line's message is not sent: its
+  level is its name, `client.info`, `client.warn` or `client.error`.
+- A queued event is a browser domain event, and is named `session.abandoned`, only if the queue marked it. `scrubbedEvent` sets that
+  `event` marker when the record came through the `events` log module and its message is a member of `BROWSER_DOMAIN_EVENTS`; the wire
+  never reads a message to decide, so a client log line that spells `session.abandoned` stays a client log line.
+- `at` is stamped when the event is queued, from the queue's `now` option (`Date.now` by default), so the server's `eventAgeMs` is the
+  age of the event and not of its batch. `traceparent` is the active span's, formatted by `formatTraceparent`, and is absent when no
+  valid span is active.
+- `toEnvelopes(events)` returns `{ events }` envelopes of at most `MAX_TELEMETRY_EVENTS` events and `MAX_TELEMETRY_BODY_BYTES` bytes of
+  UTF-8 JSON, from `@qp/shared`, splitting into several when a batch is larger. `session.abandoned` events come first, so an abandonment is
+  in the first envelope sent. A single event that alone cannot fit an envelope is dropped.
+- `toBeaconBlob(envelope)` is a `Blob` typed `application/json`, for `navigator.sendBeacon`; `toFetchInit(envelope)` is a `POST` with
+  `content-type: application/json`, for the app's one `fetch` call. Both send the same bytes.
+
+`trace-context.ts` has no imports and holds the `traceparent` version and field widths, `formatTraceparent` and `parseTraceparent`, so
+the header the SDK writes and the field the ingest reads cannot drift; `_tests/trace-context.test.ts` round-trips one through the other.
+`injectTraceHeaders` and `startBrowserTracing` run under the same `guarded` and `guardedOr` as the rest of the SDK.
 
 ## Sinks
 
@@ -438,7 +468,7 @@ The flows live with the code they exercise. The backend's registry is
 | File | Contents |
 | --- | --- |
 | `src/index.ts` | The core entry point's exports |
-| `src/browser.ts`, `src/browser/` | The browser entry point and its parts: `queue.ts`, `events.ts` (the queued event and its scrub), `errors.ts`, `frames.ts` (the stack-frame rewrite), `lifecycle.ts`, `logging.ts`, `idle.ts`, `tracing.ts`, `start.ts`, `page.ts` (the structural types for `window`) |
+| `src/browser.ts`, `src/browser/` | The browser entry point and its parts: `queue.ts`, `events.ts` (the queued event and its scrub), `errors.ts`, `frames.ts` (the stack-frame rewrite), `lifecycle.ts`, `logging.ts`, `idle.ts`, `tracing.ts`, `wire.ts` (the queue's events as ingest envelopes, and their encodings), `start.ts`, `page.ts` (the structural types for `window`) |
 | `src/fields.ts` | `FIELDS`, `TelemetryContext`, the infrastructure allowlist, `OUTCOMES` |
 | `src/vocabulary.ts` | Constants shared by more than one module: the instrumentation scope, signal kinds, drop reasons, log modules and the attribute names the pipeline writes about itself |
 | `src/scrub.ts` | `scrubContext`, `scrubAttributes` |
@@ -447,8 +477,10 @@ The flows live with the code they exercise. The backend's registry is
 | `src/spans.ts` | `withSpan`, `SPAN_NAMES`, `SpanName`, `activeTraceId`, `annotateActiveSpan` |
 | `src/problems.ts` | `projectProblem`, `PROBLEM_CODES`, `SCHEMA_CODES`, `MAX_FINDINGS` |
 | `src/problem-telemetry.ts` | `problemTelemetry`: `projectProblem` behind the never-throw guard |
-| `src/events.ts` | `DOMAIN_EVENTS` (each event's name, payload, counter, counter labels and whether a browser may send it), `DomainEvent`, `emitDomainEvent`, `relayBrowserEvent` |
+| `src/events.ts` | `DOMAIN_EVENTS` (each event's name, payload, counter and counter labels), `DomainEvent`, `emitDomainEvent`, `relayBrowserEvent` |
 | `src/ingest.ts` | `ingestBatch`: the `/api/telemetry` ingest's event allowlist, field filter, trace context and drop counting, behind the never-throw guard |
+| `src/wire-contract.ts` | What a browser may send: `BROWSER_DOMAIN_EVENTS`, `BROWSER_FIELDS` (each event's closed field list), `browserFieldsOf`, `browserDomainEventOf`, `isClientLogEvent`, `acceptsFromBrowser`. The ingest reads it and `browser/wire.ts` writes to it. Imports no Node module, so the browser entry can use it |
+| `src/trace-context.ts` | `formatTraceparent`, `parseTraceparent` and the `traceparent` field widths. No imports |
 | `src/frame-shape.ts` | The one definition of a safe stack frame: its pattern pieces, caps, placeholders, `isSafeFunctionName`, `isSafeScriptFile`, `isSafePosition`, `BROWSER_STACK_FRAME` and `isBrowserStack`. No imports, so the browser entry can use it |
 | `src/instruments.ts` | The counter and histogram primitives, the session-duration histogram, the scrub drop counter and the ingest drop counter; each swallows and counts its own failure |
 | `src/exporters.ts` | The scrubbing decorators for span and metric exporters |

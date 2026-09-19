@@ -1,12 +1,14 @@
-import { trace } from "@opentelemetry/api";
-import { afterEach, describe, expect, it } from "vitest";
+import { context, trace } from "@opentelemetry/api";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { injectTraceHeaders, startBrowserTracing, stopBrowserTracing } from "../../src/browser/tracing.js";
 import { activeTraceId, withSpan } from "../../src/index.js";
+import { installFaultyMeter, internalDropsOf, restoreFaults } from "../faults.js";
 import { SESSION_ID } from "../fixtures.js";
 
 const TRACEPARENT = /^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/;
 
 afterEach(async () => {
+  restoreFaults();
   await stopBrowserTracing();
 });
 
@@ -90,5 +92,31 @@ describe("injectTraceHeaders", () => {
     const { traceparent } = await headersInsideASpan({ accept: "application/json" });
 
     expect(traceparent).toBeUndefined();
+  });
+});
+
+describe("the tracing helpers under a fault", () => {
+  it("returns the headers without a traceparent, and counts one internal span drop, when reading the active span throws", () => {
+    const recorded = installFaultyMeter();
+    vi.spyOn(trace, "getActiveSpan").mockImplementation(() => {
+      throw new Error("span unavailable");
+    });
+
+    const injected = injectTraceHeaders({ accept: "application/json", Traceparent: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01" });
+
+    expect(injected).toEqual({ accept: "application/json" });
+    expect(internalDropsOf(recorded)).toEqual(["span"]);
+  });
+
+  it("does not throw, and counts one internal span drop, when the tracer provider cannot be registered", () => {
+    const recorded = installFaultyMeter();
+    vi.spyOn(context, "setGlobalContextManager").mockImplementation(() => {
+      throw new Error("context manager unavailable");
+    });
+
+    expect(() => {
+      startBrowserTracing();
+    }).not.toThrow();
+    expect(internalDropsOf(recorded)).toEqual(["span"]);
   });
 });

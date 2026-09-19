@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { QueuedEvent } from "../../src/browser/events.js";
 import { createEventQueue, type EventQueueOptions } from "../../src/browser/queue.js";
+import { startBrowserTracing, stopBrowserTracing } from "../../src/browser/tracing.js";
+import { withSpan } from "../../src/index.js";
 import { SESSION_ID } from "../fixtures.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
@@ -50,6 +52,7 @@ describe("createEventQueue: what is queued", () => {
       [
         {
           level: "info",
+          at: expect.any(String),
           message: "session abandoned",
           attributes: { "questionnaire.session_id": SESSION_ID, "questionnaire.last_item_id": "itm_03", module: "events" },
         },
@@ -186,7 +189,7 @@ describe("createEventQueue: enqueue, the form for app code", () => {
     queue.flush();
 
     expect(batches[0]).toEqual([
-      { level: "info", message: "session abandoned", attributes: { "questionnaire.session_id": SESSION_ID } },
+      { level: "info", at: expect.any(String), message: "session abandoned", attributes: { "questionnaire.session_id": SESSION_ID } },
     ]);
   });
 
@@ -465,5 +468,71 @@ describe("createEventQueue: flushOnExit", () => {
     }).not.toThrow();
     expect(refusing.queue.stats().droppedEvents.undelivered).toBe(1);
     expect(throwing.queue.stats().droppedEvents.undelivered).toBe(1);
+  });
+});
+
+describe("createEventQueue: what each event is stamped with when it is queued", () => {
+  afterEach(async () => {
+    await stopBrowserTracing();
+  });
+
+  it("stamps the time of the enqueue, read from the injected clock, not the time of the flush", () => {
+    const times = [Date.parse("2026-09-19T10:00:00.000Z"), Date.parse("2026-09-19T10:00:07.500Z")];
+    const { queue, batches } = queueWith({ now: () => times.shift() ?? 0 });
+
+    queue.enqueueRecord(info("first"));
+    queue.enqueueRecord(info("second"));
+    vi.setSystemTime(Date.parse("2030-01-01T00:00:00.000Z"));
+    queue.flush();
+
+    expect(batches.flat().map((event) => event.at)).toEqual(["2026-09-19T10:00:00.000Z", "2026-09-19T10:00:07.500Z"]);
+  });
+
+  it("reads the clock once per event, and reads it for an event it then drops", () => {
+    const now = vi.fn(() => 0);
+    const { queue } = queueWith({ now });
+
+    queue.enqueueRecord(info("kept"));
+    queue.enqueueRecord({ level: "debug", message: "dropped", attributes: {} });
+
+    expect(now).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the wall clock when no clock is injected", () => {
+    vi.setSystemTime(Date.parse("2026-09-19T12:34:56.789Z"));
+    const { queue, batches } = queueWith();
+
+    queue.enqueueRecord(info("now"));
+    queue.flush();
+
+    expect(batches[0]?.[0]?.at).toBe("2026-09-19T12:34:56.789Z");
+  });
+
+  it("stamps the traceparent of the active span, and no traceparent when there is none", async () => {
+    startBrowserTracing();
+    const { queue, batches } = queueWith();
+
+    await withSpan("session.submit", { sessionId: SESSION_ID }, async () => {
+      queue.enqueueRecord(info("inside"));
+    });
+    queue.enqueueRecord(info("outside"));
+    queue.flush();
+
+    const [inside, outside] = batches.flat();
+    expect(inside?.traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/);
+    expect(outside).not.toHaveProperty("traceparent");
+  });
+
+  it("marks an event as a browser domain event only when the events module names one, never by its message alone", () => {
+    const { queue, batches } = queueWith();
+
+    queue.enqueueRecord(info("session.abandoned", { module: "events" }));
+    queue.enqueueRecord(info("session.abandoned", { module: "execution" }));
+    queue.enqueueRecord(info("session.abandoned"));
+    queue.enqueueRecord(info("session.item_skipped", { module: "events" }));
+    queue.enqueueRecord(info("session.completed", { module: "events" }));
+    queue.flush();
+
+    expect(batches.flat().map((event) => event.event)).toEqual(["session.abandoned", undefined, undefined, undefined, undefined]);
   });
 });

@@ -6,5 +6,14 @@ export { routeLogsToQueue, type LoggingRoute } from "./browser/logging.js";
 export type { PageDocument, PageEvent, PageEvents, PageListener, PageWindow } from "./browser/page.js";
 export { createEventQueue, type EventDropReason, type EventQueue, type EventQueueOptions, type QueueStats } from "./browser/queue.js";
 export { startBrowserTelemetry, type BrowserTelemetry, type BrowserTelemetryOptions } from "./browser/start.js";
+export {
+  toBeaconBlob,
+  toEnvelopes,
+  toFetchInit,
+  toWireEvent,
+  type FetchInit,
+  type WireEnvelope,
+  type WireEvent,
+} from "./browser/wire.js";
 export { injectTraceHeaders, startBrowserTracing, stopBrowserTracing } from "./browser/tracing.js";
 export type { LogRecord } from "./logger.js";

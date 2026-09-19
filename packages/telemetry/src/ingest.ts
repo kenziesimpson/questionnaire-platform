@@ -1,66 +1,23 @@
-import { context, isSpanContextValid, trace, type SpanContext } from "@opentelemetry/api";
+import { context, trace, type SpanContext } from "@opentelemetry/api";
 import { telemetryApi } from "@qp/shared";
-import { FIELDS, type FieldName } from "./fields.js";
-import { isBrowserEvent, relayBrowserEvent } from "./events.js";
+import { relayBrowserEvent } from "./events.js";
+import type { FieldName } from "./fields.js";
 import { guardedOr } from "./guard.js";
-import { isBrowserStack } from "./frame-shape.js";
 import { reportIngestDropped } from "./instruments.js";
-import { relayLog, type LogLevel } from "./logger.js";
-import { CLIENT_LOG_EVENTS, EVENT_SOURCES, type ClientLogEvent, type IngestDropReason } from "./vocabulary.js";
-
-const CLIENT_LOG_LEVELS = { "client.info": "info", "client.warn": "warn", "client.error": "error" } as const satisfies Record<
-  ClientLogEvent,
-  LogLevel
->;
-
-const CLIENT_LOG_FIELDS = [
-  "errorType",
-  "errorStack",
-  "route",
-  "method",
-  "sessionId",
-  "questionnaireId",
-  "questionnaireVersionId",
-  "questionnaireVersion",
-  "questionId",
-  "questionType",
-  "itemId",
-  "lastItemId",
-] as const satisfies readonly FieldName[];
-
-const BROWSER_FIELDS = {
-  "client.info": CLIENT_LOG_FIELDS,
-  "client.warn": CLIENT_LOG_FIELDS,
-  "client.error": CLIENT_LOG_FIELDS,
-  "session.abandoned": ["sessionId", "questionnaireId", "questionnaireVersion", "lastItemId", "elapsedSeconds", "questionCount"],
-} as const satisfies Record<ClientLogEvent | "session.abandoned", readonly FieldName[]>;
+import { relayLog } from "./logger.js";
+import { parseTraceparent } from "./trace-context.js";
+import { CLIENT_LOG_LEVELS, EVENT_SOURCES, type IngestDropReason } from "./vocabulary.js";
+import { acceptsFromBrowser, browserDomainEventOf, browserFieldsOf, isClientLogEvent } from "./wire-contract.js";
 
 const BROWSER_SOURCE: (typeof EVENT_SOURCES)[number] = "browser";
-
-const TRACEPARENT = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isClientLogEvent(name: string): name is ClientLogEvent {
-  return CLIENT_LOG_EVENTS.some((known) => known === name);
-}
-
-function browserFieldsOf(name: string): readonly FieldName[] | undefined {
-  return Object.entries(BROWSER_FIELDS).find(([known]) => known === name)?.[1];
-}
-
-function acceptsFromBrowser(field: FieldName, value: unknown): boolean {
-  return field === "errorStack" ? isBrowserStack(value) : FIELDS[field].accepts(value);
-}
-
 function traceparentOf(value: unknown): SpanContext | undefined {
-  const parts = typeof value === "string" ? TRACEPARENT.exec(value) : null;
-  const [, traceId, spanId, flags] = parts ?? [];
-  if (traceId === undefined || spanId === undefined || flags === undefined) return undefined;
-  const parent = { traceId, spanId, traceFlags: Number.parseInt(flags, 16), isRemote: true };
-  return isSpanContextValid(parent) ? parent : undefined;
+  const parsed = parseTraceparent(value);
+  return parsed === undefined ? undefined : { ...parsed, isRemote: true };
 }
 
 interface KeptFields {
@@ -94,7 +51,8 @@ function refused(reason: IngestDropReason): false {
 
 function relay(name: string, fields: Record<string, unknown>): boolean {
   if (isClientLogEvent(name)) return relayLog(CLIENT_LOG_LEVELS[name], "browser", name, fields);
-  return isBrowserEvent(name) && relayBrowserEvent(name, fields);
+  const domainEvent = browserDomainEventOf(name);
+  return domainEvent !== undefined && relayBrowserEvent(domainEvent, fields);
 }
 
 function withParent<T>(parent: SpanContext | undefined, fn: () => T): T {
@@ -108,7 +66,7 @@ function ingestEventUnguarded(raw: unknown, receivedAt: number): boolean {
     return refused("malformed");
   }
   const eligible = browserFieldsOf(name);
-  if (eligible === undefined || (!isClientLogEvent(name) && !isBrowserEvent(name))) return refused("unknown_event");
+  if (eligible === undefined) return refused("unknown_event");
 
   const { kept, unregistered, rejected } = keptFieldsOf(fields, eligible);
   reportIngestDropped("unknown_field", unregistered);

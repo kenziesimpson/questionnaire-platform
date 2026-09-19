@@ -4,7 +4,7 @@ import {
   isSafePosition,
   isSafeScriptFile,
   MAX_BROWSER_FRAME_LENGTH,
-  MAX_BROWSER_FRAMES,
+  MAX_STACK_FRAMES,
   PLACEHOLDER_FRAME,
   UNKNOWN_SCRIPT,
 } from "../frame-shape.js";
@@ -51,5 +51,5 @@ function safeFrame(line: string): string {
 }
 
 export function safeFrames(stack: string): string {
-  return stack.split("\n").slice(0, MAX_BROWSER_FRAMES).map(safeFrame).join("\n");
+  return stack.split("\n").slice(0, MAX_STACK_FRAMES).map(safeFrame).join("\n");
 }

@@ -43,9 +43,11 @@ describe("startBrowserTelemetry", () => {
     telemetry.queue.flush();
 
     expect(sent).toEqual([
-      { level: "info", message: "session submitted", attributes: { "questionnaire.session_id": SESSION_ID, module: "execution" } },
+      { level: "info", at: expect.any(String), message: "session submitted", attributes: { "questionnaire.session_id": SESSION_ID, module: "execution" } },
       {
         level: "info",
+        at: expect.any(String),
+        event: "session.abandoned",
         message: "session.abandoned",
         attributes: { "questionnaire.session_id": SESSION_ID, "questionnaire.last_item_id": "itm_03", module: "events" },
       },

@@ -4,7 +4,7 @@ import { stackFramesOf } from "../../src/fields.js";
 import {
   isBrowserStack,
   MAX_BROWSER_FRAME_LENGTH,
-  MAX_BROWSER_FRAMES,
+  MAX_STACK_FRAMES,
   MAX_FUNCTION_NAME_LENGTH,
   MAX_POSITION_DIGITS,
   MAX_SCRIPT_BASENAME_LENGTH,
@@ -74,7 +74,7 @@ describe("safeFrames and isBrowserStack agree on one definition of a safe frame"
     for (const [, raw] of HOSTILE_AND_ORDINARY) {
       const lines = safeFrames(raw).split("\n");
 
-      expect(lines.length).toBeLessThanOrEqual(MAX_BROWSER_FRAMES);
+      expect(lines.length).toBeLessThanOrEqual(MAX_STACK_FRAMES);
       expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(MAX_BROWSER_FRAME_LENGTH);
     }
   });
@@ -84,9 +84,9 @@ describe("safeFrames and isBrowserStack agree on one definition of a safe frame"
 
     const lines = safeFrames(raw).split("\n");
 
-    expect(lines).toHaveLength(MAX_BROWSER_FRAMES);
+    expect(lines).toHaveLength(MAX_STACK_FRAMES);
     expect(lines[0]).toBe("    at step0 (main.js:1:1)");
-    expect(lines.at(-1)).toBe(`    at step${MAX_BROWSER_FRAMES - 1} (main.js:${MAX_BROWSER_FRAMES}:1)`);
+    expect(lines.at(-1)).toBe(`    at step${MAX_STACK_FRAMES - 1} (main.js:${MAX_STACK_FRAMES}:1)`);
   });
 
   it.each([

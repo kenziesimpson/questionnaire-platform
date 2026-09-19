@@ -1,6 +1,6 @@
 import { PROBLEM_SLUGS, RESPONSE_TYPES, SLUG_PATTERN, SUBMISSION_ITEM_CODES, UUID_PATTERN } from "@qp/shared";
 import { PROBLEM_CODES } from "./problems.js";
-import { MAX_BROWSER_FRAMES } from "./frame-shape.js";
+import { MAX_STACK_FRAMES } from "./frame-shape.js";
 import {
   DROP_REASONS,
   EVENT_SOURCES,
@@ -69,11 +69,11 @@ function statusCode(attribute: string): FieldDefinition<number> {
 function isStackTrace(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const lines = value.split("\n");
-  return lines.length <= MAX_BROWSER_FRAMES && frameLines(lines).length === lines.length;
+  return lines.length <= MAX_STACK_FRAMES && frameLines(lines).length === lines.length;
 }
 
 function frameLines(lines: readonly string[]): string[] {
-  return lines.filter((line) => STACK_FRAME.test(line)).slice(0, MAX_BROWSER_FRAMES);
+  return lines.filter((line) => STACK_FRAME.test(line)).slice(0, MAX_STACK_FRAMES);
 }
 
 export function stackFramesOf(error: Error): string | undefined {
@@ -164,6 +164,16 @@ function portNumber(attribute: string): FieldDefinition<number> {
     bounded: true,
     accepts: (value): value is number => typeof value === "number" && Number.isInteger(value) && value > 0 && value < 65536,
   };
+}
+
+const FIELD_NAMES_BY_ATTRIBUTE: ReadonlyMap<string, FieldName> = new Map(
+  Object.keys(FIELDS)
+    .filter(isFieldName)
+    .map((name) => [FIELDS[name].attribute, name]),
+);
+
+export function fieldNameOfAttribute(attribute: string): FieldName | undefined {
+  return FIELD_NAMES_BY_ATTRIBUTE.get(attribute);
 }
 
 export function definitionOfAttribute(attribute: string): FieldDefinition<unknown> | undefined {

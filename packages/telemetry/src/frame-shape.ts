@@ -12,7 +12,7 @@ export const POSITION = `\\d{1,${MAX_POSITION_DIGITS}}:\\d{1,${MAX_POSITION_DIGI
 
 export const MAX_FUNCTION_NAME_LENGTH = 100;
 
-export const MAX_BROWSER_FRAMES = 40;
+export const MAX_STACK_FRAMES = 40;
 
 export const MAX_BROWSER_FRAME_LENGTH = 200;
 
@@ -53,5 +53,5 @@ function isBrowserFrame(line: string): boolean {
 export function isBrowserStack(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const lines = value.split("\n");
-  return lines.length <= MAX_BROWSER_FRAMES && lines.every(isBrowserFrame);
+  return lines.length <= MAX_STACK_FRAMES && lines.every(isBrowserFrame);
 }

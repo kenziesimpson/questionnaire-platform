@@ -74,6 +74,10 @@ describe("the browser entry point", () => {
       "startBrowserTelemetry",
       "startBrowserTracing",
       "stopBrowserTracing",
+      "toBeaconBlob",
+      "toEnvelopes",
+      "toFetchInit",
+      "toWireEvent",
     ]);
   });
 });

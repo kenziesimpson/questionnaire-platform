@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { isBrowserEvent } from "../src/events.js";
 import { ingestBatch, withSpan } from "../src/index.js";
 import { configureLogging, resetLogging, type LogRecord } from "../src/logger.js";
 import { installTestTelemetry, type TestTelemetry } from "../src/testing.js";
+import { browserDomainEventOf } from "../src/wire-contract.js";
 import { installFaultyMeter, internalDropsOf, restoreFaults } from "./faults.js";
 import { QUESTION_ID, SESSION_ID } from "./fixtures.js";
 
@@ -215,8 +215,8 @@ describe("ingestBatch: only the fields a browser legitimately knows are kept", (
     const receipt = ingestBatch(names.map((name) => ({ name, at: AT })), RECEIVED_AT);
 
     expect(receipt).toEqual({ accepted: 4, dropped: 2 });
-    expect(isBrowserEvent("session.abandoned")).toBe(true);
-    expect(isBrowserEvent("session.item_skipped")).toBe(false);
+    expect(browserDomainEventOf("session.abandoned")).toBe("session.abandoned");
+    expect(browserDomainEventOf("session.item_skipped")).toBeUndefined();
   });
 });
 

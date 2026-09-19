@@ -4,21 +4,20 @@ import { guarded } from "./guard.js";
 import { incrementCounter, recordSessionDuration, reportDropped } from "./instruments.js";
 import { logger, relayLog } from "./logger.js";
 import { scrubContext, type ScrubbedAttributes } from "./scrub.js";
+import { EVENTS_LOG_MODULE } from "./vocabulary.js";
 
 interface EventDefinition<P> {
   readonly counter: string;
   readonly labels: readonly FieldName[];
-  readonly browser: boolean;
   readonly payload?: P;
 }
 
 interface EventOptions {
   readonly labels?: readonly FieldName[];
-  readonly browser?: true;
 }
 
 function event<P>(counter: string, options: EventOptions = {}): EventDefinition<P> {
-  return { counter, labels: options.labels ?? [], browser: options.browser === true };
+  return { counter, labels: options.labels ?? [] };
 }
 
 const DOMAIN_EVENTS = {
@@ -40,7 +39,7 @@ const DOMAIN_EVENTS = {
     { labels: ["reason"] },
   ),
   "session.item_skipped": event<{ sessionId: string; itemId: string; questionId: string }>("questionnaire.items.skipped"),
-  "session.abandoned": event<{ sessionId: string; lastItemId: string | null }>("questionnaire.sessions.abandoned", { browser: true }),
+  "session.abandoned": event<{ sessionId: string; lastItemId: string | null }>("questionnaire.sessions.abandoned"),
   "session.completed": event<{ sessionId: string; durationMs: number; questionCount: number }>("questionnaire.sessions.completed"),
   "session.rejected_past_cutoff": event<{ sessionId: string; questionnaireId: string; questionnaireVersion: number }>(
     "questionnaire.sessions.rejected_past_cutoff",
@@ -56,15 +55,11 @@ const DOMAIN_EVENTS = {
   ),
 };
 
-type DomainEventName = keyof typeof DOMAIN_EVENTS;
+export type DomainEventName = keyof typeof DOMAIN_EVENTS;
 
 type PayloadOf<N extends DomainEventName> = NonNullable<(typeof DOMAIN_EVENTS)[N]["payload"]>;
 
 export type DomainEvent = { [N in DomainEventName]: { readonly name: N } & Readonly<PayloadOf<N>> }[DomainEventName];
-
-export function isBrowserEvent(name: string): name is DomainEventName {
-  return Object.entries(DOMAIN_EVENTS).some(([known, definition]) => known === name && definition.browser);
-}
 
 function labelsOf(name: DomainEventName, fields: Readonly<Record<string, unknown>>): ScrubbedAttributes {
   const scrubbed = scrubContext(Object.fromEntries(DOMAIN_EVENTS[name].labels.map((label) => [label, fields[label]])));
@@ -80,7 +75,7 @@ function countDomainEvent(name: DomainEventName, fields: Readonly<Record<string,
   }
 }
 
-const eventLog = logger("events");
+const eventLog = logger(EVENTS_LOG_MODULE);
 
 export function emitDomainEvent(event: DomainEvent): void {
   guarded("log", () => {
@@ -95,7 +90,7 @@ export function emitDomainEvent(event: DomainEvent): void {
 }
 
 export function relayBrowserEvent(name: DomainEventName, fields: Readonly<Record<string, unknown>>): boolean {
-  const logged = relayLog("info", "events", name, fields);
+  const logged = relayLog("info", EVENTS_LOG_MODULE, name, fields);
   guarded("metric", () => {
     countDomainEvent(name, fields);
   });

@@ -7,7 +7,7 @@ import {
   isSafePosition,
   isSafeScriptFile,
   MAX_BROWSER_FRAME_LENGTH,
-  MAX_BROWSER_FRAMES,
+  MAX_STACK_FRAMES,
   MAX_FUNCTION_NAME_LENGTH,
   MAX_POSITION_DIGITS,
   MAX_SCRIPT_BASENAME_LENGTH,
@@ -49,8 +49,8 @@ describe("isBrowserStack", () => {
   it("accepts one frame per line up to the frame cap and refuses one more", () => {
     const frame = "    at render (x.js:1:1)";
 
-    expect(isBrowserStack(Array.from({ length: MAX_BROWSER_FRAMES }, () => frame).join("\n"))).toBe(true);
-    expect(isBrowserStack(Array.from({ length: MAX_BROWSER_FRAMES + 1 }, () => frame).join("\n"))).toBe(false);
+    expect(isBrowserStack(Array.from({ length: MAX_STACK_FRAMES }, () => frame).join("\n"))).toBe(true);
+    expect(isBrowserStack(Array.from({ length: MAX_STACK_FRAMES + 1 }, () => frame).join("\n"))).toBe(false);
   });
 
   it("refuses a line over the length cap even if its shape is right", () => {

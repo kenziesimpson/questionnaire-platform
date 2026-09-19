@@ -215,12 +215,16 @@ O19). The rules are the server's rules, applied before anything is queued:
 - A new browser code path extends `packages/telemetry/_tests/browser/leak-test.browser.test.ts`, which
   plants the sentinel in an unknown field, a known field's value, an error message, a stack line, a
   screen and a domain event, and asserts it is in neither the sent batch nor the beacon.
+- The wire mapping from the queue to the ingest's envelope has one home, `src/browser/wire.ts`, and one table of what a browser may
+  send, `wire-contract.ts`, which the ingest reads too. Never rename, filter or name an event anywhere else. A change to either end
+  runs `_tests/browser/wire-contract.leak-test.test.ts`, which sends real queue output through the real `ingestBatch` and fails on
+  any dropped event or `unknown_field`, `invalid_field`, `unknown_event`, `malformed` or `invalid_trace` count.
 
 ## The ingest door
 
 `POST /api/telemetry` (`modules/telemetry`, `ingestBatch` in `packages/telemetry/src/ingest.ts`) is the one place telemetry
 arrives from outside. It has no database and never logs a body. It accepts an event only if its name is a
-`CLIENT_LOG_EVENTS` member or a `DOMAIN_EVENTS` entry marked `browser: true`, keeps a field only if it is on that event's list in `BROWSER_FIELDS` and `FIELDS` accepts it (`errorStack` also has to pass the
+`CLIENT_LOG_EVENTS` member or a `BROWSER_DOMAIN_EVENTS` member, keeps a field only if it is on that event's list in `BROWSER_FIELDS` (both in `wire-contract.ts`) and `FIELDS` accepts it (`errorStack` also has to pass the
 stricter `isBrowserStack`), and counts every drop in `telemetry.ingest.dropped{reason}`. Before adding a browser event, ask whether the server could emit it itself;
 an event the server owns stays off the allowlist, so a browser cannot move its counter. A client log line carries no message: its
 level is its name. Hole 2 applies in full: the ingest cannot tell a slug-shaped `itemId` or a route from a one-word answer, so a

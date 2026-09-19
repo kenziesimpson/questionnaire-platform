@@ -1,6 +1,7 @@
 import type { DropCounts } from "../scrub.js";
 import { DROP_REASONS, type DropReason } from "../vocabulary.js";
 import { scrubbedEvent, type CallerEvent, type EventRecord, type QueuedEvent } from "./events.js";
+import { activeTraceparent } from "./tracing.js";
 
 const EVENT_DROP_REASONS = ["overflow", "undelivered", "internal", "level"] as const;
 export type EventDropReason = (typeof EVENT_DROP_REASONS)[number];
@@ -13,6 +14,7 @@ export interface EventQueueOptions {
   readonly send: (events: readonly QueuedEvent[]) => void | Promise<void>;
   readonly beacon: (events: readonly QueuedEvent[]) => boolean;
   readonly screen?: () => string | undefined;
+  readonly now?: () => number;
   readonly maxPending?: number;
   readonly batchSize?: number;
   readonly flushIntervalMs?: number;
@@ -46,6 +48,7 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
   const maxPending = positiveIntegerOr(options.maxPending, DEFAULT_MAX_PENDING);
   const batchSize = Math.min(positiveIntegerOr(options.batchSize, DEFAULT_BATCH_SIZE), maxPending);
   const flushIntervalMs = positiveIntegerOr(options.flushIntervalMs, DEFAULT_FLUSH_INTERVAL_MS);
+  const now = options.now ?? Date.now;
   const pending: QueuedEvent[] = [];
   const droppedEvents: Record<EventDropReason, number> = { overflow: 0, undelivered: 0, internal: 0, level: 0 };
   const droppedFields: Record<DropReason, number> = { unknown: 0, invalid: 0, unbounded: 0, internal: 0 };
@@ -122,7 +125,7 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
   function enqueueRecord(record: EventRecord): void {
     if (closed) return;
     try {
-      const scrubbed = scrubbedEvent(record, screenNow());
+      const scrubbed = scrubbedEvent(record, screenNow(), { at: new Date(now()).toISOString(), traceparent: activeTraceparent() });
       addDropped(droppedFields, scrubbed.dropped);
       if (scrubbed.event === undefined) {
         droppedEvents.level += 1;

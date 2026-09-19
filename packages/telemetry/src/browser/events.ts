@@ -1,12 +1,24 @@
 import { FIELDS } from "../fields.js";
 import type { LiteralMessage, LogLevel, LogRecord } from "../logger.js";
 import { scrubAttributes, type DropCounts } from "../scrub.js";
+import { EVENTS_LOG_MODULE, LOG_ATTRIBUTES } from "../vocabulary.js";
+import { browserDomainEventOf, type BrowserDomainEvent } from "../wire-contract.js";
 import { safeFrames } from "./frames.js";
 
 export const QUEUED_LEVELS = ["info", "warn", "error"] as const satisfies readonly LogLevel[];
 export type QueuedLevel = (typeof QUEUED_LEVELS)[number];
 
-export type QueuedEvent = Omit<LogRecord, "level"> & { readonly level: QueuedLevel };
+interface EventStamp {
+  readonly at: string;
+  readonly traceparent: string | undefined;
+}
+
+export type QueuedEvent = Omit<LogRecord, "level"> & {
+  readonly level: QueuedLevel;
+  readonly at: string;
+  readonly event?: BrowserDomainEvent;
+  readonly traceparent?: string;
+};
 
 export interface EventRecord {
   readonly level: string;
@@ -45,7 +57,7 @@ function withSafeStack(attributes: Record<string, unknown>): Record<string, unkn
   return typeof stack === "string" ? { ...attributes, [key]: safeFrames(stack) } : attributes;
 }
 
-export function scrubbedEvent(input: EventRecord, screen: string | undefined): ScrubbedEvent {
+export function scrubbedEvent(input: EventRecord, screen: string | undefined, stamp: EventStamp): ScrubbedEvent {
   const attributes = withSafeStack(attributesOf(input.attributes));
   const screenAttribute = FIELDS.route.attribute;
   const scrubbed = scrubAttributes(
@@ -56,5 +68,16 @@ export function scrubbedEvent(input: EventRecord, screen: string | undefined): S
   const dropped = { ...scrubbed.dropped, invalid: scrubbed.dropped.invalid + (message === undefined ? 1 : 0) };
   const { level } = input;
   if (!isQueuedLevel(level)) return { event: undefined, dropped };
-  return { event: { level, message: message ?? UNNAMED_MESSAGE, attributes: scrubbed.attributes }, dropped };
+  const domainEvent = scrubbed.attributes[LOG_ATTRIBUTES.module] === EVENTS_LOG_MODULE ? browserDomainEventOf(message) : undefined;
+  return {
+    event: {
+      level,
+      message: message ?? UNNAMED_MESSAGE,
+      attributes: scrubbed.attributes,
+      at: stamp.at,
+      ...(domainEvent === undefined ? {} : { event: domainEvent }),
+      ...(stamp.traceparent === undefined ? {} : { traceparent: stamp.traceparent }),
+    },
+    dropped,
+  };
 }
