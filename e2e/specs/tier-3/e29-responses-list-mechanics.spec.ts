@@ -1,16 +1,9 @@
-import type { Page } from "@playwright/test";
 import { RESPONSES_PAGE_SIZE } from "@qp/shared";
 import { createDemoShapedQuestionnaire, expect, publishDemoHypertensionRelabel, test, uniqueName } from "../../fixtures/index";
 import { textQuestionInput } from "./support/question-input";
 
-async function openSessionIdsShown(page: Page): Promise<string[]> {
-  const links = await page.getByRole("link", { name: /^Open session /, exact: false }).all();
-  const labels = await Promise.all(links.map((link) => link.getAttribute("aria-label")));
-  return labels.map((label) => (label ?? "").replace("Open session ", ""));
-}
-
-test.describe("E29 — the responses list's Newer/Older paging and version filter actually change what's shown", () => {
-  test("Older then Newer swaps between two disjoint pages of the same size the page reports", async ({ api, execution, admin, page }) => {
+test.describe("E29 — the responses list's Previous/Next paging and version filter actually change what's shown", () => {
+  test("Next then Previous swaps between two disjoint pages of the same size the page reports", async ({ api, execution, admin, page }) => {
     const question = await api.createQuestion(textQuestionInput("E29 paging note"));
     const published = await api.createPublishedQuestionnaire({ name: uniqueName("E29 paging"), title: "Paging fixture" }, [
       { itemId: "itm_note", question },
@@ -24,22 +17,22 @@ test.describe("E29 — the responses list's Newer/Older paging and version filte
 
     await admin.openResponsesList(questionnaireId);
     await expect(page.getByText(`${RESPONSES_PAGE_SIZE} sessions on this page`, { exact: true })).toBeVisible();
-    await expect(admin.olderPageButton()).toBeEnabled();
-    await expect(admin.newerPageButton()).toBeDisabled();
-    const firstPageIds = await openSessionIdsShown(page);
+    await expect(admin.nextPageButton()).toBeEnabled();
+    await expect(admin.previousPageButton()).toBeDisabled();
+    const firstPageIds = await admin.sessionIdsInRowOrder();
     expect(firstPageIds).toHaveLength(RESPONSES_PAGE_SIZE);
 
-    await admin.olderPageButton().click();
+    await admin.nextPageButton().click();
     await expect(page.getByText(`${extra} sessions on this page`, { exact: true })).toBeVisible();
-    await expect(admin.newerPageButton()).toBeEnabled();
-    await expect(admin.olderPageButton()).toBeDisabled();
-    const secondPageIds = await openSessionIdsShown(page);
+    await expect(admin.previousPageButton()).toBeEnabled();
+    await expect(admin.nextPageButton()).toBeDisabled();
+    const secondPageIds = await admin.sessionIdsInRowOrder();
     expect(secondPageIds).toHaveLength(extra);
     expect(secondPageIds.some((id) => firstPageIds.includes(id))).toBe(false);
 
-    await admin.newerPageButton().click();
+    await admin.previousPageButton().click();
     await expect(page.getByText(`${RESPONSES_PAGE_SIZE} sessions on this page`, { exact: true })).toBeVisible();
-    const backToFirstPageIds = await openSessionIdsShown(page);
+    const backToFirstPageIds = await admin.sessionIdsInRowOrder();
     expect(backToFirstPageIds).toEqual(firstPageIds);
   });
 

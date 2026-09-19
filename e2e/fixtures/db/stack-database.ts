@@ -13,6 +13,11 @@ export interface SessionRecord {
   readonly responseDigest: Buffer | null;
 }
 
+export interface SessionTimes {
+  readonly startedAt: Date;
+  readonly submittedAt: Date | null;
+}
+
 export interface ResponseRecord {
   readonly responseId: string;
   readonly createdAt: Date;
@@ -131,6 +136,14 @@ export class StackDatabase {
   async setClosesAt(questionnaireId: string, closesAt: Date | null): Promise<void> {
     const result = await this.pool.query("UPDATE definition.questionnaire SET closes_at = $2 WHERE id = $1", [questionnaireId, closesAt]);
     if (result.rowCount !== 1) throw new Error(`No questionnaire ${questionnaireId} to set closes_at on`);
+  }
+
+  async setSessionTimes(sessionId: string, { startedAt, submittedAt }: SessionTimes): Promise<void> {
+    const result = await this.pool.query(
+      "UPDATE execution.session SET started_at = $2::timestamptz, last_activity_at = COALESCE($3::timestamptz, $2::timestamptz), submitted_at = $3::timestamptz WHERE id = $1",
+      [sessionId, startedAt, submittedAt],
+    );
+    if (result.rowCount !== 1) throw new Error(`No session ${sessionId} to set timestamps on`);
   }
 
   async closeQuestionnaire(questionnaireId: string, closedFor: { minutes: number } = { minutes: 60 }): Promise<Date> {
