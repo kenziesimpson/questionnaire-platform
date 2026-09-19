@@ -62,7 +62,7 @@ app, and each proxies `/api` itself, so with the plain command above:
 
 - Respondent (Vite dev server): http://localhost:5173
 - Admin (Vite dev server): http://localhost:5174/admin/
-- Backend health check: http://localhost:5173/api/health (proxied) or directly at http://localhost:3000/health/live (`/health/ready` also checks the database pools)
+- Backend health checks, published directly on the backend's port (the proxies forward only `/api`): http://localhost:3000/health/live, and http://localhost:3000/health/ready, which also checks the database pools
 
 For the production-shaped build (nginx serving both compiled apps, no dev
 tooling) — what a release or CI run would use — bypass the override:
@@ -73,7 +73,7 @@ docker compose -f docker-compose.yml up --build
 
 - Respondent: http://localhost:8080
 - Admin: http://localhost:8080/admin/
-- Backend health check: http://localhost:8080/api/health
+- Backend health check: the backend publishes no host port here, so run `docker compose -f docker-compose.yml exec backend node -e "fetch('http://localhost:3000/health/ready').then((r) => console.log(r.status))"`
 
 ## Local development without Docker
 

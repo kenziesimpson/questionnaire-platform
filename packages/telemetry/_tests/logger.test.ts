@@ -129,10 +129,46 @@ describe("logger records", () => {
 
   it("drops a stack line an error message forged", () => {
     const installed = install();
-    const forged = new Error(CANARY);
+    const forged = new Error("x");
     forged.stack = `Error: x\n    at ${CANARY} secret\n    at run (file:///app/dist/a.js:1:2)`;
     log.error("failed", undefined, forged);
     const [line] = installed.logs();
     expect(line?.["error.stack"]).toBe("    at run (file:///app/dist/a.js:1:2)");
+    expect(JSON.stringify(line)).not.toContain(CANARY);
+  });
+
+  it("drops the whole header of a multi-line message, so a frame-shaped line in it is never recorded", () => {
+    const installed = install();
+    log.error("failed", undefined, new Error(`line1\n    at ${CANARY} (secret.txt:1:1)\n    at ${CANARY}_2 (secret.txt:2:2)`));
+    const [line] = installed.logs();
+    expect(line).toMatchObject({ "error.type": "Error" });
+    expect(line?.["error.stack"]).toMatch(/^ {4}at /);
+    expect(JSON.stringify(line)).not.toContain(CANARY);
+  });
+
+  it("records no stack when the stack's header does not line up with the message", () => {
+    const installed = install();
+    const mutated = new Error("original");
+    void mutated.stack;
+    mutated.message = `changed\n    at ${CANARY} (secret.txt:1:1)`;
+    log.error("failed", undefined, mutated);
+    const [line] = installed.logs();
+    expect(line).not.toHaveProperty("error.stack");
+    expect(JSON.stringify(line)).not.toContain(CANARY);
+  });
+
+  it("records the frames of an error whose name is set after construction", () => {
+    const installed = install();
+    class Named extends Error {
+      constructor() {
+        super(`bad ${CANARY}`);
+        this.name = "Named";
+      }
+    }
+    log.error("failed", undefined, new Named());
+    const [line] = installed.logs();
+    expect(line).toMatchObject({ "error.type": "Named" });
+    expect(line?.["error.stack"]).toMatch(/^ {4}at /);
+    expect(JSON.stringify(line)).not.toContain(CANARY);
   });
 });

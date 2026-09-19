@@ -61,6 +61,25 @@ describe("problemTelemetry", () => {
     expect(projected(body).map((fields) => fields.problemCode)).toEqual(["schema/other", "schema/other", "schema/other"]);
   });
 
+  it("leaves out the item id of answer/unknown-item, which the client chose", () => {
+    const body = problem("submission/invalid", {
+      items: [
+        { itemId: CANARY, code: "answer/unknown-item" },
+        { itemId: "itm_01", code: "answer/not-visible" },
+      ],
+    });
+    expect(projected(body)).toEqual([
+      { problem: "submission/invalid", status: 422, problemCode: "answer/unknown-item" },
+      { problem: "submission/invalid", status: 422, itemId: "itm_01", problemCode: "answer/not-visible" },
+    ]);
+    expect(JSON.stringify(projected(body))).not.toContain(CANARY);
+  });
+
+  it("leaves out a code that is neither known nor a schema code, rather than calling it a schema code", () => {
+    const body = problem("request/invalid", { errors: [{ pointer: "/body", code: "question/from-the-future" as "question/type-changed" }] });
+    expect(projected(body)).toEqual([{ problem: "request/invalid", status: 400 }]);
+  });
+
   it("never reads title, detail, instance or an extra member of the body", () => {
     const body = {
       ...problem("submission/invalid", { items: [{ itemId: "itm_01", code: "answer/required" }] }),
@@ -100,9 +119,15 @@ describe("problemTelemetry", () => {
 });
 
 describe("the fields the error and health surfaces add", () => {
-  it("accepts an invariant name, a constraint name and a pool", () => {
-    const result = scrubContext({ invariant: "session.not-marked-submitted", constraint: "question_version_pkey", pool: "reporting" });
+  it("accepts an invariant name, a constraint name, a pool and a version id", () => {
+    const result = scrubContext({
+      invariant: "session.not-marked-submitted",
+      constraint: "question_version_pkey",
+      pool: "reporting",
+      questionnaireVersionId: "0195a3f2-7c1e-7b3a-9d4e-1f2a3b4c5d6e",
+    });
     expect(result.attributes).toEqual({
+      "questionnaire.version_id": "0195a3f2-7c1e-7b3a-9d4e-1f2a3b4c5d6e",
       "error.invariant": "session.not-marked-submitted",
       "db.constraint": "question_version_pkey",
       "db.pool": "reporting",

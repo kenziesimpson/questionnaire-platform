@@ -31,15 +31,19 @@ type ProblemCode = (typeof PROBLEM_CODES)[number];
 
 const MAX_FINDINGS = 20;
 
-function knownCode(code: string): ProblemCode {
-  return PROBLEM_CODES.find((known) => known === code) ?? "schema/other";
+function knownCode(code: string): ProblemCode | undefined {
+  return PROBLEM_CODES.find((known) => known === code) ?? (code.startsWith("schema/") ? "schema/other" : undefined);
+}
+
+function itemFinding(outcome: TelemetryContext, item: { readonly itemId: string; readonly code: string }): TelemetryContext {
+  return { ...outcome, problemCode: knownCode(item.code), ...(item.code === "answer/unknown-item" ? {} : { itemId: item.itemId }) };
 }
 
 export function problemTelemetry(body: Problem): readonly TelemetryContext[] {
   const outcome: TelemetryContext = { problem: problemSlug(body.type), status: body.status };
   const findings: TelemetryContext[] =
     "items" in body
-      ? body.items.map((item) => ({ ...outcome, itemId: item.itemId, problemCode: knownCode(item.code) }))
+      ? body.items.map((item) => itemFinding(outcome, item))
       : "errors" in body
         ? body.errors.map((error) => ({ ...outcome, problemCode: knownCode(error.code) }))
         : [];

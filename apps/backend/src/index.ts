@@ -3,7 +3,7 @@ import { buildApp } from "./app.js";
 import { config, databaseUrl } from "./config.js";
 import { openDatabase } from "./db/client.js";
 import { requestLogger } from "./http/request-logger.js";
-import { shutDown } from "./shutdown.js";
+import { shutDown, shutDownOnSignals } from "./shutdown.js";
 import { telemetryOfProcess } from "./telemetry.js";
 
 const telemetry = telemetryOfProcess();
@@ -45,15 +45,6 @@ function shutdownParts() {
   };
 }
 
-let shuttingDown = false;
-
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, async () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    log.info("shutting down", { signal });
-    process.exit((await shutDown(shutdownParts())) ? 0 : 1);
-  });
-}
+shutDownOnSignals(shutdownParts(), process);
 
 void start();

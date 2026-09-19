@@ -1,14 +1,22 @@
 import { logger } from "@qp/telemetry";
+import { withTimeout } from "./timeout.js";
 
 const log = logger("backend");
 
 export const TELEMETRY_SHUTDOWN_TIMEOUT_MS = 5_000;
+
+const SIGNALS = ["SIGINT", "SIGTERM"] as const;
 
 export interface ShutdownParts {
   readonly closeApp: () => Promise<void>;
   readonly telemetry: { readonly flush: () => Promise<void>; readonly shutdown: () => Promise<void> };
   readonly closePools: () => Promise<void>;
   readonly telemetryTimeoutMs?: number;
+}
+
+export interface SignalSource {
+  on(signal: (typeof SIGNALS)[number], listener: () => void): unknown;
+  exit(code: number): unknown;
 }
 
 async function attempt(step: () => Promise<void>, reportFailure: (error: Error | undefined) => void): Promise<boolean> {
@@ -21,33 +29,40 @@ async function attempt(step: () => Promise<void>, reportFailure: (error: Error |
   }
 }
 
-function withinTimeout(step: () => Promise<void>, timeoutMs: number): () => Promise<void> {
-  return async () => {
-    let timer: NodeJS.Timeout | undefined;
-    const expired = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error("telemetry shutdown timed out")), timeoutMs);
-    });
-    try {
-      await Promise.race([step(), expired]);
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-}
-
 export async function shutDown(parts: ShutdownParts): Promise<boolean> {
+  const timeoutMs = parts.telemetryTimeoutMs ?? TELEMETRY_SHUTDOWN_TIMEOUT_MS;
   const appClosed = await attempt(parts.closeApp, (error) => {
     log.error("closing the server failed", undefined, error);
   });
-  const telemetryClosed = await attempt(
-    withinTimeout(async () => {
-      await parts.telemetry.flush();
-      await parts.telemetry.shutdown();
-    }, parts.telemetryTimeoutMs ?? TELEMETRY_SHUTDOWN_TIMEOUT_MS),
+  const flushed = await attempt(
+    () => withTimeout(parts.telemetry.flush(), timeoutMs),
     (error) => {
-      log.error("telemetry did not shut down cleanly", undefined, error);
+      log.error("flushing telemetry failed", undefined, error);
     },
   );
-  const poolsClosed = await attempt(parts.closePools, () => undefined);
-  return appClosed && telemetryClosed && poolsClosed;
+  const poolsClosed = await attempt(parts.closePools, (error) => {
+    log.error("closing the database pools failed", undefined, error);
+  });
+  const telemetryClosed = await attempt(
+    () => withTimeout(parts.telemetry.shutdown(), timeoutMs),
+    (error) => {
+      log.error("shutting down telemetry failed", undefined, error);
+    },
+  );
+  return appClosed && flushed && poolsClosed && telemetryClosed;
+}
+
+export function shutDownOnSignals(parts: ShutdownParts, source: SignalSource): void {
+  let shuttingDown = false;
+  for (const signal of SIGNALS) {
+    source.on(signal, async () => {
+      if (shuttingDown) {
+        source.exit(1);
+        return;
+      }
+      shuttingDown = true;
+      log.info("shutting down", { signal });
+      source.exit((await shutDown(parts)) ? 0 : 1);
+    });
+  }
 }

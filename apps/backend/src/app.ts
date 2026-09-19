@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { definitionApi, executionApi, reportingApi } from "@qp/shared";
-import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
-import { registerHealthRoutes, selectOne } from "./http/health.js";
+import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } from "fastify";
+import { isHealthRequest, registerHealthRoutes, selectOne } from "./http/health.js";
 import { applyHttpDefaults, replyWithProblem } from "./http/problems.js";
 import { definitionModule, type DefinitionModuleOptions } from "./modules/definition/plugin.js";
 import { executionModule, type ExecutionModuleOptions } from "./modules/execution/plugin.js";
@@ -17,6 +17,7 @@ export interface AppOptions {
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     ...(options.logger === undefined ? { logger: false } : { loggerInstance: options.logger }),
+    logController: new LogController({ disableRequestLogging: (request) => isHealthRequest(request.url) }),
     genReqId: () => randomUUID(),
     frameworkErrors: replyWithProblem,
   });

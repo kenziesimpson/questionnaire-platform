@@ -129,4 +129,28 @@ describe("/health/ready", () => {
     expect(response.statusCode).toBe(503);
     expect(response.json().detail).toBe("execution");
   });
+
+  it("reuses a probe still in flight instead of queueing another behind a hung pool, and probes again once it settles", async () => {
+    vi.useFakeTimers();
+    let release: () => void = () => undefined;
+    const hung = vi
+      .fn<() => Promise<unknown>>()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => (release = resolve)))
+      .mockImplementation(healthy);
+    const built = await appWith(probes({ execution: hung }));
+
+    for (let request = 0; request < 3; request++) {
+      const pending = built.inject({ method: "GET", url: "/health/ready" });
+      await vi.advanceTimersByTimeAsync(READINESS_CHECK_TIMEOUT_MS);
+      expect((await pending).statusCode).toBe(503);
+    }
+    expect(hung).toHaveBeenCalledTimes(1);
+
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    const settled = built.inject({ method: "GET", url: "/health/ready" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect((await settled).statusCode).toBe(200);
+    expect(hung).toHaveBeenCalledTimes(2);
+  });
 });

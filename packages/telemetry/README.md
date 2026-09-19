@@ -55,7 +55,7 @@ context key with an attribute name, a runtime check and a `bounded` flag.
 
 | Key | Attribute | Accepts | Bounded |
 | --- | --- | --- | --- |
-| `sessionId`, `questionnaireId`, `itemId`, `lastItemId`, `questionId`, `requestId` | `questionnaire.session_id`, `questionnaire.id`, … | a token with no whitespace, at most 128 characters | no |
+| `sessionId`, `questionnaireId`, `questionnaireVersionId`, `itemId`, `lastItemId`, `questionId`, `requestId` | `questionnaire.session_id`, `questionnaire.id`, … | a token with no whitespace, at most 128 characters | no |
 | `questionnaireVersion`, `elapsedSeconds`, `durationMs`, `questionCount`, `responseTimeMs` | `questionnaire.version`, … | a finite number | no |
 | `questionType`, `outcome`, `reason`, `method`, `signal` | `questionnaire.question_type`, … | a member of a closed list | yes |
 | `status` | `http.response.status_code` | an integer from 100 to 599 | yes |

@@ -1,4 +1,4 @@
-import { readStoredDefinition, type PublishedDefinition } from "@qp/shared";
+import { readStoredDefinition, UnsupportedSnapshotError, type PublishedDefinition } from "@qp/shared";
 import { eq } from "drizzle-orm";
 import { integer, jsonb, uuid } from "drizzle-orm/pg-core";
 import { InvariantViolation } from "../../invariant.js";
@@ -35,12 +35,14 @@ export class PublishedDefinitions {
       .from(publishedQuestionnaireVersion)
       .where(eq(publishedQuestionnaireVersion.id, questionnaireVersionId));
     if (row === undefined) {
-      throw InvariantViolation.of("session.pins-unpublished-version");
+      throw InvariantViolation.of("session.pins-unpublished-version", { questionnaireVersionId });
     }
     try {
       return readStoredDefinition(row.snapshot, row.formatVersion);
-    } catch {
-      throw InvariantViolation.of("stored-snapshot.unsupported-format");
+    } catch (error) {
+      throw error instanceof UnsupportedSnapshotError
+        ? InvariantViolation.of("stored-snapshot.unsupported-format", { questionnaireVersionId })
+        : error;
     }
   }
 }

@@ -28,8 +28,11 @@ export function startTelemetry(options: TelemetryOptions): TelemetryHandle {
   const started: TelemetryHandle = {
     ...handle,
     shutdown: async () => {
-      await handle.shutdown();
-      if (running === started) running = undefined;
+      try {
+        await handle.shutdown();
+      } finally {
+        if (running === started) running = undefined;
+      }
     },
   };
   running = started;

@@ -1,6 +1,9 @@
 import type { LiteralMessage, TelemetryContext } from "@qp/telemetry";
 
-export type InvariantIds = Pick<TelemetryContext, "questionnaireId" | "questionnaireVersion" | "sessionId" | "questionId" | "itemId">;
+export type InvariantIds = Pick<
+  TelemetryContext,
+  "questionnaireId" | "questionnaireVersion" | "questionnaireVersionId" | "sessionId" | "questionId" | "itemId"
+>;
 
 export class InvariantViolation extends Error {
   readonly invariant: string;

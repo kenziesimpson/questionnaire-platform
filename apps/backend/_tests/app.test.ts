@@ -1,7 +1,9 @@
 import { PROBLEM_CONTENT_TYPE, problemType } from "@qp/shared";
+import { installTestTelemetry } from "@qp/telemetry/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
+import { requestLogger } from "../src/http/request-logger.js";
 import { useTestDatabase } from "./db/fixtures.js";
 
 const testDatabase = useTestDatabase();
@@ -34,6 +36,25 @@ describe("buildApp", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: "ok" });
+  });
+
+  it("does not log a health probe as a request, and logs any other request", async () => {
+    const telemetry = installTestTelemetry();
+    const logged = await buildApp({
+      logger: requestLogger("info"),
+      definition: { database: testDatabase.database("definition") },
+      execution: { database: testDatabase.database("execution") },
+      reporting: { reporting: testDatabase.database("reporting") },
+    });
+    await logged.inject({ method: "GET", url: "/health/live" });
+    await logged.inject({ method: "GET", url: "/health/ready" });
+    await logged.inject({ method: "GET", url: "/health" });
+    await logged.inject({ method: "GET", url: "/api/definition/questionnaires" });
+    await logged.close();
+
+    const routes = telemetry.logs().filter((line) => line.msg === "request completed").map((line) => line["http.route"]);
+    await telemetry.shutdown();
+    expect(routes).toEqual(["/api/definition/questionnaires"]);
   });
 
   it("mounts the definition module at /api/definition", async () => {

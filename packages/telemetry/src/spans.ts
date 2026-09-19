@@ -4,6 +4,8 @@ import { reportDropped } from "./instruments.js";
 import { scrubContext } from "./scrub.js";
 import { INSTRUMENTATION_SCOPE } from "./vocabulary.js";
 
+export type SpanName = "questionnaire.publish" | "rule.evaluate" | "session.submit";
+
 export function activeTraceId(): string | undefined {
   const context = trace.getActiveSpan()?.spanContext();
   return context !== undefined && isSpanContextValid(context) ? context.traceId : undefined;
@@ -16,8 +18,6 @@ export function annotateActiveSpan(context: TelemetryContext, error?: Error): vo
   reportDropped("span", fields.dropped);
   span.setAttributes(fields.attributes);
 }
-
-export type SpanName ="questionnaire.publish" | "rule.evaluate" | "session.submit";
 
 export async function withSpan<T>(name: SpanName, context: TelemetryContext, fn: () => Promise<T>): Promise<T> {
   const fields = scrubContext(context);

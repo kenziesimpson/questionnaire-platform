@@ -54,6 +54,7 @@ describe("PublishedDefinitions", () => {
 
     const failed = definitions.pinned(execution, unknownVersion);
     await expect(failed).rejects.toThrow("session.pins-unpublished-version");
+    await expect(failed).rejects.toMatchObject({ ids: { questionnaireVersionId: unknownVersion } });
 
     expect(definitions.pinned(execution, unknownVersion)).not.toBe(failed);
   });

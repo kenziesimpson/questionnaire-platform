@@ -55,21 +55,26 @@ function statusCode(attribute: string): FieldDefinition<number> {
 
 function isStackTrace(value: unknown): value is string {
   if (typeof value !== "string") return false;
-  const frames = value.split("\n");
-  return frames.length <= MAX_STACK_FRAMES && frames.every((frame) => STACK_FRAME.test(frame));
+  const lines = value.split("\n");
+  return lines.length <= MAX_STACK_FRAMES && frameLines(lines).length === lines.length;
+}
+
+function frameLines(lines: readonly string[]): string[] {
+  return lines.filter((line) => STACK_FRAME.test(line)).slice(0, MAX_STACK_FRAMES);
 }
 
 export function stackFramesOf(error: Error): string | undefined {
-  const frames = (error.stack ?? "")
-    .split("\n")
-    .filter((line) => STACK_FRAME.test(line))
-    .slice(0, MAX_STACK_FRAMES);
+  const lines = (error.stack ?? "").split("\n");
+  const headerLines = error.message.split("\n").length;
+  if (!lines.slice(0, headerLines).join("\n").endsWith(error.message)) return undefined;
+  const frames = frameLines(lines.slice(headerLines));
   return frames.length === 0 ? undefined : frames.join("\n");
 }
 
 export const FIELDS = {
   sessionId: matching("questionnaire.session_id", IDENTIFIER, false),
   questionnaireId: matching("questionnaire.id", IDENTIFIER, false),
+  questionnaireVersionId: matching("questionnaire.version_id", IDENTIFIER, false),
   questionnaireVersion: quantity("questionnaire.version"),
   itemId: matching("questionnaire.item_id", IDENTIFIER, false),
   lastItemId: matching("questionnaire.last_item_id", IDENTIFIER, false),

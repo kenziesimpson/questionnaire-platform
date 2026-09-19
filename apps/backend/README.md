@@ -7,9 +7,8 @@ publishing) and execution (sessions, responses). See
 relate to `packages/shared` and `packages/telemetry`.
 
 > **Status:** `src/index.ts` serves the three API modules and `/health/live` (process up, no database; `/health` is an alias), and `/health/ready` (`SELECT 1` on the definition, execution and reporting pools; `503` with the failing roles in `detail`).
-> `src/modules/definition` and `src/modules/execution` don't exist yet; once they do,
-> `eslint.config.mjs` enforces that they never import each other and that only
-> `packages/telemetry` imports `pino` or `@opentelemetry/*`.
+> `eslint.config.mjs` enforces that `src/modules/definition` and `src/modules/execution` never
+> import each other and that only `packages/telemetry` imports `pino` or `@opentelemetry/*`.
 
 ## Configuration
 

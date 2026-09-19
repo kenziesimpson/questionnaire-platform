@@ -4,6 +4,7 @@ import { startTelemetry, type TelemetryHandle } from "@qp/telemetry/node";
 import { installTestTelemetry, type TestTelemetry } from "@qp/telemetry/testing";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { DrizzleQueryError } from "drizzle-orm";
 import Fastify, { type FastifyInstance } from "fastify";
 import Type from "typebox";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -142,6 +143,13 @@ describe("the 500 problem and its telemetry", () => {
         detail: `Key (answer)=(${CANARY}) already exists.`,
       });
     });
+    scoped.get("/multiline", async () => {
+      throw new Error(`line1\n    at ${CANARY} (secret.txt:1:1)`);
+    });
+    scoped.get("/drizzle", async () => {
+      const cause = Object.assign(new Error("duplicate"), { code: SQLSTATE.uniqueViolation, constraint: "response_pkey" });
+      throw new DrizzleQueryError("insert into response (text_value) values (?)", [`x\n    at ${CANARY} (secret.txt:1:1)`], cause);
+    });
     scoped.get("/invariant", async () => {
       throw InvariantViolation.of("session.not-marked-submitted", { sessionId: "s-1", questionnaireVersion: 2 });
     });
@@ -196,6 +204,16 @@ describe("the 500 problem and its telemetry", () => {
     expect(failure?.["error.stack"]).toEqual(expect.stringMatching(/^ {4}at /));
     expect(String(failure?.["error.stack"]).split("\n")[0]).not.toContain("TypeError");
     expect(await everythingEmitted()).not.toContain(CANARY);
+  });
+
+  it.each(["/multiline", "/drizzle"])("logs no fragment of a multi-line message that imitates a stack frame (%s)", async (url) => {
+    const response = await scoped.inject({ method: "GET", url });
+
+    expect(response.statusCode).toBe(500);
+    const failure = telemetry.logs().find((line) => line.msg === "unhandled request error");
+    expect(failure?.["error.stack"]).toEqual(expect.stringMatching(/^ {4}at /));
+    expect(await everythingEmitted()).not.toContain(CANARY);
+    expect(response.body).not.toContain(CANARY);
   });
 
   it("logs a database error's SQLSTATE and constraint name and none of its text", async () => {
@@ -259,6 +277,14 @@ describe("with the real SDK and its Fastify instrumentation", () => {
   let handle: TelemetryHandle;
   let instrumented: FastifyInstance;
 
+  function exportedSpans(): { name: string; traceId: string; parentSpanId?: string }[] {
+    return exported
+      .filter((body) => body.startsWith("/v1/traces"))
+      .flatMap((body) => JSON.parse(body.slice(body.indexOf("\n") + 1)).resourceSpans)
+      .flatMap((resource) => resource.scopeSpans)
+      .flatMap((scope) => scope.spans);
+  }
+
   beforeAll(async () => {
     exported = [];
     collector = createServer((request, response) => {
@@ -310,10 +336,9 @@ describe("with the real SDK and its Fastify instrumentation", () => {
 
     expect(response.statusCode).toBe(500);
     expect(response.json().detail).toBe(BROWSER_TRACE_ID);
-    const traces = exported.filter((body) => body.startsWith("/v1/traces")).join("\n");
-    expect(traces).toContain(BROWSER_TRACE_ID);
-    expect(traces).toContain(BROWSER_SPAN_ID);
-    expect(traces).toContain("session.not-marked-submitted");
+    const requestSpan = exportedSpans().find((span) => span.name === "request");
+    expect(requestSpan).toMatchObject({ traceId: BROWSER_TRACE_ID, parentSpanId: BROWSER_SPAN_ID });
+    expect(JSON.stringify(requestSpan)).toContain("session.not-marked-submitted");
   });
 
   it("exports no URL, path, query or error message from the request span", async () => {
