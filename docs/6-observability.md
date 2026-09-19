@@ -21,6 +21,8 @@ A standard APM install answers the first and third well and the others not at al
 
 ## 2. Signal taxonomy
 
+> §2 to §6 are the design as first written. Track 8's V1 reconciles them against what shipped; until then, [[4-implementation-plan#Wave 3b — observability and pipeline]] says what exists.
+
 ### 2.1 Traces
 
 Auto-instrumented via `@fastify/otel` (incoming HTTP) plus `@opentelemetry/instrumentation-pg` (dependency calls). Manual spans for the parts that carry the domain meaning:
@@ -191,13 +193,28 @@ The rule: **high-cardinality identifiers live in traces and logs; metrics carry 
 
 ## 8. SLOs and alerting
 
-**Deferred — decision to be made later.** Direction, for when we do:
+**SLOs and error budgets are deferred.** Six alerts are pulled forward from this section (O10); they are planned, owned by P2, and listed below. Direction for the SLOs, for when we do them:
 
 - Candidate SLIs: availability and p95 latency of questionnaire delivery; submission success rate; publish success rate.
 - Alert on **symptoms and error-budget burn**, not causes. Nobody should be paged for CPU; they should be paged because respondents can't submit.
 - Distinguish paging alerts (user-visible, needs action now) from ticketing alerts (degradation, handle in hours).
-- Health endpoints are separate from metrics and needed regardless: `/health/live` (process up) and `/health/ready` (`SELECT 1` on the definition, execution and reporting pools; the migrate Job, not the probe, gates migrations) feed the Kubernetes probes stubbed in [[2-design-doc#13. Deployment]] §13.2.
+- Health endpoints are separate from metrics and needed regardless (shipped in T0b): `/health/live` (process up) and `/health/ready` (`SELECT 1` on the definition, execution and reporting pools; the migrate Job, not the probe, gates migrations) feed the Kubernetes probes stubbed in [[2-design-doc#13. Deployment]] §13.2.
 - Backups are listed under Operations in the brief: backup success/age needs to be a monitored metric, and a restore drill is the only evidence a backup works. Deferred with SLOs.
+
+### 8.1 The six alerts
+
+Planned, P2. Each pages or tickets on a symptom a respondent or an operator would feel, and each reads a signal that a lane must build. The registered instrumentations today are Fastify's and `pg`'s (`packages/telemetry/src/pipeline.ts`), so the three rows marked unassigned still need an owner before P2. Thresholds and routing are P2's to set; O10 fixes the list.
+
+| Alert | Signal it reads | Built by |
+| --- | --- | --- |
+| Submit success rate drops | The submit outcome counters | B1 |
+| 5xx rate rises | `http.server.request.duration` by status class | Unassigned: nothing registers HTTP metrics today |
+| p95 latency of the questionnaire definition fetch rises | The same histogram for that route | Unassigned |
+| Event-loop lag stays high | The runtime-node instrumentation's event-loop delay | Unassigned: that instrumentation is not registered |
+| Requests stay queued for a pool connection | The pool `waitingCount` gauge, per pool | D1 |
+| Fewer than one month of future `response` partitions remain | A `monitor.*` gauge read as `qp_monitor` (§14) | D2 |
+
+The last row is the one nothing else would catch: a missing partition fails every submit while every process is up ([[9-database-schema]]).
 
 ## 9. Correctness and invariant monitoring
 
@@ -222,7 +239,8 @@ Two things were separated during this discussion and are worth keeping separate:
 
 ## 10. Sampling, retention, cost
 
-- Parent-based sampler with a ratio for successful reads; **always sample errors and slow requests**. Head sampling is sufficient at prototype scale; tail sampling (sample the whole trace *after* seeing it failed) requires the Collector's tail-sampling processor and is the natural next step.
+- **Tail sampling in the Collector, planned (P1): keep every error trace, every slow trace and 10% of the rest.** The decision is made after the whole trace has arrived, which is the only way to keep a trace *because* it failed or was slow. What counts as slow is P1's to set. A head sampler cannot do this: it decides at the first span, before the outcome exists.
+- Because the Collector decides, the SDK exports every span. Today nothing samples (the SDK default is parent-based always-on) and nothing exports either unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set (§11). Tail sampling needs every span of a trace to reach the same Collector, so a second Collector replica would need trace-id-aware routing in front of it; one Collector is enough here.
 - Logs are the expensive signal. Domain events at `info` are low-volume by construction; rule-evaluation detail stays at `debug` and off in production.
 - Response *data* retention is a separate question from telemetry retention and is governed by the domain, not by operations.
 
@@ -231,14 +249,16 @@ Two things were separated during this discussion and are worth keeping separate:
 The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the observability stack does not become four more containers a reviewer has to run.
 
 - The SDK is always wired with OTLP exporters, controlled by `OTEL_EXPORTER_OTLP_ENDPOINT`. Unset, the app runs with instrumentation active and export disabled — zero friction for `docker compose up`.
-- A **Compose profile** (`docker compose --profile observability up`) adds an OTel Collector and a trace/metrics UI for anyone who wants to see it. Opt-in, committed, documented in the README.
+- A **Compose profile** (`docker compose --profile observability up`) adds two containers (O15): an OTel Collector, and `grafana/otel-lgtm` as the local trace, log and metric store with its UI. Opt-in, so the one-command demo stays one command (O7). **Planned, P1**: none of it exists yet. P1 also passes the OTLP variables through Compose and `.env.example`, gives the backend a Compose healthcheck on `/health/ready`, and adds the nginx access log (§7's masking rules, O13 and O19).
+- How a container's stdout reaches the Collector is open. The SDK has no logs signal: logs leave through pino to stdout only (`packages/telemetry`), so P1 chooses the path that carries them to the store, and V1 checks that a log line and its trace join on `trace_id`.
+- Database settings that need a restart are not in the profile: `pg_stat_statements` is on in the `db` service always (O16, §14).
 - Hosted: the Collector is the only thing that knows the vendor. Application code never does.
 
 ## 12. Change correlation and synthetics
 
 **Noted as production practice; out of scope for the prototype.**
 
-- Deploy and migration markers annotated onto dashboards — most incidents are change-caused, and "what changed at 14:02" is the first question in every one of them.
+- Deploy and migration markers annotated onto dashboards — most incidents are change-caused, and "what changed at 14:02" is the first question in every one of them. Nothing in Track 8 builds this: it needs a build identity on every signal, which is L1 (§13, [gh#117](https://github.com/kenziesimpson/questionnaire-platform/issues/117)).
 - A synthetic leak test completing the medical-condition demo questionnaire end to end every few minutes: the only signal that proves the *workflow* works rather than that the processes are up. Cheap to build here because the demo questionnaire already exists, which is why it's worth mentioning even while deferring it.
 
 ## 13. Decisions and open questions
@@ -281,3 +301,36 @@ The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the ob
 
 - SLOs, error budgets, backup monitoring — deferred (§8). The six alerts in O10 are the exception.
 - Invariant monitoring design — deferred (§9). One exception worth pulling forward: `questionnaire.sessions.rejected_past_cutoff`, which measures the cost of the hard-cutoff decision.
+
+## 14. Database telemetry
+
+**Planned: D1 and D2 own it.** Postgres holds the answers, so it is both the most useful thing to observe and the place a value is most likely to slip out. Four layers, each with its own owner and its own way to leak.
+
+| Layer | What it answers | State | PR |
+| --- | --- | --- | --- |
+| 1. App to database: `pg` spans and pool metrics | Which query in which request was slow, and is a pool the bottleneck | `pg` client spans exist (T0a); the pool gauges are planned | D1 |
+| 2. SQL-comment trace ids and `application_name` | Which trace issued a query that Postgres shows me, and which pool ran it | Planned | D1 |
+| 3. Postgres's own stats: `pg_stat_statements` | Which statement shapes cost the most, across all traces | Planned | D2 |
+| 4. Domain gauges: the `monitor.*` schema read as `qp_monitor` | Is the data still healthy: partitions remaining, and the invariants of §9 when they are built | Planned | D2 |
+
+**1. Spans and pool metrics.** The `pg` instrumentation is already started by `startTelemetry` (T0a), and its span names, `pg.query:<verb>`, `pg.connect` and `pg-pool.connect`, are on the exporter's closed list. `db.statement` is not on the attribute allowlist, so no SQL text exports. D1 extends the instrumentation and adds the pool gauges of §2.2 (`totalCount`, `idleCount`, `waitingCount`), labelled by the bounded `pool` field, which the health probes already use. `waitingCount` is the signal behind the pool alert (§8.1).
+
+**2. Trace ids in SQL, and `application_name`.** D1 puts the trace id into a comment on each query, so a statement seen in `pg_stat_activity` or the Postgres log maps back to its trace, and sets `application_name` once per pool, so the same views show which role's pool ran it. The comment carries the trace id only. Postgres normalises a statement without its comments, so the comment does not split one statement into many in layer 3.
+
+**3. `pg_stat_statements`.** On in the `db` service by default (O16): it needs `shared_preload_libraries`, so turning it on later means a restart. It stores each statement with its constants replaced by placeholders, so it holds no value. `listSessions` joins the review of the slowest statements (O20): it is the one paged read over `execution.session`, and a regression shows there first.
+
+**4. `monitor.*` and `qp_monitor`.** D2 adds a `qp_monitor` login role and a `monitor` schema of views and functions that return aggregates only. The first gauge is the count of future `response` partitions, which the sixth alert reads. `qp_monitor` is the one identity telemetry uses to read the database, and it must hold no grant on the tables that carry answers. D2 writes the grants, and a database test asserts the absence, as it does for `qp_definition` ([[9-database-schema]]). The §9 invariant gauges stay deferred.
+
+### 14.1 Where a database can leak, and the fix
+
+| Leak | Where a value would appear | Fix | PR |
+| --- | --- | --- | --- |
+| Parameter logging | A statement logged by duration or error with its `parameters:` line, in the Postgres log | `log_parameter_max_length=0`. The on-error variant defaults to `0` and stays there | D2 |
+| Error `DETAIL` lines | A constraint failure quotes the value or the whole row (`Key (…)=(…) already exists`, `Failing row contains (…)`), which for a `response` check names the answer | `log_error_verbosity=terse`, which drops `DETAIL`, `HINT`, `QUERY` and `CONTEXT` from the log | D2 |
+| Bound parameters on a span | The `pg` instrumentation's `enhancedDatabaseReporting` option records the parameter values on the span | It stays off. The export scrub drops any attribute outside the registry as a second guard | D1 |
+| Error message, in the application | A `pg` error's message can carry a value (`invalid input syntax for type uuid: "…"`) | Already shipped: an error is recorded as its class name and stack frames, never its message (O8) | T0a |
+| Error message, in the Postgres log | The same primary message is written to the server log, and `terse` does not remove it | Not removed by configuration. Request validation runs before a value is bound, which keeps most malformed input from reaching a cast. V1 plants a value and searches the Postgres log for it | V1 |
+| SQL text in a span | `db.statement` | Never exported: it is not on the attribute allowlist | T0a |
+| The leak test cannot see `pg` | `pg` spans do not appear under test today, because the driver loads before the instrumentation | D1 runs the leak flows with the `pg` instrumentation on and plants the sentinel as a SQL parameter (a questionnaire title, an answer), and asserts no `pg` span, attribute or metric label carries it | D1 |
+
+The Postgres-log rows are outside the application's pipeline, so the scrub cannot help there: only the configuration, and V1's test of Postgres's own log, stand between a value and that file.

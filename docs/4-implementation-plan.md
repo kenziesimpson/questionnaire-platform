@@ -15,7 +15,7 @@
 - [x] **Frontend** — two Vite apps (`apps/respondent`, `apps/admin`) behind one nginx container with a shared `packages/ui`; respondent renders all visible items on one page with `localStorage` partials and storage-first resume; five admin screens with the bank as its own screen and edit-in-draft re-pinning; authoring concurrency rules; accessibility commitments; and the library slate ([[2-design-doc#10. Frontend]], [[10-frontend]], decisions log #27–#32)
 - [x] **Two schema details** — both resolved. Duplicate ids within `option_ids` are rejected by the submit validator, not by a database constraint (Decisions Log #34); `question.key` is **not** carried into the snapshot, and the worked example now shows uuids from a seed that hardcodes them (Decisions Log #35). Both follow the simplicity principle, Decisions Log #33
 - [x] **Observability details** — signal taxonomy (standard span attributes, log fields and levels, metrics), domain events, the answer-redaction enforcement ladder, cardinality rules, and collector setup local vs. hosted ([[2-design-doc#14. Observability]], [[6-observability]]). SLOs, alert thresholds and backup verification are a *recorded deferral* ([[6-observability#8. SLOs and alerting]]), not an omission
-- [x] **Testing approach** — four layers, Fastify `inject()` for backend routes, Testcontainers Postgres with a template database per Vitest worker, Vitest + RTL components, three Playwright specs against the composed stack, one command via Vitest `projects`, two CI jobs ([[2-design-doc#15. Testing]], [[8-testing]])
+- [x] **Testing approach** — four layers, Fastify `inject()` for backend routes, Testcontainers Postgres with a template database per Vitest worker, Vitest + RTL components, three Playwright specs against the composed stack, one command via Vitest `projects`, parallel CI jobs ([[2-design-doc#15. Testing]], [[8-testing]])
 - [x] *Writing, not deciding:* Overview, goals, constraints sections ([[2-design-doc#1. Overview]] §1–3)
 - [x] *Writing, not deciding:* Kubernetes subsection ([[2-design-doc#13.2 Long-term (Kubernetes)]]) and the [[2-design-doc#16. Scale & Growth]] table, condensed from [[3-scaling]] §3–4 and [[9-database-schema#11. Migrations]]
 
@@ -73,9 +73,9 @@
 
 > Wave 2 is two tracks merging in parallel into the same backend. A red check has to stop a PR before review, not after merge, so job 1 of [[8-testing#5.2 Pipeline shape]] is brought forward from Track 9. Track 9 still owns the workflow and adds the end-to-end job.
 
-- [x] `.github/workflows/ci.yml` — one **Checks** job on every push to `main` and every pull request: `npm ci`, `lint`, `typecheck`, `npm test`, `build`, Node from `.nvmrc`. No Postgres service; Testcontainers supplies its own ([[8-testing#5.3 CI details that actually bite]])
-- [ ] Checks green on `main` on GitHub, and required as a status check on `main`'s branch protection
-- [ ] ~~Wave 2 does not start until both boxes above are ticked~~ **Waived 2026-09-13.** Wave 2 starts with CI running but no branch protection. Until the box above is ticked, checking for a green run before merging is the reviewer's job, not GitHub's. **Branch protection is unavailable on the current plan:** GitHub refuses it for a private repository on the free plan (`403`, "Upgrade to GitHub Pro or make this repository public"), so the box above stays unticked while Checks itself is green on `main`
+- [x] `.github/workflows/ci.yml` — on every push to `main` and every pull request, Node from `.nvmrc`. Gate C landed it as one **Checks** job; it is now parallel jobs ([[8-testing#5.2 Pipeline shape]]): `changes` (decides whether anything but Markdown changed; every other job is skipped when only `.md` files did), `lint` (ESLint, then knip), `typecheck`, `build`, `unit-tests` (`npm test` in four shards), the "Response telemetry leak test" (`npm run test:leak-test`) and `e2e`. No Postgres service; Testcontainers supplies its own ([[8-testing#5.3 CI details that actually bite]])
+- [ ] Every CI job green or skipped on `main` on GitHub, and required as a status check on `main`'s branch protection
+- [ ] ~~Wave 2 does not start until both boxes above are ticked~~ **Waived 2026-09-13.** Wave 2 starts with CI running but no branch protection. Until the box above is ticked, checking for a green run before merging is the reviewer's job, not GitHub's. **Branch protection is unavailable on the current plan:** GitHub refuses it for a private repository on the free plan (`403`, "Upgrade to GitHub Pro or make this repository public"), so the box above stays unticked while the CI jobs are green on `main`
 
 ### Wave 2 — API plugins *(two parallel tracks)*
 
@@ -85,7 +85,7 @@
 
 #### How Track 4 runs
 
-Three groups work in parallel, merging into a **`staging`** branch cut from `main`. A setup commit (G0) goes first and an integration pass (G4) goes last. `staging` merges to `main` once, when **M4** is green. Every change reaches `staging` through a pull request, which is what runs CI: the workflow runs on every pull request whatever the base branch, and a push to `staging` does not trigger it. The final `staging → main` PR runs Checks on the combined result.
+Three groups work in parallel, merging into a **`staging`** branch cut from `main`. A setup commit (G0) goes first and an integration pass (G4) goes last. `staging` merges to `main` once, when **M4** is green. Every change reaches `staging` through a pull request, which is what runs CI: the workflow runs on every pull request whatever the base branch, and a push to `staging` does not trigger it. The final `staging → main` PR runs CI on the combined result.
 
 **Rules for every group:**
 
@@ -149,7 +149,7 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
 - [x] Route completeness: every entry in `definitionRoutes` is registered at its method and URL with the shared schema object. It lands here because it fails until every group has merged
 - [x] One flow through `inject()` alone, using no database function directly: create a question → create a questionnaire → `PUT /draft` → `validate` → `publish` → save a question revision → open the next draft → re-pin → publish v2 → list versions → fetch both snapshots → set and clear `closesAt`
 - [x] **M4** ticked
-- [x] `staging → main` merged with Checks green on its head
+- [x] `staging → main` merged with CI green on its head
 - [ ] **H3** done by hand against the merged Wave 2 API
 
 #### Track 4 file split
@@ -194,7 +194,7 @@ The seed (`src/db/seed/**`) calls G1's and G2's functions. A signature change th
 
 #### How Track 6 runs
 
-Every PR is staged on a **`staging/track-6`** branch cut from `main` after the Wave 3 contract commit merges. A serial skeleton, **PR0**, lands on `staging/track-6` first. The screen PRs follow, each through a pull request targeting `staging/track-6` with Checks green; CI runs on every pull request whatever the base branch. PR0 pre-registers every route and seam, so the screen PRs touch disjoint files and merge into `staging/track-6` in any order their dependencies allow. `staging/track-6` merges to `main` once, when every PR below is in, with Checks green on its head. **H6** is done by hand against it.
+Every PR is staged on a **`staging/track-6`** branch cut from `main` after the Wave 3 contract commit merges. A serial skeleton, **PR0**, lands on `staging/track-6` first. The screen PRs follow, each through a pull request targeting `staging/track-6` with CI green; CI runs on every pull request whatever the base branch. PR0 pre-registers every route and seam, so the screen PRs touch disjoint files and merge into `staging/track-6` in any order their dependencies allow. `staging/track-6` merges to `main` once, when every PR below is in, with CI green on its head. **H6** is done by hand against it.
 
 **Rules for every PR:**
 
@@ -222,7 +222,7 @@ Every PR is staged on a **`staging/track-6`** branch cut from `main` after the W
 | gh#17 fix | Not a screen: archiving gates new placements only (#75), in `apps/backend`; `packages/shared`'s draft validator is unchanged | Nothing in Track 6; lands before `staging/track-6` merges to `main` |
 
 - [x] gh#17 fix (#75) merged into `staging/track-6`: `PUT /draft`, validate and publish report `draft/question-archived` only for items whose `(questionId, questionVersion)` pair is not already in the stored draft, with tests
-- [x] `staging/track-6 → main` merged with Checks green on its head
+- [x] `staging/track-6 → main` merged with CI green on its head
 
 **PR4 must tell a `422` from a `409`.** A `422 questionnaire/draft-invalid` is not a stale conflict and must not be reported as someone else's edit. Before the gh#17 fix lands, a reorder can hit one from an archived question elsewhere in the draft, for reasons that have nothing to do with the reorder; after it, only a newly placed item can draw `draft/question-archived` (#75). PR4's "Archived in bank" badge and frozen-draft copy are removed by PR5, since under #75 there is no archived state to show.
 
@@ -236,7 +236,7 @@ Every PR is staged on a **`staging/track-6`** branch cut from `main` after the W
 
 #### How Track 7 runs
 
-Four **stacked** PRs, staged on a **`staging/track-7`** branch cut from `main` after the Wave 3 contract commit merges. Each PR targets `staging/track-7`, or the PR below it in the stack, and CI runs on every pull request whatever the base branch. `staging/track-7` merges to `main` once, when all four are in, with Checks green on its head. **H4** is done by hand against it.
+Four **stacked** PRs, staged on a **`staging/track-7`** branch cut from `main` after the Wave 3 contract commit merges. Each PR targets `staging/track-7`, or the PR below it in the stack, and CI runs on every pull request whatever the base branch. `staging/track-7` merges to `main` once, when all four are in, with CI green on its head. **H4** is done by hand against it.
 
 Each PR adds its own [[8-testing#7. Test case enumeration]] rows with the feature. There is no separate integration PR.
 
@@ -244,13 +244,39 @@ Each PR adds its own [[8-testing#7. Test case enumeration]] rows with the featur
 2. [x] **State machine and happy path.** Start, resume, fill with branching, a client-side validation pre-check, submit only the visible answers, the receipt, and the closed and not-found screens
 3. [x] **Submission errors.** The `422` mapped through `errorsByItemId`, an error summary with jump-to-item links, focus on the first invalid item, and the `409 session/already-submitted` handling (#72)
 4. [x] **Network failure and retry** (#73)
-5. [x] `staging/track-7 → main` merged with Checks green on its head
+5. [x] `staging/track-7 → main` merged with CI green on its head
 
 ### Wave 3b — observability and pipeline
 
-**Track 8 — telemetry.** OTel end to end, the Collector seam, domain events as paired log+counter, the `/telemetry` ingest endpoint with `sendBeacon`, the opt-in compose profile. The safety boundary already landed in Wave 1a. The admin responses browser (Wave 3a, `/api/reporting`) is inside its scope: the `view_response` audit row and `audit.record` grant for `qp_reporting`, cursor and path masking, and the browser rules for the response screens ([[6-observability#13. Decisions and open questions]] O18–O20). → **M7**
+**Track 8 — telemetry.** OTel end to end, the Collector seam, domain events as paired log and counter, the `/api/telemetry` ingest with `sendBeacon`, the opt-in Compose profile ([[6-observability]]). The admin responses browser (Wave 3a, `/api/reporting`) is inside its scope: the `view_response` audit row and `audit.record` grant for `qp_reporting`, cursor and path masking, and the browser rules for the response screens (O14, O18 to O20). → **M7**
 
-**Track 9 — end-to-end and CI.** Three Playwright specs, one command via Vitest `projects`, the end-to-end CI job alongside the Checks job from [[#Gate C — CI before Wave 2]], the sentinel leak test gated. → **M8**, **M9**
+The work is split into lanes: Foundation (T0), Backend (B, A), Database (D), Frontend (FE), Platform (P) and Verification (V). Each row is one pull request.
+
+| PR | Lane | Contents | Depends on | State |
+| --- | --- | --- | --- | --- |
+| T0a | Foundation | SDK, logger, scrub, ESM hook, Dockerfile | none | Merged (#122) |
+| T0b | Foundation | Error handling (gh#16), trace id in 500 bodies, health probes `/health/live` and `/health/ready` (gh#91), shutdown flush, `problemTelemetry` | T0a | Merged (#126) |
+| T0c | Foundation | Sentinel leak test harness, the CI job, the `telemetry-safety` skill. Renamed from "canary" to "response telemetry leak test" in #129 | T0a | Merged (#127) |
+| T0a-hardening (#129) | Foundation | Closed span names, id-field shapes, the lint gate, a leak test on real spans | T0c | Merged (#129) |
+| T0d | Foundation | The telemetry package never throws into app code: `emitDomainEvent`, the logger methods, instrument recording and `problemTelemetry` swallow and count their own failures | T0a | Not started |
+| B1 | Backend | Execution spans, events (O11) and metrics; the `replayed` outcome and the `answer_rejected` cap; a small cleanup commit so `evaluateVisibility` runs once per submit | T0c | Open (#132, review fixes in) |
+| B2 | Backend | `/api/telemetry` ingest, lenient (O17): closed per-event browser field lists and a strict stack-frame shape (`BROWSER_STACK_FRAME`), `trustProxy` 1 and a per-address limiter (O21), and the client wire schema in `packages/shared` | B1 | Open (#133, review fixes in) |
+| B3 | Backend | Definition spans, events after commit, audit trace ids | B2 | Open (#134, review fixes in) |
+| B4 | Backend | Reporting spans, the `view_response` audit row and migration 0020 (O14, O18) | B3 | Open (#135, review fixes in) |
+| A1 | Backend | Harden `audit.record` so `qp_reporting` can only record `view_response`: a `session_user` check inside the function, in a new migration. The stronger alternative is a dedicated `audit.record_view_response` function granted only to `qp_reporting`, which deviates from O14's wording and needs a decision amendment | B4 | Not started |
+| D1 | Database | `pg` instrumentation extension, SQL-comment trace ids, `application_name` per pool, pool metrics. Also closes the leak test's known `pg` hole: the leak flows run with the `pg` instrumentation on and plant the sentinel as a SQL parameter (a questionnaire title, an answer), and assert no `pg` span, attribute or metric label carries it (`enhancedDatabaseReporting` stays off) | T0c | Not started |
+| D2 | Database | Postgres logging config (`log_parameter_max_length=0`, `log_error_verbosity=terse`), `pg_stat_statements` (O16), the `qp_monitor` role and a `monitor.*` migration; `listSessions` joins the slow-query review (O20) | none | Not started |
+| FE0 | Frontend | `@qp/telemetry/browser`: a transport-agnostic queue, message-free error capture, a hand-built `traceparent` (O12) | T0a | Merged (#131) |
+| FE0b | Frontend | Wire the FE0 queue to B2's envelope: map `{level, message, attributes}` onto `{name, at, fields}` in one place and stamp `at` at enqueue; `frames.ts` imports B2's `BROWSER_STACK_FRAME` instead of duplicating the frame shape; the beacon path sends a `Blob` typed `application/json` and keeps to a byte budget (a beacon batch over about 64 KB loses everything, and an oversize body is a 413 that loses the whole batch, `session.abandoned` included); `resetLogging` restores the previous sink; a separate `beaconed` counter | FE0, B2 | Not started |
+| FE1 | Frontend | Respondent: trace headers through `injectTraceHeaders` (accepting `Headers` and array inputs), abandonment beacon, page-speed metrics, errors. Tracing is opt-in so the respondent bundle ships `sdk-trace-web` only when used, measured on the bundle; a type-level test that a DOM `Window` is assignable to `PageWindow` | FE0b | Not started |
+| FE2 | Frontend | Admin: query hooks, errors, screens named by route template; the response-detail screen reports type and stack frames only; the O20 component test. The response-detail query sets `staleTime` and `refetchOnWindowFocus` so a refocus does not write another `view_response` audit row | FE0b | Not started |
+| P1 | Platform | The Collector, the Compose `observability` profile (O15), nginx. Also: a backend Compose healthcheck (the image has no `curl`, so a `node`-based or `wget` probe against `/health/ready`); a JSON nginx access log carrying `$http_traceparent` (nginx has no `log_format` or `access_log` today) that masks session ids in paths and the `cursor` query parameter (O13, O19); `.env.example` and Compose passthrough for the OTLP variables | T0b | Not started |
+| P2 | Platform | Dashboards and the six O10 alerts | P1, D2 | Not started |
+| V1 | Verification | The full leak test (a planted value read back through `listSessions`, `getSessionDetail` and the admin detail screen, plus Postgres's own log), trace continuity, H7 (which also checks the audit row), and the final docs reconciliation (docs/6 §2 to §6 against what shipped) | All of the above | Not started |
+
+The stack #136 (B1 to B4) merges bottom-up. FE0b waits for B2 and A1 for B4. Every lane PR still extends the leak test for its new code paths (the `telemetry-safety` skill, `.claude/skills/telemetry-safety/SKILL.md`).
+
+**Track 9 — end-to-end and CI.** Three Playwright specs, one command via Vitest `projects`, the end-to-end CI job alongside the jobs from [[#Gate C — CI before Wave 2]], the sentinel leak test its own job. → **M8**, **M9**
 
 ### File ownership
 
@@ -300,7 +326,7 @@ A wave is not done until its milestones are green.
 - [x] **M6** Cross-version aggregation: v1 and v2 responses aggregate on `opt_hyperten` while each renders through its own pinned `questionVersion`
 - [ ] **M7** Telemetry sentinel leak test: a planted answer value reaches no exporter, on the submit path and when read back through `/api/reporting` (list and detail) and the admin response-detail screen
 - [ ] **M8** Three Playwright specs against the composed stack
-- [ ] **M9** Whole suite, one command, headless, both CI jobs green from a clean clone
+- [ ] **M9** Whole suite, one command, headless, every CI job green from a clean clone
 
 ### Manual checkpoints
 
