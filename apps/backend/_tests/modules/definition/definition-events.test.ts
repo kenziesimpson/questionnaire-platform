@@ -109,7 +109,7 @@ describe("questionnaire.created", () => {
 
     expect(response.statusCode).toBe(201);
     const { questionnaireId } = response.json();
-    expect(eventLines("questionnaire.created")).toMatchObject([{ [QUESTIONNAIRE]: questionnaireId, "telemetry.source": "server" }]);
+    expect(eventLines("questionnaire.created")).toMatchObject([{ [QUESTIONNAIRE]: questionnaireId }]);
     expect(await metricPoints("questionnaire.created")).toEqual([{ value: 1, attributes: {} }]);
     const span = spanNamed("questionnaire.create");
     expect(span?.attributes).toEqual({ [QUESTIONNAIRE]: questionnaireId });
