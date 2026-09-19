@@ -1,5 +1,6 @@
 import type { ResponseType, SubmissionItemCode } from "@qp/shared";
 import type { Outcome, TelemetryContext } from "./fields.js";
+import { guarded } from "./guard.js";
 import { incrementCounter, recordSessionDuration } from "./instruments.js";
 import { logger } from "./logger.js";
 import { scrubContext, type ScrubbedAttributes } from "./scrub.js";
@@ -68,8 +69,12 @@ function countDomainEvent(event: DomainEvent): void {
 const eventLog = logger("events");
 
 export function emitDomainEvent(event: DomainEvent): void {
-  const { name, ...fields } = event;
-  const context: TelemetryContext = fields;
-  eventLog.info(name, context);
-  countDomainEvent(event);
+  guarded("log", () => {
+    const { name, ...fields } = event;
+    const context: TelemetryContext = fields;
+    eventLog.info(name, context);
+  });
+  guarded("metric", () => {
+    countDomainEvent(event);
+  });
 }

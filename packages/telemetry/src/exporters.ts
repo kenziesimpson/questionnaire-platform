@@ -1,6 +1,7 @@
-import type { ExportResult } from "@opentelemetry/core";
+import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
 import { DataPointType, type DataPoint, type MetricData, type PushMetricExporter, type ResourceMetrics } from "@opentelemetry/sdk-metrics";
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace";
+import { guardedOr } from "./guard.js";
 import { reportDropped } from "./instruments.js";
 import { oneDropped, scrubAttributes, type ScrubbedAttributes } from "./scrub.js";
 import { isSpanName } from "./spans.js";
@@ -103,7 +104,12 @@ function scrubbedSpan(span: ReadableSpan): ReadableSpan {
 export function scrubbingSpanExporter(delegate: SpanExporter): SpanExporter {
   return {
     export: (spans: ReadableSpan[], resultCallback: (result: ExportResult) => void) => {
-      delegate.export(spans.map(scrubbedSpan), resultCallback);
+      const scrubbed = guardedOr<ReadableSpan[] | undefined>("span", undefined, () => spans.map(scrubbedSpan));
+      if (scrubbed === undefined) {
+        resultCallback({ code: ExportResultCode.FAILED });
+        return;
+      }
+      delegate.export(scrubbed, resultCallback);
     },
     shutdown: () => delegate.shutdown(),
     forceFlush: () => delegate.forceFlush?.() ?? Promise.resolve(),
@@ -140,7 +146,12 @@ function scrubbedMetrics(resourceMetrics: ResourceMetrics): ResourceMetrics {
 export function scrubbingMetricExporter(delegate: PushMetricExporter): PushMetricExporter {
   return {
     export: (metrics: ResourceMetrics, resultCallback: (result: ExportResult) => void) => {
-      delegate.export(scrubbedMetrics(metrics), resultCallback);
+      const scrubbed = guardedOr<ResourceMetrics | undefined>("metric", undefined, () => scrubbedMetrics(metrics));
+      if (scrubbed === undefined) {
+        resultCallback({ code: ExportResultCode.FAILED });
+        return;
+      }
+      delegate.export(scrubbed, resultCallback);
     },
     forceFlush: () => delegate.forceFlush(),
     shutdown: () => delegate.shutdown(),

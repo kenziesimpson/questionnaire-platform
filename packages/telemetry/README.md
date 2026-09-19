@@ -148,13 +148,14 @@ dropped.
 | `scrubContext(context)` | context keys (`sessionId`) | `logger`, `withSpan`, domain-event counters |
 | `scrubAttributes(attributes, kind)` | attribute names (`questionnaire.session_id`) | the pino formatter and the exporters |
 
-A value is dropped for one of three reasons, in `DROP_REASONS`:
+A value is dropped for one of four reasons, in `DROP_REASONS`:
 
 | Reason | Meaning |
 | --- | --- |
 | `unknown` | The key is not in the registry or the infrastructure allowlist |
 | `invalid` | The key is known but the value fails its check: free text, wrong type, an object, a `Sensitive` |
 | `unbounded` | A metric carried an attribute that is not bounded |
+| `internal` | Telemetry itself failed: a scrub met an input it could not read, a sink, instrument or span call threw, or an exporter could not scrub a batch. The signal is dropped whole, never emitted partly scrubbed |
 
 Drops are counted in the `telemetry.scrub.dropped` counter, labelled by signal (`log`, `span`,
 `metric`) and reason, and never by key.
@@ -181,6 +182,22 @@ They are code constants in this repo and in the instrumentations, so no answer r
 nothing checks them. A change that lets a variable reach any of them needs a runtime check first.
 The known holes are listed in `.claude/skills/telemetry-safety/SKILL.md`.
 
+## Telemetry never throws
+
+Nothing exported from `@qp/telemetry` or `@qp/telemetry/node` that application code calls after a
+business action may fail that action. `logger(...).debug/info/warn/error`, `emitDomainEvent`,
+`problemTelemetry`, `annotateActiveSpan`, `activeTraceId`, `scrubContext` and `scrubAttributes` return
+normally whatever their sink, instrument or input does: a sink that throws, a `getMeter` or an
+instrument that throws, and a context with a throwing getter, `Proxy` or `toString`. `withSpan` returns the
+callback's value and rethrows the callback's own error, and never throws or hangs because the SDK or a
+scrub failed; the callback runs exactly once, with or without a span. On a failure the signal is dropped
+whole, never emitted partly scrubbed, and counted in `telemetry.scrub.dropped` with reason `internal`
+and the signal it belonged to. A telemetry failure's own error is discarded, so its message cannot reach a signal. If
+the meter itself is what failed, the count cannot be made and nothing is recorded. The export
+decorators in `exporters.ts` do the same: a batch they cannot scrub is dropped and the exporter's
+callback is called with a failed result. Startup (`startTelemetry`) and the handle's `flush` and
+`shutdown` are lifecycle calls, not business-path calls, and still reject on failure.
+
 ## Spans
 
 ```ts
@@ -194,7 +211,7 @@ await withSpan("session.submit", { sessionId }, async () => submit());
   runs the callback with no span and counts one `span/unknown` drop.
 - Context becomes attributes through the registry, so it is scrubbed like a log line.
 - On a throw the span is marked `ERROR` with `error.type` only, no status message, and the error is
-  rethrown.
+  rethrown. A failure of the SDK itself is swallowed and counted, never thrown; see "Telemetry never throws".
 - Logs written inside the callback carry its `trace_id` and `span_id`.
 
 The exporter applies the same list to every span it sees. A declared name and an explicit allowlist of
@@ -363,11 +380,13 @@ The flows live with the code they exercise. The backend's registry is
 | `src/fields.ts` | `FIELDS`, `TelemetryContext`, the infrastructure allowlist, `OUTCOMES` |
 | `src/vocabulary.ts` | Constants shared by more than one module: the instrumentation scope, signal kinds, drop reasons, log modules and the attribute names the pipeline writes about itself |
 | `src/scrub.ts` | `scrubContext`, `scrubAttributes` |
+| `src/guard.ts` | `guarded`, `guardedOr`: run a telemetry action, swallow a failure and count it as `internal` |
 | `src/logger.ts` | `logger`, `LOG_LEVELS`, `LiteralMessage`, the sink and threshold |
 | `src/spans.ts` | `withSpan`, `SPAN_NAMES`, `SpanName`, `activeTraceId`, `annotateActiveSpan` |
-| `src/problems.ts` | `problemTelemetry`, `PROBLEM_CODES`, `SCHEMA_CODES` |
+| `src/problems.ts` | `projectProblem`, `PROBLEM_CODES`, `SCHEMA_CODES` |
+| `src/problem-telemetry.ts` | `problemTelemetry`: `projectProblem` behind the never-throw guard |
 | `src/events.ts` | `DOMAIN_EVENTS` (each event's name, payload and counter), `DomainEvent`, `emitDomainEvent` |
-| `src/instruments.ts` | The counter and histogram primitives, the session-duration histogram and the drop counter |
+| `src/instruments.ts` | The counter and histogram primitives, the session-duration histogram and the drop counter; each swallows and counts its own failure |
 | `src/exporters.ts` | The scrubbing decorators for span and metric exporters |
 | `src/pipeline.ts` | Builds the SDK, the pino sink and the exporters |
 | `src/node.ts` | `startTelemetry`, `runningTelemetry` |

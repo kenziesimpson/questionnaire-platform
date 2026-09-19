@@ -1,6 +1,6 @@
 import { metrics, type Counter, type Histogram } from "@opentelemetry/api";
 import { totalDropped, type DropCounts, type ScrubbedAttributes } from "./scrub.js";
-import { DROP_REASONS, INSTRUMENTATION_SCOPE, SCRUB_ATTRIBUTES, type SignalKind } from "./vocabulary.js";
+import { DROP_REASONS, INSTRUMENTATION_SCOPE, SCRUB_ATTRIBUTES, type DropReason, type SignalKind } from "./vocabulary.js";
 
 const DROPPED_COUNTER = "telemetry.scrub.dropped";
 
@@ -35,19 +35,36 @@ function durationHistogram(): Histogram {
   return sessionDuration;
 }
 
+function addDropped(kind: SignalKind, reason: DropReason, amount: number): boolean {
+  try {
+    counter(DROPPED_COUNTER).add(amount, { [SCRUB_ATTRIBUTES.signal]: kind, [SCRUB_ATTRIBUTES.reason]: reason });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function incrementCounter(name: string, attributes: ScrubbedAttributes): void {
-  counter(name).add(1, attributes);
+  try {
+    counter(name).add(1, attributes);
+  } catch {
+    addDropped("metric", "internal", 1);
+  }
 }
 
 export function recordSessionDuration(milliseconds: number): void {
-  durationHistogram().record(milliseconds);
+  try {
+    durationHistogram().record(milliseconds);
+  } catch {
+    addDropped("metric", "internal", 1);
+  }
 }
 
 export function reportDropped(kind: SignalKind, dropped: DropCounts): void {
   if (totalDropped(dropped) === 0) return;
+  let failures = 0;
   for (const reason of DROP_REASONS) {
-    if (dropped[reason] > 0) {
-      counter(DROPPED_COUNTER).add(dropped[reason], { [SCRUB_ATTRIBUTES.signal]: kind, [SCRUB_ATTRIBUTES.reason]: reason });
-    }
+    if (dropped[reason] > 0 && !addDropped(kind, reason, dropped[reason])) failures += 1;
   }
+  if (failures > 0) addDropped(kind, "internal", failures);
 }

@@ -39,7 +39,7 @@ function itemFinding(outcome: TelemetryContext, item: { readonly itemId: string;
   return { ...outcome, problemCode: knownCode(item.code), ...(item.code === "answer/unknown-item" ? {} : { itemId: item.itemId }) };
 }
 
-export function problemTelemetry(body: Problem): readonly TelemetryContext[] {
+export function projectProblem(body: Problem): readonly TelemetryContext[] {
   const outcome: TelemetryContext = { problem: problemSlug(body.type), status: body.status };
   const findings: TelemetryContext[] =
     "items" in body

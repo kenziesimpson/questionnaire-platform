@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { logger, withSpan } from "../src/index.js";
+import { configureLogging, resetLogging, type LogRecord } from "../src/logger.js";
 import { installTestTelemetry, type TestTelemetry } from "../src/testing.js";
+import { DROPPED_COUNTER, installFaultyMeter, internalDropsOf, restoreFaults } from "./faults.js";
 import { SESSION_ID } from "./fixtures.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
@@ -171,5 +173,129 @@ describe("logger records", () => {
     expect(line).toMatchObject({ "error.type": "Named" });
     expect(line?.["error.stack"]).toMatch(/^ {4}at /);
     expect(JSON.stringify(line)).not.toContain(LEAK);
+  });
+});
+
+describe("the logger never throws into the caller", () => {
+  const written: LogRecord[] = [];
+
+  function recordingSink(): void {
+    written.length = 0;
+    configureLogging({
+      level: "debug",
+      sink: (record) => {
+        written.push(record);
+      },
+    });
+  }
+
+  function throwingSink(): void {
+    configureLogging({
+      level: "debug",
+      sink: () => {
+        throw new Error(`sink failed ${LEAK}`);
+      },
+    });
+  }
+
+  afterEach(() => {
+    resetLogging();
+    restoreFaults();
+  });
+
+  it("returns normally at every level when the sink throws, and counts one internal log drop per call", () => {
+    const recorded = installFaultyMeter();
+    throwingSink();
+    expect(() => {
+      log.debug("debug line", { sessionId: SESSION_ID });
+      log.info("info line", { sessionId: SESSION_ID });
+      log.warn("warn line", { sessionId: SESSION_ID });
+      log.error("error line", { sessionId: SESSION_ID }, new Error("failed"));
+    }).not.toThrow();
+    expect(internalDropsOf(recorded)).toEqual(["log", "log", "log", "log"]);
+    expect(JSON.stringify(recorded)).not.toContain(LEAK);
+  });
+
+  it("drops the whole line, and counts it, when the context has a throwing getter", () => {
+    const recorded = installFaultyMeter();
+    recordingSink();
+    const hostile = {
+      sessionId: SESSION_ID,
+      get itemId(): string {
+        throw new Error(`hostile ${LEAK}`);
+      },
+    };
+    expect(() => {
+      log.info("hostile context", hostile);
+    }).not.toThrow();
+    expect(written).toEqual([]);
+    expect(internalDropsOf(recorded)).toEqual(["log"]);
+  });
+
+  it("drops the whole line, and counts it, when the context is a proxy that throws", () => {
+    const recorded = installFaultyMeter();
+    recordingSink();
+    const hostile = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error("hostile");
+        },
+      },
+    );
+    expect(() => {
+      log.warn("hostile context", hostile);
+    }).not.toThrow();
+    expect(written).toEqual([]);
+    expect(internalDropsOf(recorded)).toEqual(["log"]);
+  });
+
+  it("drops the line, and counts it, when the error's name or stack throws", () => {
+    const recorded = installFaultyMeter();
+    recordingSink();
+    const hostileName = new Error("x");
+    Object.defineProperty(hostileName, "name", {
+      get: () => {
+        throw new Error("hostile name");
+      },
+    });
+    const hostileStack = new Error("x");
+    Object.defineProperty(hostileStack, "stack", {
+      get: () => {
+        throw new Error("hostile stack");
+      },
+    });
+    expect(() => {
+      log.error("hostile name", undefined, hostileName);
+      log.error("hostile stack", undefined, hostileStack);
+    }).not.toThrow();
+    expect(written).toEqual([]);
+    expect(internalDropsOf(recorded)).toEqual(["log", "log"]);
+  });
+
+  it("returns normally, and still writes the line, when the drop counter throws while the scrub drops a field", () => {
+    installFaultyMeter({ failing: [DROPPED_COUNTER] });
+    recordingSink();
+    // @ts-expect-error — the closed context rejects an unknown field at compile time; the scrub is the runtime backstop
+    expect(() => log.info("answer received", { sessionId: SESSION_ID, value: LEAK })).not.toThrow();
+    expect(written).toHaveLength(1);
+    expect(JSON.stringify(written)).not.toContain(LEAK);
+  });
+
+  it("returns normally when getMeter throws", () => {
+    installFaultyMeter({ unavailable: true });
+    recordingSink();
+    // @ts-expect-error — the closed context rejects an unknown field at compile time; the scrub is the runtime backstop
+    expect(() => log.info("answer received", { value: LEAK })).not.toThrow();
+    expect(written).toHaveLength(1);
+  });
+
+  it("keeps logging normally after a failure", () => {
+    installFaultyMeter();
+    throwingSink();
+    log.info("fails");
+    recordingSink();
+    log.info("succeeds", { sessionId: SESSION_ID });
+    expect(written.map((record) => record.message)).toEqual(["succeeds"]);
   });
 });

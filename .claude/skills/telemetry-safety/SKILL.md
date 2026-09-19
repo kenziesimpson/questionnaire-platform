@@ -318,3 +318,4 @@ the file's purpose is to prove the gate can fail.
 9. That flow has a row in [[8-testing]] §7.
 10. `npm run test:leak-test` passes locally, and no existing flow, negative control or assertion was
     loosened to make it pass.
+11. Telemetry never throws into the caller: any call the business path makes returns normally when its sink, instrument or scrub throws, by catching through `guarded` or `guardedOr` in `packages/telemetry/src/guard.ts`, dropping the signal whole and counting it as `telemetry.scrub.dropped{reason=internal}`, and a test in `packages/telemetry/_tests/` proves it. Never log or read the caught error's message.

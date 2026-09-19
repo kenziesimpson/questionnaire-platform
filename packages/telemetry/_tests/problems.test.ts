@@ -107,7 +107,7 @@ describe("problemTelemetry", () => {
     ];
     for (const body of outcomes) {
       for (const fields of projected(body)) {
-        expect(scrubContext(fields).dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0 });
+        expect(scrubContext(fields).dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0, internal: 0 });
       }
     }
   });
@@ -132,7 +132,7 @@ describe("the fields the error and health surfaces add", () => {
       "db.constraint": "question_version_pkey",
       "db.pool": "reporting",
     });
-    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0 });
+    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0, internal: 0 });
   });
 
   it("drops free text and a pool outside the closed list", () => {
