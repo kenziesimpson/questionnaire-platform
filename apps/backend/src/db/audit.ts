@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { InvariantViolation } from "../invariant.js";
 import type { Transaction } from "./client.js";
 import type { AUDIT_ACTIONS } from "./schema.js";
 
@@ -30,7 +31,10 @@ export async function recordAudit(tx: Transaction, entry: AuditEntry): Promise<s
   );
   const row = result.rows[0];
   if (row === undefined) {
-    throw new Error("audit.record returned no id");
+    throw InvariantViolation.of("audit.record-returned-no-id", {
+      questionnaireId: entry.questionnaireId,
+      questionnaireVersion: entry.version,
+    });
   }
   return row.id;
 }

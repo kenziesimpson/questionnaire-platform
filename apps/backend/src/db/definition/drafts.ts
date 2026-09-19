@@ -141,7 +141,9 @@ export async function replaceDraft(executor: Executor, command: ReplaceDraftComm
         summary: { title: command.title, itemIds: command.items.map((item) => item.itemId) },
         traceId: command.traceId,
       });
-      const saved = mustExist(await readCurrentDraft(tx, command.questionnaireId), "the draft just saved");
+      const saved = mustExist(await readCurrentDraft(tx, command.questionnaireId), "draft.unreadable-after-save", {
+        questionnaireId: command.questionnaireId,
+      });
       return { outcome: "saved", ...saved };
     }),
   );
@@ -198,7 +200,9 @@ export async function createNextDraft(executor: Executor, command: CreateNextDra
       traceId: command.traceId,
     });
 
-    const created = mustExist(await readCurrentDraft(tx, command.questionnaireId), "the next draft just created");
+    const created = mustExist(await readCurrentDraft(tx, command.questionnaireId), "draft.unreadable-after-open", {
+      questionnaireId: command.questionnaireId,
+    });
     return { outcome: "created", ...created };
   });
 }

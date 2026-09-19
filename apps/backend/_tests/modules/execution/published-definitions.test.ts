@@ -1,5 +1,6 @@
 import { FORMAT_VERSION, PROBLEM_CONTENT_TYPE, problemType } from "@qp/shared";
-import { describe, expect, it } from "vitest";
+import { installTestTelemetry } from "@qp/telemetry/testing";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { PublishedDefinitions } from "../../../src/db/execution/published-definitions.js";
 import { aPublishedQuestionnaire, aQuestionnairePublishedAs, useTestDatabase } from "../../db/fixtures.js";
 import { problemOf, startSession } from "./fixtures.js";
@@ -13,12 +14,18 @@ describe("a pinned snapshot the loader refuses", () => {
     ["stored under a format no upgrade reaches", { formatVersion: FORMAT_VERSION + 1 }],
     ["stored in the current format but not a PublishedDefinition", { title: "" }],
   ])("is 500 internal carrying no error text when %s, and starts no session", async (_, snapshotChanges) => {
+    const telemetry = installTestTelemetry();
+    onTestFinished(() => telemetry.shutdown());
     const { questionnaireId } = await aQuestionnairePublishedAs(testDatabase, snapshotChanges);
     const app = executionApp();
 
     const response = await startSession(app, questionnaireId);
 
     expect(response.statusCode).toBe(500);
+    expect(telemetry.logs().find((line) => line.msg === "unhandled request error")).toMatchObject({
+      "error.type": "InvariantViolation",
+      "error.invariant": "stored-snapshot.unsupported-format",
+    });
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
     expect(problemOf(response)).toMatchObject({ type: problemType("internal"), status: 500 });
     expect(response.body).not.toContain("PublishedDefinition");
@@ -46,7 +53,7 @@ describe("PublishedDefinitions", () => {
     const unknownVersion = "00000000-0000-0000-0000-000000000000";
 
     const failed = definitions.pinned(execution, unknownVersion);
-    await expect(failed).rejects.toThrow("not published");
+    await expect(failed).rejects.toThrow("session.pins-unpublished-version");
 
     expect(definitions.pinned(execution, unknownVersion)).not.toBe(failed);
   });

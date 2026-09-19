@@ -17,7 +17,26 @@ function signalUrl(endpoint: string, path: string): string {
   return `${endpoint.replace(/\/+$/, "")}${path}`;
 }
 
+let running: TelemetryHandle | undefined;
+
+export function runningTelemetry(): TelemetryHandle | undefined {
+  return running;
+}
+
 export function startTelemetry(options: TelemetryOptions): TelemetryHandle {
+  const handle = startPipelineFor(options);
+  const started: TelemetryHandle = {
+    ...handle,
+    shutdown: async () => {
+      await handle.shutdown();
+      if (running === started) running = undefined;
+    },
+  };
+  running = started;
+  return started;
+}
+
+function startPipelineFor(options: TelemetryOptions): TelemetryHandle {
   const { otlpEndpoint } = options;
   const exporting = otlpEndpoint !== undefined && otlpEndpoint !== "";
   return startPipeline({

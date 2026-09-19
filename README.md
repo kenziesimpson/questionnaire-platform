@@ -62,7 +62,7 @@ app, and each proxies `/api` itself, so with the plain command above:
 
 - Respondent (Vite dev server): http://localhost:5173
 - Admin (Vite dev server): http://localhost:5174/admin/
-- Backend health check: http://localhost:5173/api/health (proxied) or directly at http://localhost:3000/health
+- Backend health check: http://localhost:5173/api/health (proxied) or directly at http://localhost:3000/health/live (`/health/ready` also checks the database pools)
 
 For the production-shaped build (nginx serving both compiled apps, no dev
 tooling) — what a release or CI run would use — bypass the override:

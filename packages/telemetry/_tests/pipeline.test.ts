@@ -1,7 +1,7 @@
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
 import { sensitive } from "@qp/shared";
 import { afterEach, describe, expect, it } from "vitest";
-import { emitDomainEvent, logger, withSpan } from "../src/index.js";
+import { activeTraceId, annotateActiveSpan, emitDomainEvent, logger, withSpan } from "../src/index.js";
 import { installTestTelemetry, type TestTelemetry } from "../src/testing.js";
 
 const CANARY = "CANARY_DIABETES_8F3A";
@@ -180,5 +180,40 @@ describe("a Sensitive value never reaches an exporter", () => {
     const answer = sensitive(CANARY);
     logger("execution").info("answered", { itemId: `${answer}` });
     expect(await everythingExported(installed)).not.toContain(CANARY);
+  });
+});
+
+describe("the active trace id", () => {
+  it("is undefined outside a span and the trace id inside one", async () => {
+    install();
+    expect(activeTraceId()).toBeUndefined();
+    let inside: string | undefined;
+    await withSpan("session.submit", {}, async () => {
+      inside = activeTraceId();
+    });
+    expect(inside).toBe(telemetry.spans()[0]?.spanContext().traceId);
+    expect(inside).toMatch(/^[0-9a-f]{32}$/);
+  });
+});
+
+describe("annotateActiveSpan", () => {
+  it("adds registered fields and the error type to the active span and drops the rest", async () => {
+    const installed = install();
+    const failure = new RangeError(`bad ${CANARY}`);
+    await withSpan("session.submit", {}, async () => {
+      annotateActiveSpan({ invariant: "session.not-marked-submitted", sessionId: "s-1", errorCode: `bad ${CANARY}` }, failure);
+    });
+    const [span] = installed.spans();
+    expect(span?.attributes).toEqual({
+      "error.invariant": "session.not-marked-submitted",
+      "questionnaire.session_id": "s-1",
+      "error.type": "RangeError",
+    });
+    expect(JSON.stringify(span)).not.toContain(CANARY);
+  });
+
+  it("does nothing outside a span", () => {
+    install();
+    expect(() => annotateActiveSpan({ sessionId: "s-1" })).not.toThrow();
   });
 });

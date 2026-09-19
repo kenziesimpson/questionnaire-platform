@@ -20,7 +20,6 @@ const ALLOWED_INTEGRATION_TESTS = [
   "apps/backend/_tests/db/roles.test.ts",
   "apps/backend/_tests/db/schema-drift.test.ts",
   "apps/backend/_tests/db/server.test.ts",
-  "apps/backend/_tests/health.test.ts",
   "apps/backend/_tests/modules/definition/definition-api.test.ts",
   "apps/backend/_tests/modules/execution/boundary.test.ts",
   "apps/backend/_tests/modules/execution/published-definitions.test.ts",

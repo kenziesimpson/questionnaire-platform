@@ -8,7 +8,10 @@ function required(name: string): string {
   return value;
 }
 
-export const DATABASE_ROLES = ["owner", "definition", "execution", "reporting"] as const;
+export const POOL_ROLES = ["definition", "execution", "reporting"] as const;
+export type PoolRole = (typeof POOL_ROLES)[number];
+
+export const DATABASE_ROLES = ["owner", ...POOL_ROLES] as const;
 export type DatabaseRole = (typeof DATABASE_ROLES)[number];
 
 const databaseUrlVariable: Record<DatabaseRole, string> = {

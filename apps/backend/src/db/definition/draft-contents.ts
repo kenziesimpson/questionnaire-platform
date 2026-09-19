@@ -1,4 +1,5 @@
 import type { DraftItem, DraftItemCode, Item, ItemError, QuestionVersion } from "@qp/shared";
+import { InvariantViolation } from "../../invariant.js";
 import type { Executor } from "../client.js";
 import { readItems } from "./questionnaire-items.js";
 import { storedQuestionToContent, storedQuestionToVersion } from "./question-content.js";
@@ -21,7 +22,7 @@ export async function readDraftContents(executor: Executor, draftVersionId: stri
 function pinnedFor(contents: DraftContents, item: DraftItem): LoadedQuestionVersion {
   const loaded = contents.pinned.get(questionVersionKey({ questionId: item.questionId, version: item.questionVersion }));
   if (loaded === undefined) {
-    throw new Error("a draft item pins a question version that does not exist");
+    throw InvariantViolation.of("draft-item.pins-unknown-question-version", { questionId: item.questionId, itemId: item.itemId });
   }
   return loaded;
 }

@@ -5,10 +5,11 @@ import {
   problemType,
   type DraftItem,
 } from "@qp/shared";
+import { installTestTelemetry } from "@qp/telemetry/testing";
 import Type from "typebox";
 import { Value } from "typebox/value";
 import { v7 as uuidv7 } from "uuid";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { aDraftWithOneItem, aPublishedQuestionnaire, aQuestionnairePublishedAs, useTestDatabase } from "../../../db/fixtures.js";
 import { aSecondItem, createNextDraftDirectly, definitionUrl, publish, saveDraft, storedSnapshotText } from "../fixtures.js";
 import { useDefinitionApp } from "../harness.js";
@@ -71,11 +72,20 @@ describe("GET /questionnaires/:id/versions/:v", () => {
   });
 
   it("answers 500 internal, naming no schema, for a stored snapshot that matches no known format", async () => {
+    const telemetry = installTestTelemetry();
+    onTestFinished(() => telemetry.shutdown());
     const { questionnaireId } = await aQuestionnairePublishedAs(testDatabase, { title: "" });
 
     const response = await app().inject({ method: "GET", url: definitionUrl(`/questionnaires/${questionnaireId}/versions/1`) });
 
     expect(response.statusCode).toBe(500);
+    expect(telemetry.logs().find((line) => line.msg === "unhandled request error")).toMatchObject({
+      level: "error",
+      "error.type": "InvariantViolation",
+      "error.invariant": "published-snapshot.unknown-format",
+      "questionnaire.id": questionnaireId,
+      "questionnaire.version": 1,
+    });
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
     expect(response.json()).toMatchObject({ type: problemType("internal"), status: 500 });
     expect(response.body).not.toContain("PublishedDefinition");

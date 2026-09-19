@@ -3,8 +3,15 @@ import { buildApp } from "./app.js";
 import { config, databaseUrl } from "./config.js";
 import { openDatabase } from "./db/client.js";
 import { requestLogger } from "./http/request-logger.js";
+import { shutDown } from "./shutdown.js";
+import { telemetryOfProcess } from "./telemetry.js";
 
+const telemetry = telemetryOfProcess();
 const log = logger("backend");
+
+if (!telemetry.preloaded) {
+  log.warn("started without the telemetry preload, so requests and queries are not traced");
+}
 
 const definition = openDatabase(databaseUrl("definition"));
 const execution = openDatabase(databaseUrl("execution"));
@@ -17,25 +24,35 @@ const app = await buildApp({
   reporting: { reporting: reporting.db },
 });
 
-app.addHook("onClose", async () => {
-  await Promise.all([definition.close(), execution.close(), reporting.close()]);
-});
-
 async function start() {
   try {
     await app.listen({ port: config.port, host: config.host });
     log.info("server listening");
   } catch (err) {
     log.error("server failed to start", undefined, err instanceof Error ? err : undefined);
+    await shutDown(shutdownParts());
     process.exit(1);
   }
 }
 
+function shutdownParts() {
+  return {
+    closeApp: () => app.close(),
+    telemetry: telemetry.handle,
+    closePools: async () => {
+      await Promise.all([definition.close(), execution.close(), reporting.close()]);
+    },
+  };
+}
+
+let shuttingDown = false;
+
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     log.info("shutting down", { signal });
-    await app.close();
-    process.exit(0);
+    process.exit((await shutDown(shutdownParts())) ? 0 : 1);
   });
 }
 

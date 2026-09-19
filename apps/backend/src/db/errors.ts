@@ -1,3 +1,6 @@
+import type { LiteralMessage } from "@qp/telemetry";
+import { InvariantViolation, type InvariantIds } from "../invariant.js";
+
 export const SQLSTATE = {
   immutable: "QP001",
   insufficientPrivilege: "42501",
@@ -28,9 +31,9 @@ export function databaseErrorOf(error: unknown): DatabaseError | undefined {
   return undefined;
 }
 
-export function mustExist<Value>(value: Value | null | undefined, row: string): Value {
+export function mustExist<Value, N extends string>(value: Value | null | undefined, invariant: LiteralMessage<N>, ids: InvariantIds = {}): Value {
   if (value === null || value === undefined) {
-    throw new Error(`${row} is not in the database`);
+    throw InvariantViolation.of(invariant, ids);
   }
   return value;
 }

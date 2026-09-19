@@ -61,7 +61,7 @@ async function insertQuestionVersion(
     summary: { questionId, questionVersion: version },
     traceId,
   });
-  const saved = mustExist(await readQuestion(tx, questionId), "the question version just saved");
+  const saved = mustExist(await readQuestion(tx, questionId), "question.unreadable-after-save", { questionId });
   return { questionId, questionVersion: version, question: saved };
 }
 

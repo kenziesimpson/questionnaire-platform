@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { trace } from "@opentelemetry/api";
 import { afterEach, describe, expect, it } from "vitest";
 import { emitDomainEvent, logger, withSpan } from "../src/index.js";
-import { startTelemetry, type TelemetryHandle } from "../src/node.js";
+import { runningTelemetry, startTelemetry, type TelemetryHandle } from "../src/node.js";
 
 const CANARY = "CANARY_DIABETES_8F3A";
 
@@ -74,6 +74,17 @@ describe("startTelemetry with no endpoint configured", () => {
     await expect(withSpan("session.submit", {}, async () => 1)).resolves.toBe(1);
     logger("execution").error("after shutdown");
     expect(trace.getActiveSpan()).toBeUndefined();
+  });
+});
+
+describe("runningTelemetry", () => {
+  it("is the handle startTelemetry returned until that handle shuts down", async () => {
+    expect(runningTelemetry()).toBeUndefined();
+    handle = startTelemetry({ serviceName: "qp-test", logLevel: "error", prettyLogs: false, otlpEndpoint: undefined, autoInstrumentation: false });
+    expect(runningTelemetry()).toBe(handle);
+    await handle.shutdown();
+    handle = undefined;
+    expect(runningTelemetry()).toBeUndefined();
   });
 });
 

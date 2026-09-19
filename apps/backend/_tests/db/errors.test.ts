@@ -1,20 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { databaseErrorOf, mustExist, SQLSTATE } from "../../src/db/errors.js";
+import { InvariantViolation } from "../../src/invariant.js";
 
 describe("mustExist", () => {
   it("returns the row the database answered with, including falsy rows", () => {
     const row = { id: "q-1" };
 
-    expect(mustExist(row, "the questionnaire just created")).toBe(row);
-    expect(mustExist(0, "a count")).toBe(0);
-    expect(mustExist("", "a label")).toBe("");
+    expect(mustExist(row, "questionnaire.unreadable-after-create")).toBe(row);
+    expect(mustExist(0, "count.missing")).toBe(0);
+    expect(mustExist("", "label.missing")).toBe("");
   });
 
-  it("throws naming the row when the database has neither a row nor a value", () => {
-    expect(() => mustExist(undefined, "the draft just saved")).toThrow(new Error("the draft just saved is not in the database"));
-    expect(() => mustExist(null, "a published version's version")).toThrow(
-      new Error("a published version's version is not in the database"),
+  it("throws an invariant violation carrying the name and the ids it was given", () => {
+    expect(() => mustExist(undefined, "draft.unreadable-after-save", { questionnaireId: "q-1" })).toThrow(
+      expect.objectContaining({ name: "InvariantViolation", invariant: "draft.unreadable-after-save", ids: { questionnaireId: "q-1" } }),
     );
+    expect(() => mustExist(null, "published-version.missing-version")).toThrow(InvariantViolation);
   });
 });
 

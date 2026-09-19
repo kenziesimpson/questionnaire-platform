@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { definitionApi, executionApi, reportingApi } from "@qp/shared";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
+import { registerHealthRoutes, selectOne } from "./http/health.js";
 import { applyHttpDefaults, replyWithProblem } from "./http/problems.js";
 import { definitionModule, type DefinitionModuleOptions } from "./modules/definition/plugin.js";
 import { executionModule, type ExecutionModuleOptions } from "./modules/execution/plugin.js";
@@ -21,7 +22,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
 
   applyHttpDefaults(app, replyWithProblem);
-  app.get("/health", async () => ({ status: "ok" }));
+  registerHealthRoutes(app, {
+    definition: () => selectOne(options.definition.database),
+    execution: () => selectOne(options.execution.database),
+    reporting: () => selectOne(options.reporting.reporting),
+  });
   await app.register(definitionModule, { ...options.definition, prefix: definitionApi.DEFINITION_PREFIX });
   await app.register(executionModule, { ...options.execution, prefix: executionApi.EXECUTION_PREFIX });
   await app.register(reportingModule, { ...options.reporting, prefix: reportingApi.REPORTING_PREFIX });

@@ -22,8 +22,15 @@ afterAll(async () => {
 });
 
 describe("buildApp", () => {
-  it("serves the health check", async () => {
-    const response = await app.inject({ method: "GET", url: "/health" });
+  it.each(["/health", "/health/live"])("serves the liveness check at %s", async (url) => {
+    const response = await app.inject({ method: "GET", url });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: "ok" });
+  });
+
+  it("serves the readiness check over all three real pools", async () => {
+    const response = await app.inject({ method: "GET", url: "/health/ready" });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: "ok" });

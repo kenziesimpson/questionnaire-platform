@@ -33,6 +33,7 @@ describe("problem slugs", () => {
       "submission/invalid": 422,
       "question/version-conflict": 409,
       internal: 500,
+      "service/unavailable": 503,
     });
   });
 

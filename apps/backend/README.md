@@ -6,7 +6,7 @@ publishing) and execution (sessions, responses). See
 [`docs/7-application-boundary.md`](../../docs/7-application-boundary.md) for how this app's modules
 relate to `packages/shared` and `packages/telemetry`.
 
-> **Status:** scaffold only — `src/index.ts` exposes a `/health` check and nothing else yet.
+> **Status:** `src/index.ts` serves the three API modules and `/health/live` (process up, no database; `/health` is an alias), and `/health/ready` (`SELECT 1` on the definition, execution and reporting pools; `503` with the failing roles in `detail`).
 > `src/modules/definition` and `src/modules/execution` don't exist yet; once they do,
 > `eslint.config.mjs` enforces that they never import each other and that only
 > `packages/telemetry` imports `pino` or `@opentelemetry/*`.
