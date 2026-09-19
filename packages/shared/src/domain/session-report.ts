@@ -7,6 +7,15 @@ import { SessionStatus } from "./session.js";
 
 export const RESPONSES_PAGE_SIZE = 20;
 
+export const SessionSort = Type.Union([Type.Literal("started"), Type.Literal("submitted")]);
+export type SessionSort = Static<typeof SessionSort>;
+
+export const SortOrder = Type.Union([Type.Literal("asc"), Type.Literal("desc")]);
+export type SortOrder = Static<typeof SortOrder>;
+
+export const DEFAULT_SESSION_SORT = "started" satisfies SessionSort;
+export const DEFAULT_SORT_ORDER = "desc" satisfies SortOrder;
+
 export const SessionSummary = Type.Object(
   {
     sessionId: Uuid,
@@ -26,8 +35,8 @@ export type SessionSummary = Static<typeof SessionSummary>;
 export const SessionSummaryPage = Type.Object(
   {
     items: Type.Array(SessionSummary),
-    olderCursor: Type.Union([Type.String(), Type.Null()]),
-    newerCursor: Type.Union([Type.String(), Type.Null()]),
+    previousCursor: Type.Union([Type.String(), Type.Null()]),
+    nextCursor: Type.Union([Type.String(), Type.Null()]),
   },
   strict,
 );

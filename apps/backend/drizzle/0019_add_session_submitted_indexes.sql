@@ -1,0 +1,2 @@
+CREATE INDEX "session_by_questionnaire_submitted_asc" ON "execution"."session" USING btree ("questionnaire_id","submitted_at","id");--> statement-breakpoint
+CREATE INDEX "session_by_questionnaire_submitted_desc" ON "execution"."session" USING btree ("questionnaire_id","submitted_at" DESC NULLS LAST,"id" DESC NULLS FIRST);

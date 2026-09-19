@@ -30,12 +30,20 @@ describe("the reporting routes", () => {
 describe("the sessions list query", () => {
   const query = reporting.listSessions.schema.querystring;
 
-  it("accepts no filter, either filter, or both, with a cursor", () => {
+  it("accepts no filter, either filter, or both, with a cursor and a sort", () => {
     expect(Value.Check(query, {})).toBe(true);
     expect(Value.Check(query, { version: 2 })).toBe(true);
     expect(Value.Check(query, { status: "in_progress" })).toBe(true);
     expect(Value.Check(query, { version: 1, status: "submitted", cursor: "abc" })).toBe(true);
+    expect(Value.Check(query, { version: 1, status: "submitted", sort: "submitted", order: "asc", cursor: "abc" })).toBe(true);
   });
+
+  it.each([{ sort: "started" }, { sort: "submitted" }, { order: "asc" }, { order: "desc" }, { sort: "started", order: "desc" }])(
+    "accepts the sort %j, each half of which is optional so a client can leave the default off the wire",
+    (sorting) => {
+      expect(Value.Check(query, sorting)).toBe(true);
+    },
+  );
 
   it.each([
     ["version 0", { version: 0 }],
@@ -44,7 +52,12 @@ describe("the sessions list query", () => {
     ["an empty cursor", { cursor: "" }],
     ["a cursor longer than any the server issues", { cursor: "a".repeat(129) }],
     ["a page size, which is fixed", { limit: 5 }],
-    ["a sort order, which is fixed", { sort: "asc" }],
+    ["a sort column that is not one of the two timestamps", { sort: "id" }],
+    ["a sort column spelled as its database column", { sort: "started_at" }],
+    ["a sort direction given as the sort", { sort: "asc" }],
+    ["an order that is not asc or desc", { order: "newest" }],
+    ["an order in capitals", { order: "DESC" }],
+    ["a second sort key, which there is none of", { sort: "started", thenBy: "id" }],
   ])("rejects %s", (_, extra) => {
     expect(Value.Check(query, extra)).toBe(false);
   });

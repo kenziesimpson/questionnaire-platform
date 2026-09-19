@@ -222,6 +222,8 @@ export const session = executionSchema.table(
     index("session_by_version").on(t.questionnaireVersionId, t.startedAt),
     index("session_in_progress").on(t.questionnaireId, t.lastActivityAt).where(sql`status = 'in_progress'`),
     index("session_by_questionnaire").on(t.questionnaireId, t.startedAt, t.id),
+    index("session_by_questionnaire_submitted_asc").on(t.questionnaireId, t.submittedAt.asc().nullsLast(), t.id.asc().nullsLast()),
+    index("session_by_questionnaire_submitted_desc").on(t.questionnaireId, t.submittedAt.desc().nullsLast(), t.id.desc().nullsFirst()),
   ],
 );
 

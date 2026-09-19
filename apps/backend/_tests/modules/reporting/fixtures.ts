@@ -37,14 +37,14 @@ export async function submitFixtureAnswers(
   }
 }
 
-export function aSessionStartedAt(
-  execution: pg.Client,
-  published: PublishedFixture,
-  startedAt: Date,
-  status: "in_progress" | "submitted" = "in_progress",
-): Promise<string> {
+export interface SessionTimes {
+  readonly startedAt: Date;
+  readonly submittedAt: Date | null;
+}
+
+export function aSessionAt(execution: pg.Client, published: PublishedFixture, { startedAt, submittedAt }: SessionTimes): Promise<string> {
   const sessionId = uuidv4();
-  const submittedAt = status === "submitted" ? startedAt : null;
+  const submitted = submittedAt !== null;
   return execution
     .query(
       `INSERT INTO execution.session
@@ -55,13 +55,22 @@ export function aSessionStartedAt(
         published.questionnaireId,
         published.draftVersionId,
         published.version,
-        status,
+        submitted ? "submitted" : "in_progress",
         startedAt,
         submittedAt,
-        status === "submitted" ? Buffer.from("test-digest") : null,
+        submitted ? Buffer.from("test-digest") : null,
       ],
     )
     .then(() => sessionId);
+}
+
+export function aSessionStartedAt(
+  execution: pg.Client,
+  published: PublishedFixture,
+  startedAt: Date,
+  status: "in_progress" | "submitted" = "in_progress",
+): Promise<string> {
+  return aSessionAt(execution, published, { startedAt, submittedAt: status === "submitted" ? startedAt : null });
 }
 
 export function listSessionsUrl(questionnaireId: string, query: Record<string, string> = {}): string {

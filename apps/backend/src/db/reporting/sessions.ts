@@ -1,17 +1,22 @@
 import {
+  DEFAULT_SESSION_SORT,
+  DEFAULT_SORT_ORDER,
   evaluateVisibility,
   RESPONSES_PAGE_SIZE,
   type ResponseRow,
   type SessionDetail,
+  type SessionSort,
   type SessionStatus,
   type SessionSummary,
   type SessionSummaryPage,
+  type SortOrder,
 } from "@qp/shared";
-import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
-import type { Executor } from "../client.js";
+import { and, eq, type SQL } from "drizzle-orm";
+import type { Database, Executor } from "../client.js";
 import { PublishedDefinitions } from "../execution/published-definitions.js";
 import { questionnaire, session } from "../schema.js";
-import { decodeCursor, encodeCursor, type SessionCursor } from "./cursor.js";
+import { decodeCursor, encodeCursor, type SessionCursor, type SessionOrdering } from "./cursor.js";
+import { keysetSegments, orderByFor } from "./keyset.js";
 import { answersFromResponseRows, responseRowsBySession, type SubmittedSessionRef } from "./responses.js";
 
 const sessionColumns = {
@@ -47,13 +52,49 @@ export interface ListSessionsParams {
   readonly questionnaireId: string;
   readonly status?: SessionStatus;
   readonly version?: number;
+  readonly sort?: SessionSort;
+  readonly order?: SortOrder;
   readonly cursor?: string;
 }
 
-function keysetCondition(cursor: SessionCursor): SQL {
-  const operator = cursor.direction === "older" ? "<" : ">";
-  // eslint-disable-next-line no-restricted-syntax -- the row-value comparison is what lets Postgres seek session_by_questionnaire (questionnaire_id, started_at, id) to the cursor; the query builder can only express the OR form, which the index cannot seek
-  return sql`(${session.startedAt}, ${session.id}) ${sql.raw(operator)} (${cursor.startedAt.toISOString()}::timestamptz, ${cursor.id}::uuid)`;
+const SNAPSHOT_READ = {
+  isolationLevel: "repeatable read",
+  accessMode: "read only",
+} as const;
+
+function orderingOf(params: Pick<ListSessionsParams, "sort" | "order">): SessionOrdering {
+  return {
+    sort: params.sort ?? DEFAULT_SESSION_SORT,
+    order: params.order ?? DEFAULT_SORT_ORDER,
+  };
+}
+
+export function pageQueries(
+  reporting: Executor,
+  filters: readonly (SQL | undefined)[],
+  ordering: SessionOrdering,
+  cursor: SessionCursor | undefined,
+) {
+  const order = orderByFor(ordering, cursor?.direction ?? "forward");
+  return keysetSegments(ordering, cursor).map(
+    (segment) => (limit: number) =>
+      reporting
+        .select(sessionColumns)
+        .from(session)
+        .where(and(...filters, segment))
+        .orderBy(...order)
+        .limit(limit),
+  );
+}
+
+async function fetchPageRows(executor: Executor, queries: ReturnType<typeof pageQueries>): Promise<SessionRow[]> {
+  const rows: SessionRow[] = [];
+  for (const query of queries) {
+    const missing = RESPONSES_PAGE_SIZE + 1 - rows.length;
+    if (missing <= 0) break;
+    rows.push(...(await query(missing)));
+  }
+  return rows;
 }
 
 async function summaryOf(
@@ -93,35 +134,43 @@ async function summaryOf(
   };
 }
 
+function anchorOf(row: SessionRow, ordering: SessionOrdering, direction: SessionCursor["direction"]): string {
+  return encodeCursor({
+    ...ordering,
+    direction,
+    sortValue: ordering.sort === "started" ? row.startedAt : row.submittedAt,
+    id: row.id,
+  });
+}
+
 export async function listSessionSummaries(
-  reporting: Executor,
+  reporting: Database,
   definitions: PublishedDefinitions,
   params: ListSessionsParams,
 ): Promise<SessionSummaryPage> {
-  const cursor = params.cursor === undefined ? undefined : decodeCursor(params.cursor);
+  const ordering = orderingOf(params);
+  const cursor = params.cursor === undefined ? undefined : decodeCursor(params.cursor, ordering);
   const filters: (SQL | undefined)[] = [
     eq(session.questionnaireId, params.questionnaireId),
     params.status === undefined ? undefined : eq(session.status, params.status),
     params.version === undefined ? undefined : eq(session.version, params.version),
-    cursor === undefined ? undefined : keysetCondition(cursor),
   ];
 
-  const ascending = cursor?.direction === "newer";
-  const rows: SessionRow[] = await reporting
-    .select(sessionColumns)
-    .from(session)
-    .where(and(...filters))
-    .orderBy(ascending ? asc(session.startedAt) : desc(session.startedAt), ascending ? asc(session.id) : desc(session.id))
-    .limit(RESPONSES_PAGE_SIZE + 1);
+  const backward = cursor?.direction === "backward";
+  const segmentCount = keysetSegments(ordering, cursor).length;
+  const rows: SessionRow[] =
+    segmentCount === 1
+      ? await fetchPageRows(reporting, pageQueries(reporting, filters, ordering, cursor))
+      : await reporting.transaction((tx) => fetchPageRows(tx, pageQueries(tx, filters, ordering, cursor)), SNAPSHOT_READ);
 
   const hasExtra = rows.length > RESPONSES_PAGE_SIZE;
   const page = rows.slice(0, RESPONSES_PAGE_SIZE);
-  if (ascending) {
+  if (backward) {
     page.reverse();
   }
 
-  const hasMoreOlder = cursor === undefined ? hasExtra : cursor.direction === "older" ? hasExtra : true;
-  const hasMoreNewer = cursor !== undefined && (cursor.direction === "newer" ? hasExtra : true);
+  const hasMoreNext = cursor === undefined ? hasExtra : backward ? true : hasExtra;
+  const hasMorePrevious = cursor !== undefined && (backward ? hasExtra : true);
 
   const submitted = page.flatMap((row) => submittedRef(row) ?? []);
   const responseRows = await responseRowsBySession(reporting, submitted);
@@ -131,8 +180,8 @@ export async function listSessionSummaries(
   const last = page[page.length - 1];
   return {
     items,
-    olderCursor: hasMoreOlder && last !== undefined ? encodeCursor({ direction: "older", startedAt: last.startedAt, id: last.id }) : null,
-    newerCursor: hasMoreNewer && first !== undefined ? encodeCursor({ direction: "newer", startedAt: first.startedAt, id: first.id }) : null,
+    previousCursor: hasMorePrevious && first !== undefined ? anchorOf(first, ordering, "backward") : null,
+    nextCursor: hasMoreNext && last !== undefined ? anchorOf(last, ordering, "forward") : null,
   };
 }
 
@@ -154,7 +203,7 @@ export async function getSessionDetail(
 
   const definition = await definitions.pinned(reporting, row.questionnaireVersionId);
   const submitted = submittedRef(row);
-  const responseRows = submitted === undefined ? [] : (await responseRowsBySession(reporting, [submitted])).get(row.id) ?? [];
+  const responseRows = submitted === undefined ? [] : ((await responseRowsBySession(reporting, [submitted])).get(row.id) ?? []);
   const shown = evaluateVisibility(definition, answersFromResponseRows(responseRows));
   const answerByItemId = new Map(responseRows.map((answer) => [answer.itemId, answer]));
 

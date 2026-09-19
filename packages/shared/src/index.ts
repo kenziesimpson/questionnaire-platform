@@ -23,11 +23,15 @@ export { DraftItem, QuestionnaireDraft, QuestionnaireSummary, draftForValidation
 export { ClientAnswerValue, ClientAnswers, ResponseRow, answerFor, type ClientAnswerValueOf } from "./domain/answer.js";
 export { Receipt, Session, SessionStatus } from "./domain/session.js";
 export {
+  DEFAULT_SESSION_SORT,
+  DEFAULT_SORT_ORDER,
   RESPONSES_PAGE_SIZE,
   SessionDetail,
   SessionDetailItem,
+  SessionSort,
   SessionSummary,
   SessionSummaryPage,
+  SortOrder,
 } from "./domain/session-report.js";
 export {
   DRAFT_ITEM_CODES,

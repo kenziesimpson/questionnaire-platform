@@ -1,10 +1,26 @@
-import { PROBLEM_CONTENT_TYPE, problemType, RESPONSES_PAGE_SIZE, type SessionDetail, type SessionSummaryPage } from "@qp/shared";
+import {
+  PROBLEM_CONTENT_TYPE,
+  problemType,
+  RESPONSES_PAGE_SIZE,
+  type SessionDetail,
+  type SessionSort,
+  type SessionSummaryPage,
+  type SortOrder,
+} from "@qp/shared";
 import { INTAKE_ITEM_IDS, INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { describe, expect, it } from "vitest";
 import { PublishedDefinitions } from "../../../src/db/execution/published-definitions.js";
-import { aPublishedQuestionnaire, useTestDatabase } from "../../db/fixtures.js";
+import { aPublishedQuestionnaire, useTestDatabase, type PublishedFixture } from "../../db/fixtures.js";
 import { answersNo, answersYes, publishIntakeV2Relabel, seedIntakeV1 } from "../execution/fixtures.js";
-import { aSessionStartedAt, listSessionsUrl, sessionDetailUrl, startedSessionId, submitFixtureAnswers } from "./fixtures.js";
+import {
+  aSessionAt,
+  aSessionStartedAt,
+  listSessionsUrl,
+  sessionDetailUrl,
+  startedSessionId,
+  submitFixtureAnswers,
+  type SessionTimes,
+} from "./fixtures.js";
 import { useReportingApp } from "./harness.js";
 
 const testDatabase = useTestDatabase();
@@ -98,7 +114,7 @@ describe("GET /questionnaires/:id/responses", () => {
     expect(v2Only.items).toEqual([]);
   });
 
-  it("pages by (startedAt desc, id) with keyset cursors and no total count", async () => {
+  it("pages by (startedAt desc, id) by default, with keyset cursors and no total count", async () => {
     const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
     const execution = await testDatabase.connect("execution");
     const total = RESPONSES_PAGE_SIZE + 5;
@@ -110,18 +126,18 @@ describe("GET /questionnaires/:id/responses", () => {
 
     const firstPage = (await listSessions(published.questionnaireId)).json<SessionSummaryPage>();
     expect(firstPage.items.map((item) => item.sessionId)).toEqual(newestFirst.slice(0, RESPONSES_PAGE_SIZE));
-    expect(firstPage.newerCursor).toBeNull();
-    expect(firstPage.olderCursor).not.toBeNull();
+    expect(firstPage.previousCursor).toBeNull();
+    expect(firstPage.nextCursor).not.toBeNull();
 
     const secondPage = (
-      await listSessions(published.questionnaireId, { cursor: presentCursor(firstPage.olderCursor) })
+      await listSessions(published.questionnaireId, { cursor: presentCursor(firstPage.nextCursor) })
     ).json<SessionSummaryPage>();
     expect(secondPage.items.map((item) => item.sessionId)).toEqual(newestFirst.slice(RESPONSES_PAGE_SIZE));
-    expect(secondPage.olderCursor).toBeNull();
-    expect(secondPage.newerCursor).not.toBeNull();
+    expect(secondPage.nextCursor).toBeNull();
+    expect(secondPage.previousCursor).not.toBeNull();
 
     const backToFirst = (
-      await listSessions(published.questionnaireId, { cursor: presentCursor(secondPage.newerCursor) })
+      await listSessions(published.questionnaireId, { cursor: presentCursor(secondPage.previousCursor) })
     ).json<SessionSummaryPage>();
     expect(backToFirst.items.map((item) => item.sessionId)).toEqual(newestFirst.slice(0, RESPONSES_PAGE_SIZE));
   });
@@ -147,7 +163,7 @@ describe("GET /questionnaires/:id/responses", () => {
 
     const firstPage = (await listSessions(published.questionnaireId)).json<SessionSummaryPage>();
     const secondPage = (
-      await listSessions(published.questionnaireId, { cursor: presentCursor(firstPage.olderCursor) })
+      await listSessions(published.questionnaireId, { cursor: presentCursor(firstPage.nextCursor) })
     ).json<SessionSummaryPage>();
     const firstIds = firstPage.items.map((item) => item.sessionId);
     const secondIds = secondPage.items.map((item) => item.sessionId);
@@ -156,10 +172,10 @@ describe("GET /questionnaires/:id/responses", () => {
     expect(secondIds).toEqual(newestFirst.slice(RESPONSES_PAGE_SIZE));
     expect(secondIds.length).toBeGreaterThan(0);
     expect(new Set([...firstIds, ...secondIds]).size).toBe(stored.length);
-    expect(secondPage.olderCursor).toBeNull();
+    expect(secondPage.nextCursor).toBeNull();
 
     const backToFirst = (
-      await listSessions(published.questionnaireId, { cursor: presentCursor(secondPage.newerCursor) })
+      await listSessions(published.questionnaireId, { cursor: presentCursor(secondPage.previousCursor) })
     ).json<SessionSummaryPage>();
     expect(backToFirst.items.map((item) => item.sessionId)).toEqual(firstIds);
   });
@@ -240,5 +256,300 @@ describe("cache-control", () => {
     await seedIntakeV1(testDatabase);
     const response = await listSessions(INTAKE_QUESTIONNAIRE_ID);
     expect(response.headers["cache-control"]).toBe("no-store");
+  });
+});
+
+const ORDERINGS = [
+  ["started", "asc"],
+  ["started", "desc"],
+  ["submitted", "asc"],
+  ["submitted", "desc"],
+] as const satisfies readonly (readonly [SessionSort, SortOrder])[];
+
+const EPOCH = new Date("2026-09-01T00:00:00.000Z").getTime();
+
+function minutes(count: number): Date {
+  return new Date(EPOCH + count * 60_000);
+}
+
+interface StoredSession extends SessionTimes {
+  readonly id: string;
+}
+
+async function storeSessions(published: PublishedFixture, times: readonly SessionTimes[]): Promise<StoredSession[]> {
+  const execution = await testDatabase.connect("execution");
+  const stored: StoredSession[] = [];
+  for (const time of times) {
+    stored.push({ ...time, id: await aSessionAt(execution, published, time) });
+  }
+  return stored;
+}
+
+function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function expectedOrder(stored: readonly StoredSession[], sort: SessionSort, order: SortOrder): string[] {
+  const direction = order === "asc" ? 1 : -1;
+  const valueOf = (entry: StoredSession) => (sort === "started" ? entry.startedAt : entry.submittedAt);
+  return [...stored]
+    .sort((a, b) => {
+      const left = valueOf(a);
+      const right = valueOf(b);
+      if (left === null && right !== null) return 1;
+      if (left !== null && right === null) return -1;
+      const byValue = left === null || right === null ? 0 : left.getTime() - right.getTime();
+      return byValue !== 0 ? direction * byValue : direction * compareIds(a.id, b.id);
+    })
+    .map((entry) => entry.id);
+}
+
+function idsOf(page: SessionSummaryPage): string[] {
+  return page.items.map((item) => item.sessionId);
+}
+
+async function pageOf(questionnaireId: string, query: Record<string, string>): Promise<SessionSummaryPage> {
+  const response = await listSessions(questionnaireId, query);
+  expect(response.statusCode).toBe(200);
+  return response.json<SessionSummaryPage>();
+}
+
+async function walkForward(questionnaireId: string, ordering: Record<string, string>): Promise<SessionSummaryPage[]> {
+  const pages = [await pageOf(questionnaireId, ordering)];
+  for (let next = pages[0]?.nextCursor; next !== null && next !== undefined; ) {
+    const page = await pageOf(questionnaireId, { ...ordering, cursor: next });
+    pages.push(page);
+    next = page.nextCursor;
+  }
+  return pages;
+}
+
+async function walkBackward(questionnaireId: string, ordering: Record<string, string>, from: SessionSummaryPage): Promise<SessionSummaryPage[]> {
+  const pages = [from];
+  for (let previous = from.previousCursor; previous !== null; ) {
+    const page = await pageOf(questionnaireId, { ...ordering, cursor: previous });
+    pages.push(page);
+    previous = page.previousCursor;
+  }
+  return pages;
+}
+
+const SUBMITTED_ON_THE_FIRST_PAGE: SessionTimes[] = [
+  ...Array.from({ length: RESPONSES_PAGE_SIZE }, (_, i) => ({ startedAt: minutes(i), submittedAt: minutes(100 + (i % 7)) })),
+  ...Array.from({ length: 15 }, (_, i) => ({ startedAt: minutes(200 + (i % 4)), submittedAt: null })),
+];
+
+const BOUNDARY_INSIDE_A_RUN_OF_EQUAL_TIMES: SessionTimes[] = [
+  ...Array.from({ length: 12 }, (_, i) => ({ startedAt: minutes(i), submittedAt: minutes(300 + i) })),
+  ...Array.from({ length: 12 }, () => ({ startedAt: minutes(50), submittedAt: minutes(400) })),
+  ...Array.from({ length: 5 }, (_, i) => ({ startedAt: minutes(60 + i), submittedAt: null })),
+];
+
+const BOUNDARY_INSIDE_THE_IN_PROGRESS_RUN: SessionTimes[] = [
+  ...Array.from({ length: 8 }, (_, i) => ({ startedAt: minutes(i), submittedAt: minutes(500 + i) })),
+  ...Array.from({ length: 30 }, (_, i) => ({ startedAt: minutes(100 + (i % 3)), submittedAt: null })),
+];
+
+const DATASETS: readonly (readonly [string, SessionTimes[]])[] = [
+  ["a page boundary between the last submitted session and the first in-progress one", SUBMITTED_ON_THE_FIRST_PAGE],
+  ["a page boundary inside a run of equal timestamps", BOUNDARY_INSIDE_A_RUN_OF_EQUAL_TIMES],
+  ["a page boundary inside the run of in-progress sessions", BOUNDARY_INSIDE_THE_IN_PROGRESS_RUN],
+];
+
+describe("GET /questionnaires/:id/responses, sorted", () => {
+  it.each(ORDERINGS)("orders by %s %s, with in-progress sessions after every submitted one under either submitted order", async (sort, order) => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const stored = await storeSessions(published, [
+      { startedAt: minutes(5), submittedAt: minutes(9) },
+      { startedAt: minutes(1), submittedAt: minutes(30) },
+      { startedAt: minutes(3), submittedAt: null },
+      { startedAt: minutes(4), submittedAt: minutes(9) },
+      { startedAt: minutes(2), submittedAt: null },
+      { startedAt: minutes(6), submittedAt: minutes(12) },
+    ]);
+
+    const page = await pageOf(published.questionnaireId, { sort, order });
+
+    expect(idsOf(page)).toEqual(expectedOrder(stored, sort, order));
+    expect(page.previousCursor).toBeNull();
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it("puts the in-progress sessions last for sort=submitted whichever way it runs, and orders them by id", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const stored = await storeSessions(published, [
+      { startedAt: minutes(1), submittedAt: minutes(10) },
+      { startedAt: minutes(2), submittedAt: null },
+      { startedAt: minutes(3), submittedAt: minutes(20) },
+      { startedAt: minutes(4), submittedAt: null },
+    ]);
+    const inProgress = stored.filter((entry) => entry.submittedAt === null).map((entry) => entry.id);
+
+    const ascending = await pageOf(published.questionnaireId, { sort: "submitted", order: "asc" });
+    const descending = await pageOf(published.questionnaireId, { sort: "submitted", order: "desc" });
+
+    expect(idsOf(ascending).slice(2)).toEqual([...inProgress].sort(compareIds));
+    expect(idsOf(descending).slice(2)).toEqual([...inProgress].sort(compareIds).reverse());
+    expect(ascending.items.slice(0, 2).map((item) => item.status)).toEqual(["submitted", "submitted"]);
+    expect(descending.items.slice(0, 2).map((item) => item.status)).toEqual(["submitted", "submitted"]);
+    expect(descending.items.slice(0, 2).map((item) => item.submittedAt)).toEqual([minutes(20).toISOString(), minutes(10).toISOString()]);
+  });
+
+  it("defaults to started descending, and says so the same when the default is spelled out", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    await storeSessions(published, [
+      { startedAt: minutes(1), submittedAt: minutes(50) },
+      { startedAt: minutes(2), submittedAt: null },
+      { startedAt: minutes(3), submittedAt: minutes(40) },
+    ]);
+
+    const implicit = await pageOf(published.questionnaireId, {});
+    const explicit = await pageOf(published.questionnaireId, { sort: "started", order: "desc" });
+
+    expect(idsOf(explicit)).toEqual(idsOf(implicit));
+    expect(implicit.items.map((item) => item.startedAt)).toEqual([minutes(3), minutes(2), minutes(1)].map((at) => at.toISOString()));
+  });
+
+  it("sorts by the column alone when only sort is given, and by the default column when only order is", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const stored = await storeSessions(published, [
+      { startedAt: minutes(1), submittedAt: minutes(50) },
+      { startedAt: minutes(2), submittedAt: minutes(20) },
+      { startedAt: minutes(3), submittedAt: minutes(40) },
+    ]);
+
+    expect(idsOf(await pageOf(published.questionnaireId, { sort: "submitted" }))).toEqual(expectedOrder(stored, "submitted", "desc"));
+    expect(idsOf(await pageOf(published.questionnaireId, { order: "asc" }))).toEqual(expectedOrder(stored, "started", "asc"));
+  });
+
+  it.each(ORDERINGS.flatMap(([sort, order]) => DATASETS.map(([name, times]) => [sort, order, name, times] as const)))(
+    "walks %s %s over %s forward and back with no session repeated or skipped",
+    async (sort, order, _name, times) => {
+      const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+      const stored = await storeSessions(published, times);
+      const ordering = { sort, order };
+      const expected = expectedOrder(stored, sort, order);
+
+      const forward = await walkForward(published.questionnaireId, ordering);
+
+      expect(forward.flatMap(idsOf)).toEqual(expected);
+      expect(forward.every((page, index) => page.items.length === (index < forward.length - 1 ? RESPONSES_PAGE_SIZE : expected.length - index * RESPONSES_PAGE_SIZE))).toBe(true);
+      expect(forward[0]?.previousCursor).toBeNull();
+      expect(forward.slice(0, -1).every((page) => page.nextCursor !== null)).toBe(true);
+      expect(forward.slice(1).every((page) => page.previousCursor !== null)).toBe(true);
+      expect(forward.at(-1)?.nextCursor).toBeNull();
+
+      const lastPage = forward.at(-1);
+      if (lastPage === undefined) throw new Error("expected at least one page");
+      const backward = await walkBackward(published.questionnaireId, ordering, lastPage);
+
+      expect(backward.map(idsOf)).toEqual(forward.map(idsOf).reverse());
+      expect(backward.at(-1)?.previousCursor).toBeNull();
+    },
+  );
+
+  it("takes a page anchored on the null boundary in both directions", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const stored = await storeSessions(published, SUBMITTED_ON_THE_FIRST_PAGE);
+    const expected = expectedOrder(stored, "submitted", "asc");
+    const ordering = { sort: "submitted", order: "asc" };
+
+    const first = await pageOf(published.questionnaireId, ordering);
+    const second = await pageOf(published.questionnaireId, { ...ordering, cursor: presentCursor(first.nextCursor) });
+    const backToFirst = await pageOf(published.questionnaireId, { ...ordering, cursor: presentCursor(second.previousCursor) });
+
+    expect(idsOf(first)).toEqual(expected.slice(0, RESPONSES_PAGE_SIZE));
+    expect(first.items.every((item) => item.status === "submitted")).toBe(true);
+    expect(idsOf(second)).toEqual(expected.slice(RESPONSES_PAGE_SIZE));
+    expect(second.items.every((item) => item.status === "in_progress")).toBe(true);
+    expect(idsOf(backToFirst)).toEqual(idsOf(first));
+  });
+
+  it.each(ORDERINGS)("combines the status filter with %s %s, so a page holds only that status and keeps its order", async (sort, order) => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const stored = await storeSessions(published, BOUNDARY_INSIDE_A_RUN_OF_EQUAL_TIMES);
+    const submitted = stored.filter((entry) => entry.submittedAt !== null);
+    const inProgress = stored.filter((entry) => entry.submittedAt === null);
+
+    const submittedPages = await walkForward(published.questionnaireId, { sort, order, status: "submitted" });
+    const inProgressPages = await walkForward(published.questionnaireId, { sort, order, status: "in_progress" });
+
+    expect(submittedPages.flatMap(idsOf)).toEqual(expectedOrder(submitted, sort, order));
+    expect(inProgressPages.flatMap(idsOf)).toEqual(expectedOrder(inProgress, sort, order));
+  });
+
+  it("filters by version while sorting, so the other version's sessions never enter the walk", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const stored = await storeSessions(published, SUBMITTED_ON_THE_FIRST_PAGE);
+
+    const pages = await walkForward(published.questionnaireId, { sort: "submitted", order: "desc", version: String(published.version) });
+    const none = await pageOf(published.questionnaireId, { sort: "submitted", order: "desc", version: String(published.version + 1) });
+
+    expect(pages.flatMap(idsOf)).toEqual(expectedOrder(stored, "submitted", "desc"));
+    expect(none.items).toEqual([]);
+  });
+
+  describe("a cursor issued under another ordering", () => {
+    async function aSecondPageCursor(published: PublishedFixture, ordering: Record<string, string>): Promise<string> {
+      const first = await pageOf(published.questionnaireId, ordering);
+      return presentCursor(first.nextCursor);
+    }
+
+    it.each<[string, Record<string, string>]>([
+      ["another sort column", { sort: "started", order: "asc" }],
+      ["the opposite order", { sort: "submitted", order: "desc" }],
+      ["no ordering at all, which means started descending", {}],
+    ])("is not honoured under %s: the page is that ordering's first page, never a Postgres error", async (_, other) => {
+      const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+      const stored = await storeSessions(published, SUBMITTED_ON_THE_FIRST_PAGE);
+      const cursor = await aSecondPageCursor(published, { sort: "submitted", order: "asc" });
+
+      const response = await listSessions(published.questionnaireId, { ...other, cursor });
+      const page = response.json<SessionSummaryPage>();
+      const sort = other.sort === "submitted" ? "submitted" : "started";
+      const order = other.order === "asc" ? "asc" : "desc";
+
+      expect(response.statusCode).toBe(200);
+      expect(idsOf(page)).toEqual(expectedOrder(stored, sort, order).slice(0, RESPONSES_PAGE_SIZE));
+      expect(page.previousCursor).toBeNull();
+    });
+
+    it("is honoured under the ordering it was issued for", async () => {
+      const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+      const stored = await storeSessions(published, SUBMITTED_ON_THE_FIRST_PAGE);
+      const ordering = { sort: "submitted", order: "asc" };
+
+      const page = await pageOf(published.questionnaireId, { ...ordering, cursor: await aSecondPageCursor(published, ordering) });
+
+      expect(idsOf(page)).toEqual(expectedOrder(stored, "submitted", "asc").slice(RESPONSES_PAGE_SIZE));
+    });
+  });
+
+  it.each([
+    ["not a cursor at all", "not-a-cursor"],
+    ["well-formed but for a session that does not exist", Buffer.from("forward|submitted|desc|null|00000000-0000-4000-8000-000000000000").toString("base64url")],
+    ["a cursor carrying SQL in its sort", Buffer.from("forward|submitted; DROP TABLE x|desc|null|00000000-0000-4000-8000-000000000000").toString("base64url")],
+    ["a cursor whose timestamp is not a timestamp", Buffer.from("forward|submitted|desc|2026-02-31T25:61:61.000Z|00000000-0000-4000-8000-000000000000").toString("base64url")],
+  ])("answers 200 rather than an error for a forged cursor that is %s", async (_, cursor) => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    await storeSessions(published, SUBMITTED_ON_THE_FIRST_PAGE);
+
+    const response = await listSessions(published.questionnaireId, { sort: "submitted", order: "desc", cursor });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it.each([
+    ["an unknown sort", { sort: "id" }],
+    ["an unknown order", { order: "sideways" }],
+    ["a sort carrying SQL", { sort: "started_at; select 1" }],
+    ["an order carrying SQL", { order: "desc, id" }],
+  ])("rejects %s with 400 before it reaches the database", async (_, query) => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+
+    const response = await listSessions(published.questionnaireId, query);
+
+    expect(response.statusCode).toBe(400);
+    expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
   });
 });
