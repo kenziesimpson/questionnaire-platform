@@ -1,23 +1,17 @@
 import { sensitive } from "@qp/shared";
-import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
-import { emitDomainEvent, logger, withSpan, type DomainEvent, type TelemetryContext } from "@qp/telemetry";
-import type { CanaryFlow } from "@qp/telemetry/canary";
-import type { FastifyInstance } from "fastify";
+import { INTAKE_ITEM_IDS, INTAKE_OPTION_IDS, INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
+import { emitDomainEvent, FIELDS, logger, withSpan, type DomainEvent, type FieldName, type TelemetryContext } from "@qp/telemetry";
+import { plantThirdPartyTelemetry, type CanaryFlow } from "@qp/telemetry/canary";
 import { expect } from "vitest";
-import type { TestDatabase } from "../db/fixtures.js";
 import { answersNo, answersYes, executionUrl, seedIntakeV1, startedSessionId, submit } from "../modules/execution/fixtures.js";
 import { listSessionsUrl, sessionDetailUrl } from "../modules/reporting/fixtures.js";
-
-export interface CanaryWorld {
-  readonly app: FastifyInstance;
-  readonly testDatabase: TestDatabase;
-}
+import type { CanaryWorld } from "./harness.js";
 
 export type BackendCanaryFlow = CanaryFlow<CanaryWorld>;
 
-const log = logger("canary");
+export const canaryLog = logger("canary");
 
-function forgedContext(fields: Record<string, unknown>): TelemetryContext {
+export function forgedContext(fields: Record<string, unknown>): TelemetryContext {
   return Object.assign<TelemetryContext, Record<string, unknown>>({}, fields);
 }
 
@@ -33,40 +27,45 @@ function withWhitespace(sentinel: string): string {
 }
 
 function forgedRegistryContext(sentinel: string): TelemetryContext {
-  return forgedContext({
-    sessionId: withWhitespace(sentinel),
-    questionnaireId: withWhitespace(sentinel),
-    itemId: withWhitespace(sentinel),
-    lastItemId: withWhitespace(sentinel),
-    questionId: withWhitespace(sentinel),
-    requestId: withWhitespace(sentinel),
-    questionType: sentinel,
-    outcome: sentinel,
-    reason: sentinel,
-    method: sentinel,
-    route: sentinel,
-    signal: sentinel,
-    status: sentinel,
-    elapsedSeconds: sentinel,
-    durationMs: sentinel,
-    errorStack: sentinel,
-    answer: sentinel,
-    text: sentinel,
-    value: { text: sentinel },
-  });
+  const fields = (Object.keys(FIELDS) as FieldName[]).map((name) => [
+    name,
+    FIELDS[name].accepts(sentinel) ? withWhitespace(sentinel) : sentinel,
+  ]);
+  return forgedContext({ ...Object.fromEntries(fields), answer: sentinel, text: sentinel, value: { text: sentinel } });
+}
+
+interface StoredAnswer {
+  readonly text_value: string | null;
+  readonly other_text: string | null;
+}
+
+async function storedAnswer(world: CanaryWorld, sessionId: string, itemId: string): Promise<StoredAnswer | undefined> {
+  const execution = await world.testDatabase.connect("execution");
+  const stored = await execution.query<StoredAnswer>(
+    "SELECT text_value, other_text FROM execution.response WHERE session_id = $1 AND item_id = $2",
+    [sessionId, itemId],
+  );
+  return stored.rows[0];
+}
+
+function otherAnswer(sentinel: string) {
+  return { type: "single_choice", optionId: INTAKE_OPTION_IDS.other, otherText: sentinel } as const;
 }
 
 async function submitPlantedResponse(world: CanaryWorld, sentinel: string): Promise<string> {
   await seedIntakeV1(world.testDatabase);
   const sessionId = await startedSessionId(world.app);
-  const response = await submit(world.app, sessionId, answersYes({ itm_04: { type: "text", text: sentinel } }));
-  expect(response.statusCode, "the planted submit must be accepted for the flow to prove anything").toBe(200);
-  const execution = await world.testDatabase.connect("execution");
-  const stored = await execution.query<{ text_value: string }>(
-    "SELECT text_value FROM execution.response WHERE session_id = $1 AND item_id = 'itm_04'",
-    [sessionId],
+  const response = await submit(
+    world.app,
+    sessionId,
+    answersYes({
+      [INTAKE_ITEM_IDS.whichCondition]: otherAnswer(sentinel),
+      [INTAKE_ITEM_IDS.pharmacy]: { type: "text", text: sentinel },
+    }),
   );
-  expect(stored.rows[0]?.text_value, "the sentinel must be in the stored response").toBe(sentinel);
+  expect(response.statusCode, "the planted submit must be accepted for the flow to prove anything").toBe(200);
+  expect((await storedAnswer(world, sessionId, INTAKE_ITEM_IDS.pharmacy))?.text_value, "the sentinel must be a stored text answer").toBe(sentinel);
+  expect((await storedAnswer(world, sessionId, INTAKE_ITEM_IDS.whichCondition))?.other_text, "the sentinel must be a stored other text").toBe(sentinel);
   return sessionId;
 }
 
@@ -74,10 +73,10 @@ export const CANARY_FLOWS: readonly BackendCanaryFlow[] = [
   {
     name: "logger: forged context, unknown keys, Sensitive values and errors that carry the sentinel",
     run: async (_world, sentinel) => {
-      log.info("forged context", forgedRegistryContext(sentinel));
-      log.debug("wrapped answers", forgedContext({ sessionId: sensitive(sentinel), answer: sensitive(sentinel) }));
-      log.warn("error message", { sessionId: "s-1" }, new Error(`answer was ${sentinel}`));
-      log.error("error cause", undefined, new Error("outer", { cause: new Error(sentinel) }));
+      canaryLog.info("forged context", forgedRegistryContext(sentinel));
+      canaryLog.debug("wrapped answers", forgedContext({ sessionId: sensitive(sentinel), answer: sensitive(sentinel) }));
+      canaryLog.warn("error message", { sessionId: "s-1" }, new Error(`answer was ${sentinel}`));
+      canaryLog.error("error cause", undefined, new Error("outer", { cause: new Error(sentinel) }));
     },
   },
   {
@@ -85,10 +84,20 @@ export const CANARY_FLOWS: readonly BackendCanaryFlow[] = [
     run: async (_world, sentinel) => {
       const context = forgedRegistryContext(sentinel);
       await withSpan("session.submit", context, async () => {
-        log.info("inside the span", context);
+        canaryLog.info("inside the span", context);
       });
       await withSpan("rule.evaluate", forgedContext({ sessionId: sensitive(sentinel) }), async () => {
         throw new Error(`answer was ${sentinel}`);
+      }).catch(() => undefined);
+    },
+  },
+  {
+    name: "errors: an Error whose message is the bare sentinel, logged and thrown inside withSpan",
+    run: async (_world, sentinel) => {
+      canaryLog.error("bare message", { sessionId: "s-1" }, new Error(sentinel));
+      canaryLog.error("bare type error", undefined, new TypeError(sentinel));
+      await withSpan("session.submit", { sessionId: "s-1" }, async () => {
+        throw new Error(sentinel);
       }).catch(() => undefined);
     },
   },
@@ -118,7 +127,10 @@ export const CANARY_FLOWS: readonly BackendCanaryFlow[] = [
       const response = await submit(
         app,
         sessionId,
-        answersNo({ itm_02: { type: "single_choice", optionId: "opt_hyperten" }, itm_04: { type: "text", text: sentinel } }),
+        answersNo({
+          [INTAKE_ITEM_IDS.whichCondition]: otherAnswer(sentinel),
+          [INTAKE_ITEM_IDS.pharmacy]: { type: "text", text: sentinel },
+        }),
       );
       expect(response.statusCode, "the planted submit must be rejected for the flow to prove anything").toBe(422);
     },
@@ -135,6 +147,14 @@ export const CANARY_FLOWS: readonly BackendCanaryFlow[] = [
       expect(malformed.statusCode).toBe(400);
       const unknown = await app.inject({ method: "GET", url: executionUrl(`/sessions/${sentinel}?answer=${sentinel}`) });
       expect(unknown.statusCode).toBeGreaterThanOrEqual(400);
+    },
+  },
+  {
+    name: "auto-instrumentation: a real request with the sentinel in its URL, and third-party spans and metrics that carry it",
+    run: async ({ app }, sentinel) => {
+      const response = await app.inject({ method: "GET", url: executionUrl(`/sessions/${sentinel}?answer=${sentinel}`) });
+      expect(response.statusCode).toBeGreaterThanOrEqual(400);
+      plantThirdPartyTelemetry(sentinel);
     },
   },
   {

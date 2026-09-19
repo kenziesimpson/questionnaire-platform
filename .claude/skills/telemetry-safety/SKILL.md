@@ -22,16 +22,16 @@ and decision O2. Error bodies are covered by the same rule
 | 0 — literal-only message | `LiteralMessage` in `packages/telemetry/src/logger.ts` | `` log.info(`rejected ${text}`) `` and a `string` variable as a message, at compile time | A cast. `sentinel as "message"` compiles |
 | 1 — one boundary | `packages/telemetry`, plus the `telemetryOnly` rule in `eslint.config.mjs` | Any other workspace importing `pino`, `pino-*`, `@opentelemetry/*` or `@fastify/otel` | Nothing else writes telemetry, so this is the whole surface |
 | 1 — closed registry | `FIELDS` in `packages/telemetry/src/fields.ts` | An unknown context key, at compile time via `TelemetryContext` | A known key holding the wrong content — see below |
-| 1 — the scrub | `packages/telemetry/src/scrub.ts`, at call time in `logger.ts`, `spans.ts`, `instruments.ts`, and again at export time in `exporters.ts` and the pino formatter in `pipeline.ts` | Unregistered keys, values failing their `accepts` check, free text, objects, a `Sensitive`, unbounded attributes on a metric. Drops are counted in `telemetry.scrub.dropped{signal,reason}`, never by key | A value that passes its field's shape check |
-| 2 — the canary | `apps/backend/_tests/canary/`, `packages/telemetry/_tests/canary.test.ts` | A planted `CANARY_SENTINEL` reaching any exported span, metric data point or pino line, on any registered flow | A code path no flow runs, which is why extending it is mandatory. A value changed before it is logged (truncated, hashed, encoded): the detector matches the sentinel text, in any case |
+| 1 — the scrub | `packages/telemetry/src/scrub.ts`, at call time in `logger.ts`, `spans.ts` and, for counter labels, `events.ts` (`boundedDimensionsOf`), and again at export time in `exporters.ts` and the pino formatter in `pipeline.ts` | Unregistered keys, values failing their `accepts` check, free text, objects, a `Sensitive`, unbounded attributes on a metric. Drops are counted in `telemetry.scrub.dropped{signal,reason}`, never by key | A value that passes its field's shape check |
+| 2 — the canary | `apps/backend/_tests/canary/`, `packages/telemetry/_tests/canary.test.ts` | A planted `CANARY_SENTINEL` reaching any exported span, metric data point or pino line, on any registered flow, with Fastify's instrumentation on and a planted third-party span and counter, so the export-time scrub is exercised. Removing the exporter scrub fails the gate | A code path no flow runs, which is why extending it is mandatory. The holes listed below. The pino formatter in `pipeline.ts`, which runs the same function as the call-time scrub and cannot be reached separately; only `packages/telemetry/_tests/pipeline.test.ts` covers it |
 | 3 — CI as the gate | the `canary` job, displayed as "Telemetry canary", in `.github/workflows/ci.yml` | A red canary turns that job red on the PR | Nothing locally. There is no pre-commit hook yet, so CI is the only gate |
 
 Layer 4, the advisory agent review on the PR, is documented and not built. Layer 5 is this file.
 
-## What the types do not protect
+## Known holes
 
-These are the three real holes. The canary's negative controls in
-`apps/backend/_tests/canary/canary.test.ts` exist because each one is otherwise unguarded.
+These are real, they are in the T0a code, and they are not fixed yet. The canary's negative controls
+in `apps/backend/_tests/canary/canary.test.ts` exist because the first three are otherwise unguarded.
 
 1. **The log message and the span name are types only, with no runtime check.** `LiteralMessage`
    and the `SpanName` union are erased at runtime, so `log.info(value as "message")` and
@@ -39,11 +39,21 @@ These are the three real holes. The canary's negative controls in
    a message or a span name. If you need a variable message, you need a field instead.
 2. **Identifier fields accept any whitespace-free token up to 128 characters.** `sessionId`,
    `itemId`, `questionId`, `requestId`, `questionnaireId` and `lastItemId` all use the same
-   `IDENTIFIER` regex. A one-word answer — `diabetes` — put in one of them passes the scrub and is
+   `IDENTIFIER` regex. A one-word answer, `diabetes`, put in one of them passes the scrub and is
    exported. Ids come from the database, the route, or a generator. Never from an answer, a label
    or anything a respondent typed.
-3. **`errorType` and `errorCode` are token-shaped too**, matching `TYPE_NAME` and `ERROR_CODE`.
-   Same hole, same rule.
+3. **Other fields are shaped, not closed.** `errorType` and `errorCode` accept any token, `route`
+   accepts any string that starts with `/` and uses path characters, and the `module` attribute
+   behind `logger("<module>")` accepts any lowercase token, because the literal is a type only.
+   Same rule: none of them comes from an answer.
+4. **`error.stack` is checked by shape.** An `Error` whose multi-line message contains lines that look
+   like stack frames (`    at name (file:1:2)`) passes the frame check and is exported as
+   `error.stack`. Never build an error message from an answer, and never construct an `Error` from
+   one.
+5. **The canary cannot see everything it plants.** It matches a string sentinel, in any case, by text.
+   A numeric or date answer put in `elapsedSeconds`, `durationMs` or a similar number field is not
+   detectable by it. A value that was truncated, hashed, encoded or split before it was logged is not
+   matched either. Review those by reading the diff, not by the canary.
 
 The scrub drops free text, wrong shapes and closed-list mismatches. It cannot tell an id-shaped
 answer from an id. Nothing downstream can either.
@@ -117,7 +127,7 @@ await withSpan("session.submit", { sessionId, questionnaireVersion }, async () =
 
 **Domain event.** One entry in `DOMAIN_EVENTS` in `packages/telemetry/src/events.ts` carrying the
 event's name, its payload type and its counter name; `DomainEvent` and the counter lookup derive
-from it. The payload's fields must all be registry fields. See the `DOMAIN_EVENTS` example in
+from it. The payload's fields should all be registry fields, but nothing enforces it: the entry's payload type is not checked against `FIELDS`, and a key outside the registry is dropped at runtime, so a misspelt key vanishes from the log line and the counter instead of failing the build. See the `DOMAIN_EVENTS` example in
 `.claude/skills/constants/SKILL.md` rather than restating the shape here. `emitDomainEvent` writes
 the log line and increments the counter in one call so the two cannot drift.
 
@@ -167,14 +177,23 @@ drives the real path — a real request through `app.inject`, a real stored row,
   whose plant silently failed passes vacuously and proves nothing.
 - **A flow that emits no telemetry fails** with `TELEMETRY CANARY VACUOUS`. If your path is silent,
   the flow is testing the wrong thing.
+- **Run it against the instrumented pipeline.** The backend gate calls
+  `runCanaryFlow(flow, world, { autoInstrumentation: true })`, which starts Fastify's instrumentation
+  so the export-time scrub sees real spans. `plantThirdPartyTelemetry(sentinel)` from
+  `@qp/telemetry/canary` adds a span and a counter carrying the sentinel in `url.path`, a body
+  attribute, an exception and a status message, the way an instrumentation would.
 - **Real-path flows plant the bare sentinel.** Forged-input flows, which prove the scrub drops what
   the types would have stopped, give id fields a value containing whitespace — see `withWhitespace`
   in `flows.ts` — because a bare sentinel in an id field passes the shape check and is a real leak,
   not a forgery.
 - **A flow may live in another workspace's `_tests`** when the path does not run in the backend.
-  Import `runCanaryFlow`, `CANARY_SENTINEL` and `CanaryFlow` from `@qp/telemetry/canary` and build
-  your own world. Keep `canary` in the test file's path: `npm run test:canary` and the CI gate select
-  by that word, so a canary test named otherwise runs in `npm test` but not in the gate step.
+  Import `runCanaryFlow`, `expectCleanRun`, `CANARY_SENTINEL` and `CanaryFlow` from
+  `@qp/telemetry/canary`, build your own world, and end the test with
+  `expectCleanRun(flow.name, run)`, which throws a plain `Error` for a leak or a vacuous flow. The
+  backend's world and app come from `useCanaryWorld` in `apps/backend/_tests/canary/harness.ts`.
+- **Keep `canary` in the path of a test that imports `@qp/telemetry/canary`.** `npm run test:canary`
+  selects by that word. `tests/canary-selection.test.ts` fails when such a test does not carry it,
+  so a flow cannot quietly fall outside the gate step.
 
 Flows still owed, by the lane that builds each path: the `/telemetry` ingest; the browser, both the
 admin response-detail screen and the respondent app, through their telemetry wrapper (O20); the
@@ -204,7 +223,7 @@ it, because the file's purpose is to prove the gate can fail.
 5. No body, problem `title`/`detail`/`instance`, `error.message`, URL, query string or cursor in any
    signal; no spread of a caller-supplied object into a context.
 6. Any new metric label is a `bounded` field.
-7. A new domain event is one entry in `DOMAIN_EVENTS`, with a payload of registry fields.
+7. A new domain event is one entry in `DOMAIN_EVENTS`, with a payload of registry fields you have checked by eye.
 8. If the diff touches answers, telemetry or the wire between them, it adds a `CANARY_FLOWS` entry
    that plants the sentinel on the real path, asserts the plant took, and emits telemetry.
 9. That flow has a row in [[8-testing]] §7.

@@ -1,6 +1,16 @@
+import { SpanStatusCode, trace } from "@opentelemetry/api";
+import { resourceFromAttributes } from "@opentelemetry/resources";
 import { sensitive } from "@qp/shared";
-import { describe, expect, it } from "vitest";
-import { CANARY_SENTINEL, exposuresOf, runCanaryFlow, type CanaryFlow, type CapturedTelemetry } from "../src/canary.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  CANARY_SENTINEL,
+  expectCleanRun,
+  exposuresOf,
+  plantThirdPartyTelemetry,
+  runCanaryFlow,
+  type CanaryFlow,
+  type CapturedTelemetry,
+} from "../src/canary.js";
 import { logger } from "../src/index.js";
 import { installTestTelemetry } from "../src/testing.js";
 
@@ -34,8 +44,11 @@ describe("canary detector: exposuresOf", () => {
     ["a span attribute key", { attributes: { [CANARY_SENTINEL]: 1 } }],
     ["a span event", { events: [{ name: "note", attributes: { detail: CANARY_SENTINEL } }] }],
     ["a span link", { links: [{ attributes: { detail: CANARY_SENTINEL } }] }],
-    ["a span status message", { status: { code: 2, message: CANARY_SENTINEL } }],
+    ["a span status message", { status: { code: SpanStatusCode.ERROR, message: CANARY_SENTINEL } }],
     ["a span resource", { resource: { attributes: { "service.name": CANARY_SENTINEL } } }],
+    ["a real resource", { resource: resourceFromAttributes({ "service.name": CANARY_SENTINEL }) }],
+    ["a Map", { attributes: new Map([["detail", CANARY_SENTINEL]]) }],
+    ["a Set", { attributes: new Set([CANARY_SENTINEL]) }],
     ["a span name", { name: `publish ${CANARY_SENTINEL}` }],
   ])("finds the sentinel in %s", async (_where, span) => {
     const exposures = await exposuresOf(captured({ spans: [span] }));
@@ -96,6 +109,13 @@ describe("canary detector: exposuresOf", () => {
   });
 });
 
+function isRecording(): boolean {
+  const span = trace.getTracer("probe").startSpan("probe");
+  const recording = span.isRecording();
+  span.end();
+  return recording;
+}
+
 describe("canary runner: runCanaryFlow", () => {
   const cleanFlow: CanaryFlow<{ sessionId: string }> = {
     name: "logs a clean id",
@@ -140,14 +160,19 @@ describe("canary runner: runCanaryFlow", () => {
     expect(run.exposures).toEqual([{ signal: "log", name: CANARY_SENTINEL }]);
   });
 
-  it("tears the pipeline down after a flow, so the next run starts empty", async () => {
-    await runCanaryFlow(cleanFlow, { sessionId: "s-1" });
-    const next = installTestTelemetry();
-    try {
-      expect(next.logs()).toEqual([]);
-    } finally {
-      await next.shutdown();
-    }
+  it("tears the pipeline down after a flow, so nothing is recording afterwards", async () => {
+    let recordingDuringFlow = false;
+    const flow: CanaryFlow<object> = {
+      name: "checks the tracer",
+      run: async () => {
+        recordingDuringFlow = isRecording();
+      },
+    };
+
+    await runCanaryFlow(flow, {});
+
+    expect(recordingDuringFlow).toBe(true);
+    expect(isRecording()).toBe(false);
   });
 
   it("tears the pipeline down when the flow throws, and rethrows", async () => {
@@ -159,12 +184,63 @@ describe("canary runner: runCanaryFlow", () => {
     };
 
     await expect(runCanaryFlow(failing, {})).rejects.toThrow("boom");
-    const next = installTestTelemetry();
-    try {
-      logger("canary").info("still works", { sessionId: "s-2" });
-      expect(next.logs()).toHaveLength(1);
-    } finally {
-      await next.shutdown();
-    }
+    expect(isRecording()).toBe(false);
+  });
+});
+
+describe("canary assertion: expectCleanRun", () => {
+  const clean = { exposures: [], observed: { log: 1, span: 0, metric: 0 } };
+
+  it("passes a run that emitted telemetry and leaked nothing", () => {
+    expect(() => expectCleanRun("clean", clean)).not.toThrow();
+  });
+
+  it("throws a plain Error naming the flow, the signal and the leaking item", () => {
+    const leaky = { exposures: [{ signal: "span" as const, name: "GET" }], observed: { log: 0, span: 1, metric: 0 } };
+
+    expect(() => expectCleanRun("leaky flow", leaky)).toThrow(/TELEMETRY CANARY FAILED: "leaky flow".*span: GET/);
+  });
+
+  it("throws for a run that emitted nothing, so a silent flow cannot pass", () => {
+    const silent = { exposures: [], observed: { log: 0, span: 0, metric: 0 } };
+
+    expect(() => expectCleanRun("silent flow", silent)).toThrow(/TELEMETRY CANARY VACUOUS: "silent flow"/);
+  });
+});
+
+describe("canary export-time scrub: a third-party span and counter that carry the sentinel", () => {
+  const thirdParty: CanaryFlow<object> = {
+    name: "third-party telemetry",
+    run: async (_world, sentinel) => {
+      plantThirdPartyTelemetry(sentinel);
+    },
+  };
+
+  afterEach(() => {
+    vi.doUnmock("../src/exporters.js");
+    vi.resetModules();
+  });
+
+  it("reaches no exporter through the real pipeline", async () => {
+    const run = await runCanaryFlow(thirdParty, {});
+
+    expect(run.observed.span).toBeGreaterThan(0);
+    expect(run.observed.metric).toBeGreaterThan(0);
+    expect(() => expectCleanRun(thirdParty.name, run)).not.toThrow();
+  });
+
+  it("mutation check: with the exporter scrub replaced by a pass-through, the same flow IS detected and the gate throws", async () => {
+    vi.resetModules();
+    vi.doMock("../src/exporters.js", async (importOriginal) => ({
+      ...(await importOriginal<Record<string, unknown>>()),
+      scrubbingSpanExporter: (exporter: unknown) => exporter,
+      scrubbingMetricExporter: (exporter: unknown) => exporter,
+    }));
+    const mutated = await import("../src/canary.js");
+
+    const run = await mutated.runCanaryFlow({ name: thirdParty.name, run: async (_world, sentinel) => mutated.plantThirdPartyTelemetry(sentinel) }, {});
+
+    expect(run.exposures.map((exposure) => exposure.signal).sort()).toEqual(["metric", "span"]);
+    expect(() => mutated.expectCleanRun(thirdParty.name, run)).toThrow(/TELEMETRY CANARY FAILED/);
   });
 });

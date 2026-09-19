@@ -54,7 +54,7 @@ A pull request that changes what `apps/admin`, `apps/respondent` or `packages/ui
 | Build | `npm run build` |
 | Telemetry canary only | `npm run test:canary` |
 
-CI (`.github/workflows/ci.yml`) runs all four on every push to `main` and every pull request. A PR is not ready for review until its CI jobs are green or skipped.
+CI (`.github/workflows/ci.yml`) runs every command above on every push to `main` and every pull request; the telemetry canary also has its own job, "Telemetry canary", so a leak is its own red check. A PR is not ready for review until its CI jobs are green or skipped.
 
 Node 24 (`.nvmrc`). TypeScript 6 in every workspace.
 

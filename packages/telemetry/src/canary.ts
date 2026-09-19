@@ -1,3 +1,4 @@
+import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
 import { installTestTelemetry } from "./testing.js";
 import type { SignalKind } from "./vocabulary.js";
 
@@ -27,6 +28,11 @@ export interface CanaryFlow<World> {
   run(world: World, sentinel: string): Promise<void>;
 }
 
+export interface CanaryRunOptions {
+  readonly sentinel?: string;
+  readonly autoInstrumentation?: boolean;
+}
+
 export interface CanaryRun {
   readonly exposures: readonly CanaryExposure[];
   readonly observed: Readonly<Record<SignalKind, number>>;
@@ -38,6 +44,8 @@ function serialized(value: unknown): string {
     JSON.stringify(value, (_key, item: unknown) => {
       if (typeof item === "bigint") return item.toString();
       if (item instanceof Error) return { name: item.name, message: item.message, stack: item.stack };
+      if (item instanceof Map) return [...item];
+      if (item instanceof Set) return [...item];
       if (typeof item === "object" && item !== null) {
         if (seen.has(item)) return undefined;
         seen.add(item);
@@ -70,17 +78,43 @@ export async function exposuresOf(telemetry: CapturedTelemetry, sentinel: string
 export async function runCanaryFlow<World>(
   flow: CanaryFlow<World>,
   world: World,
-  sentinel: string = CANARY_SENTINEL,
+  options: CanaryRunOptions = {},
 ): Promise<CanaryRun> {
-  const telemetry = installTestTelemetry();
+  const sentinel = options.sentinel ?? CANARY_SENTINEL;
+  const telemetry = installTestTelemetry({ autoInstrumentation: options.autoInstrumentation ?? false });
   try {
     await flow.run(world, sentinel);
-    const metrics = await telemetry.metrics();
+    const flushed = await telemetry.metrics();
     return {
-      exposures: await exposuresOf({ logs: telemetry.logs, spans: telemetry.spans, metrics: async () => metrics }, sentinel),
-      observed: { log: telemetry.logs().length, span: telemetry.spans().length, metric: metrics.length },
+      exposures: await exposuresOf({ logs: telemetry.logs, spans: telemetry.spans, metrics: async () => flushed }, sentinel),
+      observed: { log: telemetry.logs().length, span: telemetry.spans().length, metric: flushed.length },
     };
   } finally {
     await telemetry.shutdown();
   }
+}
+
+export function expectCleanRun(flowName: string, run: CanaryRun, sentinel: string = CANARY_SENTINEL): void {
+  if (run.exposures.length > 0) {
+    const leaks = run.exposures.map((exposure) => `${exposure.signal}: ${exposure.name}`).join("; ");
+    throw new Error(`TELEMETRY CANARY FAILED: "${flowName}" let the sentinel ${sentinel} reach telemetry (${leaks})`);
+  }
+  if (run.observed.log + run.observed.span + run.observed.metric === 0) {
+    throw new Error(`TELEMETRY CANARY VACUOUS: "${flowName}" emitted no telemetry, so it proves nothing`);
+  }
+}
+
+export function plantThirdPartyTelemetry(sentinel: string): void {
+  const span = trace.getTracer("third-party").startSpan("GET", {
+    attributes: {
+      "url.path": `/api/run/sessions/s-1?answer=${sentinel}`,
+      "url.full": `http://localhost/api/run/sessions/s-1?answer=${sentinel}`,
+      "http.request.body": sentinel,
+      "db.statement": `SELECT '${sentinel}'`,
+    },
+  });
+  span.recordException(new Error(`failed ${sentinel}`));
+  span.setStatus({ code: SpanStatusCode.ERROR, message: `failed ${sentinel}` });
+  span.end();
+  metrics.getMeter("third-party").createCounter("third_party.requests").add(1, { answer: sentinel, "url.path": sentinel });
 }
