@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { isBrowserEvent } from "../src/events.js";
 import { ingestBatch, withSpan } from "../src/index.js";
+import { configureLogging, resetLogging, type LogRecord } from "../src/logger.js";
 import { installTestTelemetry, type TestTelemetry } from "../src/testing.js";
+import { installFaultyMeter, internalDropsOf, restoreFaults } from "./faults.js";
 import { QUESTION_ID, SESSION_ID } from "./fixtures.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
@@ -12,15 +14,19 @@ const RECEIVED_AT = Date.parse("2026-09-19T10:00:05.000Z");
 
 const TRACEPARENT = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
 
-let telemetry: TestTelemetry;
+let telemetry: TestTelemetry | undefined;
 
 function install(): TestTelemetry {
-  telemetry = installTestTelemetry();
-  return telemetry;
+  const installed = installTestTelemetry();
+  telemetry = installed;
+  return installed;
 }
 
 afterEach(async () => {
-  await telemetry.shutdown();
+  await telemetry?.shutdown();
+  telemetry = undefined;
+  resetLogging();
+  restoreFaults();
 });
 
 async function metricPoints(installed: TestTelemetry, name: string) {
@@ -334,5 +340,103 @@ describe("ingestBatch: trace context", () => {
     expect(installed.logs()[0]).not.toHaveProperty("trace_id");
     expect(JSON.stringify(installed.logs())).not.toContain(LEAK);
     expect(await dropsByReason(installed)).toEqual({ invalid_trace: 1 });
+  });
+});
+
+describe("ingestBatch never throws into the handler", () => {
+  const written: LogRecord[] = [];
+
+  function recordingSink(): void {
+    written.length = 0;
+    configureLogging({ level: "debug", sink: (record) => void written.push(record) });
+  }
+
+  function throwingSink(): void {
+    configureLogging({
+      level: "debug",
+      sink: () => {
+        throw new Error("sink failed");
+      },
+    });
+  }
+
+  const good = { name: "client.info", at: AT, fields: { sessionId: SESSION_ID } };
+
+  it("drops each event whose log line the sink cannot take, counts one internal log drop for it, and still returns a receipt", () => {
+    const recorded = installFaultyMeter();
+    throwingSink();
+
+    const receipt = ingestBatch([good, good, good], RECEIVED_AT);
+
+    expect(receipt).toEqual({ accepted: 0, dropped: 3 });
+    expect(internalDropsOf(recorded)).toEqual(["log", "log", "log"]);
+  });
+
+  it("keeps an event whose counter fails, since its line was written, and counts one internal metric drop", () => {
+    const recorded = installFaultyMeter({ failing: ["questionnaire.sessions.abandoned"] });
+    recordingSink();
+
+    const receipt = ingestBatch([{ name: "session.abandoned", at: AT, fields: { sessionId: SESSION_ID } }], RECEIVED_AT);
+
+    expect(receipt).toEqual({ accepted: 1, dropped: 0 });
+    expect(written.map((record) => record.message)).toEqual(["session.abandoned"]);
+    expect(internalDropsOf(recorded)).toEqual(["metric"]);
+  });
+
+  it("returns the right receipt for refused events when the drop counter fails, and counts internal metric drops", () => {
+    const recorded = installFaultyMeter({ failing: ["telemetry.ingest.dropped"] });
+    recordingSink();
+
+    const receipt = ingestBatch([{ name: "not.allowed", at: AT }, "not an event", good], RECEIVED_AT);
+
+    expect(receipt).toEqual({ accepted: 1, dropped: 2 });
+    expect(written).toHaveLength(1);
+    expect(internalDropsOf(recorded)).toEqual(["metric", "metric"]);
+  });
+
+  it("returns a receipt when the meter itself is unavailable", () => {
+    installFaultyMeter({ unavailable: true });
+    recordingSink();
+
+    expect(ingestBatch([good, { name: "not.allowed", at: AT }], RECEIVED_AT)).toEqual({ accepted: 1, dropped: 1 });
+  });
+
+  it("drops an event whose fields throw when read, emits nothing partial for it, keeps the events around it, and counts an internal log drop", () => {
+    const recorded = installFaultyMeter();
+    recordingSink();
+    const hostileFields = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error("hostile keys");
+        },
+      },
+    );
+    const hostileEvent = new Proxy(
+      {},
+      {
+        get: () => {
+          throw new Error("hostile getter");
+        },
+      },
+    );
+
+    const receipt = ingestBatch([good, { name: "client.info", at: AT, fields: hostileFields }, hostileEvent, good], RECEIVED_AT);
+
+    expect(receipt).toEqual({ accepted: 2, dropped: 2 });
+    expect(written).toHaveLength(2);
+    expect(internalDropsOf(recorded)).toEqual(["log", "log"]);
+  });
+
+  it("returns an empty receipt, and counts an internal log drop, when the batch itself cannot be read", () => {
+    const recorded = installFaultyMeter();
+    const hostileBatch = new Proxy([], {
+      get: () => {
+        throw new Error("hostile batch");
+      },
+    });
+
+    expect(ingestBatch(hostileBatch, RECEIVED_AT)).toEqual({ accepted: 0, dropped: 0 });
+    expect(internalDropsOf(recorded)).toEqual(["log"]);
   });
 });

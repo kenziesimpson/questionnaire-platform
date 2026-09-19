@@ -312,6 +312,11 @@ limit and the body cap; this function owns what is kept. It takes each event as 
    at call time and again at export.
 6. Events past `MAX_TELEMETRY_EVENTS` are dropped as `over_limit`.
 
+The ingest never throws into the handler. `ingestBatch` guards each event with `guardedOr`, and `relayLog`, `relayBrowserEvent` and
+`reportIngestDropped` swallow and count their own failures as `internal` drops of `telemetry.scrub.dropped`. A failing sink, meter or hostile
+value drops that event, which is counted in the receipt's `dropped` and never half-emitted, and the batch still answers `202`. An event is
+accepted once its log line is written; a counter that fails after that is an `internal` metric drop, not a dropped event.
+
 Every drop is one increment of `telemetry.ingest.dropped`, labelled `telemetry.ingest_reason` with a member of
 `INGEST_DROP_REASONS` (`malformed`, `unknown_event`, `unknown_field`, `invalid_field`, `invalid_trace`, `over_limit`). Field drops
 are not event drops: the receipt's `dropped` counts events only. An event's name, timestamp, traceparent and rejected values are
