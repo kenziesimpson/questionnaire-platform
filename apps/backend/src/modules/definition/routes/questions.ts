@@ -13,7 +13,7 @@ import { notFoundProblem } from "../../../http/problems.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { definitionProblem } from "../problems.js";
-import { auditTraceId } from "../trace.js";
+import { auditTraceId } from "../../../http/trace.js";
 
 function questionRuleProblem(content: QuestionInput): Problem | undefined {
   const failures = validateQuestionRules(content);

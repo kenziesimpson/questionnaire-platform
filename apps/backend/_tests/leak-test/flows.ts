@@ -287,6 +287,14 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
   },
   {
     name: "definition: a draft saved, a stale save refused with 409, a publish refused with 422, then published and retired, with the sentinel in every title, prompt and option label",
+    emits: [
+      "questionnaire.created",
+      "questionnaire.draft_conflict",
+      "questionnaire.publish_rejected",
+      "questionnaire.published",
+      "questionnaire.publish_finished",
+      "questionnaire.retired",
+    ],
     run: async ({ app }, sentinel) => {
       const post = (path: string, payload?: object) =>
         app.inject({ method: "POST", url: definitionUrl(path), ...(payload === undefined ? {} : { payload }) });

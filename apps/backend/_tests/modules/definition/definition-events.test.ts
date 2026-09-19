@@ -1,4 +1,5 @@
 import { definitionApi, formatDraftEtag, type DraftItem, type QuestionInput } from "@qp/shared";
+import { MAX_FINDINGS } from "@qp/telemetry";
 import { installTestTelemetry, type TestTelemetry } from "@qp/telemetry/testing";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -116,6 +117,57 @@ describe("questionnaire.created", () => {
   });
 });
 
+describe("questionnaire.created and questionnaire.retired are not emitted before their transactions commit", () => {
+  it("emits questionnaire.created only after the create transaction has returned", async () => {
+    const seenAtCommit: number[] = [];
+    const instance = await buildApp(
+      withTransactionHooks(testDatabase.database("definition"), {
+        afterCommit: () => seenAtCommit.push(eventLines("questionnaire.created").length),
+      }),
+    );
+
+    const response = await instance.inject({ method: "POST", url: definitionUrl("/questionnaires"), payload: { name: "Fixture", title: "Fixture" } });
+
+    expect(response.statusCode).toBe(201);
+    expect(seenAtCommit).toEqual([0]);
+    expect(eventLines("questionnaire.created")).toHaveLength(1);
+  });
+
+  it("emits nothing for a create whose transaction rolls back after its work", async () => {
+    const instance = await buildApp(withTransactionHooks(testDatabase.database("definition"), { failAfterWork: true }));
+
+    const response = await instance.inject({ method: "POST", url: definitionUrl("/questionnaires"), payload: { name: "Fixture", title: "Fixture" } });
+
+    expect(response.statusCode).toBe(500);
+    expect(eventLines("questionnaire.created")).toEqual([]);
+    expect(await metricPoints("questionnaire.created")).toBeUndefined();
+  });
+
+  it("emits questionnaire.retired only after the close-time transaction has returned, and nothing when it rolls back", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const seenAtCommit: number[] = [];
+    const url = definitionUrl(`/questionnaires/${published.questionnaireId}/closes-at`);
+    const payload = { closesAt: "2026-10-01T00:00:00.000Z" };
+    const committing = await buildApp(
+      withTransactionHooks(testDatabase.database("definition"), {
+        afterCommit: () => seenAtCommit.push(eventLines("questionnaire.retired").length),
+      }),
+    );
+
+    expect((await committing.inject({ method: "PUT", url, payload })).statusCode).toBe(200);
+
+    expect(seenAtCommit).toEqual([0]);
+    expect(eventLines("questionnaire.retired")).toHaveLength(1);
+    await committing.close();
+    telemetry.reset();
+    const failing = await buildApp(withTransactionHooks(testDatabase.database("definition"), { failAfterWork: true }));
+
+    expect((await failing.inject({ method: "PUT", url, payload: { closesAt: "2026-11-01T00:00:00.000Z" } })).statusCode).toBe(500);
+
+    expect(eventLines("questionnaire.retired")).toEqual([]);
+  });
+});
+
 describe("questionnaire.published", () => {
   it("is emitted with the version, in a questionnaire.publish span that carries the outcome, and the audit row has the span's trace id", async () => {
     const draft = await aDraftWithOneItem(testDatabase.database("definition"));
@@ -198,6 +250,34 @@ describe("questionnaire.published", () => {
       { value: 1, attributes: { "questionnaire.outcome": "rejected_validation" } },
     ]);
     expect(spanNamed("questionnaire.publish")?.attributes).toMatchObject({ "questionnaire.outcome": "rejected_validation" });
+  });
+});
+
+describe("a publish refused for more items than the findings cap", () => {
+  it("emits at most MAX_FINDINGS publish_rejected events and counts as many, though the problem names every item", async () => {
+    const db = testDatabase.database("definition");
+    const created = await createQuestionnaire(db, { key: null, name: "Many", title: "Many", ...actor });
+    const items: DraftItem[] = [];
+    for (let index = 0; index < MAX_FINDINGS + 5; index += 1) {
+      const question = await createQuestion(db, { key: null, content: yesNo, ...actor });
+      items.push({
+        itemId: `itm_${index}`,
+        required: false,
+        visibleWhen: { all: [{ type: "single_choice", itemId: "itm_missing", op: "is", optionId: "yes" }] },
+        questionId: question.questionId,
+        questionVersion: 1,
+      });
+    }
+    const draft = await saveDraft(db, created.questionnaireId, await theOpenDraft(db, created.questionnaireId), items);
+    const instance = await buildApp();
+
+    const response = await publish(instance, created.questionnaireId, draft);
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ items: unknown[] }>().items).toHaveLength(MAX_FINDINGS + 5);
+    expect(eventLines("questionnaire.publish_rejected")).toHaveLength(MAX_FINDINGS);
+    const points = (await metricPoints("questionnaire.publish.rejections")) ?? [];
+    expect(points.reduce((total, point) => total + Number(point.value), 0)).toBe(MAX_FINDINGS);
   });
 });
 

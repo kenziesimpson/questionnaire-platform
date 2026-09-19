@@ -16,7 +16,7 @@ import { authorOf } from "../author.js";
 import { draftPreconditionOf } from "../if-match.js";
 import { reportDraftSaved, reportPublish, reportPublishFailed } from "../definition-events.js";
 import { definitionProblem } from "../problems.js";
-import { auditTraceId } from "../trace.js";
+import { auditTraceId } from "../../../http/trace.js";
 
 function draftHeaders({ draft, draftRevision }: CurrentDraft): Record<string, string> {
   return { etag: formatDraftEtag(draft.versionId, draftRevision), "cache-control": "no-store" };
@@ -83,19 +83,17 @@ export function registerDraftRoutes(scope: FastifyInstance, database: Database):
       return precondition;
     }
     const published = await withSpan("questionnaire.publish", { questionnaireId: request.params.id }, async () => {
-      try {
-        const outcome = await publishDraft(database, {
-          questionnaireId: request.params.id,
-          precondition,
-          actorId: authorOf(request),
-          traceId: auditTraceId(),
-        });
-        reportPublish(request.params.id, outcome);
-        return outcome;
-      } catch (error) {
+      const outcome = await publishDraft(database, {
+        questionnaireId: request.params.id,
+        precondition,
+        actorId: authorOf(request),
+        traceId: auditTraceId(),
+      }).catch((error: unknown) => {
         reportPublishFailed(request.params.id);
         throw error;
-      }
+      });
+      reportPublish(request.params.id, outcome);
+      return outcome;
     });
     if (published.outcome !== "published") {
       return definitionProblem(published);

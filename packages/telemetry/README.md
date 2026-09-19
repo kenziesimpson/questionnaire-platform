@@ -272,7 +272,7 @@ table, so adding an event is one entry.
 
 | Event | Counter |
 | --- | --- |
-| `questionnaire.created`, `.published`, `.retired` | `questionnaire.created`, `.published`, `.retired` |
+| `questionnaire.created`, `.published`, `.retired` | `questionnaire.created`, `.published`, `.retired`; `retired` means a close time was set or moved, not a version retired |
 | `questionnaire.publish_finished` | `questionnaire.publish.total`, labelled by `outcome` |
 | `questionnaire.publish_rejected` | `questionnaire.publish.rejections`, labelled by `problemCode`, a draft item code |
 | `questionnaire.draft_conflict` | `questionnaire.draft.conflicts` |

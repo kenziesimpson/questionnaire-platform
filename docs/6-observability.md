@@ -28,6 +28,7 @@ A standard APM install answers the first and third well and the others not at al
 Auto-instrumented via `@fastify/otel` (incoming HTTP) plus `@opentelemetry/instrumentation-pg` (dependency calls). Manual spans for the parts that carry the domain meaning:
 
 - `questionnaire.publish` — the publish transaction, the single most consequential write in the system.
+- `questionnaire.create`, `questionnaire.edit_draft`, `questionnaire.open_draft` and `questionnaire.retire` — the other questionnaire lifecycle writes, one span each; `retire` covers setting, moving and clearing the close time. Each carries the questionnaire id, and the trace id of the active span goes on the audit row the write records.
 - `rule.evaluate` — server-side navigation decision (submit-time validation; the client does the interactive one, see §6).
 - `session.submit` — final submission, including validation and persistence.
 
@@ -56,7 +57,9 @@ RED per endpoint comes free from the HTTP instrumentation (`http.server.request.
 - `questionnaire.items.skipped` (counter)
 - `questionnaire.submissions` (counter, by `outcome`: `accepted`, `replayed`, `rejected_validation`, `rejected_conflict`, `failed`)
 - `questionnaire.sessions.rejected_past_cutoff` (counter; see §9)
-- `questionnaire.publish.total` (counter, by outcome)
+- `questionnaire.publish.total` (counter, by outcome: `accepted`, `rejected_validation`, `rejected_conflict`, `failed`)
+- `questionnaire.publish.rejections` (counter, by draft item code; at most 20 per publish)
+- `questionnaire.draft.conflicts` (counter: a draft save or publish refused because the draft had changed)
 - `questionnaire.session.duration` (histogram in milliseconds, with explicit buckets from one second to a day)
 
 **Saturation metrics** — the real early-warning signals under load, none of which any framework emits by default:
@@ -138,11 +141,11 @@ Request telemetry tells us the API returned 200. It does not tell us that 40% of
 
 | Event | Emitted when | Key attributes |
 | --- | --- | --- |
-| `questionnaire.created` | Draft created | questionnaire id |
+| `questionnaire.created` | A questionnaire created, with its first draft; opening the next draft of an existing questionnaire (`open_draft`) creates a draft too and emits nothing | questionnaire id |
 | `questionnaire.published` | Version published; emitted after the publish transaction commits, so a rolled-back publish emits nothing | questionnaire id, version |
-| `questionnaire.retired` | A close time set or moved (`retire` in the audit trail; clearing it is `reopen` and emits nothing) | questionnaire id |
+| `questionnaire.retired` | A close time set or moved: every `PUT` of a non-null `closesAt` (`retire` in the audit trail), including one that only changes the date; clearing it is `reopen` and emits nothing | questionnaire id |
 | `questionnaire.publish_finished` | A publish decided: accepted, rejected for validation, rejected as stale, or failed | questionnaire id, outcome |
-| `questionnaire.publish_rejected` | One per item a refused publish names | questionnaire id, item id, draft item code |
+| `questionnaire.publish_rejected` | One per item a refused publish names, at most 20 per publish | questionnaire id, item id, draft item code |
 | `questionnaire.draft_conflict` | A draft save or publish refused because the draft had changed | questionnaire id |
 | `session.started` | Respondent begins | session id, questionnaire id, version |
 | `session.resumed` | Incomplete session reopened | + elapsed since the session started (the server keeps no last-activity time) |

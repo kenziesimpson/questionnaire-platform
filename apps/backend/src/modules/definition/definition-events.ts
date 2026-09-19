@@ -1,4 +1,4 @@
-import { annotateActiveSpan, emitDomainEvent, type Outcome } from "@qp/telemetry";
+import { annotateActiveSpan, emitDomainEvent, MAX_FINDINGS, type Outcome } from "@qp/telemetry";
 import type { ReplaceDraftOutcome } from "../../db/definition/drafts.js";
 import type { PublishDraftOutcome } from "../../db/definition/publish.js";
 import type { SetClosesAtOutcome } from "../../db/definition/questionnaires.js";
@@ -27,7 +27,7 @@ export function reportPublish(questionnaireId: string, published: PublishDraftOu
       publishFinished(questionnaireId, "accepted");
       return;
     case "invalid":
-      for (const { itemId, code } of published.items) {
+      for (const { itemId, code } of published.items.slice(0, MAX_FINDINGS)) {
         emitDomainEvent({ name: "questionnaire.publish_rejected", questionnaireId, itemId, problemCode: code });
       }
       publishFinished(questionnaireId, "rejected_validation");

@@ -1,7 +1,7 @@
 import { withSpan } from "@qp/telemetry";
 import { installTestTelemetry, type TestTelemetry } from "@qp/telemetry/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { auditTraceId } from "../../../src/modules/definition/trace.js";
+import { auditTraceId } from "../../src/http/trace.js";
 
 const TRACE_ID = /^[0-9a-f]{32}$/;
 

@@ -7,7 +7,7 @@ import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { reportClosesAtSet, reportQuestionnaireCreated } from "../definition-events.js";
 import { definitionProblem } from "../problems.js";
-import { auditTraceId } from "../trace.js";
+import { auditTraceId } from "../../../http/trace.js";
 
 export function registerQuestionnaireRoutes(scope: FastifyInstance, database: Database): void {
   registerRoute(scope, definitionApi.listQuestionnaires, async () => ({
