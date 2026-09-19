@@ -11,13 +11,26 @@ import { aPublishedQuestionnaire, publishNextVersion, useTestDatabase, type Publ
 const testDatabase = useTestDatabase();
 
 const TARGET_SESSIONS = 30000;
-const IN_PROGRESS_EVERY = 3000;
 const RARE_VERSION_EVERY = 6000;
 const OTHER_SESSIONS = 3000;
 const OTHER_QUESTIONNAIRES = 2;
 const MIDDLE_ID = "7f000000-0000-4000-8000-000000000000";
 const RARE_VERSION = 2;
 const ROWS_A_GOOD_PLAN_MAY_EXAMINE = 4 * (RESPONSES_PAGE_SIZE + 1);
+const ROWS_A_TAIL_PLAN_MAY_DISCARD = RESPONSES_PAGE_SIZE + 1;
+
+interface InProgressShare {
+  readonly label: string;
+  readonly every: number;
+  readonly startedInProgressLimit: number;
+}
+
+const SPARSE: InProgressShare = { label: "10 in progress", every: 3000, startedInProgressLimit: ROWS_A_GOOD_PLAN_MAY_EXAMINE };
+const STRESS: readonly InProgressShare[] = [
+  { label: "1% in progress", every: 100, startedInProgressLimit: 3 * (RESPONSES_PAGE_SIZE + 1) * 100 },
+  { label: "5% in progress", every: 20, startedInProgressLimit: 3 * (RESPONSES_PAGE_SIZE + 1) * 20 },
+  { label: "20% in progress", every: 5, startedInProgressLimit: 3 * (RESPONSES_PAGE_SIZE + 1) * 5 },
+];
 
 interface PlanNode {
   readonly "Node Type": string;
@@ -46,13 +59,14 @@ interface Population {
   readonly rareVersionId: string;
   readonly rareVersion: number;
   readonly count: number;
+  readonly inProgressEvery: number;
 }
 
 async function fillWithSessions(execution: pg.Client, population: Population): Promise<void> {
   await execution.query(
     `INSERT INTO execution.session
        (id, questionnaire_id, questionnaire_version_id, version, status, started_at, last_activity_at, submitted_at, response_digest)
-     SELECT gen_random_uuid(), $1,
+     SELECT md5($1::uuid::text || n::text)::uuid, $1,
             CASE WHEN n % $7::int = 1 THEN $5::uuid ELSE $2::uuid END,
             CASE WHEN n % $7::int = 1 THEN $6::int ELSE $3::int END,
             CASE WHEN n % $8::int = 0 THEN 'in_progress' ELSE 'submitted' END,
@@ -69,7 +83,7 @@ async function fillWithSessions(execution: pg.Client, population: Population): P
       population.rareVersionId,
       population.rareVersion,
       RARE_VERSION_EVERY,
-      IN_PROGRESS_EVERY,
+      population.inProgressEvery,
     ],
   );
 }
@@ -82,10 +96,11 @@ function onlyItsOwnVersion(published: PublishedFixture): Population {
     rareVersionId: published.draftVersionId,
     rareVersion: published.version,
     count: OTHER_SESSIONS,
+    inProgressEvery: SPARSE.every,
   };
 }
 
-async function aLargeTable(): Promise<PublishedFixture> {
+async function aLargeTable(inProgressEvery: number): Promise<PublishedFixture> {
   const definition = testDatabase.database("definition");
   const execution = await testDatabase.connect("execution");
   const owner = await testDatabase.connect("owner");
@@ -103,10 +118,12 @@ async function aLargeTable(): Promise<PublishedFixture> {
     rareVersionId: rare.rows[0]?.id ?? "",
     rareVersion: RARE_VERSION,
     count: TARGET_SESSIONS,
+    inProgressEvery,
   });
   for (let i = 0; i < OTHER_QUESTIONNAIRES; i += 1) {
     await fillWithSessions(execution, onlyItsOwnVersion(await aPublishedQuestionnaire(definition)));
   }
+  await owner.query("SET default_statistics_target = 1000");
   await owner.query("ANALYZE execution.session");
   return target;
 }
@@ -178,40 +195,42 @@ function casesFor(sort: SessionSort, order: SortOrder): PlanCase[] {
 
 const CASES = (["started", "submitted"] as const).flatMap((sort) => (["asc", "desc"] as const).flatMap((order) => casesFor(sort, order)));
 
-type Bound = "the sorted index" | "a handful of rows" | "the table";
+type Bound = "the sorted index" | "the null tail" | "a handful of rows" | "the table";
 
 interface FilterCase {
   readonly name: string;
   readonly conditions: readonly SQL[];
   readonly status: SessionStatus | undefined;
-  readonly bound: Bound;
+  readonly bound: (sort: SessionSort) => Bound;
   readonly filter: RegExp | undefined;
 }
 
+const sortedIndex = (): Bound => "the sorted index";
+
 const FILTERS: readonly FilterCase[] = [
-  { name: "unfiltered", conditions: [], status: undefined, bound: "the sorted index", filter: undefined },
+  { name: "unfiltered", conditions: [], status: undefined, bound: sortedIndex, filter: undefined },
   {
     name: "status=submitted",
     conditions: [eq(session.status, "submitted")],
     status: "submitted",
-    bound: "the sorted index",
+    bound: sortedIndex,
     filter: /^\(status = 'submitted'::text\)$/,
   },
   {
     name: "status=in_progress",
     conditions: [eq(session.status, "in_progress")],
     status: "in_progress",
-    bound: "a handful of rows",
-    filter: undefined,
+    bound: (sort) => (sort === "submitted" ? "the null tail" : "a handful of rows"),
+    filter: /^\(status = 'in_progress'::text\)$/,
   },
   {
     name: "the common version",
     conditions: [eq(session.version, 1)],
     status: undefined,
-    bound: "the sorted index",
+    bound: sortedIndex,
     filter: /^\(version = 1\)$/,
   },
-  { name: "a rare version", conditions: [eq(session.version, RARE_VERSION)], status: undefined, bound: "the table", filter: undefined },
+  { name: "a rare version", conditions: [eq(session.version, RARE_VERSION)], status: undefined, bound: () => "the table", filter: undefined },
 ];
 
 function survivesStatus(planCase: PlanCase, status: SessionStatus | undefined, segment: Segment): boolean {
@@ -219,24 +238,39 @@ function survivesStatus(planCase: PlanCase, status: SessionStatus | undefined, s
   return (status === "submitted") === (segment.returns === "valued");
 }
 
+const THE_NULL_TAIL: Segment = { returns: "null", conditions: [/^\(\(questionnaire_id = '[^']+'::uuid\) AND \(submitted_at IS NULL\)\)$/] };
+
+function expectedSegments(planCase: PlanCase, status: SessionStatus | undefined): Segment[] {
+  if (status === "in_progress" && planCase.ordering.sort === "submitted" && planCase.cursor === undefined) return [THE_NULL_TAIL];
+  return planCase.segments.filter((segment) => survivesStatus(planCase, status, segment));
+}
+
 const READ_NODE = /Scan$/;
 const SCANS_A_RARE_VERSION_MAY_USE = new Set(["Seq Scan", "Bitmap Heap Scan", "Bitmap Index Scan", "Index Scan", "Sort", "Limit"]);
 
-function planProblems(label: string, nodes: readonly PlanNode[], planCase: PlanCase, filterCase: FilterCase, expected: Segment | undefined): string[] {
+function planProblems(
+  label: string,
+  nodes: readonly PlanNode[],
+  planCase: PlanCase,
+  filterCase: FilterCase,
+  expected: Segment | undefined,
+  rowLimit: number,
+): string[] {
   const problems: string[] = [];
   const reads = nodes.filter((node) => READ_NODE.test(node["Node Type"]));
   const examined = Math.max(0, ...reads.map(rowsExamined));
+  const bound = filterCase.bound(planCase.ordering.sort);
 
-  if (filterCase.bound === "the table") {
+  if (bound === "the table") {
     const unexpected = nodes.map((node) => node["Node Type"]).filter((type) => !SCANS_A_RARE_VERSION_MAY_USE.has(type));
     if (unexpected.length > 0) problems.push(`${label}: plans ${unexpected.join(", ")}`);
     return problems;
   }
 
-  if (examined > ROWS_A_GOOD_PLAN_MAY_EXAMINE) {
+  if (examined > rowLimit) {
     problems.push(`${label}: reads ${examined} rows to return a page of at most ${RESPONSES_PAGE_SIZE + 1}`);
   }
-  if (filterCase.bound === "a handful of rows") return problems;
+  if (bound === "a handful of rows") return problems;
 
   const scans = nodes.filter((node) => node["Node Type"] === "Index Scan");
   const [scan] = scans;
@@ -250,44 +284,76 @@ function planProblems(label: string, nodes: readonly PlanNode[], planCase: PlanC
   if (filterCase.filter !== undefined && !filterCase.filter.test(scan?.Filter ?? "")) {
     problems.push(`${label}: filters ${scan?.Filter}, expected ${filterCase.filter}`);
   }
+  if (bound === "the null tail" && (scan?.["Rows Removed by Filter"] ?? 0) > ROWS_A_TAIL_PLAN_MAY_DISCARD) {
+    problems.push(`${label}: the filter removes ${scan?.["Rows Removed by Filter"]} rows the Index Cond should have excluded`);
+  }
   for (const condition of expected?.conditions ?? []) {
     if (!condition.test(scan?.["Index Cond"] ?? "")) problems.push(`${label}: Index Cond ${scan?.["Index Cond"]} does not match ${condition}`);
   }
   return problems;
 }
 
-async function problemsWith(client: pg.Client, planCase: PlanCase, filterCase: FilterCase, target: PublishedFixture): Promise<string[]> {
+function rowLimitFor(planCase: PlanCase, filterCase: FilterCase, share: InProgressShare): number {
+  const startedInProgress = filterCase.status === "in_progress" && planCase.ordering.sort === "started";
+  return startedInProgress ? share.startedInProgressLimit : ROWS_A_GOOD_PLAN_MAY_EXAMINE;
+}
+
+async function problemsWith(
+  client: pg.Client,
+  planCase: PlanCase,
+  filterCase: FilterCase,
+  target: PublishedFixture,
+  share: InProgressShare,
+): Promise<string[]> {
   const reporting = testDatabase.database("reporting");
   const direction = planCase.cursor?.direction ?? "forward";
   const segments = keysetSegments(planCase.ordering, planCase.cursor, filterCase.status);
   const queries = pageQueries(reporting, [eq(session.questionnaireId, target.questionnaireId), ...filterCase.conditions], planCase.ordering, direction, segments);
-  const expected = planCase.segments.filter((segment) => survivesStatus(planCase, filterCase.status, segment));
+  const expected = expectedSegments(planCase, filterCase.status);
   const problems: string[] = [];
+  const named = `${share.label}, ${filterCase.name}, ${planCase.ordering.sort} ${planCase.ordering.order}, ${planCase.name}`;
   if (queries.length !== expected.length) {
-    problems.push(`${filterCase.name}, ${planCase.ordering.sort} ${planCase.ordering.order}, ${planCase.name}: ${queries.length} statements, expected ${expected.length}`);
+    problems.push(`${named}: ${queries.length} statements, expected ${expected.length}`);
   }
   for (const [position, query] of queries.entries()) {
-    const label = `${filterCase.name}, ${planCase.ordering.sort} ${planCase.ordering.order}, ${planCase.name}, statement ${position + 1}`;
+    const label = `${named}, statement ${position + 1}`;
     const { sql, params } = query(RESPONSES_PAGE_SIZE + 1).toSQL();
     const result = await client.query<{ "QUERY PLAN": [{ Plan: PlanNode }] }>(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`, params);
     const nodes = flatten(result.rows[0]?.["QUERY PLAN"][0]?.Plan as PlanNode);
-    problems.push(...planProblems(label, nodes, planCase, filterCase, expected[position]));
+    problems.push(...planProblems(label, nodes, planCase, filterCase, expected[position], rowLimitFor(planCase, filterCase, share)));
   }
   return problems;
 }
 
+async function planProblemsAt(share: InProgressShare, filters: readonly FilterCase[]): Promise<string[]> {
+  const target = await aLargeTable(share.every);
+  const client = await testDatabase.connect("reporting");
+  const problems: string[] = [];
+  for (const filterCase of filters) {
+    for (const planCase of CASES) {
+      problems.push(...(await problemsWith(client, planCase, filterCase, target, share)));
+    }
+  }
+  return problems;
+}
+
+const FILTERS_THAT_STRESS_THE_TAIL = FILTERS.filter((filterCase) => ["unfiltered", "status=submitted", "status=in_progress"].includes(filterCase.name));
+
 describe("the session list's queries, planned against 36,000 sessions of three questionnaires", () => {
   it("scan the expected index in the expected direction with the keyset in the Index Cond and no sort, for every sort, order and direction, and stay bounded under a status or common-version filter", async () => {
-    const target = await aLargeTable();
-    const client = await testDatabase.connect("reporting");
-    const problems: string[] = [];
-    for (const filterCase of FILTERS) {
-      for (const planCase of CASES) {
-        problems.push(...(await problemsWith(client, planCase, filterCase, target)));
-      }
-    }
+    const problems = await planProblemsAt(SPARSE, FILTERS);
 
     expect(CASES).toHaveLength(16);
     expect(problems).toEqual([]);
   });
+
+  it.each(STRESS)(
+    "seek the NULL tail of the sorted index for status=in_progress, and stay on the sorted index unfiltered and under status=submitted, when $label",
+    async (share) => {
+      const problems = await planProblemsAt(share, FILTERS_THAT_STRESS_THE_TAIL);
+
+      expect(problems).toEqual([]);
+    },
+    60_000,
+  );
 });

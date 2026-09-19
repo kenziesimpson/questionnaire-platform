@@ -74,6 +74,28 @@ describe("keysetSegments", () => {
     expect(rendered(keysetSegments(ordering, fromTheTail, "in_progress"))).toEqual([expect.stringMatching(/ is null and /)]);
   });
 
+  it.each(ORDERS)(
+    "seeks the null tail on the first page of status=in_progress under submitted %s, with one null test and no id predicate, and leaves the other first pages unfiltered",
+    (order) => {
+      const ordering = { sort: "submitted", order } as const;
+
+      expect(rendered(keysetSegments(ordering, undefined, "in_progress"))).toEqual([expect.stringMatching(/^"execution"\."session"\."submittedAt" is null$/)]);
+      expect(keysetSegments(ordering, undefined, "submitted")).toEqual([undefined]);
+      expect(keysetSegments({ sort: "started", order }, undefined, "in_progress")).toEqual([undefined]);
+    },
+  );
+
+  it.each(ORDERS.flatMap((order) => (["forward", "backward"] as const).flatMap((direction) => (["valued", "null"] as const).map((anchor) => [order, direction, anchor] as const))))(
+    "never repeats the null test in a status=in_progress page under submitted %s: a %s cursor anchored on a %s row",
+    (order, direction, anchor) => {
+      const ordering = { sort: "submitted", order } as const;
+
+      for (const statement of rendered(keysetSegments(ordering, cursorAt(ordering, direction, anchor), "in_progress"))) {
+        expect(statement.match(/is null/g)).toHaveLength(1);
+      }
+    },
+  );
+
   it("changes nothing without a status filter: the first page is one unfiltered statement", () => {
     const ordering = { sort: "submitted", order: "desc" } as const;
 

@@ -109,9 +109,12 @@ check instead, the change is wrong.
   the query or the indexes is checked by `_tests/db/reporting/sessions.test.ts`, which `EXPLAIN`s every sort, order and
   direction and, for the unfiltered shape, fails on a `Sort` node or a keyset that is not an `Index Cond`. **That is an
   unfiltered guarantee:** no index carries `status` or `version`, so under a filter the test holds `status=submitted`
-  and the common `version` to the same index plan plus a `Filter`, bounds `status=in_progress` by rows examined, and pins
-  only the node types for a rare `version` (which reads the whole table); two filtered shapes are known to be unbounded
-  (Decisions Log #90). Cursors carry sort and order and are
+  and the common `version` to the same index plan plus a `Filter`, holds `sort=submitted&status=in_progress` to the sorted
+  index with `submitted_at IS NULL` in its `Index Cond` and no rows removed by the filter (the first page carries that
+  predicate, which the `session_state` check makes redundant in result and decisive for the plan; without it the planner
+  walks the whole submitted run once 1% of a questionnaire is in progress), bounds `sort=started&status=in_progress` by rows
+  examined, and pins only the node types for a rare `version` (which reads the whole table), the one filtered shape still
+  unbounded (Decisions Log #90). The test seeds deterministic ids and full statistics so its plans do not vary between runs. Cursors carry sort and order and are
   validated field by field; a mismatched or forged one reads as no cursor. **The cursor holds a millisecond `Date`, so
   write `started_at`, `submitted_at` and `last_activity_at` as millisecond `Date`s and never let the `DEFAULT now()`
   fill one for a row a list can show:** the schema does not enforce it and a microsecond value can be skipped or repeated

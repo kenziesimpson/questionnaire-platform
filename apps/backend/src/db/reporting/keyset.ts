@@ -74,8 +74,13 @@ interface KeysetSegment {
   readonly predicate: SQL | undefined;
 }
 
-function segmentsAfter(ordering: SessionOrdering, cursor: SessionCursor | undefined): KeysetSegment[] {
-  if (cursor === undefined) return [{ returns: "any", predicate: undefined }];
+function firstPage(ordering: SessionOrdering, status: SessionStatus | undefined): KeysetSegment {
+  if (status === "in_progress" && isNullable(ordering)) return { returns: "null", predicate: isNull(sortColumn(ordering)) };
+  return { returns: "any", predicate: undefined };
+}
+
+function segmentsAfter(ordering: SessionOrdering, cursor: SessionCursor | undefined, status: SessionStatus | undefined): KeysetSegment[] {
+  if (cursor === undefined) return [firstPage(ordering, status)];
   const column = sortColumn(ordering);
   const ascending = scansAscending(ordering, cursor.direction);
   if (cursor.sortValue !== null) {
@@ -101,7 +106,7 @@ export function keysetSegments(
   cursor: SessionCursor | undefined,
   status: SessionStatus | undefined,
 ): (SQL | undefined)[] {
-  return segmentsAfter(ordering, cursor)
+  return segmentsAfter(ordering, cursor, status)
     .filter((segment) => canReturn(ordering, status, segment))
     .map((segment) => segment.predicate);
 }
