@@ -14,6 +14,7 @@ export interface TestTelemetry {
 
 export interface TestTelemetryOptions {
   readonly logLevel?: LogLevel;
+  readonly autoInstrumentation?: boolean;
 }
 
 function parsedLines(text: string): Record<string, unknown>[] {
@@ -42,7 +43,8 @@ export function installTestTelemetry(options: TestTelemetryOptions = {}): TestTe
     traceExporter: spanExporter,
     metricExporter,
     synchronousExport: true,
-    autoInstrumentation: false,
+    autoInstrumentation: options.autoInstrumentation ?? false,
+    loaderHook: false,
   });
 
   return {

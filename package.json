@@ -18,6 +18,8 @@
     "build": "npm run build -w packages/shared && npm run build --workspaces --if-present",
     "pretest": "npm run build -w packages/shared && npm run build -w packages/telemetry",
     "test": "vitest run",
+    "pretest:canary": "npm run pretest",
+    "test:canary": "vitest run canary",
     "test:e2e": "npm run test:e2e -w e2e",
     "typecheck": "npm run build -w packages/shared && npm run build -w packages/telemetry && tsc -p tsconfig.json --noEmit && npm run typecheck --workspaces --if-present",
     "lint": "eslint . --cache --cache-location .eslintcache && knip"

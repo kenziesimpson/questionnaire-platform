@@ -51,5 +51,6 @@ function startPipelineFor(options: TelemetryOptions): TelemetryHandle {
     metricExporter: exporting ? new OTLPMetricExporter({ url: signalUrl(otlpEndpoint, "/v1/metrics") }) : undefined,
     synchronousExport: false,
     autoInstrumentation: options.autoInstrumentation,
+    loaderHook: options.autoInstrumentation,
   });
 }

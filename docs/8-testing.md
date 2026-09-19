@@ -169,12 +169,18 @@ A root `vitest.config.ts` with `projects: ['packages/*', 'apps/*']` makes `vites
 
 ### 5.2 Pipeline shape
 
-Two jobs, so a typo does not wait on an image build:
+`.github/workflows/ci.yml` runs parallel jobs, so a typo does not wait on an image build or on the whole suite. A `changes` job first decides whether a push touched anything but Markdown; every other job needs it and is skipped when only `.md` files changed.
 
-1. **Checks** — `lint`, `typecheck`, `vitest run`. Testcontainers supplies its own Postgres, so the job needs no service definition. The telemetry canary gates here.
-2. **End-to-end** — build images, `docker compose -f docker-compose.yml up -d --wait`, `playwright test`.
+1. **Lint** — `npm run lint`: ESLint, then knip.
+2. **Typecheck** — `npm run typecheck`.
+3. **Build** — `npm run build`.
+4. **Unit Tests** — `npm test` split into four shards (`--shard=N/4`), which run side by side. Testcontainers supplies its own Postgres, so the job needs no service definition.
+5. **Telemetry canary** — `npm run test:canary`, the sentinel canary as its own job, so a leak names itself in the PR's check list instead of hiding in one of four test shards. Its test files also run inside the Unit Tests shards.
+6. **End-to-end** — installs Chromium and runs `npm run test:e2e`, uploading the Playwright report when it fails.
 
-`--wait` blocks until healthchecks pass, which is only as good as the healthchecks: `db` has one today, `backend` and `frontend` do not, so `--wait` currently proves those containers started rather than that they serve. Adding a `backend` healthcheck on `/health/ready` — which [[6-observability#8. SLOs and alerting]] wants for the Kubernetes probes anyway — is what makes step 2 deterministic instead of racy.
+Branch protection is unavailable on the current plan, so no job is enforced by GitHub: a reviewer confirms that each one is green or skipped before merging.
+
+`--wait` blocks until healthchecks pass, which is only as good as the healthchecks: `db` has one today, `backend` and `frontend` do not, so `--wait` currently proves those containers started rather than that they serve. Adding a `backend` healthcheck on `/health/ready` — which [[6-observability#8. SLOs and alerting]] wants for the Kubernetes probes anyway — is what makes the end-to-end job deterministic instead of racy.
 
 ### 5.3 CI details that actually bite
 
@@ -1081,6 +1087,32 @@ One heading per group ([[4-implementation-plan#Wave 2 — API plugins *(two para
 | A session opened from a sorted list steps to its neighbours in that order, reaches the in-progress one last, and Back returns to the same sort | `e2e/specs/tier-3/e30-responses-list-sorting.spec.ts` | The detail screen follows the list's order (#90) | — conventions |
 | The Submitted header still has keyboard focus once the sorted rows have arrived | `e2e/specs/tier-3/e30-responses-list-sorting.spec.ts` | Sorting does not drop focus to the page body in a real browser (#90) | — conventions |
 | Twenty-three sessions with explicit start times and page one open: a session created afterwards does not change the page on screen, even after the browser clock is advanced fifteen minutes, and issues no further list request; `Next` then shows exactly the three remaining older sessions, with none repeated or skipped; `Previous` returns the original twenty with `Previous` still enabled, and once more shows the newcomer alone; a reload puts the newcomer first | `e2e/specs/tier-3/e31-responses-list-new-arrivals.spec.ts` | A session arriving mid-browse neither refreshes the list nor disturbs the keyset walk on the default order (#91) | — conventions |
+
+### T0c — the telemetry canary (M7)
+
+The canary runs the real pipeline with Fastify's instrumentation on (`installTestTelemetry({ autoInstrumentation: true })`), so the export-time scrub sees real instrumentation output plus a planted third-party span and counter. Two things it cannot reach: the pino formatter in `pipeline.ts`, which runs the same `scrubAttributes` a moment after the call-time scrub and so is unobservable through the public API, and `pg` spans, which do not appear under test. Both are covered by `packages/telemetry/_tests/pipeline.test.ts` only.
+
+**Domain unit — `packages/telemetry`, the canary detector and runner**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| The detector reports nothing for clean telemetry and finds the sentinel in a log line, a span attribute, attribute key, event, link, status message, resource (plain and a real `resourceFromAttributes`), name, `Map` and `Set`, and in a metric's data point attribute, description and histogram bucket, whatever its case; a `Sensitive` wrapper and a circular structure are handled; an `Error`'s message is seen; it looks for the sentinel it is given | `packages/telemetry/_tests/canary.test.ts` | The canary's detector can see a leak in every signal and in every place a backend could receive one, so a pass means something | No respondent answer in telemetry |
+| `runCanaryFlow` hands the flow its world and the sentinel, reports what each signal observed so a flow that emits nothing is visible, reports an exposure for a value cast past the types, and shuts the pipeline down after a flow, including one that throws, which the tracer no longer recording proves | `packages/telemetry/_tests/canary.test.ts` | One harness runs every flow against the real pipeline and leaves no state behind | No respondent answer in telemetry |
+| `expectCleanRun` passes a clean run that emitted telemetry, throws a plain `Error` naming the flow, signal and item for a leak, and throws for a run that emitted nothing | `packages/telemetry/_tests/canary.test.ts` | One assertion, shared by every workspace's canary flows, so a silent or leaking flow cannot pass | No respondent answer in telemetry |
+| A third-party span and counter carrying the sentinel in `url.path`, a request body, an exception, a status message and a metric label reach no exporter; with the exporter scrub replaced by a pass-through the same flow is detected in the span and the metric and the gate assertion throws | `packages/telemetry/_tests/canary.test.ts` | Mutation check: the export-time scrub is what protects the canary flows, and the canary fails when it is removed | No respondent answer in telemetry |
+
+**Backend integration — `apps/backend`, the canary gate**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| Each registered flow plants the sentinel and leaves it out of every exported span, metric data point and pino line: the logger, `withSpan` and `emitDomainEvent` given forged context (every registry field), unknown keys, `Sensitive` values and errors that carry it; an `Error` whose message is the bare sentinel or a multi-line message with a frame-shaped line, logged and thrown inside `withSpan`; unhandled errors thrown from a canary-only route on the real app, so the `500` problem and `problemTelemetry` path run (a bare message, driver detail, a frame-shaped line, a `DrizzleQueryError` carrying it in its parameters, an `InvariantViolation`); a real submit whose text and other-text answers are the sentinel; a submit rejected `422`; a malformed body and a session URL carrying it; a request with the sentinel in its URL beside third-party spans and metrics that carry it; and the stored answer read back through `listSessions` and `getSessionDetail`. A flow that emits no telemetry fails as vacuous, the registry is not empty, and flow names are unique | `_tests/canary/canary.test.ts` | M7: a planted answer value reaches no exporter ([[6-observability#3.1 Enforcement ladder]] Layer 2), gated in CI by `npm run test:canary` | No respondent answer in telemetry |
+| Negative controls: a sentinel cast into a log message, into a span name and into an id field IS detected in the pipeline output, and the gate's own assertion throws for each; a flow that emits nothing is rejected as vacuous | `_tests/canary/canary.test.ts` | The gate can fail. The message and the span name are guarded by types only, and an id field accepts any token, so these are the channels the canary is the only check on | No respondent answer in telemetry |
+
+**Repo configuration — `tests/`**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| Every tracked test that imports `@qp/telemetry/canary` has the word the `test:canary` script filters by in its path | `tests/canary-selection.test.ts` | A canary flow in another workspace cannot fall outside the CI gate step by being named differently | No respondent answer in telemetry |
 
 ## 8. Alternatives considered
 

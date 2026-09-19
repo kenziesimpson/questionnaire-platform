@@ -27,6 +27,7 @@ export interface PipelineOptions {
   readonly metricExporter: PushMetricExporter | undefined;
   readonly synchronousExport: boolean;
   readonly autoInstrumentation: boolean;
+  readonly loaderHook: boolean;
 }
 
 export interface TelemetryHandle {
@@ -72,7 +73,7 @@ export function startPipeline(options: PipelineOptions): TelemetryHandle {
   resetInstruments();
   configureLogging({ level: options.logLevel, sink: pinoSink(options) });
 
-  if (options.autoInstrumentation) {
+  if (options.loaderHook) {
     register(LOADER_HOOK, import.meta.url);
   }
 
@@ -108,6 +109,7 @@ export function startPipeline(options: PipelineOptions): TelemetryHandle {
     },
     shutdown: async () => {
       await sdk.shutdown();
+      for (const instrumentation of instrumentations) instrumentation.disable();
       disableGlobalRegistrations();
       resetInstruments();
       resetLogging();
