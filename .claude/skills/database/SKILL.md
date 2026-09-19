@@ -103,12 +103,19 @@ check instead, the change is wrong.
   sends is interpolated. `started_at` is `NOT NULL`, so `session_by_questionnaire` serves both directions. `submitted_at` is
   `NULL` for an in-progress session and **`NULL`s sort last in both directions**. Row comparison is never true over a
   `NULL`, so the keyset is written out: the row form for the non-null run, then `IS NULL`, and `IS NULL AND id …` inside the
-  tail, one statement per segment. **A btree scanned backward flips its `NULL` placement, so ascending-`NULLS LAST`
+  tail, one statement per segment; a `status` filter drops the segment it makes impossible, so a filtered page is one statement and no transaction. **A btree scanned backward flips its `NULL` placement, so ascending-`NULLS LAST`
   and descending-`NULLS LAST` need two indexes** (`session_by_questionnaire_submitted_asc` / `_desc`, migration `0019`); an
   `ORDER BY` whose `NULLS` clause does not match an index is a `Sort` node, not a scan, even on a `NOT NULL` column. A change to
   the query or the indexes is checked by `_tests/db/reporting/sessions.test.ts`, which `EXPLAIN`s every sort, order and
-  direction and fails on a `Sort` node or a keyset that is not an `Index Cond`. Cursors carry sort and order and are
-  validated field by field; a mismatched or forged one reads as no cursor.
+  direction and, for the unfiltered shape, fails on a `Sort` node or a keyset that is not an `Index Cond`. **That is an
+  unfiltered guarantee:** no index carries `status` or `version`, so under a filter the test holds `status=submitted`
+  and the common `version` to the same index plan plus a `Filter`, bounds `status=in_progress` by rows examined, and pins
+  only the node types for a rare `version` (which reads the whole table); two filtered shapes are known to be unbounded
+  (Decisions Log #90). Cursors carry sort and order and are
+  validated field by field; a mismatched or forged one reads as no cursor. **The cursor holds a millisecond `Date`, so
+  write `started_at`, `submitted_at` and `last_activity_at` as millisecond `Date`s and never let the `DEFAULT now()`
+  fill one for a row a list can show:** the schema does not enforce it and a microsecond value can be skipped or repeated
+  across a page (known bug, [issue #120](https://github.com/kenziesimpson/questionnaire-platform/issues/120)).
 - **Take the lock first.** Three operations need a row lock as their *first* statement:
 
   | Operation | Lock |
