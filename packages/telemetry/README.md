@@ -25,9 +25,10 @@ Three layers hold it here:
 | `@qp/telemetry` | `logger`, `withSpan`, `emitDomainEvent`, the field registry and its types | `@opentelemetry/api` only; safe for a browser bundle |
 | `@qp/telemetry/node` | `startTelemetry`: starts the SDK, pino and the auto-instrumentation; `runningTelemetry`: the handle it returned, until that handle shuts down | the Node SDK, exporters, pino |
 | `@qp/telemetry/testing` | `installTestTelemetry`: in-memory exporters for tests | the Node SDK |
+| `@qp/telemetry/canary` | `CANARY_SENTINEL`, `runCanaryFlow`, `exposuresOf`: the sentinel canary's detector and runner | the Node SDK |
 
 Application code imports the first. Only the backend's `src/telemetry.ts` (used by the preload and the entry point) imports
-the second, and only tests import the third.
+the second, and only tests import the third and fourth.
 
 ## Write a log line
 
@@ -233,6 +234,28 @@ await telemetry.shutdown();
 
 It runs the real pipeline with in-memory exporters, so a test sees what an exporter would receive.
 
+## The canary
+
+`@qp/telemetry/canary` is the detector and runner behind the sentinel canary
+([`docs/8-testing.md`](../../docs/8-testing.md) §2.5). A flow plants `CANARY_SENTINEL` where an answer
+value would be and runs one code path; the runner then reports every span, metric data point and log
+line that carries it.
+
+```ts
+import { CANARY_SENTINEL, runCanaryFlow, type CanaryFlow } from "@qp/telemetry/canary";
+
+const flow: CanaryFlow<World> = { name: "…", run: async (world, sentinel) => { … } };
+const { exposures, observed } = await runCanaryFlow(flow, world);
+```
+
+| Export | Returns |
+| --- | --- |
+| `runCanaryFlow(flow, world)` | Installs test telemetry, runs the flow, and returns `exposures` (signal and name of each leak) and `observed` (how many logs, spans and metrics the flow emitted). It shuts the pipeline down even when the flow throws |
+| `exposuresOf(telemetry)` | Every log line, span and metric whose serialised form contains the sentinel, keys included, in any case |
+
+The flows live with the code they exercise. The backend's registry is
+`apps/backend/_tests/canary/flows.ts`; `npm run test:canary` runs it and CI gates on it.
+
 ## Layout
 
 | File | Contents |
@@ -250,6 +273,7 @@ It runs the real pipeline with in-memory exporters, so a test sees what an expor
 | `src/pipeline.ts` | Builds the SDK, the pino sink and the exporters |
 | `src/node.ts` | `startTelemetry`, `runningTelemetry` |
 | `src/testing.ts` | `installTestTelemetry` |
+| `src/canary.ts` | `CANARY_SENTINEL`, `CanaryFlow`, `runCanaryFlow`, `exposuresOf` |
 
 ## Scripts
 
