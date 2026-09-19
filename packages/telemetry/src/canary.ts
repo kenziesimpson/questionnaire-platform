@@ -36,6 +36,7 @@ export interface CanaryRunOptions {
 export interface CanaryRun {
   readonly exposures: readonly CanaryExposure[];
   readonly observed: Readonly<Record<SignalKind, number>>;
+  readonly spanNames: readonly string[];
 }
 
 function serialized(value: unknown): string {
@@ -88,6 +89,7 @@ export async function runCanaryFlow<World>(
     return {
       exposures: await exposuresOf({ logs: telemetry.logs, spans: telemetry.spans, metrics: async () => flushed }, sentinel),
       observed: { log: telemetry.logs().length, span: telemetry.spans().length, metric: flushed.length },
+      spanNames: telemetry.spans().map((span) => span.name),
     };
   } finally {
     await telemetry.shutdown();

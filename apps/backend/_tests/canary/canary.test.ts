@@ -1,14 +1,17 @@
 import { withSpan, type SignalKind } from "@qp/telemetry";
-import { expectCleanRun, plantThirdPartyCounter, runCanaryFlow } from "@qp/telemetry/canary";
+import { expectCleanRun, plantThirdPartyCounter } from "@qp/telemetry/canary";
 import { describe, expect, it } from "vitest";
 import { useTestDatabase } from "../db/fixtures.js";
+import { SESSION_ID } from "../http/fixtures.js";
+import { executionUrl } from "../modules/execution/fixtures.js";
 import { canaryLog, CANARY_FLOWS, type BackendCanaryFlow } from "./flows.js";
-import { useCanaryWorld } from "./harness.js";
+import { runOnCanaryApp } from "./harness.js";
 
 const testDatabase = useTestDatabase();
-const world = useCanaryWorld(testDatabase);
 
 const INSTRUMENTED = { autoInstrumentation: true };
+
+const runFlow = (flow: BackendCanaryFlow) => runOnCanaryApp(testDatabase, flow, INSTRUMENTED);
 
 describe("TELEMETRY CANARY (CI gate): a planted answer value reaches no log, span or metric", () => {
   it("registers flows, each under its own name", () => {
@@ -19,7 +22,23 @@ describe("TELEMETRY CANARY (CI gate): a planted answer value reaches no log, spa
   });
 
   it.each(CANARY_FLOWS.map((flow) => [flow.name, flow] as const))("canary flow: %s", async (_name, flow) => {
-    expectCleanRun(flow.name, await runCanaryFlow(flow, world(), INSTRUMENTED));
+    expectCleanRun(flow.name, await runFlow(flow));
+  });
+});
+
+describe("TELEMETRY CANARY (CI gate): the pipeline it runs is the instrumented one", () => {
+  it("exports the spans Fastify's instrumentation produces for a request on the real app, all under recognised names", async () => {
+    const run = await runFlow({
+      name: "a real request",
+      run: async ({ app }) => {
+        const response = await app.inject({ method: "GET", url: executionUrl(`/sessions/${SESSION_ID}`) });
+        expect(response.statusCode).toBeGreaterThanOrEqual(400);
+      },
+    });
+
+    expect(run.spanNames).toContain("request");
+    expect(run.spanNames).toContain("handler - handler");
+    expect(run.spanNames).not.toContain("unnamed");
   });
 });
 
@@ -81,7 +100,7 @@ describe("TELEMETRY CANARY negative control: the gate fails when a value does le
   it.each(NEGATIVE_CONTROLS.map((control) => [control.name, control] as const))(
     "negative control: %s IS detected and the gate assertion throws",
     async (_name, control) => {
-      const run = await runCanaryFlow(control.flow, world(), INSTRUMENTED);
+      const run = await runFlow(control.flow);
 
       expect(new Set(run.exposures.map((exposure) => exposure.signal))).toEqual(new Set(control.detectedIn));
       expect(() => expectCleanRun(control.flow.name, run)).toThrow(/TELEMETRY CANARY FAILED/);
@@ -89,7 +108,7 @@ describe("TELEMETRY CANARY negative control: the gate fails when a value does le
   );
 
   it("negative control: a flow that emits nothing is rejected as vacuous rather than passing", async () => {
-    const run = await runCanaryFlow({ name: "silent", run: async () => undefined }, world(), INSTRUMENTED);
+    const run = await runFlow({ name: "silent", run: async () => undefined });
 
     expect(run.exposures).toEqual([]);
     expect(() => expectCleanRun("silent", run)).toThrow(/TELEMETRY CANARY VACUOUS/);

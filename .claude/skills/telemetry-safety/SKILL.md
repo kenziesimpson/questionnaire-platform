@@ -23,7 +23,7 @@ and decision O2. Error bodies are covered by the same rule
 | 1 — one boundary | `packages/telemetry`, plus the `telemetryOnly` rule in `eslint.config.mjs` | Any other workspace importing `pino`, `pino-*`, `@opentelemetry/*` or `@fastify/otel` | Nothing else writes telemetry, so this is the whole surface |
 | 1 — closed registry | `FIELDS` in `packages/telemetry/src/fields.ts` | An unknown context key, at compile time via `TelemetryContext` | A known key holding the wrong content — see below |
 | 1 — the scrub | `packages/telemetry/src/scrub.ts`, at call time in `logger.ts`, `spans.ts` and, for counter labels, `events.ts` (`boundedDimensionsOf`), and again at export time in `exporters.ts` and the pino formatter in `pipeline.ts` | Unregistered keys, values failing their `accepts` check, free text, objects, a `Sensitive`, unbounded attributes on a metric, a span name outside `SPAN_NAMES` or the instrumentations' shapes, a logger module outside `LOG_MODULES`. Drops are counted in `telemetry.scrub.dropped{signal,reason}`, never by key | A value that passes its field's shape check |
-| 2 — the canary | `apps/backend/_tests/canary/`, `packages/telemetry/_tests/canary.test.ts` | A planted `CANARY_SENTINEL` reaching any exported span, metric data point or pino line, on any registered flow, with Fastify's instrumentation on and a planted third-party span and counter, so the export-time scrub is exercised. Removing the exporter scrub fails the gate | A code path no flow runs, which is why extending it is mandatory. The holes listed below. The pino formatter in `pipeline.ts`, which runs the same function as the call-time scrub and cannot be reached separately; only `packages/telemetry/_tests/pipeline.test.ts` covers it |
+| 2 — the canary | `apps/backend/_tests/canary/`, `packages/telemetry/_tests/canary.test.ts` | A planted `CANARY_SENTINEL` reaching any exported span, metric data point or pino line, on any registered flow, with Fastify's instrumentation on and the app built after it, so the export-time scrub sees real `request` and handler spans, plus a planted third-party span and counter. Removing the exporter scrub fails the gate, on a real-app flow as well as the planted one | A code path no flow runs, which is why extending it is mandatory. The holes listed below. `pg` spans, which never appear under test: `pg` is imported before the instrumentation starts and there is no loader hook, so the driver is not patched and no query span is produced. The pino formatter in `pipeline.ts`, which runs the same function as the call-time scrub and cannot be reached separately; only `packages/telemetry/_tests/pipeline.test.ts` covers it |
 | 3 — CI as the gate | the `canary` job, displayed as "Telemetry canary", in `.github/workflows/ci.yml` | A red canary turns that job red on the PR | Nothing locally. There is no pre-commit hook yet, so CI is the only gate |
 
 Layer 4, the advisory agent review on the PR, is documented and not built. Layer 5 is this file.
@@ -53,10 +53,13 @@ These are real and not fixed. The canary's negative controls in
    (`Diabetes`), `errorCode` any five characters from `0-9A-Z` (`12345`, a US zip code), `invariant` any
    dotted lower-case name (`a.b`) and `db.name`, `db.namespace` and `server.address` any token. Same
    rule: none of them comes from an answer.
-4. **Names the exporter copies through.** A span event's name, a metric's name, description and unit,
-   the instrumentation scope's name and the resource attributes are code constants in our code and in
-   the instrumentations, and are not scrubbed. The exporter accepts an auto-instrumented span name by
-   shape (`handler - <function name>`), so a hook function named after data would pass.
+4. **Strings the exporter copies through unscrubbed.** A span event's name, a metric's name,
+   description and unit, the instrumentation scope's name and version, and the resource attributes all
+   reach export as written. They are code constants in our code and in the instrumentations, so no
+   answer reaches them today, but nothing checks them, and the canary would only see one if a flow
+   planted it there. Only the span name is checked. The exporter also accepts an auto-instrumented span
+   name by shape (`handler - <function name>`), so a hook function named after data would pass. If a
+   change lets a variable reach any of these, it needs a runtime check first.
 5. **The stack check is a shape check.** `stackFramesOf` drops the `Error` header by the message's own
    line count and records nothing if the stack does not line up, which closed the case of a
    multi-line message with a frame-shaped line. What remains passes if it looks like a frame
@@ -199,9 +202,14 @@ drives the real path — a real request through `app.inject`, a real stored row,
   whose plant silently failed passes vacuously and proves nothing.
 - **A flow that emits no telemetry fails** with `TELEMETRY CANARY VACUOUS`. If your path is silent,
   the flow is testing the wrong thing.
-- **Run it against the instrumented pipeline.** The backend gate calls
-  `runCanaryFlow(flow, world, { autoInstrumentation: true })`, which starts Fastify's instrumentation
-  so the export-time scrub sees real spans. `plantThirdPartyTelemetry(sentinel)` from
+- **Run it against the instrumented pipeline, and build the app after it starts.** Fastify's
+  instrumentation patches an app only if it is installed before `Fastify()` runs, so an app built
+  earlier produces no spans at all. `runOnCanaryApp(testDatabase, flow, { autoInstrumentation: true })`
+  in `apps/backend/_tests/canary/harness.ts` builds the app inside the flow, after `runCanaryFlow` has
+  installed telemetry, and closes it afterwards. `run.spanNames` lists the exported span names;
+  `canary.test.ts` asserts a real `request` and `handler - handler` appear, so the gate cannot go blind
+  again. `canary-mutation.test.ts` removes the export-time scrub and asserts the real-app `500 path`
+  flow then fails on a Fastify span. `pg` spans still do not appear under test (see the ladder). `plantThirdPartyTelemetry(sentinel)` from
   `@qp/telemetry/canary` adds a span and a counter carrying the sentinel in `url.path`, a body
   attribute, an exception and a status message, the way an instrumentation would.
 - **Real-path flows plant the bare sentinel.** Forged-input flows, which prove the scrub drops what
@@ -212,9 +220,9 @@ drives the real path — a real request through `app.inject`, a real stored row,
   the lower-case form in the fields that still reject that.
 - **A flow may live in another workspace's `_tests`** when the path does not run in the backend.
   Import `runCanaryFlow`, `expectCleanRun`, `CANARY_SENTINEL` and `CanaryFlow` from
-  `@qp/telemetry/canary`, build your own world, and end the test with
+  `@qp/telemetry/canary`, build your own world inside the flow so the instrumentation is already running, and end the test with
   `expectCleanRun(flow.name, run)`, which throws a plain `Error` for a leak or a vacuous flow. The
-  backend's world and app come from `useCanaryWorld` in `apps/backend/_tests/canary/harness.ts`.
+  backend's world and app come from `runOnCanaryApp` in `apps/backend/_tests/canary/harness.ts`.
 - **Keep `canary` in the path of a test that imports `@qp/telemetry/canary`.** `npm run test:canary`
   selects by that word. `tests/canary-selection.test.ts` fails when such a test does not carry it,
   so a flow cannot quietly fall outside the gate step.

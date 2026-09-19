@@ -123,6 +123,13 @@ attaches on its own (`db.system`, `server.port`, `fastify.type`, …). `url.path
 The export-time layer is the one that catches what the types cannot see: a third-party
 instrumentation attaching a request body, or an exception event carrying a message.
 
+It scrubs span names, span and event and link attributes, span status and metric data-point
+attributes. It does **not** scrub a span event's name, a metric's name, description or unit, the
+instrumentation scope's name and version, or the resource attributes: they reach export as written.
+They are code constants in this repo and in the instrumentations, so no answer reaches them today, but
+nothing checks them. A change that lets a variable reach any of them needs a runtime check first.
+The known holes are listed in `.claude/skills/telemetry-safety/SKILL.md`.
+
 ## Spans
 
 ```ts
@@ -275,11 +282,13 @@ const { exposures, observed } = await runCanaryFlow(flow, world);
 
 | Export | Returns |
 | --- | --- |
-| `runCanaryFlow(flow, world, options?)` | Installs test telemetry (`options.autoInstrumentation` turns on the Fastify and `pg` instrumentations), runs the flow, and returns `exposures` (signal and name of each leak) and `observed` (how many logs, spans and metrics the flow emitted). It shuts the pipeline down even when the flow throws |
+| `runCanaryFlow(flow, world, options?)` | Installs test telemetry (`options.autoInstrumentation` turns on the Fastify and `pg` instrumentations), runs the flow, and returns `exposures` (signal and name of each leak), `observed` (how many logs, spans and metrics the flow emitted) and `spanNames` (the exported span names). Fastify's instrumentation only patches an app created after it starts, so a flow that needs real spans builds its app inside `run`. It shuts the pipeline down even when the flow throws |
 | `expectCleanRun(name, run)` | Throws a plain `Error` if the run has an exposure, or if the flow emitted nothing |
 | `plantThirdPartyTelemetry(sentinel)` | Emits spans, one named for the sentinel, and a counter carrying the sentinel the way a third-party instrumentation would, to exercise the export-time scrub |
 | `plantThirdPartyCounter(labels)` | Emits a counter with exactly these labels, so a negative control can put a shaped value on a bounded metric label |
 | `exposuresOf(telemetry)` | Every log line, span and metric whose serialised form contains the sentinel, keys included, in any case |
+
+`pg` spans do not appear under test: the driver is imported before the instrumentation starts and there is no loader hook, so it is not patched.
 
 The flows live with the code they exercise. The backend's registry is
 `apps/backend/_tests/canary/flows.ts`; `npm run test:canary` runs it and CI gates on it.

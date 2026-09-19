@@ -1,5 +1,5 @@
+import { runCanaryFlow, type CanaryFlow, type CanaryRun, type CanaryRunOptions } from "@qp/telemetry/canary";
 import type { FastifyInstance } from "fastify";
-import { afterEach, beforeEach } from "vitest";
 import { buildApp } from "../../src/app.js";
 import { requestLogger } from "../../src/http/request-logger.js";
 import type { TestDatabase } from "../db/fixtures.js";
@@ -10,42 +10,44 @@ export interface CanaryWorld {
   injectFailure(error: Error, urlSegment: string): Promise<number>;
 }
 
-export function useCanaryWorld(testDatabase: TestDatabase): () => CanaryWorld {
-  let app: FastifyInstance | undefined;
+async function buildCanaryWorld(testDatabase: TestDatabase): Promise<CanaryWorld> {
   let pendingFailure: Error | undefined;
-
-  beforeEach(async () => {
-    pendingFailure = undefined;
-    app = await buildApp({
-      logger: requestLogger("debug"),
-      definition: { database: testDatabase.database("definition") },
-      execution: { database: testDatabase.database("execution") },
-      reporting: { reporting: testDatabase.database("reporting") },
-    });
-    app.get("/canary/fail/:sessionId", async () => {
-      throw pendingFailure ?? new Error("no failure was queued");
-    });
-    await app.ready();
+  const app = await buildApp({
+    logger: requestLogger("debug"),
+    definition: { database: testDatabase.database("definition") },
+    execution: { database: testDatabase.database("execution") },
+    reporting: { reporting: testDatabase.database("reporting") },
   });
-
-  afterEach(async () => {
-    await app?.close();
-    app = undefined;
+  app.get("/canary/fail/:sessionId", async () => {
+    throw pendingFailure ?? new Error("no failure was queued");
   });
-
-  return () => {
-    if (app === undefined) {
-      throw new Error("the canary app is built in beforeEach; read it inside a test");
-    }
-    const running = app;
-    return {
-      app: running,
-      testDatabase,
-      injectFailure: async (error, urlSegment) => {
-        pendingFailure = error;
-        const response = await running.inject({ method: "GET", url: `/canary/fail/${urlSegment}` });
-        return response.statusCode;
-      },
-    };
+  await app.ready();
+  return {
+    app,
+    testDatabase,
+    injectFailure: async (error, urlSegment) => {
+      pendingFailure = error;
+      const response = await app.inject({ method: "GET", url: `/canary/fail/${urlSegment}` });
+      return response.statusCode;
+    },
   };
+}
+
+export function runOnCanaryApp(
+  testDatabase: TestDatabase,
+  flow: CanaryFlow<CanaryWorld>,
+  options: CanaryRunOptions = {},
+): Promise<CanaryRun> {
+  const buildsItsOwnApp: CanaryFlow<undefined> = {
+    name: flow.name,
+    run: async (_none, sentinel) => {
+      const world = await buildCanaryWorld(testDatabase);
+      try {
+        await flow.run(world, sentinel);
+      } finally {
+        await world.app.close();
+      }
+    },
+  };
+  return runCanaryFlow(buildsItsOwnApp, undefined, options);
 }

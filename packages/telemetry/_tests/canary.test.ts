@@ -12,7 +12,7 @@ import {
   type CanaryFlow,
   type CapturedTelemetry,
 } from "../src/canary.js";
-import { logger } from "../src/index.js";
+import { logger, withSpan } from "../src/index.js";
 import { installTestTelemetry } from "../src/testing.js";
 import { SESSION_ID, QUESTIONNAIRE_ID } from "./fixtures.js";
 
@@ -149,6 +149,19 @@ describe("canary runner: runCanaryFlow", () => {
     expect(logged.exposures).toEqual([]);
   });
 
+  it("lists the names of the spans the flow exported", async () => {
+    const spanning: CanaryFlow<object> = {
+      name: "spans",
+      run: async () => {
+        await withSpan("session.submit", {}, async () => undefined);
+      },
+    };
+
+    const run = await runCanaryFlow(spanning, {});
+
+    expect(run.spanNames).toEqual(["session.submit"]);
+  });
+
   it("reports an exposure when the flow leaks through a channel the types alone guard", async () => {
     const leaky: CanaryFlow<object> = {
       name: "casts the sentinel into a message",
@@ -192,20 +205,20 @@ describe("canary runner: runCanaryFlow", () => {
 });
 
 describe("canary assertion: expectCleanRun", () => {
-  const clean = { exposures: [], observed: { log: 1, span: 0, metric: 0 } };
+  const clean = { exposures: [], observed: { log: 1, span: 0, metric: 0 }, spanNames: [] };
 
   it("passes a run that emitted telemetry and leaked nothing", () => {
     expect(() => expectCleanRun("clean", clean)).not.toThrow();
   });
 
   it("throws a plain Error naming the flow, the signal and the leaking item", () => {
-    const leaky = { exposures: [{ signal: "span" as const, name: "GET" }], observed: { log: 0, span: 1, metric: 0 } };
+    const leaky = { exposures: [{ signal: "span" as const, name: "GET" }], observed: { log: 0, span: 1, metric: 0 }, spanNames: ["GET"] };
 
     expect(() => expectCleanRun("leaky flow", leaky)).toThrow(/TELEMETRY CANARY FAILED: "leaky flow".*span: GET/);
   });
 
   it("throws for a run that emitted nothing, so a silent flow cannot pass", () => {
-    const silent = { exposures: [], observed: { log: 0, span: 0, metric: 0 } };
+    const silent = { exposures: [], observed: { log: 0, span: 0, metric: 0 }, spanNames: [] };
 
     expect(() => expectCleanRun("silent flow", silent)).toThrow(/TELEMETRY CANARY VACUOUS: "silent flow"/);
   });
