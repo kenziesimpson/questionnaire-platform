@@ -48,6 +48,7 @@ error ([`docs/10-frontend.md`](../../docs/10-frontend.md) §5.2, Decisions Log #
 | `src/screens/questionnaire-list.tsx`, `questionnaire-list/` | The list, the create dialog, the closing-date dialog, and the status and date labels |
 | `src/screens/draft-editor.tsx`, `draft-editor/` | The item list and reorder, the bank picker, the predicate editor, the publish-checks panel, the author-facing `DraftItemCode` catalogue and the refused-write notice |
 | `src/screens/question-bank.tsx`, `question-bank/` | The bank, its usage column and the archive confirmation |
+| `src/screens/responses-list.tsx`, `responses-list/`, `response-detail.tsx`, `response-detail/` | The sessions list — filters, the Started and Submitted sort headers (`sort-header.tsx`, `sorting.ts`), Previous / Next paging — and the session detail screen, which takes its neighbours from the same list query so it follows the list's sort |
 | `src/screens/version-history.tsx` | Published versions newest first, with the open draft above them |
 | `src/screens/version-preview.tsx`, `version-preview/` | One snapshot through the `@qp/ui` renderer in `readonly` mode (`preview-body.tsx`), and the sample-answers panel |
 

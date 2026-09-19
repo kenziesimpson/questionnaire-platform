@@ -1,4 +1,4 @@
-import { Uuid, type SessionStatus } from "@qp/shared";
+import { Uuid, type SessionSort, type SessionStatus, type SortOrder } from "@qp/shared";
 import type { QueryClient } from "@tanstack/react-query";
 import {
   createRootRouteWithContext,
@@ -40,6 +40,8 @@ const parseQuestionnaireId = parseUuid;
 export interface ResponsesSearch {
   version?: number;
   status?: SessionStatus;
+  sort?: Exclude<SessionSort, "started">;
+  order?: Exclude<SortOrder, "desc">;
   cursor?: string;
 }
 
@@ -47,8 +49,10 @@ function parseResponsesSearch(search: Record<string, unknown>): ResponsesSearch 
   const rawVersion = search.version;
   const version = typeof rawVersion === "string" || typeof rawVersion === "number" ? Number(rawVersion) : NaN;
   const status = search.status === "submitted" || search.status === "in_progress" ? search.status : undefined;
+  const sort = search.sort === "submitted" ? search.sort : undefined;
+  const order = search.order === "asc" ? search.order : undefined;
   const cursor = typeof search.cursor === "string" && search.cursor !== "" ? search.cursor : undefined;
-  return { version: Number.isInteger(version) && version >= 1 ? version : undefined, status, cursor };
+  return { version: Number.isInteger(version) && version >= 1 ? version : undefined, status, sort, order, cursor };
 }
 
 function parseVersion(raw: string): number {
