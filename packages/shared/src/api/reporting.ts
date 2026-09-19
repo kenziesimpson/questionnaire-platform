@@ -1,6 +1,6 @@
 import Type from "typebox";
 import { PositiveInt, Uuid, strict } from "../primitives.js";
-import { SessionDetail, SessionSummaryPage } from "../domain/session-report.js";
+import { SessionDetail, SessionSort, SessionSummaryPage, SortOrder } from "../domain/session-report.js";
 import { SessionStatus } from "../domain/session.js";
 import { defineRoute } from "./route.js";
 
@@ -13,6 +13,8 @@ const SessionListQuery = Type.Object(
   {
     version: Type.Optional(PositiveInt),
     status: Type.Optional(SessionStatus),
+    sort: Type.Optional(SessionSort),
+    order: Type.Optional(SortOrder),
     cursor: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
   },
   strict,

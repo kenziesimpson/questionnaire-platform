@@ -26,6 +26,8 @@ export async function reportingModule(scope: FastifyInstance, { reporting }: Rep
       questionnaireId: request.params.id,
       status: request.query.status,
       version: request.query.version,
+      sort: request.query.sort,
+      order: request.query.order,
       cursor: request.query.cursor,
     });
     return { status: 200, body: page };

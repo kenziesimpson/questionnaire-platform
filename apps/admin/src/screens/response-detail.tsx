@@ -33,8 +33,8 @@ function BackToResponses({ questionnaireId, search }: { questionnaireId: string;
 interface PageContext {
   readonly index: number;
   readonly count: number;
-  readonly newerSessionId: string | undefined;
-  readonly olderSessionId: string | undefined;
+  readonly previousSessionId: string | undefined;
+  readonly nextSessionId: string | undefined;
 }
 
 function usePageContext(questionnaireId: string, sessionId: string, search: ReturnType<typeof route.useSearch>): PageContext | undefined {
@@ -44,8 +44,8 @@ function usePageContext(questionnaireId: string, sessionId: string, search: Retu
   return {
     index,
     count: data.items.length,
-    newerSessionId: index > 0 ? data.items[index - 1]?.sessionId : undefined,
-    olderSessionId: index >= 0 && index < data.items.length - 1 ? data.items[index + 1]?.sessionId : undefined,
+    previousSessionId: index > 0 ? data.items[index - 1]?.sessionId : undefined,
+    nextSessionId: index >= 0 && index < data.items.length - 1 ? data.items[index + 1]?.sessionId : undefined,
   };
 }
 
@@ -92,12 +92,12 @@ function SessionNav({
           {context.index + 1} of {context.count} on this page
         </span>
       ) : null}
-      <NeighborButton questionnaireId={questionnaireId} sessionId={context?.newerSessionId} search={search}>
+      <NeighborButton questionnaireId={questionnaireId} sessionId={context?.previousSessionId} search={search}>
         <ArrowLeftIcon size={14} />
-        Newer session
+        Previous session
       </NeighborButton>
-      <NeighborButton questionnaireId={questionnaireId} sessionId={context?.olderSessionId} search={search}>
-        Older session
+      <NeighborButton questionnaireId={questionnaireId} sessionId={context?.nextSessionId} search={search}>
+        Next session
         <ArrowRightIcon size={14} />
       </NeighborButton>
     </div>

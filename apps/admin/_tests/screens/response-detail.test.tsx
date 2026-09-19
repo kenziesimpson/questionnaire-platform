@@ -44,6 +44,7 @@ interface Serving {
   details?: SessionDetail[];
   detail?: () => Response;
   page?: SessionSummaryPage;
+  pageFor?: (query: URLSearchParams) => SessionSummaryPage;
   versions?: () => Response;
 }
 
@@ -51,12 +52,16 @@ function serve({
   details = [aSessionDetail(1)],
   detail,
   page = aSessionPage([aSessionSummary(1)]),
+  pageFor = () => page,
   versions = () => jsonResponse(200, LATEST_IS_2),
 }: Serving = {}): Reply {
   return ({ url }) => {
     if (url === LIST_URL) return jsonResponse(200, [SUMMARY]);
     if (url === VERSIONS_URL) return versions();
-    if (url.split("?")[0]?.endsWith("/responses")) return contractResponse(reportingApi.listSessions, 200, page);
+    if (url.split("?")[0]?.endsWith("/responses")) {
+      const query = new URL(url, "http://localhost").searchParams;
+      return contractResponse(reportingApi.listSessions, 200, pageFor(query));
+    }
     const found = details.find((candidate) => url === sessionUrl(candidate.sessionId));
     if (found !== undefined || detail !== undefined) {
       return detail === undefined ? contractResponse(reportingApi.getSessionDetail, 200, found) : detail();
@@ -294,46 +299,46 @@ describe("the response detail screen", () => {
     const three = aSessionPage([aSessionSummary(3), aSessionSummary(2), aSessionSummary(1)]);
     const details = [aSessionDetail(3), aSessionDetail(2), aSessionDetail(1)];
 
-    it("links to the newer and older neighbours on the page, keeping the filters, and says where this one sits", async () => {
+    it("links to the previous and next neighbours on the page, keeping the filters, and says where this one sits", async () => {
       renderDetail(serve({ details, page: three }), 2, "?status=submitted");
 
-      const newer = await screen.findByRole("link", { name: /Newer session/ });
-      const older = screen.getByRole("link", { name: /Older session/ });
+      const previous = await screen.findByRole("link", { name: /Previous session/ });
+      const next = screen.getByRole("link", { name: /Next session/ });
 
       expect(await screen.findByText("2 of 3 on this page")).toBeInTheDocument();
-      for (const [link, neighbour] of [[newer, 3], [older, 1]] as const) {
+      for (const [link, neighbour] of [[previous, 3], [next, 1]] as const) {
         const href = new URL(link.getAttribute("href") ?? "", "http://localhost");
         expect(href.pathname).toBe(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${sessionIdOf(neighbour)}`);
         expect(href.searchParams.get("status")).toBe("submitted");
       }
     });
 
-    it("opens the older session when Older session is followed, and then has no older one to offer if it was the last", async () => {
+    it("opens the next session when Next session is followed, and then has no next one to offer if it was the last", async () => {
       const { router } = renderDetail(serve({ details, page: three }), 2);
 
-      await userEvent.click(await screen.findByRole("link", { name: /Older session/ }));
+      await userEvent.click(await screen.findByRole("link", { name: /Next session/ }));
 
       expect(await screen.findByRole("heading", { level: 1, name: new RegExp(`Session ${shortIdOf(1)}`) })).toBeInTheDocument();
       expect(router.state.location.pathname).toBe(`/questionnaires/${QUESTIONNAIRE_ID}/responses/${sessionIdOf(1)}`);
       expect(await screen.findByText("3 of 3 on this page")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Older session/ })).toBeDisabled();
-      expect(screen.getByRole("link", { name: /Newer session/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Next session/ })).toBeDisabled();
+      expect(screen.getByRole("link", { name: /Previous session/ })).toBeInTheDocument();
     });
 
-    it("has no newer session to offer on the first row of a page", async () => {
+    it("has no previous session to offer on the first row of a page", async () => {
       renderDetail(serve({ details, page: three }), 3);
 
       expect(await screen.findByText("1 of 3 on this page")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Newer session/ })).toBeDisabled();
-      expect(screen.getByRole("link", { name: /Older session/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Previous session/ })).toBeDisabled();
+      expect(screen.getByRole("link", { name: /Next session/ })).toBeInTheDocument();
     });
 
     it("offers neither, and no position, for the only session on a page", async () => {
       renderDetail(serve());
 
       expect(await screen.findByText("1 of 1 on this page")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Newer session/ })).toBeDisabled();
-      expect(screen.getByRole("button", { name: /Older session/ })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /Previous session/ })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /Next session/ })).toBeDisabled();
     });
 
     it("offers neither, and no position, when the session is not on the page it was opened from", async () => {
@@ -342,8 +347,85 @@ describe("the response detail screen", () => {
       await findItems();
 
       await waitFor(() => expect(screen.queryByText(/on this page/)).not.toBeInTheDocument());
-      expect(screen.getByRole("button", { name: /Newer session/ })).toBeDisabled();
-      expect(screen.getByRole("button", { name: /Older session/ })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /Previous session/ })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /Next session/ })).toBeDisabled();
+    });
+  });
+
+  describe("moving between sessions in a sorted list", () => {
+    const details = [aSessionDetail(1), aSessionDetail(2), aSessionDetail(3)];
+    const ascending = aSessionPage([aSessionSummary(1), aSessionSummary(2), aSessionSummary(3)]);
+    const descending = aSessionPage([aSessionSummary(3), aSessionSummary(2), aSessionSummary(1)]);
+    const byOrder = (query: URLSearchParams) => (query.get("order") === "asc" ? ascending : descending);
+
+    function hrefOf(link: HTMLElement): URL {
+      return new URL(link.getAttribute("href") ?? "", "http://localhost");
+    }
+
+    it("asks the list for the same sort, order, filters and cursor the session was opened from", async () => {
+      const { requests } = renderDetail(
+        serve({ details, pageFor: byOrder }),
+        2,
+        "?status=submitted&version=1&sort=submitted&order=asc&cursor=cursor-next",
+      );
+
+      await screen.findByText("2 of 3 on this page");
+
+      const listRequests = requests.filter(({ url }) => url.split("?")[0]?.endsWith("/responses"));
+      expect(listRequests.map(({ url }) => Object.fromEntries(new URL(url, "http://localhost").searchParams))).toEqual([
+        { status: "submitted", version: "1", sort: "submitted", order: "asc", cursor: "cursor-next" },
+      ]);
+    });
+
+    it("takes Previous and Next from the sorted page, so an ascending page reverses them against a descending one", async () => {
+      renderDetail(serve({ details, pageFor: byOrder }), 2, "?sort=submitted&order=asc");
+
+      const previous = await screen.findByRole("link", { name: /Previous session/ });
+      const next = screen.getByRole("link", { name: /Next session/ });
+
+      expect(hrefOf(previous).pathname).toBe(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${sessionIdOf(1)}`);
+      expect(hrefOf(next).pathname).toBe(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${sessionIdOf(3)}`);
+    });
+
+    it("does the opposite for the descending page of the same sessions", async () => {
+      renderDetail(serve({ details, pageFor: byOrder }), 2, "?sort=submitted");
+
+      const previous = await screen.findByRole("link", { name: /Previous session/ });
+      const next = screen.getByRole("link", { name: /Next session/ });
+
+      expect(hrefOf(previous).pathname).toBe(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${sessionIdOf(3)}`);
+      expect(hrefOf(next).pathname).toBe(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${sessionIdOf(1)}`);
+    });
+
+    it("keeps the sort, order, filters and cursor on both neighbours and on the way back to the list", async () => {
+      renderDetail(serve({ details, pageFor: byOrder }), 2, "?status=submitted&sort=submitted&order=asc&cursor=cursor-next");
+
+      const links = [
+        await screen.findByRole("link", { name: /Previous session/ }),
+        screen.getByRole("link", { name: /Next session/ }),
+        screen.getByRole("link", { name: "Back to responses" }),
+      ];
+
+      for (const link of links) {
+        expect(Object.fromEntries(hrefOf(link).searchParams)).toEqual({
+          status: "submitted",
+          sort: "submitted",
+          order: "asc",
+          cursor: "cursor-next",
+        });
+      }
+    });
+
+    it("carries the sort through to the next session when Next session is followed", async () => {
+      const { router, requests } = renderDetail(serve({ details, pageFor: byOrder }), 2, "?sort=submitted&order=asc");
+
+      await userEvent.click(await screen.findByRole("link", { name: /Next session/ }));
+
+      expect(await screen.findByRole("heading", { level: 1, name: new RegExp(`Session ${shortIdOf(3)}`) })).toBeInTheDocument();
+      expect(router.state.location.search).toEqual({ sort: "submitted", order: "asc" });
+      expect(await screen.findByText("3 of 3 on this page")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Next session/ })).toBeDisabled();
+      expect(requests.some(({ url }) => url.includes("sort=submitted") && url.includes("order=asc"))).toBe(true);
     });
   });
 

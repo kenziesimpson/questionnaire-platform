@@ -1,6 +1,15 @@
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
-import { RESPONSES_PAGE_SIZE, SessionDetail, SessionSummary, SessionSummaryPage } from "../../src/domain/session-report.js";
+import {
+  DEFAULT_SESSION_SORT,
+  DEFAULT_SORT_ORDER,
+  RESPONSES_PAGE_SIZE,
+  SessionDetail,
+  SessionSort,
+  SessionSummary,
+  SessionSummaryPage,
+  SortOrder,
+} from "../../src/domain/session-report.js";
 
 const summary = {
   sessionId: "01a0950e-56a0-73d6-b936-4a1e10eff8c1",
@@ -52,6 +61,18 @@ describe("the page size", () => {
   });
 });
 
+describe("the sort", () => {
+  it("defaults to the newest started session first, which is what the list did before it could be sorted", () => {
+    expect([DEFAULT_SESSION_SORT, DEFAULT_SORT_ORDER]).toEqual(["started", "desc"]);
+  });
+
+  it("is one of two timestamp columns, in one of two directions", () => {
+    expect(["started", "submitted"].every((sort) => Value.Check(SessionSort, sort))).toBe(true);
+    expect(["asc", "desc"].every((order) => Value.Check(SortOrder, order))).toBe(true);
+    expect(["id", "startedAt", "", "ASC"].some((value) => Value.Check(SessionSort, value) || Value.Check(SortOrder, value))).toBe(false);
+  });
+});
+
 describe("SessionSummary", () => {
   it("accepts a submitted session and an in-progress one with no submit time", () => {
     expect(Value.Check(SessionSummary, summary)).toBe(true);
@@ -77,13 +98,13 @@ describe("SessionSummary", () => {
 
 describe("SessionSummaryPage", () => {
   it("carries its neighbours as cursors or null, and has no total", () => {
-    expect(Value.Check(SessionSummaryPage, { items: [summary], olderCursor: "abc", newerCursor: null })).toBe(true);
-    expect(Value.Check(SessionSummaryPage, { items: [], olderCursor: null, newerCursor: null })).toBe(true);
-    expect(Value.Check(SessionSummaryPage, { items: [], olderCursor: null, newerCursor: null, total: 0 })).toBe(false);
+    expect(Value.Check(SessionSummaryPage, { items: [summary], previousCursor: "abc", nextCursor: null })).toBe(true);
+    expect(Value.Check(SessionSummaryPage, { items: [], previousCursor: null, nextCursor: null })).toBe(true);
+    expect(Value.Check(SessionSummaryPage, { items: [], previousCursor: null, nextCursor: null, total: 0 })).toBe(false);
   });
 
   it("requires both cursors to be present, so a client can tell no page from a missing field", () => {
-    expect(Value.Check(SessionSummaryPage, { items: [], olderCursor: null })).toBe(false);
+    expect(Value.Check(SessionSummaryPage, { items: [], previousCursor: null })).toBe(false);
   });
 });
 

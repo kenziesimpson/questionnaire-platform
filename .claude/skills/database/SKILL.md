@@ -97,8 +97,28 @@ check instead, the change is wrong.
   which can write. A test enumerates the role's privileges, so a widening fails loudly.
 - **Read `response` with its partition key.** Filter on `created_at` as well as `session_id` (a submitted session's
   `submitted_at` *is* its rows' `created_at`), or the read scans all 36 partitions. Keyset pages compare the row,
-  `(started_at, id) < ($1, $2)`, never `a < $1 OR (a = $1 AND b < $2)`: only the row form is an index seek on
-  `session_by_questionnaire`.
+  `(col, id) < ($1, $2)`, never `a < $1 OR (a = $1 AND b < $2)`: only the row form is an index seek.
+- **The sessions list sorts by `started_at` or `submitted_at`, either way (Decisions Log #90).** The column and direction
+  come from a closed enum mapped to fixed columns and fixed SQL fragments in `db/reporting/keyset.ts`; nothing a client
+  sends is interpolated. `started_at` is `NOT NULL`, so `session_by_questionnaire` serves both directions. `submitted_at` is
+  `NULL` for an in-progress session and **`NULL`s sort last in both directions**. Row comparison is never true over a
+  `NULL`, so the keyset is written out: the row form for the non-null run, then `IS NULL`, and `IS NULL AND id …` inside the
+  tail, one statement per segment; a `status` filter drops the segment it makes impossible, so a filtered page is one statement and no transaction. **A btree scanned backward flips its `NULL` placement, so ascending-`NULLS LAST`
+  and descending-`NULLS LAST` need two indexes** (`session_by_questionnaire_submitted_asc` / `_desc`, migration `0019`); an
+  `ORDER BY` whose `NULLS` clause does not match an index is a `Sort` node, not a scan, even on a `NOT NULL` column. A change to
+  the query or the indexes is checked by `_tests/db/reporting/sessions.test.ts`, which `EXPLAIN`s every sort, order and
+  direction and, for the unfiltered shape, fails on a `Sort` node or a keyset that is not an `Index Cond`. **That is an
+  unfiltered guarantee:** no index carries `status` or `version`, so under a filter the test holds `status=submitted`
+  and the common `version` to the same index plan plus a `Filter`, holds `sort=submitted&status=in_progress` to the sorted
+  index with `submitted_at IS NULL` in its `Index Cond` and no rows removed by the filter (the first page carries that
+  predicate, which the `session_state` check makes redundant in result and decisive for the plan; without it the planner
+  walks the whole submitted run once 1% of a questionnaire is in progress), bounds `sort=started&status=in_progress` by rows
+  examined, and pins only the node types for a rare `version` (which reads the whole table), the one filtered shape still
+  unbounded (Decisions Log #90). The test seeds deterministic ids and full statistics so its plans do not vary between runs. Cursors carry sort and order and are
+  validated field by field; a mismatched or forged one reads as no cursor. **The cursor holds a millisecond `Date`, so
+  write `started_at`, `submitted_at` and `last_activity_at` as millisecond `Date`s and never let the `DEFAULT now()`
+  fill one for a row a list can show:** the schema does not enforce it and a microsecond value can be skipped or repeated
+  across a page (known bug, [issue #120](https://github.com/kenziesimpson/questionnaire-platform/issues/120)).
 - **Take the lock first.** Three operations need a row lock as their *first* statement:
 
   | Operation | Lock |

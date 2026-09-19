@@ -134,6 +134,13 @@
       "when": 1789781751987,
       "tag": "0018_reporting_reads_published_versions_only",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789789095747,
+      "tag": "0019_add_session_submitted_indexes",
+      "breakpoints": true
     }
   ]
 }

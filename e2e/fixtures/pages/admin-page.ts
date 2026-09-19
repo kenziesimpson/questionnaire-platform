@@ -13,6 +13,8 @@ export const ADMIN_HEADINGS = {
 export interface ResponsesSearch {
   readonly version?: number;
   readonly status?: string;
+  readonly sort?: string;
+  readonly order?: string;
   readonly cursor?: string;
 }
 
@@ -20,10 +22,14 @@ function responsesSearchString(search: ResponsesSearch): string {
   const params = new URLSearchParams();
   if (search.version !== undefined) params.set("version", String(search.version));
   if (search.status !== undefined) params.set("status", search.status);
+  if (search.sort !== undefined) params.set("sort", search.sort);
+  if (search.order !== undefined) params.set("order", search.order);
   if (search.cursor !== undefined) params.set("cursor", search.cursor);
   const query = params.toString();
   return query === "" ? "" : `?${query}`;
 }
+
+export type ResponsesSortColumn = "Started" | "Submitted";
 
 export const ADMIN_PATHS = {
   root: `${ADMIN_BASE_PATH}/`,
@@ -196,20 +202,42 @@ export class AdminPage {
     return this.page.getByLabel("Status", { exact: true });
   }
 
-  newerPageButton(): Locator {
-    return this.page.getByRole("button", { name: "Newer", exact: true });
+  previousPageButton(): Locator {
+    return this.page.getByRole("button", { name: "Previous", exact: true });
   }
 
-  olderPageButton(): Locator {
-    return this.page.getByRole("button", { name: "Older", exact: true });
+  nextPageButton(): Locator {
+    return this.page.getByRole("button", { name: "Next", exact: true });
   }
 
-  newerSessionButton(): Locator {
-    return this.page.getByRole("link", { name: "Newer session", exact: true }).or(this.page.getByRole("button", { name: "Newer session", exact: true }));
+  backToFirstPageButton(): Locator {
+    return this.page.getByRole("button", { name: "Back to the first page", exact: true });
   }
 
-  olderSessionButton(): Locator {
-    return this.page.getByRole("link", { name: "Older session", exact: true }).or(this.page.getByRole("button", { name: "Older session", exact: true }));
+  previousSessionButton(): Locator {
+    return this.page
+      .getByRole("link", { name: "Previous session", exact: true })
+      .or(this.page.getByRole("button", { name: "Previous session", exact: true }));
+  }
+
+  nextSessionButton(): Locator {
+    return this.page
+      .getByRole("link", { name: "Next session", exact: true })
+      .or(this.page.getByRole("button", { name: "Next session", exact: true }));
+  }
+
+  sortHeader(column: ResponsesSortColumn): Locator {
+    return this.page.getByRole("columnheader", { name: column, exact: true });
+  }
+
+  sortButton(column: ResponsesSortColumn): Locator {
+    return this.sortHeader(column).getByRole("button", { name: column, exact: true });
+  }
+
+  async sessionIdsInRowOrder(): Promise<string[]> {
+    const links = await this.page.getByRole("link", { name: /^Open session / }).all();
+    const labels = await Promise.all(links.map((link) => link.getAttribute("aria-label")));
+    return labels.map((label) => (label ?? "").replace("Open session ", ""));
   }
 
   sessionPanel(): Locator {

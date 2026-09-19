@@ -35,8 +35,8 @@ export function anInProgressSummary(n: number, overrides: Partial<SessionSummary
   return aSessionSummary(n, { status: "in_progress", submittedAt: null, answeredCount: 0, hiddenCount: 0, ...overrides });
 }
 
-export function aSessionPage(items: SessionSummary[], cursors: { older?: string; newer?: string } = {}): SessionSummaryPage {
-  return { items, olderCursor: cursors.older ?? null, newerCursor: cursors.newer ?? null };
+export function aSessionPage(items: SessionSummary[], cursors: { previous?: string; next?: string } = {}): SessionSummaryPage {
+  return { items, previousCursor: cursors.previous ?? null, nextCursor: cursors.next ?? null };
 }
 
 type ItemState = Pick<SessionDetailItem, "visible" | "answer">;
