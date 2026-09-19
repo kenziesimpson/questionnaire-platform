@@ -13,13 +13,22 @@ const publishedQuestionnaireVersion = definitionSchema
   .existing();
 
 export class PublishedDefinitions {
-  readonly #byVersionId = new Map<string, PublishedDefinition>();
+  readonly #byVersionId = new Map<string, Promise<PublishedDefinition>>();
 
-  async pinned(executor: Executor, questionnaireVersionId: string): Promise<PublishedDefinition> {
+  pinned(executor: Executor, questionnaireVersionId: string): Promise<PublishedDefinition> {
     const cached = this.#byVersionId.get(questionnaireVersionId);
     if (cached !== undefined) {
       return cached;
     }
+    const loading = this.#load(executor, questionnaireVersionId);
+    this.#byVersionId.set(questionnaireVersionId, loading);
+    loading.catch(() => {
+      this.#byVersionId.delete(questionnaireVersionId);
+    });
+    return loading;
+  }
+
+  async #load(executor: Executor, questionnaireVersionId: string): Promise<PublishedDefinition> {
     const [row] = await executor
       .select({ snapshot: publishedQuestionnaireVersion.snapshot, formatVersion: publishedQuestionnaireVersion.formatVersion })
       .from(publishedQuestionnaireVersion)
@@ -27,8 +36,6 @@ export class PublishedDefinitions {
     if (row === undefined) {
       throw new Error("a session pins a questionnaire version that is not published");
     }
-    const definition = readStoredDefinition(row.snapshot, row.formatVersion);
-    this.#byVersionId.set(questionnaireVersionId, definition);
-    return definition;
+    return readStoredDefinition(row.snapshot, row.formatVersion);
   }
 }

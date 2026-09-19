@@ -120,6 +120,44 @@ describe("GET /questionnaires/:id/responses", () => {
     ).json<SessionSummaryPage>();
     expect(backToFirst.items.map((item) => item.sessionId)).toEqual(newestFirst.slice(0, RESPONSES_PAGE_SIZE));
   });
+
+  it("keeps the (startedAt, id) tiebreak: sessions sharing one startedAt across a page boundary are neither dropped nor repeated", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const execution = await testDatabase.connect("execution");
+    const base = new Date("2026-09-01T00:00:00.000Z").getTime();
+    const tied = new Date(base);
+    const distinctlyNewer = RESPONSES_PAGE_SIZE - 3;
+    const tiedCount = 8;
+    const stored: { id: string; startedAt: Date }[] = [];
+    for (let i = 0; i < distinctlyNewer; i += 1) {
+      const startedAt = new Date(base + (i + 1) * 60_000);
+      stored.push({ id: await aSessionStartedAt(execution, published, startedAt), startedAt });
+    }
+    for (let i = 0; i < tiedCount; i += 1) {
+      stored.push({ id: await aSessionStartedAt(execution, published, tied), startedAt: tied });
+    }
+    const newestFirst = stored
+      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+      .map((entry) => entry.id);
+
+    const firstPage = (await listSessions(published.questionnaireId)).json<SessionSummaryPage>();
+    const secondPage = (
+      await listSessions(published.questionnaireId, { cursor: firstPage.olderCursor! })
+    ).json<SessionSummaryPage>();
+    const firstIds = firstPage.items.map((item) => item.sessionId);
+    const secondIds = secondPage.items.map((item) => item.sessionId);
+
+    expect(firstIds).toEqual(newestFirst.slice(0, RESPONSES_PAGE_SIZE));
+    expect(secondIds).toEqual(newestFirst.slice(RESPONSES_PAGE_SIZE));
+    expect(secondIds.length).toBeGreaterThan(0);
+    expect(new Set([...firstIds, ...secondIds]).size).toBe(stored.length);
+    expect(secondPage.olderCursor).toBeNull();
+
+    const backToFirst = (
+      await listSessions(published.questionnaireId, { cursor: secondPage.newerCursor! })
+    ).json<SessionSummaryPage>();
+    expect(backToFirst.items.map((item) => item.sessionId)).toEqual(firstIds);
+  });
 });
 
 describe("GET /questionnaires/:id/responses/:sessionId", () => {

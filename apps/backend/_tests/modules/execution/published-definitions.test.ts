@@ -1,6 +1,7 @@
 import { FORMAT_VERSION, PROBLEM_CONTENT_TYPE, problemType } from "@qp/shared";
 import { describe, expect, it } from "vitest";
-import { aQuestionnairePublishedAs, useTestDatabase } from "../../db/fixtures.js";
+import { PublishedDefinitions } from "../../../src/db/execution/published-definitions.js";
+import { aPublishedQuestionnaire, aQuestionnairePublishedAs, useTestDatabase } from "../../db/fixtures.js";
 import { problemOf, startSession } from "./fixtures.js";
 import { useExecutionApp } from "./harness.js";
 
@@ -23,5 +24,30 @@ describe("a pinned snapshot the loader refuses", () => {
     expect(response.body).not.toContain("PublishedDefinition");
     const execution = await testDatabase.connect("execution");
     expect((await execution.query("SELECT count(*)::int AS n FROM execution.session")).rows[0].n).toBe(0);
+  });
+});
+
+describe("PublishedDefinitions", () => {
+  it("shares one in-flight load between callers asking for the same version", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const execution = testDatabase.database("execution");
+    const definitions = new PublishedDefinitions();
+
+    const first = definitions.pinned(execution, published.draftVersionId);
+    const second = definitions.pinned(execution, published.draftVersionId);
+
+    expect(second).toBe(first);
+    expect(await first).toBe(await second);
+  });
+
+  it("does not keep a failed load, so the next caller tries again", async () => {
+    const execution = testDatabase.database("execution");
+    const definitions = new PublishedDefinitions();
+    const unknownVersion = "00000000-0000-0000-0000-000000000000";
+
+    const failed = definitions.pinned(execution, unknownVersion);
+    await expect(failed).rejects.toThrow("not published");
+
+    expect(definitions.pinned(execution, unknownVersion)).not.toBe(failed);
   });
 });

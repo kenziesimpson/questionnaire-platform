@@ -11,7 +11,6 @@ export function useReportingApp(testDatabase: TestDatabase): () => FastifyInstan
     app = Fastify();
     await app.register(reportingModule, {
       reporting: testDatabase.database("reporting"),
-      snapshots: testDatabase.database("execution"),
       prefix: reportingApi.REPORTING_PREFIX,
     });
     await app.ready();

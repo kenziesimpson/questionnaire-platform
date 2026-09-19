@@ -1,5 +1,5 @@
 import type { ClientAnswers, ClientAnswerValue, ResponseRow } from "@qp/shared";
-import { inArray } from "drizzle-orm";
+import { and, inArray } from "drizzle-orm";
 import type { Executor } from "../client.js";
 import { response } from "../schema.js";
 
@@ -71,15 +71,25 @@ function responseRowOf(row: StoredResponseRow): ResponseRow {
   }
 }
 
+export interface SubmittedSessionRef {
+  readonly id: string;
+  readonly submittedAt: Date;
+}
+
 export async function responseRowsBySession(
   executor: Executor,
-  sessionIds: readonly string[],
+  sessions: readonly SubmittedSessionRef[],
 ): Promise<ReadonlyMap<string, ResponseRow[]>> {
   const grouped = new Map<string, ResponseRow[]>();
-  if (sessionIds.length === 0) {
+  if (sessions.length === 0) {
     return grouped;
   }
-  const rows = await executor.select(responseColumns).from(response).where(inArray(response.sessionId, sessionIds));
+  const sessionIds = sessions.map((ref) => ref.id);
+  const partitionKeys = [...new Map(sessions.map((ref) => [ref.submittedAt.getTime(), ref.submittedAt])).values()];
+  const rows = await executor
+    .select(responseColumns)
+    .from(response)
+    .where(and(inArray(response.sessionId, sessionIds), inArray(response.createdAt, partitionKeys)));
   for (const row of rows) {
     const stored: StoredResponseRow = row;
     const bucket = grouped.get(stored.sessionId);

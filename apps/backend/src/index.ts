@@ -16,7 +16,7 @@ const app = await buildApp({
   },
   definition: { database: definition.db },
   execution: { database: execution.db },
-  reporting: { reporting: reporting.db, snapshots: execution.db },
+  reporting: { reporting: reporting.db },
 });
 
 app.addHook("onClose", async () => {

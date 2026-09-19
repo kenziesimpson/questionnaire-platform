@@ -5,27 +5,24 @@ import { PublishedDefinitions } from "../../db/execution/published-definitions.j
 import { getSessionDetail, listSessionSummaries, questionnaireExistsForReporting } from "../../db/reporting/sessions.js";
 import { applyHttpDefaults, notFoundProblem, replyWithProblem } from "../../http/problems.js";
 import { registerRoute } from "../../http/routes.js";
-import { authenticateAdmin } from "./admin.js";
 
 export interface ReportingModuleOptions {
   readonly reporting: Database;
-  readonly snapshots: Database;
 }
 
-export async function reportingModule(scope: FastifyInstance, { reporting, snapshots }: ReportingModuleOptions): Promise<void> {
+export async function reportingModule(scope: FastifyInstance, { reporting }: ReportingModuleOptions): Promise<void> {
   const definitions = new PublishedDefinitions();
 
   applyHttpDefaults(scope, replyWithProblem);
-  scope.addHook("onRequest", authenticateAdmin);
   scope.addHook("onSend", async (_request, reply) => {
     reply.header("cache-control", "no-store");
   });
 
   registerRoute(scope, reportingApi.listSessions, async (request) => {
-    if (!(await questionnaireExistsForReporting(snapshots, request.params.id))) {
+    if (!(await questionnaireExistsForReporting(reporting, request.params.id))) {
       return notFoundProblem();
     }
-    const page = await listSessionSummaries(reporting, definitions, snapshots, {
+    const page = await listSessionSummaries(reporting, definitions, {
       questionnaireId: request.params.id,
       status: request.query.status,
       version: request.query.version,
@@ -35,7 +32,7 @@ export async function reportingModule(scope: FastifyInstance, { reporting, snaps
   });
 
   registerRoute(scope, reportingApi.getSessionDetail, async (request) => {
-    const outcome = await getSessionDetail(reporting, definitions, snapshots, request.params.id, request.params.sessionId);
+    const outcome = await getSessionDetail(reporting, definitions, request.params.id, request.params.sessionId);
     if (outcome.outcome !== "found") {
       return notFoundProblem();
     }

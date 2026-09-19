@@ -7,12 +7,12 @@ import {
   type SessionSummary,
   type SessionSummaryPage,
 } from "@qp/shared";
-import { and, asc, desc, eq, gt, lt, or, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
 import type { Executor } from "../client.js";
 import { PublishedDefinitions } from "../execution/published-definitions.js";
 import { questionnaire, session } from "../schema.js";
 import { decodeCursor, encodeCursor, type SessionCursor } from "./cursor.js";
-import { answersFromResponseRows, responseRowsBySession } from "./responses.js";
+import { answersFromResponseRows, responseRowsBySession, type SubmittedSessionRef } from "./responses.js";
 
 const sessionColumns = {
   id: session.id,
@@ -34,8 +34,12 @@ interface SessionRow {
   readonly submittedAt: Date | null;
 }
 
-export async function questionnaireExistsForReporting(snapshots: Executor, questionnaireId: string): Promise<boolean> {
-  const [row] = await snapshots.select({ id: questionnaire.id }).from(questionnaire).where(eq(questionnaire.id, questionnaireId));
+function submittedRef(row: SessionRow): SubmittedSessionRef | undefined {
+  return row.status === "submitted" && row.submittedAt !== null ? { id: row.id, submittedAt: row.submittedAt } : undefined;
+}
+
+export async function questionnaireExistsForReporting(reporting: Executor, questionnaireId: string): Promise<boolean> {
+  const [row] = await reporting.select({ id: questionnaire.id }).from(questionnaire).where(eq(questionnaire.id, questionnaireId));
   return row !== undefined;
 }
 
@@ -47,23 +51,18 @@ export interface ListSessionsParams {
 }
 
 function keysetCondition(cursor: SessionCursor): SQL {
-  const tuple =
-    cursor.direction === "older"
-      ? or(lt(session.startedAt, cursor.startedAt), and(eq(session.startedAt, cursor.startedAt), lt(session.id, cursor.id)))
-      : or(gt(session.startedAt, cursor.startedAt), and(eq(session.startedAt, cursor.startedAt), gt(session.id, cursor.id)));
-  if (tuple === undefined) {
-    throw new Error("keyset condition builder produced no expression");
-  }
-  return tuple;
+  const operator = cursor.direction === "older" ? "<" : ">";
+  // eslint-disable-next-line no-restricted-syntax -- the row-value comparison is what lets Postgres seek session_by_questionnaire (questionnaire_id, started_at, id) to the cursor; the query builder can only express the OR form, which the index cannot seek
+  return sql`(${session.startedAt}, ${session.id}) ${sql.raw(operator)} (${cursor.startedAt.toISOString()}::timestamptz, ${cursor.id}::uuid)`;
 }
 
 async function summaryOf(
   definitions: PublishedDefinitions,
-  snapshots: Executor,
+  reporting: Executor,
   row: SessionRow,
   responseRows: ReadonlyMap<string, ResponseRow[]>,
 ): Promise<SessionSummary> {
-  const definition = await definitions.pinned(snapshots, row.questionnaireVersionId);
+  const definition = await definitions.pinned(reporting, row.questionnaireVersionId);
   const itemCount = definition.items.length;
   const startedAt = row.startedAt.toISOString();
   if (row.status !== "submitted") {
@@ -97,7 +96,6 @@ async function summaryOf(
 export async function listSessionSummaries(
   reporting: Executor,
   definitions: PublishedDefinitions,
-  snapshots: Executor,
   params: ListSessionsParams,
 ): Promise<SessionSummaryPage> {
   const cursor = params.cursor === undefined ? undefined : decodeCursor(params.cursor);
@@ -125,9 +123,9 @@ export async function listSessionSummaries(
   const hasMoreOlder = cursor === undefined ? hasExtra : cursor.direction === "older" ? hasExtra : true;
   const hasMoreNewer = cursor !== undefined && (cursor.direction === "newer" ? hasExtra : true);
 
-  const submittedIds = page.filter((row) => row.status === "submitted").map((row) => row.id);
-  const responseRows = await responseRowsBySession(reporting, submittedIds);
-  const items = await Promise.all(page.map((row) => summaryOf(definitions, snapshots, row, responseRows)));
+  const submitted = page.flatMap((row) => submittedRef(row) ?? []);
+  const responseRows = await responseRowsBySession(reporting, submitted);
+  const items = await Promise.all(page.map((row) => summaryOf(definitions, reporting, row, responseRows)));
 
   const first = page[0];
   const last = page[page.length - 1];
@@ -143,7 +141,6 @@ export type SessionDetailOutcome = { readonly outcome: "found"; readonly detail:
 export async function getSessionDetail(
   reporting: Executor,
   definitions: PublishedDefinitions,
-  snapshots: Executor,
   questionnaireId: string,
   sessionId: string,
 ): Promise<SessionDetailOutcome> {
@@ -155,8 +152,9 @@ export async function getSessionDetail(
     return { outcome: "not-found" };
   }
 
-  const definition = await definitions.pinned(snapshots, row.questionnaireVersionId);
-  const responseRows = row.status === "submitted" ? (await responseRowsBySession(reporting, [row.id])).get(row.id) ?? [] : [];
+  const definition = await definitions.pinned(reporting, row.questionnaireVersionId);
+  const submitted = submittedRef(row);
+  const responseRows = submitted === undefined ? [] : (await responseRowsBySession(reporting, [submitted])).get(row.id) ?? [];
   const shown = evaluateVisibility(definition, answersFromResponseRows(responseRows));
   const answerByItemId = new Map(responseRows.map((answer) => [answer.itemId, answer]));
 
@@ -170,9 +168,8 @@ export async function getSessionDetail(
       status: row.status,
       startedAt: row.startedAt.toISOString(),
       submittedAt: row.submittedAt === null ? null : row.submittedAt.toISOString(),
-      items: definition.items.map((item, index) => ({
+      items: definition.items.map((item) => ({
         itemId: item.itemId,
-        position: index + 1,
         required: item.required,
         visibleWhen: item.visibleWhen,
         question: item.question,

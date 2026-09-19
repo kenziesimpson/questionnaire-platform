@@ -127,6 +127,13 @@
       "when": 1789779653430,
       "tag": "0017_reporting_role_grant",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789781751987,
+      "tag": "0018_reporting_reads_published_versions_only",
+      "breakpoints": true
     }
   ]
 }

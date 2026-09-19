@@ -12,7 +12,7 @@ beforeAll(async () => {
   app = await buildApp({
     definition: { database: testDatabase.database("definition") },
     execution: { database: testDatabase.database("execution") },
-    reporting: { reporting: testDatabase.database("reporting"), snapshots: testDatabase.database("execution") },
+    reporting: { reporting: testDatabase.database("reporting") },
   });
   await app.ready();
 });

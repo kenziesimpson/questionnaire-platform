@@ -2,7 +2,6 @@ import type pg from "pg";
 import { describe, expect, it } from "vitest";
 import { aDraftWithOneItem, aPublishedQuestionnaire, aSession, insertResponse } from "./fixtures.js";
 import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
-import { aSessionStartedAt } from "../modules/reporting/fixtures.js";
 
 const testDatabase = useTestDatabase();
 
@@ -309,15 +308,75 @@ describe("qp_reporting", () => {
     );
   });
 
-  it("cannot read any definition table, published_questionnaire_version included, or the audit schema", async () => {
-    await aPublishedQuestionnaire(testDatabase.database("definition"));
+  it("reads the published-versions view and the questionnaire id, and nothing else in definition", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
     const reporting = await testDatabase.connect("reporting");
 
-    for (const table of ["definition.questionnaire", "definition.questionnaire_version", "definition.published_questionnaire_version", ...AUTHORING_TABLES]) {
+    const versions = await reporting.query(
+      `SELECT id, version FROM definition.published_questionnaire_version WHERE questionnaire_id = $1`,
+      [published.questionnaireId],
+    );
+    const questionnaires = await reporting.query(`SELECT id FROM definition.questionnaire WHERE id = $1`, [published.questionnaireId]);
+    expect(versions.rows).toEqual([{ id: published.draftVersionId, version: published.version }]);
+    expect(questionnaires.rows).toEqual([{ id: published.questionnaireId }]);
+
+    await denied(reporting, `SELECT name FROM definition.questionnaire LIMIT 1`);
+    await denied(reporting, `SELECT current_version_id FROM definition.questionnaire LIMIT 1`);
+    await denied(reporting, `SELECT * FROM definition.questionnaire LIMIT 1`);
+    for (const table of ["definition.questionnaire_version", "definition.version_question_index", ...AUTHORING_TABLES]) {
       await denied(reporting, `SELECT 1 FROM ${table} LIMIT 1`);
     }
+  });
+
+  it("cannot write any definition table or read the audit schema", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const reporting = await testDatabase.connect("reporting");
+
+    await denied(reporting, `UPDATE definition.questionnaire SET closes_at = now() WHERE id = $1`, [published.questionnaireId]);
+    await denied(reporting, `UPDATE definition.questionnaire SET id = id WHERE id = $1`, [published.questionnaireId]);
+    await denied(reporting, `DELETE FROM definition.questionnaire WHERE id = $1`, [published.questionnaireId]);
+    await denied(reporting, `UPDATE definition.published_questionnaire_version SET title = 'x'`);
     await denied(reporting, `SELECT 1 FROM audit.event`);
     await denied(reporting, auditRecordCall);
+  });
+
+  it("holds SELECT on exactly four relations and no write privilege of any kind on any relation", async () => {
+    const owner = await testDatabase.connect("owner");
+    const readable = await owner.query(
+      `SELECT c.oid::regclass::text AS relation
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname IN ('definition', 'execution', 'audit')
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+          AND has_any_column_privilege('qp_reporting', c.oid, 'SELECT')
+        ORDER BY 1`,
+    );
+    const writable = await owner.query(
+      `SELECT c.oid::regclass::text AS relation, privilege.name AS privilege
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        CROSS JOIN (VALUES ('INSERT'), ('UPDATE'), ('REFERENCES')) AS privilege(name)
+        WHERE n.nspname IN ('definition', 'execution', 'audit')
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+          AND has_any_column_privilege('qp_reporting', c.oid, privilege.name)`,
+    );
+    const otherWrites = await owner.query(
+      `SELECT c.oid::regclass::text AS relation, privilege.name AS privilege
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        CROSS JOIN (VALUES ('DELETE'), ('TRUNCATE'), ('TRIGGER')) AS privilege(name)
+        WHERE n.nspname IN ('definition', 'execution', 'audit')
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+          AND has_table_privilege('qp_reporting', c.oid, privilege.name)`,
+    );
+
+    expect(readable.rows.map((row) => row.relation)).toEqual([
+      "definition.published_questionnaire_version",
+      "definition.questionnaire",
+      "execution.response",
+      "execution.session",
+    ]);
+    expect(writable.rows).toEqual([]);
+    expect(otherWrites.rows).toEqual([]);
   });
 
   it("keeps a distinct password from qp_execution, so it is a genuinely separate identity", async () => {
