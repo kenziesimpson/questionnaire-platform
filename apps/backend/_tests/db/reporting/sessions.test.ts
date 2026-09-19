@@ -116,27 +116,44 @@ function casesFor(sort: SessionSort, order: SortOrder): PlanCase[] {
 
 const CASES = (["started", "submitted"] as const).flatMap((sort) => (["asc", "desc"] as const).flatMap((order) => casesFor(sort, order)));
 
-describe("the session list's queries, planned against 18,000 sessions of three questionnaires", () => {
-  it.each(CASES)("$ordering.sort $ordering.order, $name: an index scan with the keyset in its Index Cond and no sort", async (planCase) => {
-    const target = await aLargeTable();
-    const reporting = testDatabase.database("reporting");
-    const client = await testDatabase.connect("reporting");
-    const queries = pageQueries(reporting, [eq(session.questionnaireId, target.questionnaireId)], planCase.ordering, planCase.cursor);
-
-    expect(queries).toHaveLength(planCase.segments.length);
-    for (const [position, query] of queries.entries()) {
-      const { sql, params } = query(RESPONSES_PAGE_SIZE + 1).toSQL();
-      const result = await client.query<{ "QUERY PLAN": [{ Plan: PlanNode }] }>(`EXPLAIN (FORMAT JSON) ${sql}`, params);
-      const nodes = flatten(result.rows[0]?.["QUERY PLAN"][0]?.Plan as PlanNode);
-      const scans = nodes.filter((node) => node["Node Type"] === "Index Scan");
-
-      expect(nodes.filter((node) => /Sort/.test(node["Node Type"]))).toEqual([]);
-      expect(scans.map((node) => node["Index Name"])).toEqual([planCase.index]);
-      expect(scans[0]?.["Scan Direction"]).toBe(planCase.scan);
-      for (const expected of planCase.segments[position] ?? []) {
-        expect(scans[0]?.["Index Cond"]).toMatch(expected);
-      }
-      expect(scans[0]?.Filter).toBeUndefined();
+async function problemsWith(client: pg.Client, planCase: PlanCase, target: PublishedFixture): Promise<string[]> {
+  const reporting = testDatabase.database("reporting");
+  const queries = pageQueries(reporting, [eq(session.questionnaireId, target.questionnaireId)], planCase.ordering, planCase.cursor);
+  const problems: string[] = [];
+  if (queries.length !== planCase.segments.length) {
+    problems.push(`${planCase.ordering.sort} ${planCase.ordering.order}, ${planCase.name}: ${queries.length} statements, expected ${planCase.segments.length}`);
+  }
+  for (const [position, query] of queries.entries()) {
+    const label = `${planCase.ordering.sort} ${planCase.ordering.order}, ${planCase.name}, statement ${position + 1}`;
+    const { sql, params } = query(RESPONSES_PAGE_SIZE + 1).toSQL();
+    const result = await client.query<{ "QUERY PLAN": [{ Plan: PlanNode }] }>(`EXPLAIN (FORMAT JSON) ${sql}`, params);
+    const nodes = flatten(result.rows[0]?.["QUERY PLAN"][0]?.Plan as PlanNode);
+    const scans = nodes.filter((node) => node["Node Type"] === "Index Scan");
+    const [scan] = scans;
+    const sorts = nodes.map((node) => node["Node Type"]).filter((type) => /Sort/.test(type));
+    if (sorts.length > 0) problems.push(`${label}: plans ${sorts.join(", ")}`);
+    if (scans.length !== 1 || scan?.["Index Name"] !== planCase.index) {
+      problems.push(`${label}: scans ${scans.map((node) => node["Index Name"]).join(", ")}, expected ${planCase.index}`);
     }
+    if (scan?.["Scan Direction"] !== planCase.scan) problems.push(`${label}: scans ${scan?.["Scan Direction"]}, expected ${planCase.scan}`);
+    if (scan?.Filter !== undefined) problems.push(`${label}: filters ${scan.Filter}`);
+    for (const expected of planCase.segments[position] ?? []) {
+      if (!expected.test(scan?.["Index Cond"] ?? "")) problems.push(`${label}: Index Cond ${scan?.["Index Cond"]} does not match ${expected}`);
+    }
+  }
+  return problems;
+}
+
+describe("the session list's queries, planned against 18,000 sessions of three questionnaires", () => {
+  it("scan the expected index in the expected direction with the keyset in the Index Cond and no sort, for every sort, order and direction", async () => {
+    const target = await aLargeTable();
+    const client = await testDatabase.connect("reporting");
+    const problems: string[] = [];
+    for (const planCase of CASES) {
+      problems.push(...(await problemsWith(client, planCase, target)));
+    }
+
+    expect(CASES).toHaveLength(16);
+    expect(problems).toEqual([]);
   });
 });

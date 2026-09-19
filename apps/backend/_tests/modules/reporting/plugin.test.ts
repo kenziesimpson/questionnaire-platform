@@ -357,7 +357,7 @@ const DATASETS: readonly (readonly [string, SessionTimes[]])[] = [
 ];
 
 describe("GET /questionnaires/:id/responses, sorted", () => {
-  it.each(ORDERINGS)("orders by %s %s, with in-progress sessions after every submitted one under either submitted order", async (sort, order) => {
+  it("orders by every sort and order, with in-progress sessions after every submitted one under either submitted order", async () => {
     const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
     const stored = await storeSessions(published, [
       { startedAt: minutes(5), submittedAt: minutes(9) },
@@ -368,11 +368,13 @@ describe("GET /questionnaires/:id/responses, sorted", () => {
       { startedAt: minutes(6), submittedAt: minutes(12) },
     ]);
 
-    const page = await pageOf(published.questionnaireId, { sort, order });
+    for (const [sort, order] of ORDERINGS) {
+      const page = await pageOf(published.questionnaireId, { sort, order });
 
-    expect(idsOf(page)).toEqual(expectedOrder(stored, sort, order));
-    expect(page.previousCursor).toBeNull();
-    expect(page.nextCursor).toBeNull();
+      expect(idsOf(page), `${sort} ${order}`).toEqual(expectedOrder(stored, sort, order));
+      expect(page.previousCursor).toBeNull();
+      expect(page.nextCursor).toBeNull();
+    }
   });
 
   it("puts the in-progress sessions last for sort=submitted whichever way it runs, and orders them by id", async () => {
@@ -465,17 +467,19 @@ describe("GET /questionnaires/:id/responses, sorted", () => {
     expect(idsOf(backToFirst)).toEqual(idsOf(first));
   });
 
-  it.each(ORDERINGS)("combines the status filter with %s %s, so a page holds only that status and keeps its order", async (sort, order) => {
+  it("combines the status filter with every sort and order, so a page holds only that status and keeps its order", async () => {
     const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
     const stored = await storeSessions(published, BOUNDARY_INSIDE_A_RUN_OF_EQUAL_TIMES);
     const submitted = stored.filter((entry) => entry.submittedAt !== null);
     const inProgress = stored.filter((entry) => entry.submittedAt === null);
 
-    const submittedPages = await walkForward(published.questionnaireId, { sort, order, status: "submitted" });
-    const inProgressPages = await walkForward(published.questionnaireId, { sort, order, status: "in_progress" });
+    for (const [sort, order] of ORDERINGS) {
+      const submittedPages = await walkForward(published.questionnaireId, { sort, order, status: "submitted" });
+      const inProgressPages = await walkForward(published.questionnaireId, { sort, order, status: "in_progress" });
 
-    expect(submittedPages.flatMap(idsOf)).toEqual(expectedOrder(submitted, sort, order));
-    expect(inProgressPages.flatMap(idsOf)).toEqual(expectedOrder(inProgress, sort, order));
+      expect(submittedPages.flatMap(idsOf), `${sort} ${order} submitted`).toEqual(expectedOrder(submitted, sort, order));
+      expect(inProgressPages.flatMap(idsOf), `${sort} ${order} in progress`).toEqual(expectedOrder(inProgress, sort, order));
+    }
   });
 
   it("filters by version while sorting, so the other version's sessions never enter the walk", async () => {
@@ -495,23 +499,24 @@ describe("GET /questionnaires/:id/responses, sorted", () => {
       return presentCursor(first.nextCursor);
     }
 
-    it.each<[string, Record<string, string>]>([
-      ["another sort column", { sort: "started", order: "asc" }],
-      ["the opposite order", { sort: "submitted", order: "desc" }],
-      ["no ordering at all, which means started descending", {}],
-    ])("is not honoured under %s: the page is that ordering's first page, never a Postgres error", async (_, other) => {
+    it("is not honoured under another sort column, the opposite order or no ordering at all: the page is that ordering's first page, never a Postgres error", async () => {
       const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
       const stored = await storeSessions(published, SUBMITTED_ON_THE_FIRST_PAGE);
       const cursor = await aSecondPageCursor(published, { sort: "submitted", order: "asc" });
+      const others: [SessionSort, SortOrder, Record<string, string>][] = [
+        ["started", "asc", { sort: "started", order: "asc" }],
+        ["submitted", "desc", { sort: "submitted", order: "desc" }],
+        ["started", "desc", {}],
+      ];
 
-      const response = await listSessions(published.questionnaireId, { ...other, cursor });
-      const page = response.json<SessionSummaryPage>();
-      const sort = other.sort === "submitted" ? "submitted" : "started";
-      const order = other.order === "asc" ? "asc" : "desc";
+      for (const [sort, order, other] of others) {
+        const response = await listSessions(published.questionnaireId, { ...other, cursor });
+        const page = response.json<SessionSummaryPage>();
 
-      expect(response.statusCode).toBe(200);
-      expect(idsOf(page)).toEqual(expectedOrder(stored, sort, order).slice(0, RESPONSES_PAGE_SIZE));
-      expect(page.previousCursor).toBeNull();
+        expect(response.statusCode).toBe(200);
+        expect(idsOf(page), `${sort} ${order}`).toEqual(expectedOrder(stored, sort, order).slice(0, RESPONSES_PAGE_SIZE));
+        expect(page.previousCursor).toBeNull();
+      }
     });
 
     it("is honoured under the ordering it was issued for", async () => {
@@ -525,31 +530,33 @@ describe("GET /questionnaires/:id/responses, sorted", () => {
     });
   });
 
-  it.each([
-    ["not a cursor at all", "not-a-cursor"],
-    ["well-formed but for a session that does not exist", Buffer.from("forward|submitted|desc|null|00000000-0000-4000-8000-000000000000").toString("base64url")],
-    ["a cursor carrying SQL in its sort", Buffer.from("forward|submitted; DROP TABLE x|desc|null|00000000-0000-4000-8000-000000000000").toString("base64url")],
-    ["a cursor whose timestamp is not a timestamp", Buffer.from("forward|submitted|desc|2026-02-31T25:61:61.000Z|00000000-0000-4000-8000-000000000000").toString("base64url")],
-  ])("answers 200 rather than an error for a forged cursor that is %s", async (_, cursor) => {
+  it("answers 200 rather than an error for a forged cursor: not a cursor at all, well-formed for a session that does not exist, carrying SQL in its sort, or with an impossible timestamp", async () => {
     const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
     await storeSessions(published, SUBMITTED_ON_THE_FIRST_PAGE);
+    const absent = "00000000-0000-4000-8000-000000000000";
+    const forged = [
+      "not-a-cursor",
+      Buffer.from(`forward|submitted|desc|null|${absent}`).toString("base64url"),
+      Buffer.from(`forward|submitted; DROP TABLE x|desc|null|${absent}`).toString("base64url"),
+      Buffer.from(`forward|submitted|desc|2026-02-31T25:61:61.000Z|${absent}`).toString("base64url"),
+    ];
 
-    const response = await listSessions(published.questionnaireId, { sort: "submitted", order: "desc", cursor });
+    for (const cursor of forged) {
+      const response = await listSessions(published.questionnaireId, { sort: "submitted", order: "desc", cursor });
 
-    expect(response.statusCode).toBe(200);
+      expect(response.statusCode, cursor).toBe(200);
+    }
   });
 
-  it.each([
-    ["an unknown sort", { sort: "id" }],
-    ["an unknown order", { order: "sideways" }],
-    ["a sort carrying SQL", { sort: "started_at; select 1" }],
-    ["an order carrying SQL", { order: "desc, id" }],
-  ])("rejects %s with 400 before it reaches the database", async (_, query) => {
+  it("rejects an unknown sort or order, or one carrying SQL, with 400 before it reaches the database", async () => {
     const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const unacceptable: Record<string, string>[] = [{ sort: "id" }, { order: "sideways" }, { sort: "started_at; select 1" }, { order: "desc, id" }];
 
-    const response = await listSessions(published.questionnaireId, query);
+    for (const query of unacceptable) {
+      const response = await listSessions(published.questionnaireId, query);
 
-    expect(response.statusCode).toBe(400);
-    expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
+      expect(response.statusCode, JSON.stringify(query)).toBe(400);
+      expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
+    }
   });
 });
