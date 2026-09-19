@@ -125,6 +125,16 @@ emitDomainEvent({ name: "session.answer_rejected", sessionId, itemId, questionId
 One call writes an `info` log line named for the event and increments a counter, so the two cannot
 drift. `DomainEvent` is a closed union whose fields are all registry fields.
 
+Each event is defined once, in the `DOMAIN_EVENTS` table in `src/events.ts`: its name, its payload
+type and its counter name on one entry. `DomainEvent` and the counter lookup are derived from that
+table, so adding an event is one entry.
+
+```ts
+"session.answer_rejected": event<{ sessionId: string; itemId: string; questionId: string; reason: SubmissionItemCode }>(
+  "questionnaire.answers.rejected",
+),
+```
+
 | Event | Counter |
 | --- | --- |
 | `questionnaire.created`, `.published`, `.retired` | `questionnaire.created`, `.published`, `.retired` |
@@ -212,8 +222,8 @@ It runs the real pipeline with in-memory exporters, so a test sees what an expor
 | `src/scrub.ts` | `scrubContext`, `scrubAttributes` |
 | `src/logger.ts` | `logger`, `LOG_LEVELS`, `LiteralMessage`, the sink and threshold |
 | `src/spans.ts` | `withSpan`, `SpanName` |
-| `src/events.ts` | `DomainEvent`, `emitDomainEvent` |
-| `src/instruments.ts` | The counters and histogram, and the drop counter |
+| `src/events.ts` | `DOMAIN_EVENTS` (each event's name, payload and counter), `DomainEvent`, `emitDomainEvent` |
+| `src/instruments.ts` | The counter and histogram primitives, the session-duration histogram and the drop counter |
 | `src/exporters.ts` | The scrubbing decorators for span and metric exporters |
 | `src/pipeline.ts` | Builds the SDK, the pino sink and the exporters |
 | `src/node.ts` | `startTelemetry` |

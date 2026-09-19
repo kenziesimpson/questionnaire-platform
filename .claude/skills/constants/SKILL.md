@@ -59,10 +59,11 @@ restating is genuinely unavoidable — a table that maps each member to somethin
 so the compiler checks the coverage, which is an acceptable substitute for centralising:
 
 ```ts
-const EVENT_COUNTERS = {
-  "questionnaire.created": "questionnaire.created",
-} as const satisfies Record<DomainEvent["name"], string>;
+const LABELS = { debug: "DEBUG", info: "INFO", warn: "WARN", error: "ERROR" } as const satisfies Record<LogLevel, string>;
 ```
+
+Prefer a single table that carries everything about a member over two tables keyed by the same
+names; see `DOMAIN_EVENTS` below.
 
 ## Where it goes
 
@@ -96,7 +97,23 @@ gave `logger.ts` a `DEFAULT_LOG_LEVEL` that `resetLogging()` and the pipeline's 
 named the repeated regexes in `fields.ts`, and indexed the allowlist by each entry's own
 `attribute` field instead of writing every name twice.
 
-Left alone on purpose in that same pass: the counter names in `instruments.ts`, `"qp-test"`, the
+The review comment that started this was actually about something else: a domain event's name was
+written in the `DomainEvent` union, again as a key in a counter table and, for three events, again
+as the counter's name. The table only checked that the keys matched the union. Now each event is one
+entry in `DOMAIN_EVENTS` in `events.ts`, carrying its name, its payload type and its counter name;
+`DomainEvent` and the counter lookup are derived from it, and the counter code moved next to it so
+`instruments.ts` no longer imports `events.ts`.
+
+```ts
+"session.started": event<{ sessionId: string; questionnaireId: string; questionnaireVersion: number }>(
+  "questionnaire.sessions.started",
+),
+```
+
+A payload union is a fair thing to derive, but only because the entry stays readable. Generating
+per-event payloads from anything less direct than this would cost more than the repetition it saves.
+
+Left alone on purpose in that same pass: the metric names `telemetry.scrub.dropped` and `questionnaire.session.duration`, each used once in `instruments.ts`, `"qp-test"`, the
 two OTLP paths, and the backend's `SIGINT`/`SIGTERM` array.
 
 ## Before adding or reviewing a constant
