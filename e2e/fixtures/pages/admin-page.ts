@@ -210,6 +210,10 @@ export class AdminPage {
     return this.page.getByRole("button", { name: "Next", exact: true });
   }
 
+  backToFirstPageButton(): Locator {
+    return this.page.getByRole("button", { name: "Back to the first page", exact: true });
+  }
+
   previousSessionButton(): Locator {
     return this.page
       .getByRole("link", { name: "Previous session", exact: true })

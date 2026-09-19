@@ -139,14 +139,32 @@ function SessionRow({ questionnaireId, session, search }: { questionnaireId: str
   );
 }
 
-function EmptyRow({ filtered }: { filtered: boolean }) {
+type EmptyState = "loading" | "past-the-end" | "filtered" | "none";
+
+function EmptyRow({ state, onFirstPage }: { state: EmptyState; onFirstPage: () => void }) {
   return (
     <TableRow>
       <TableCell colSpan={COLUMN_COUNT} className="py-6 text-center text-muted-foreground">
-        {filtered ? "No sessions match these filters." : "No sessions yet."}
+        {state === "loading" ? "Loading sessions…" : null}
+        {state === "filtered" ? "No sessions match these filters." : null}
+        {state === "none" ? "No sessions yet." : null}
+        {state === "past-the-end" ? (
+          <span className="flex flex-col items-center gap-3">
+            <span>There are no sessions on this page. The list may have changed since it was opened.</span>
+            <Button variant="outline" size="sm" onClick={onFirstPage}>
+              Back to the first page
+            </Button>
+          </span>
+        ) : null}
       </TableCell>
     </TableRow>
   );
+}
+
+function emptyStateOf(search: ResponsesSearch, stale: boolean): EmptyState {
+  if (stale) return "loading";
+  if (search.cursor !== undefined) return "past-the-end";
+  return search.version !== undefined || search.status !== undefined ? "filtered" : "none";
 }
 
 function SessionsTable({
@@ -154,16 +172,23 @@ function SessionsTable({
   items,
   search,
   sorting,
+  stale,
   onSort,
+  onFirstPage,
 }: {
   questionnaireId: string;
   items: SessionSummary[];
   search: ResponsesSearch;
   sorting: Sorting;
+  stale: boolean;
   onSort: (column: SessionSort) => void;
+  onFirstPage: () => void;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border">
+    <div
+      aria-busy={stale ? true : undefined}
+      className={`overflow-hidden rounded-xl border border-border ${stale ? "opacity-75" : ""}`}
+    >
       <Table>
         <TableCaption className="sr-only">
           Sessions, {sortDescription(sorting)}, {items.length} on this page
@@ -189,7 +214,7 @@ function SessionsTable({
         </TableHeader>
         <TableBody className="[&_td]:px-4 [&_td]:py-3">
           {items.length === 0 ? (
-            <EmptyRow filtered={search.version !== undefined || search.status !== undefined} />
+            <EmptyRow state={emptyStateOf(search, stale)} onFirstPage={onFirstPage} />
           ) : (
             items.map((session) => (
               <SessionRow key={session.sessionId} questionnaireId={questionnaireId} session={session} search={search} />
@@ -278,7 +303,15 @@ export function ResponsesListScreen() {
     }
     return (
       <>
-        <SessionsTable questionnaireId={questionnaireId} items={page.data.items} search={search} sorting={sorting} onSort={setSorting} />
+        <SessionsTable
+          questionnaireId={questionnaireId}
+          items={page.data.items}
+          search={search}
+          sorting={sorting}
+          stale={page.isPlaceholderData}
+          onSort={setSorting}
+          onFirstPage={() => setCursor(undefined)}
+        />
         <PageNav
           itemCount={page.data.items.length}
           previousCursor={page.data.previousCursor}
@@ -301,6 +334,9 @@ export function ResponsesListScreen() {
         <StatusFilter value={search.status} onChange={(status) => setFilters({ ...filters, status })} />
       </div>
       {body}
+      <span aria-live="polite" className="sr-only">
+        Sorted {sortDescription(sorting)}
+      </span>
     </section>
   );
 }

@@ -4,6 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { QUESTIONNAIRE_ID } from "../support/builders";
+import { deferred } from "../support/http";
 import { renderAppAt } from "../support/render-app";
 import {
   aSessionPage,
@@ -111,6 +112,22 @@ function versionSelect() {
 
 function statusSelect() {
   return screen.getByRole("combobox", { name: "Status" });
+}
+
+function isReporting(url: string): boolean {
+  return url.startsWith(`${reportingApi.REPORTING_PREFIX}/`);
+}
+
+function queryOf(url: string): URLSearchParams {
+  return new URL(url, "http://localhost").searchParams;
+}
+
+function holdingWhen(held: (query: URLSearchParams) => boolean, release: Promise<Response>, otherwise: Reply): Reply {
+  return (request) => (isReporting(request.url) && held(queryOf(request.url)) ? release : otherwise(request));
+}
+
+function tableIsBusy(): boolean {
+  return screen.getByRole("table").closest("[aria-busy='true']") !== null;
 }
 
 const nextButton = () => screen.getByRole("button", { name: "Next" });
@@ -287,17 +304,54 @@ describe("the responses list screen", () => {
       expect(columnHeader("Started")).toHaveAttribute("aria-sort", "descending");
     });
 
-    it("can be operated from the keyboard", async () => {
-      const { router } = renderList(serve());
+    it("can be operated from the keyboard, and the header keeps focus for the next keystroke", async () => {
+      const { router, requests } = renderList(serve());
       await findRows();
 
       sortButton("Submitted").focus();
       await userEvent.keyboard("{Enter}");
       await waitFor(() => expect(router.state.location.search).toEqual({ sort: "submitted" }));
+      await waitFor(() => expect(sessionQueries(requests)).toHaveLength(2));
+      await findRows();
+      expect(sortButton("Submitted")).toHaveFocus();
 
-      sortButton("Submitted").focus();
       await userEvent.keyboard(" ");
       await waitFor(() => expect(router.state.location.search).toEqual({ sort: "submitted", order: "asc" }));
+      await waitFor(() => expect(sessionQueries(requests)).toHaveLength(3));
+      await findRows();
+      expect(sortButton("Submitted")).toHaveFocus();
+    });
+
+    it("keeps the table on screen, marked busy, and focus on the chosen header while the re-sorted page loads", async () => {
+      const resorted = deferred<Response>();
+      renderList(holdingWhen((query) => query.get("sort") === "submitted", resorted.promise, serve()));
+      await findRows();
+
+      await userEvent.click(sortButton("Submitted"));
+
+      await waitFor(() => expect(tableIsBusy()).toBe(true));
+      expect(sortButton("Submitted")).toHaveFocus();
+      expect(screen.getByText(shortIdOf(3))).toBeInTheDocument();
+      expect(screen.queryByText("Loading sessions…")).not.toBeInTheDocument();
+
+      resorted.resolve(contractResponse(reportingApi.listSessions, 200, aSessionPage([aSessionSummary(1), aSessionSummary(3)])));
+
+      await waitFor(() => expect(tableIsBusy()).toBe(false));
+      expect(sortButton("Submitted")).toHaveFocus();
+      expect(screen.queryByText(shortIdOf(2))).not.toBeInTheDocument();
+    });
+
+    it("announces the order in a polite live region that follows the sort", async () => {
+      renderList(serve());
+      await findRows();
+
+      expect(screen.getByText("Sorted newest started first")).toHaveAttribute("aria-live", "polite");
+
+      await userEvent.click(sortButton("Submitted"));
+
+      await waitFor(() =>
+        expect(screen.getByText("Sorted newest submitted first, in-progress sessions last")).toHaveAttribute("aria-live", "polite"),
+      );
     });
 
     it("goes back to the first page, dropping the cursor, and keeps the filters", async () => {
@@ -533,6 +587,27 @@ describe("the responses list screen", () => {
     });
   });
 
+  describe("paging, while the next page loads", () => {
+    it("keeps the table and focus on Next while the next page is fetched, instead of unmounting the button", async () => {
+      const following = deferred<Response>();
+      renderList(holdingWhen((query) => query.get("cursor") === "cursor-next", following.promise, serve()));
+      await findRows();
+      nextButton().focus();
+
+      await userEvent.click(nextButton());
+
+      await waitFor(() => expect(tableIsBusy()).toBe(true));
+      expect(nextButton()).toHaveFocus();
+      expect(screen.getByText(shortIdOf(3))).toBeInTheDocument();
+
+      following.resolve(contractResponse(reportingApi.listSessions, 200, SECOND_PAGE));
+
+      await waitFor(() => expect(screen.getByText(shortIdOf(0))).toBeInTheDocument());
+      expect(tableIsBusy()).toBe(false);
+      expect(nextButton()).toHaveFocus();
+    });
+  });
+
   describe("the empty state", () => {
     it("says there are no sessions yet when the questionnaire has none", async () => {
       renderList(serve({ pages: { "": aSessionPage([]) } }));
@@ -553,6 +628,48 @@ describe("the responses list screen", () => {
 
       expect(screen.getByRole("cell", { name: "No sessions match these filters." })).toBeInTheDocument();
       expect(screen.queryByText("No sessions yet.")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Back to the first page" })).not.toBeInTheDocument();
+    });
+
+    it("says a page reached by a cursor is empty, rather than that nothing matches, and goes back to the first page keeping the filters and the sort", async () => {
+      const { router, requests } = renderList(
+        serve({ pages: { "": FIRST_PAGE, "past-the-end": aSessionPage([]) } }),
+        "?status=submitted&sort=submitted&order=asc&cursor=past-the-end",
+      );
+      await findRows();
+
+      expect(screen.getByRole("cell", { name: /There are no sessions on this page/ })).toBeInTheDocument();
+      expect(screen.queryByText("No sessions match these filters.")).not.toBeInTheDocument();
+      expect(screen.queryByText("No sessions yet.")).not.toBeInTheDocument();
+      expect(previousButton()).toBeDisabled();
+      expect(nextButton()).toBeDisabled();
+
+      await userEvent.click(screen.getByRole("button", { name: "Back to the first page" }));
+
+      await waitFor(() => expect(screen.getByText(shortIdOf(3))).toBeInTheDocument());
+      expect(router.state.location.search).toEqual({ status: "submitted", sort: "submitted", order: "asc" });
+      expect(sessionQueries(requests).at(-1)).toEqual({ status: "submitted", sort: "submitted", order: "asc" });
+      expect(screen.queryByRole("button", { name: "Back to the first page" })).not.toBeInTheDocument();
+    });
+
+    it("offers the way back to the first page with no filter set too, and says loading, not empty, while the first page comes", async () => {
+      const first = deferred<Response>();
+      const past = contractResponse(reportingApi.listSessions, 200, aSessionPage([]));
+      renderList((request) =>
+        isReporting(request.url) ? (queryOf(request.url).has("cursor") ? past : first.promise) : serve()(request),
+        "?cursor=past-the-end",
+      );
+      await findRows();
+
+      await userEvent.click(screen.getByRole("button", { name: "Back to the first page" }));
+
+      expect(await screen.findByRole("cell", { name: "Loading sessions…" })).toBeInTheDocument();
+      expect(screen.queryByText("No sessions yet.")).not.toBeInTheDocument();
+      expect(tableIsBusy()).toBe(true);
+
+      first.resolve(contractResponse(reportingApi.listSessions, 200, FIRST_PAGE));
+
+      await waitFor(() => expect(screen.getByText(shortIdOf(3))).toBeInTheDocument());
     });
   });
 

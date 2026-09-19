@@ -40,6 +40,7 @@ test.describe("E30 — the responses list sorts by the Started and Submitted tim
 
     await admin.sortButton("Submitted").click();
     await expect.poll(rowOrder).toEqual(shortIdsInOrder(sessions, SUBMITTED_DESC));
+    await expect(admin.sortButton("Submitted")).toBeFocused();
     await expect(admin.sortHeader("Submitted")).toHaveAttribute("aria-sort", "descending");
     await expect(admin.sortHeader("Started")).not.toHaveAttribute("aria-sort");
     await expect(page).toHaveURL(/[?&]sort=submitted(&|$)/);

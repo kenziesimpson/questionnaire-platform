@@ -2,6 +2,10 @@ import { RESPONSES_PAGE_SIZE } from "@qp/shared";
 import { createDemoShapedQuestionnaire, expect, publishDemoHypertensionRelabel, test, uniqueName } from "../../fixtures/index";
 import { textQuestionInput } from "./support/question-input";
 
+function aCursorPastTheEndOfTheDefaultOrder(): string {
+  return Buffer.from("forward|started|desc|1970-01-01T00:00:00.000Z|00000000-0000-4000-8000-000000000000", "utf8").toString("base64url");
+}
+
 test.describe("E29 — the responses list's Previous/Next paging and version filter actually change what's shown", () => {
   test("Next then Previous swaps between two disjoint pages of the same size the page reports", async ({ api, execution, admin, page }) => {
     const question = await api.createQuestion(textQuestionInput("E29 paging note"));
@@ -57,5 +61,30 @@ test.describe("E29 — the responses list's Previous/Next paging and version fil
     await admin.versionFilter().selectOption("");
     await expect(admin.sessionRow(v1Session.session.sessionId)).toBeVisible();
     await expect(admin.sessionRow(v2Session.session.sessionId)).toBeVisible();
+  });
+
+  test("a cursor past the end of the list shows an empty page with a way back to the first page, not a dead end", async ({
+    api,
+    execution,
+    admin,
+    page,
+  }) => {
+    const question = await api.createQuestion(textQuestionInput("E29 past the end note"));
+    const published = await api.createPublishedQuestionnaire({ name: uniqueName("E29 past the end"), title: "Past the end fixture" }, [
+      { itemId: "itm_note", question },
+    ]);
+    const questionnaireId = published.questionnaire.questionnaireId;
+    await Promise.all([execution.createSession(questionnaireId), execution.createSession(questionnaireId)]);
+
+    await admin.openResponsesList(questionnaireId, { cursor: aCursorPastTheEndOfTheDefaultOrder() });
+    await expect(page.getByRole("cell", { name: /There are no sessions on this page/ })).toBeVisible();
+    await expect(page.getByText("No sessions match these filters.")).toHaveCount(0);
+    await expect(admin.nextPageButton()).toBeDisabled();
+    await expect(admin.previousPageButton()).toBeDisabled();
+
+    await admin.backToFirstPageButton().click();
+    await expect(page).not.toHaveURL(/cursor=/);
+    await expect.poll(() => admin.sessionIdsInRowOrder()).toHaveLength(2);
+    await expect(admin.backToFirstPageButton()).toHaveCount(0);
   });
 });

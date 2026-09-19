@@ -1,5 +1,5 @@
 import { definitionApi, reportingApi, type SessionSort, type SessionStatus, type SortOrder } from "@qp/shared";
-import { queryOptions } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import { callDefinition, callReporting, draftApi } from "./client";
 import { queryKeys } from "./query-keys";
 
@@ -64,6 +64,7 @@ export const responseQueries = {
           query: { version, status, sort, order, cursor },
           signal,
         }),
+      placeholderData: keepPreviousData,
     }),
   session: (questionnaireId: string, sessionId: string) =>
     queryOptions({
