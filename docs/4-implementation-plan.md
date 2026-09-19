@@ -248,7 +248,7 @@ Each PR adds its own [[8-testing#7. Test case enumeration]] rows with the featur
 
 ### Wave 3b — observability and pipeline
 
-**Track 8 — telemetry.** OTel end to end, the Collector seam, domain events as paired log+counter, the `/telemetry` ingest endpoint with `sendBeacon`, the opt-in compose profile. The safety boundary already landed in Wave 1a. → **M7**
+**Track 8 — telemetry.** OTel end to end, the Collector seam, domain events as paired log+counter, the `/telemetry` ingest endpoint with `sendBeacon`, the opt-in compose profile. The safety boundary already landed in Wave 1a. The admin responses browser (Wave 3a, `/api/reporting`) is inside its scope: the `view_response` audit row and `audit.record` grant for `qp_reporting`, cursor and path masking, and the browser rules for the response screens ([[6-observability#13. Decisions and open questions]] O18–O20). → **M7**
 
 **Track 9 — end-to-end and CI.** Three Playwright specs, one command via Vitest `projects`, the end-to-end CI job alongside the Checks job from [[#Gate C — CI before Wave 2]], the sentinel canary gated. → **M8**, **M9**
 
@@ -298,7 +298,7 @@ A wave is not done until its milestones are green.
 - [x] **M4** Definition API via `inject()`: bank CRUD, stale-ETag `409`, publish happy path, publish failures as `422`, archived question rejected at add time, version history, deterministic list order
 - [x] **M5** Execution API via `inject()`: session pins the snapshot and ignores a later publish; resume; submit; idempotent replay returns the original receipt; answer to an invisible item `422`; the v1/v2 predicate-tightening fixture; closed questionnaire `409`
 - [x] **M6** Cross-version aggregation: v1 and v2 responses aggregate on `opt_hyperten` while each renders through its own pinned `questionVersion`
-- [ ] **M7** Telemetry sentinel canary: a planted answer value reaches no exporter
+- [ ] **M7** Telemetry sentinel canary: a planted answer value reaches no exporter, on the submit path and when read back through `/api/reporting` (list and detail) and the admin response-detail screen
 - [ ] **M8** Three Playwright specs against the composed stack
 - [ ] **M9** Whole suite, one command, headless, both CI jobs green from a clean clone
 
@@ -312,5 +312,5 @@ The things a green test cannot tell you.
 - [ ] **H4** *(after Track 7)* Fill the demo questionnaire in a browser: answer yes, watch the branch appear; switch to no, watch it and its answers disappear; reload and resume; submit and confirm the stored answers are gone while the session id remains, then reopen the link and see the receipt
 - [ ] **H5** *(after Tracks 3, 6, 7)* Keyboard-only pass on both apps, then a screen reader on the reveal/remove announcement and on a dnd-kit reorder. No automated check covers this, and it is the accessibility claim the medical domain rests on
 - [ ] **H6** *(after Track 6)* Author from the bank, reorder by keyboard, set a predicate, preview, publish, read version history. Then open a second tab and provoke the draft `409` deliberately
-- [ ] **H7** *(after Track 8)* Enable the opt-in profile, submit once, follow the trace end to end including the client span, and confirm no answer value appears anywhere in it
+- [ ] **H7** *(after Track 8)* Enable the opt-in profile, submit once, follow the trace end to end including the client span, and confirm no answer value appears anywhere in it. Then open that response in the admin app and confirm the detail read wrote a `view_response` audit row and no answer value appears in the read's trace or logs
 - [ ] **H8** *(end)* Fresh clone, follow the README only, see whether it works. Then read [[2-design-doc]] the way a reviewer will
