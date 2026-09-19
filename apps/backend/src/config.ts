@@ -1,3 +1,5 @@
+import { LOG_LEVELS, type LogLevel } from "@qp/telemetry";
+
 function required(name: string): string {
   const value = process.env[name];
   if (value === undefined || value === "") {
@@ -20,9 +22,28 @@ export function databaseUrl(role: DatabaseRole): string {
   return required(databaseUrlVariable[role]);
 }
 
+function logLevelFrom(value: string | undefined): LogLevel {
+  const level = LOG_LEVELS.find((known) => known === (value ?? "info"));
+  if (level === undefined) {
+    throw new Error(`Unsupported LOG_LEVEL "${value}": expected one of ${LOG_LEVELS.join(", ")}`);
+  }
+  return level;
+}
+
+function presentOrUndefined(value: string | undefined): string | undefined {
+  return value === undefined || value === "" ? undefined : value;
+}
+
+const nodeEnv = process.env.NODE_ENV ?? "development";
+
 export const config = {
-  nodeEnv: process.env.NODE_ENV ?? "development",
+  nodeEnv,
   port: Number(process.env.PORT ?? 3000),
   host: process.env.HOST ?? "0.0.0.0",
-  logLevel: process.env.LOG_LEVEL ?? "info",
+  logLevel: logLevelFrom(process.env.LOG_LEVEL),
+  telemetry: {
+    serviceName: presentOrUndefined(process.env.OTEL_SERVICE_NAME) ?? "qp-backend",
+    otlpEndpoint: presentOrUndefined(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
+    prettyLogs: nodeEnv === "development",
+  },
 } as const;

@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "noUncheckedIndexedAccess": true,
-    "types": []
+    "types": ["node"]
   },
   "include": ["src", "_tests"]
 }

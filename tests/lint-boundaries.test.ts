@@ -15,6 +15,8 @@ describe("telemetry boundary: only packages/telemetry imports pino or OpenTeleme
     ["a pino plugin", `import pretty from "pino-pretty";`],
     ["the OTel API", `import { trace } from "@opentelemetry/api";`],
     ["a type-only OTel import", `import type { Span } from "@opentelemetry/api";`],
+    ["an OTel SDK subpath", `import { NodeSDK } from "@opentelemetry/sdk-node";`],
+    ["the Fastify OTel instrumentation", `import { FastifyOtelInstrumentation } from "@fastify/otel";`],
   ])("rejects %s outside the telemetry package", async (_, code) => {
     expect(await restrictedImports("apps/backend/src/server.ts", code)).toHaveLength(1);
     expect(await restrictedImports("packages/shared/src/engine.ts", code)).toHaveLength(1);
@@ -27,6 +29,8 @@ describe("telemetry boundary: only packages/telemetry imports pino or OpenTeleme
 
   it("allows them inside packages/telemetry", async () => {
     expect(await restrictedImports("packages/telemetry/src/logger.ts", `import pino from "pino";`)).toEqual([]);
+    expect(await restrictedImports("packages/telemetry/src/pipeline.ts", `import { FastifyOtelInstrumentation } from "@fastify/otel";`)).toEqual([]);
+    expect(await restrictedImports("packages/telemetry/src/node.ts", `import { NodeSDK } from "@opentelemetry/sdk-node";`)).toEqual([]);
   });
 });
 

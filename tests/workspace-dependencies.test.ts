@@ -23,10 +23,6 @@ function discoverWorkspaceDirs(): string[] {
 
 const WORKSPACE_DIRS = discoverWorkspaceDirs();
 
-const GROUND_RULE_UNUSED_DEPENDENCIES: Record<string, readonly string[]> = {
-  "apps/backend": ["pino", "pino-pretty", "@fastify/otel"],
-};
-
 function trackedFiles(dir: string, extensions: readonly string[]): string[] {
   const patterns = extensions.map((extension) => `${dir}/*.${extension}`);
   const output = execFileSync("git", ["ls-files", "-z", "--", ...patterns], { cwd: repoRoot });
@@ -153,21 +149,8 @@ describe("R5 — workspace dependencies match what the workspace imports", () =>
       expect(declared.has(name), `${dir} imports "${name}" without declaring it in package.json`).toBe(true);
     });
 
-    const exemptFromUnusedCheck = new Set(GROUND_RULE_UNUSED_DEPENDENCIES[dir] ?? []);
-
-    it.each(Object.keys(pkg.dependencies).filter((name) => !exemptFromUnusedCheck.has(name)))(
-      "%s is imported somewhere in the workspace",
-      (name) => {
-        expect(imported.has(name), `${dir} declares "${name}" as a dependency but nothing imports it`).toBe(true);
-      },
-    );
-
-    it.each([...exemptFromUnusedCheck])(
-      "%s stays an unused dependency only because ground rule §1 keeps it as a telemetry seam",
-      (name) => {
-        expect(Object.keys(pkg.dependencies), `${dir} no longer declares "${name}"; drop it from the exemption list`).toContain(name);
-        expect(imported.has(name), `${dir} now imports "${name}"; drop it from the exemption list`).toBe(false);
-      },
-    );
+    it.each(Object.keys(pkg.dependencies))("%s is imported somewhere in the workspace", (name) => {
+      expect(imported.has(name), `${dir} declares "${name}" as a dependency but nothing imports it`).toBe(true);
+    });
   });
 });
