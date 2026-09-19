@@ -1,5 +1,5 @@
 import type { ResponseType, SubmissionItemCode } from "@qp/shared";
-import type { TelemetryContext } from "./fields.js";
+import type { Outcome, TelemetryContext } from "./fields.js";
 import { incrementCounter, recordSessionDuration } from "./instruments.js";
 import { logger } from "./logger.js";
 import { scrubContext, type ScrubbedAttributes } from "./scrub.js";
@@ -26,12 +26,23 @@ const DOMAIN_EVENTS = {
   "session.question_answered": event<{ sessionId: string; itemId: string; questionId: string; questionType: ResponseType }>(
     "questionnaire.answers.accepted",
   ),
-  "session.answer_rejected": event<{ sessionId: string; itemId: string; questionId: string; reason: SubmissionItemCode }>(
+  "session.answer_rejected": event<{ sessionId: string; itemId: string | null; questionId: string | null; reason: SubmissionItemCode }>(
     "questionnaire.answers.rejected",
   ),
   "session.item_skipped": event<{ sessionId: string; itemId: string; questionId: string }>("questionnaire.items.skipped"),
   "session.abandoned": event<{ sessionId: string; lastItemId: string | null }>("questionnaire.sessions.abandoned"),
   "session.completed": event<{ sessionId: string; durationMs: number; questionCount: number }>("questionnaire.sessions.completed"),
+  "session.rejected_past_cutoff": event<{ sessionId: string; questionnaireId: string; questionnaireVersion: number }>(
+    "questionnaire.sessions.rejected_past_cutoff",
+  ),
+  "session.submit_finished": event<{
+    sessionId: string;
+    questionnaireId: string | null;
+    questionnaireVersion: number | null;
+    outcome: Outcome;
+  }>(
+    "questionnaire.submissions",
+  ),
 };
 
 type DomainEventName = keyof typeof DOMAIN_EVENTS;
@@ -43,6 +54,7 @@ export type DomainEvent = { [N in DomainEventName]: { readonly name: N } & Reado
 function boundedDimensionsOf(event: DomainEvent): ScrubbedAttributes {
   if (event.name === "session.question_answered") return scrubContext({ questionType: event.questionType }).attributes;
   if (event.name === "session.answer_rejected") return scrubContext({ reason: event.reason }).attributes;
+  if (event.name === "session.submit_finished") return scrubContext({ outcome: event.outcome }).attributes;
   return {};
 }
 

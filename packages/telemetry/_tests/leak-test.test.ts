@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LEAK_SENTINEL,
   expectCleanRun,
+  expectEmitted,
   exposuresOf,
   plantThirdPartyCounter,
   plantThirdPartyTelemetry,
@@ -162,6 +163,14 @@ describe("leak-test runner: runLeakFlow", () => {
     expect(run.spanNames).toEqual(["session.submit"]);
   });
 
+  it("lists the messages of the log lines the flow wrote, and expectEmitted throws for one it did not write", async () => {
+    const run = await runLeakFlow(cleanFlow, { sessionId: SESSION_ID });
+
+    expect(run.logMessages).toEqual([expect.any(String)]);
+    expect(() => expectEmitted("clean", run, run.logMessages)).not.toThrow();
+    expect(() => expectEmitted("clean", run, ["session.completed"])).toThrow(/TELEMETRY LEAK TEST VACUOUS.*session\.completed/);
+  });
+
   it("reports an exposure when the flow leaks through a channel the types alone guard", async () => {
     const leaky: LeakFlow<object> = {
       name: "casts the sentinel into a message",
@@ -205,20 +214,20 @@ describe("leak-test runner: runLeakFlow", () => {
 });
 
 describe("leak-test assertion: expectCleanRun", () => {
-  const clean = { exposures: [], observed: { log: 1, span: 0, metric: 0 }, spanNames: [] };
+  const clean = { exposures: [], observed: { log: 1, span: 0, metric: 0 }, spanNames: [], logMessages: [] };
 
   it("passes a run that emitted telemetry and leaked nothing", () => {
     expect(() => expectCleanRun("clean", clean)).not.toThrow();
   });
 
   it("throws a plain Error naming the flow, the signal and the leaking item", () => {
-    const leaky = { exposures: [{ signal: "span" as const, name: "GET" }], observed: { log: 0, span: 1, metric: 0 }, spanNames: ["GET"] };
+    const leaky = { exposures: [{ signal: "span" as const, name: "GET" }], observed: { log: 0, span: 1, metric: 0 }, spanNames: ["GET"], logMessages: [] };
 
     expect(() => expectCleanRun("leaky flow", leaky)).toThrow(/TELEMETRY LEAK TEST FAILED: "leaky flow".*span: GET/);
   });
 
   it("throws for a run that emitted nothing, so a silent flow cannot pass", () => {
-    const silent = { exposures: [], observed: { log: 0, span: 0, metric: 0 }, spanNames: [] };
+    const silent = { exposures: [], observed: { log: 0, span: 0, metric: 0 }, spanNames: [], logMessages: [] };
 
     expect(() => expectCleanRun("silent flow", silent)).toThrow(/TELEMETRY LEAK TEST VACUOUS: "silent flow"/);
   });

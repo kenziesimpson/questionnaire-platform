@@ -29,7 +29,7 @@ export const SCHEMA_CODES = [
 export const PROBLEM_CODES = [...QUESTION_RULE_CODES, ...DRAFT_ITEM_CODES, ...SUBMISSION_ITEM_CODES, ...SCHEMA_CODES] as const;
 type ProblemCode = (typeof PROBLEM_CODES)[number];
 
-const MAX_FINDINGS = 20;
+export const MAX_FINDINGS = 20;
 
 function knownCode(code: string): ProblemCode | undefined {
   return PROBLEM_CODES.find((known) => known === code) ?? (code.startsWith("schema/") ? "schema/other" : undefined);

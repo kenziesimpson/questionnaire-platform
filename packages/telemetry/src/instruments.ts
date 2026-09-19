@@ -6,6 +6,10 @@ const DROPPED_COUNTER = "telemetry.scrub.dropped";
 
 const SESSION_DURATION = "questionnaire.session.duration";
 
+const SESSION_DURATION_BUCKETS_MS = [
+  1_000, 5_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000, 1_800_000, 3_600_000, 7_200_000, 14_400_000, 43_200_000, 86_400_000,
+];
+
 const counters = new Map<string, Counter>();
 
 let sessionDuration: Histogram | undefined;
@@ -24,7 +28,10 @@ function counter(name: string): Counter {
 }
 
 function durationHistogram(): Histogram {
-  sessionDuration ??= metrics.getMeter(INSTRUMENTATION_SCOPE).createHistogram(SESSION_DURATION, { unit: "ms" });
+  sessionDuration ??= metrics.getMeter(INSTRUMENTATION_SCOPE).createHistogram(SESSION_DURATION, {
+    unit: "ms",
+    advice: { explicitBucketBoundaries: SESSION_DURATION_BUCKETS_MS },
+  });
   return sessionDuration;
 }
 

@@ -2,7 +2,7 @@ import { PROBLEM_SLUGS, RESPONSE_TYPES, SLUG_PATTERN, SUBMISSION_ITEM_CODES, UUI
 import { PROBLEM_CODES } from "./problems.js";
 import { DROP_REASONS, LOG_ATTRIBUTES, LOG_MODULES, SCRUB_ATTRIBUTES, SIGNAL_KINDS } from "./vocabulary.js";
 
-export const OUTCOMES = ["accepted", "rejected_validation", "rejected_conflict", "failed"] as const;
+export const OUTCOMES = ["accepted", "replayed", "rejected_validation", "rejected_conflict", "failed"] as const;
 export type Outcome = (typeof OUTCOMES)[number];
 
 const HTTP_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] as const;

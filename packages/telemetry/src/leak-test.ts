@@ -25,6 +25,7 @@ export interface LeakExposure {
 
 export interface LeakFlow<World> {
   readonly name: string;
+  readonly emits?: readonly string[];
   run(world: World, sentinel: string): Promise<void>;
 }
 
@@ -37,6 +38,7 @@ export interface LeakRun {
   readonly exposures: readonly LeakExposure[];
   readonly observed: Readonly<Record<SignalKind, number>>;
   readonly spanNames: readonly string[];
+  readonly logMessages: readonly string[];
 }
 
 function serialized(value: unknown): string {
@@ -90,6 +92,7 @@ export async function runLeakFlow<World>(
       exposures: await exposuresOf({ logs: telemetry.logs, spans: telemetry.spans, metrics: async () => flushed }, sentinel),
       observed: { log: telemetry.logs().length, span: telemetry.spans().length, metric: flushed.length },
       spanNames: telemetry.spans().map((span) => span.name),
+      logMessages: telemetry.logs().map(messageOf),
     };
   } finally {
     await telemetry.shutdown();
@@ -103,6 +106,13 @@ export function expectCleanRun(flowName: string, run: LeakRun, sentinel: string 
   }
   if (run.observed.log + run.observed.span + run.observed.metric === 0) {
     throw new Error(`TELEMETRY LEAK TEST VACUOUS: "${flowName}" emitted no telemetry, so it proves nothing`);
+  }
+}
+
+export function expectEmitted(flowName: string, run: LeakRun, emitted: readonly string[]): void {
+  const missing = emitted.filter((message) => !run.logMessages.includes(message));
+  if (missing.length > 0) {
+    throw new Error(`TELEMETRY LEAK TEST VACUOUS: "${flowName}" did not emit ${missing.join(", ")}, so it does not exercise the code it was written for`);
   }
 }
 
