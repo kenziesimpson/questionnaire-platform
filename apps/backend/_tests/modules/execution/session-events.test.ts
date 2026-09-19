@@ -174,7 +174,9 @@ describe("a submit that is accepted", () => {
     expect(eventLines("session.completed")).toEqual([]);
     expect(eventLines("session.question_answered")).toEqual([]);
     expect(eventLines("session.submit_finished")).toMatchObject([{ [SESSION]: sessionId, "questionnaire.outcome": "replayed" }]);
-    expect(await metricPoints("questionnaire.submissions")).toEqual([{ value: 1, attributes: { "questionnaire.outcome": "replayed" } }]);
+    const submissions = await metricPoints("questionnaire.submissions");
+    expect(submissions).toContainEqual({ value: 1, attributes: { "questionnaire.outcome": "replayed" } });
+    expect(submissions).toContainEqual({ value: 1, attributes: { "questionnaire.outcome": "accepted" } });
   });
 });
 
