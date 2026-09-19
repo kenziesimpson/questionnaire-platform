@@ -41,7 +41,8 @@ export function aQuestionVersion(content: Partial<QuestionVersion> & Pick<Questi
       };
     case "number":
       return { ...base, numberKind: "integer", ...content };
-    default:
+    case "text":
+    case "date":
       return { ...base, ...content };
   }
 }

@@ -35,7 +35,7 @@ structural instead of a per-table list someone has to remember to extend.
 
 Roles: `qp_owner` owns everything and runs migrations. `qp_definition`, `qp_execution` and `qp_reporting`
 are the three application roles (three pools, three connection strings; the owner's makes four).
-`qp_reporting` is read-only and exists for the admin responses browser (Decisions Log #88).
+`qp_reporting` is read-only and exists for the admin responses browser (Decisions Log #89).
 `audit_owner` owns the audit schema and the function that writes to it.
 
 ## Invariants — do not break these
@@ -200,7 +200,7 @@ long-lived client to the harness, and do not cache one across tests in a test fi
 
 ## Roles and connection strings
 
-Six identities, four connection strings (Decisions Log #39 and #88,
+Six identities, four connection strings (Decisions Log #39 and #89,
 [[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]), wired in
 `docker-compose.yml` and `.env.example`: the bootstrap superuser (`POSTGRES_USER`) runs `db/init/01-roles.sh`
 (at init, and from the `roles` service on every `up`); `qp_owner` runs migrations (`DATABASE_URL_OWNER`); the backend's three pools use

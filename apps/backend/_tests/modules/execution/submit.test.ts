@@ -61,19 +61,39 @@ function otherTextOf(row: StoredResponse): { otherText?: string } {
   return row.other_text === null ? {} : { otherText: row.other_text };
 }
 
+function requiredColumn<T>(value: T | null, questionType: string, column: string): T {
+  if (value === null) throw new Error(`expected ${column} to be set for a stored ${questionType} response`);
+  return value;
+}
+
 function rowFromColumns(row: StoredResponse): ResponseRow {
   const head = { itemId: row.item_id, questionId: row.question_id, questionVersion: row.question_version };
   switch (row.question_type) {
     case "text":
-      return { ...head, type: "text", text: row.text_value! };
+      return { ...head, type: "text", text: requiredColumn(row.text_value, row.question_type, "text_value") };
     case "number":
-      return { ...head, type: "number", number: row.number_value!, ...(row.number_unit === null ? {} : { unit: row.number_unit }) };
+      return {
+        ...head,
+        type: "number",
+        number: requiredColumn(row.number_value, row.question_type, "number_value"),
+        ...(row.number_unit === null ? {} : { unit: row.number_unit }),
+      };
     case "date":
-      return { ...head, type: "date", date: row.date_value! };
+      return { ...head, type: "date", date: requiredColumn(row.date_value, row.question_type, "date_value") };
     case "single_choice":
-      return { ...head, type: "single_choice", optionIds: row.option_ids!, ...otherTextOf(row) };
+      return {
+        ...head,
+        type: "single_choice",
+        optionIds: requiredColumn(row.option_ids, row.question_type, "option_ids"),
+        ...otherTextOf(row),
+      };
     case "multiple_choice":
-      return { ...head, type: "multiple_choice", optionIds: row.option_ids!, ...otherTextOf(row) };
+      return {
+        ...head,
+        type: "multiple_choice",
+        optionIds: requiredColumn(row.option_ids, row.question_type, "option_ids"),
+        ...otherTextOf(row),
+      };
   }
 }
 
@@ -220,7 +240,7 @@ describe("POST /api/run/sessions/:sessionId/submit — idempotency", () => {
     const responses = await Promise.all([submit(app, sessionId, answersYes()), submit(app, sessionId, answersYes())]);
 
     expect(responses.map((response) => response.statusCode)).toEqual([200, 200]);
-    expect(responses[0]!.json()).toEqual(responses[1]!.json());
+    expect(responses[0].json()).toEqual(responses[1].json());
     expect(await storedResponses(sessionId)).toHaveLength(4);
   });
 

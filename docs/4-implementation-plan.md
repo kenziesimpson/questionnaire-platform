@@ -58,7 +58,7 @@
 > **One agent, start to finish, do not split.** [[9-database-schema#11. Migrations]] catalogues traps that fail *silently*; a mid-track handoff is how one survives.
 - [x] `schema.ts` for `definition` / `execution` / `audit`; generated migration for tables, indexes and FKs including the post-hoc circular FK
 - [x] `--custom` migrations: immutability triggers on `UPDATE` and `DELETE`, the locking item guard, the audit `SECURITY DEFINER` function in the verified order, `response_shape`, range partitioning with no default partition
-- [x] `db/init/01-roles.sh` — six identities, four connection strings (`qp_reporting` joined in Wave 3a, Decisions Log #88) ([[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]). `qp_owner` must **not** be `POSTGRES_USER`
+- [x] `db/init/01-roles.sh` — six identities, four connection strings (`qp_reporting` joined in Wave 3a, Decisions Log #89) ([[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]). `qp_owner` must **not** be `POSTGRES_USER`
 - [x] Wire the three URLs into compose and `.env.example`; drop the unsuffixed `DATABASE_URL`; keep the loopback bind
 - [x] Partition management helper; seed with **hardcoded** ids (#35), through the real publish path
 - [x] DB invariant tests → **M2**

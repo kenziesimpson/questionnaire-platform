@@ -314,7 +314,9 @@ describe("submit", () => {
 
     await session.submit(noBranchAnswers);
 
-    const [sessionId, sentAnswers] = client.submitSession.mock.calls[0]!;
+    const call = client.submitSession.mock.calls[0];
+    if (call === undefined) throw new Error("expected submitSession to have been called");
+    const [sessionId, sentAnswers] = call;
     expect(sessionId).toBe(SESSION_ID);
     expect(sentAnswers.unwrap()).toEqual(noBranchAnswers);
     expect(storage.clearPartialAnswers).toHaveBeenCalledWith(inProgressSession);

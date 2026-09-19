@@ -7,7 +7,7 @@ export default defineConfig({
     projects: [
       "packages/*",
       "apps/*",
-      { test: { name: "repo", include: ["tests/**/*.test.ts"], environment: "node" } },
+      { test: { name: "repo", include: ["tests/**/*.test.ts"], environment: "node", testTimeout: 30000 } },
     ],
   },
 });

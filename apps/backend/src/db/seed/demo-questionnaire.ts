@@ -35,9 +35,6 @@ async function saveBankHistoryFor(tx: Transaction, role: IntakeQuestionRole, ite
   const { questionId, questionVersion } = item.question;
   const common = { createdBy: SEED_ACTOR, traceId: null };
   const [first, ...later] = [...INTAKE_EARLIER_REVISIONS[role], questionInputOf(item.question)];
-  if (first === undefined) {
-    throw new Error(`no revisions to seed for question ${questionId}`);
-  }
 
   let saved = await createQuestion(tx, { seededQuestionId: questionId, key: INTAKE_QUESTION_KEYS[role], content: first, ...common });
   for (const content of later) {

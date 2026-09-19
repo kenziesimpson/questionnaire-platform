@@ -77,12 +77,14 @@ function jsImportSpecifiers(filePath: string): string[] {
 
 function cssImportSpecifiers(filePath: string): string[] {
   const text = readFileSync(resolve(repoRoot, filePath), "utf8");
-  return [...text.matchAll(/@import\s+["']([^"']+)["']/g)].map((match) => match[1]);
+  return [...text.matchAll(/@import\s+["']([^"']+)["']/g)]
+    .map((match) => match[1])
+    .filter((specifier): specifier is string => specifier !== undefined);
 }
 
 function packageNameOf(specifier: string): string {
   const segments = specifier.split("/");
-  return specifier.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
+  return specifier.startsWith("@") ? segments.slice(0, 2).join("/") : (segments[0] ?? specifier);
 }
 
 function isExternalSpecifier(specifier: string): boolean {

@@ -58,7 +58,7 @@ function distToSourceCandidates(distFile: string): string[] {
 }
 
 function wildcardMatches(packageDir: string, target: string): string[] {
-  const [prefix, suffix] = target.split("*");
+  const [prefix = "", suffix] = target.split("*");
   if (suffix === undefined) throw new Error(`Expected exactly one "*" in wildcard target "${target}"`);
   if (!prefix.endsWith("/")) {
     throw new Error(`Expected the wildcard target "${target}" to split on a directory, like ".../*.ts"`);

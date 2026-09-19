@@ -1,6 +1,28 @@
 // Why these boundaries exist: [[11-structural-refactor]] §4, [[7-application-boundary]] §3.1, [[6-observability]] §3.1.
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
+
+const repoRoot = dirname(fileURLToPath(import.meta.url));
+
+const testsDir = resolve(repoRoot, "tests");
+
+const fixturePathLiteral = /"((?:apps|packages|e2e|tests)\/[A-Za-z0-9_./-]*\.(?:ts|tsx|mts|cts|js|mjs|cjs))"/g;
+
+function lintHarnessFixturePaths() {
+  const found = new Set();
+  for (const entry of readdirSync(testsDir)) {
+    if (!entry.startsWith("lint-") || !entry.endsWith(".test.ts")) continue;
+    const source = readFileSync(resolve(testsDir, entry), "utf8");
+    for (const match of source.matchAll(fixturePathLiteral)) {
+      const candidate = match[1];
+      if (!existsSync(resolve(repoRoot, candidate))) found.add(candidate);
+    }
+  }
+  return [...found].sort();
+}
 
 const everyFile = ["**/*.{ts,tsx,mts,cts,js,mjs,cjs}"];
 
@@ -479,7 +501,24 @@ export default tseslint.config(
   {
     name: "parser and disable directives",
     files: everyFile,
-    languageOptions: { parser: tseslint.parser },
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: {
+        projectService: {
+          allowDefaultProject: [
+            "e2e/stack/compose-stack.ts",
+            "e2e/stack/global-setup.ts",
+            "e2e/stack/global-teardown.ts",
+            "e2e/stack/kept-stacks.ts",
+            "e2e/stack/stack-cli.ts",
+            "e2e/stack/stack-readiness.ts",
+            ...lintHarnessFixturePaths(),
+          ],
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 500,
+        },
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
     linterOptions: { reportUnusedDisableDirectives: "error" },
   },
   {
@@ -724,10 +763,34 @@ export default tseslint.config(
     rules: { "no-restricted-syntax": syntaxDeclaringTheSharedVocabulary(...problemParsing, notFoundProblem) },
   },
   {
+    name: "L14: no non-null assertions",
+    files: everyFile,
+    plugins: { "@typescript-eslint": tseslint.plugin },
+    rules: { "@typescript-eslint/no-non-null-assertion": "error" },
+  },
+  {
     name: "L15: no explicit any",
     files: everyFile,
     plugins: { "@typescript-eslint": tseslint.plugin },
     rules: { "@typescript-eslint/no-explicit-any": "error" },
+  },
+  {
+    name: "type-aware: exhaustive switches over outcomes and problem slugs",
+    files: everyFile,
+    plugins: { "@typescript-eslint": tseslint.plugin },
+    rules: { "@typescript-eslint/switch-exhaustiveness-check": "error" },
+  },
+  {
+    name: "type-aware: every floating promise is voided on purpose",
+    files: everyFile,
+    plugins: { "@typescript-eslint": tseslint.plugin },
+    rules: { "@typescript-eslint/no-floating-promises": "error" },
+  },
+  {
+    name: "type-aware: no condition that noUncheckedIndexedAccess and the current types already rule out",
+    files: everyFile,
+    plugins: { "@typescript-eslint": tseslint.plugin },
+    rules: { "@typescript-eslint/no-unnecessary-condition": "error" },
   },
   {
     name: "L10: resource/not-found in the backend, built only by notFoundProblem, alongside its raw SQL and connection restrictions",

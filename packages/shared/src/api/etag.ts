@@ -12,7 +12,9 @@ export interface DraftPrecondition {
 export function parseDraftEtag(etag: string): DraftPrecondition | undefined {
   const match = DRAFT_ETAG.exec(etag.trim());
   if (!match) return undefined;
-  return { versionId: match[1]!.toLowerCase(), draftRevision: Number(match[2]) };
+  const versionId = match[1];
+  if (versionId === undefined) throw new Error(`DRAFT_ETAG matched without its mandatory version-id group: ${etag}`);
+  return { versionId: versionId.toLowerCase(), draftRevision: Number(match[2]) };
 }
 
 export function isDraftEtagFor(etag: string | null | undefined, versionId: string): boolean {

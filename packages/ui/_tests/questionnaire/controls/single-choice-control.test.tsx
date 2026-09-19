@@ -5,6 +5,11 @@ import { QuestionnaireItems } from "../../../src/questionnaire";
 import { hasCondition, rendererProps, whichCondition } from "../../fixtures";
 import { StatefulItems } from "../../stateful";
 
+function requireOtherText(otherText: HTMLElement | null): HTMLElement {
+  if (otherText === null) throw new Error("expected the other-text textbox to be present");
+  return otherText;
+}
+
 function renderChoice(overrides: Parameters<typeof rendererProps>[0] = {}, item = whichCondition) {
   const props = rendererProps(overrides);
   render(<QuestionnaireItems visibleItems={[item]} {...props} />);
@@ -78,7 +83,7 @@ describe("single choice other option", () => {
   it("selects other when the respondent types into the text box", () => {
     const onChange = vi.fn();
     const { otherText } = renderChoice({ onChange });
-    fireEvent.change(otherText!, { target: { value: "Asthma" } });
+    fireEvent.change(requireOtherText(otherText), { target: { value: "Asthma" } });
     expect(onChange).toHaveBeenCalledExactlyOnceWith("itm_02", { type: "single_choice", optionId: "other", otherText: "Asthma" });
   });
 
@@ -86,14 +91,14 @@ describe("single choice other option", () => {
     const onChange = vi.fn();
     const { otherText } = renderChoice({ onChange, answers: { itm_02: { type: "single_choice", optionId: "other", otherText: "Asthma" } } });
     expect(otherText).toHaveValue("Asthma");
-    fireEvent.change(otherText!, { target: { value: "" } });
+    fireEvent.change(requireOtherText(otherText), { target: { value: "" } });
     expect(onChange).toHaveBeenCalledExactlyOnceWith("itm_02", { type: "single_choice", optionId: "other" });
   });
 
   it("passes whitespace through unchanged, leaving blank other text to the validator", () => {
     const onChange = vi.fn();
     const { otherText } = renderChoice({ onChange });
-    fireEvent.change(otherText!, { target: { value: "  " } });
+    fireEvent.change(requireOtherText(otherText), { target: { value: "  " } });
     expect(onChange).toHaveBeenCalledExactlyOnceWith("itm_02", { type: "single_choice", optionId: "other", otherText: "  " });
   });
 
@@ -154,7 +159,7 @@ describe("single choice readonly and error state", () => {
     expect(radio("Diabetes")).toBeDisabled();
     expect(otherText).toHaveAttribute("readonly");
     await userEvent.click(radio("Diabetes"));
-    fireEvent.change(otherText!, { target: { value: "Gout" } });
+    fireEvent.change(requireOtherText(otherText), { target: { value: "Gout" } });
     expect(onChange).not.toHaveBeenCalled();
   });
 

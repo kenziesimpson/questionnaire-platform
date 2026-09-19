@@ -38,6 +38,18 @@ function layOutOptionRows() {
 
 const yesNoCheckbox = () => inDialog().queryByRole("checkbox", { name: "Yes / No question" });
 
+function requiredYesNoCheckbox() {
+  const checkbox = yesNoCheckbox();
+  if (checkbox === null) throw new Error("expected the Yes / No checkbox to be present");
+  return checkbox;
+}
+
+function labelInput(index: number) {
+  const input = labelInputs()[index];
+  if (input === undefined) throw new Error(`expected a label input at index ${index}`);
+  return input;
+}
+
 function expectNoOptionListControls() {
   expect(inDialog().queryByRole("button", { name: "Add option" })).not.toBeInTheDocument();
   expect(inDialog().queryByRole("button", { name: /^Remove option/ })).not.toBeInTheDocument();
@@ -148,7 +160,7 @@ describe("QuestionEditorDialog — the remaining rules cannot be entered", () =>
     renderEditor();
     await chooseType("Single choice");
     await typeInto("Prompt", "PR2 Which condition?");
-    await userEvent.type(labelInputs()[0]!, "Diabetes");
+    await userEvent.type(labelInput(0), "Diabetes");
     await userEvent.click(inDialog().getByRole("checkbox", { name: "Allow a freeform “Other” option" }));
 
     const otherRow = inDialog().getByText("Freeform").closest("[data-option-id]");
@@ -172,8 +184,9 @@ describe("QuestionEditorDialog — option ids and the Yes / No template", () => 
 
     expect(optionIdsShown()).toEqual(["opt_diabetes", "opt_hyperten"]);
     const [first] = inDialog().getAllByRole("listitem");
-    expect(within(first!).getByText("opt_diabetes")).toBeInTheDocument();
-    expect(within(first!).queryByDisplayValue("opt_diabetes")).not.toBeInTheDocument();
+    if (first === undefined) throw new Error("expected at least one option row");
+    expect(within(first).getByText("opt_diabetes")).toBeInTheDocument();
+    expect(within(first).queryByDisplayValue("opt_diabetes")).not.toBeInTheDocument();
 
     const label = inDialog().getByRole("textbox", { name: "Label for opt_hyperten" });
     await userEvent.clear(label);
@@ -193,11 +206,11 @@ describe("QuestionEditorDialog — option ids and the Yes / No template", () => 
     }
 
     await chooseType("Single choice");
-    const checkbox = yesNoCheckbox();
+    const checkbox = requiredYesNoCheckbox();
     expect(checkbox).not.toBeChecked();
     expect(checkbox).toBeEnabled();
     expect(checkbox).toHaveAccessibleDescription("Two options with the reserved ids yes and no. Their labels stay editable.");
-    expect(checkbox!.compareDocumentPosition(field("Prompt")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(checkbox.compareDocumentPosition(field("Prompt")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     typeRadio("Single choice").focus();
     await userEvent.tab();
@@ -212,7 +225,7 @@ describe("QuestionEditorDialog — option ids and the Yes / No template", () => 
     renderEditor();
     await chooseType("Single choice");
 
-    await userEvent.click(yesNoCheckbox()!);
+    await userEvent.click(requiredYesNoCheckbox());
 
     expect(typeRadio("Single choice")).toBeChecked();
     expect(optionIdsShown()).toEqual(["yes", "no"]);
@@ -240,15 +253,15 @@ describe("QuestionEditorDialog — option ids and the Yes / No template", () => 
   it("unchecked, restores the options and the Other choice the author had before", async () => {
     renderEditor();
     await chooseType("Single choice");
-    await userEvent.type(labelInputs()[0]!, "Diabetes");
+    await userEvent.type(labelInput(0), "Diabetes");
     await userEvent.click(inDialog().getByRole("button", { name: "Add option" }));
-    await userEvent.type(labelInputs()[1]!, "Asthma");
+    await userEvent.type(labelInput(1), "Asthma");
     await userEvent.click(inDialog().getByRole("checkbox", { name: "Allow a freeform “Other” option" }));
     const before = optionIdsShown();
 
-    await userEvent.click(yesNoCheckbox()!);
+    await userEvent.click(requiredYesNoCheckbox());
     expect(optionIdsShown()).toEqual(["yes", "no"]);
-    await userEvent.click(yesNoCheckbox()!);
+    await userEvent.click(requiredYesNoCheckbox());
 
     expect(optionIdsShown()).toEqual(before);
     expect(labelInputs().map((input) => (input as HTMLInputElement).value)).toEqual(["Diabetes", "Asthma", "Other"]);
@@ -260,9 +273,9 @@ describe("QuestionEditorDialog — option ids and the Yes / No template", () => 
     renderEditor();
     await chooseType("Single choice");
     await userEvent.click(inDialog().getByRole("button", { name: /^Remove option/ }));
-    await userEvent.click(yesNoCheckbox()!);
+    await userEvent.click(requiredYesNoCheckbox());
 
-    await userEvent.click(yesNoCheckbox()!);
+    await userEvent.click(requiredYesNoCheckbox());
 
     expect(optionIdsShown()).toHaveLength(1);
     expect(optionIdsShown()[0]).toMatch(GENERATED_ID);
@@ -274,15 +287,15 @@ describe("QuestionEditorDialog — option ids and the Yes / No template", () => 
     renderEditor();
     await chooseType("Single choice");
     await typeInto("Prompt", "PR2 Any allergies?");
-    await userEvent.type(labelInputs()[0]!, "Peanuts");
+    await userEvent.type(labelInput(0), "Peanuts");
     await userEvent.click(inDialog().getByRole("checkbox", { name: "Allow a freeform “Other” option" }));
 
-    await userEvent.click(yesNoCheckbox()!);
+    await userEvent.click(requiredYesNoCheckbox());
     expect(inDialog().queryByRole("checkbox", { name: "Allow a freeform “Other” option" })).not.toBeInTheDocument();
     await chooseType("Multiple choice");
     expect(optionIdsShown()).not.toContain("yes");
     await chooseType("Single choice");
-    await userEvent.click(yesNoCheckbox()!);
+    await userEvent.click(requiredYesNoCheckbox());
     await clickSave();
 
     await waitFor(() => expect(requests).toHaveLength(1));
@@ -370,7 +383,7 @@ describe("QuestionEditorDialog — the type lock", () => {
       expect(typeRadio(name)).toBeDisabled();
     }
     expect(typeRadio(type === "number" ? "Number" : "Single choice")).toBeChecked();
-    expect(yesNoCheckbox() === null || yesNoCheckbox()!.hasAttribute("disabled")).toBe(true);
+    expect(yesNoCheckbox() === null || requiredYesNoCheckbox().hasAttribute("disabled")).toBe(true);
     expect(inDialog().getByRole("group", { name: "Response type" })).toHaveAccessibleDescription("Response type cannot be changed.");
   });
 
