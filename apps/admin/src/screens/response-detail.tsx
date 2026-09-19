@@ -218,7 +218,7 @@ function SessionPanel({ questionnaireId, detail }: { questionnaireId: string; de
       <dl className="flex flex-col gap-2.5">
         <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-baseline gap-3">
           <dt className="text-xs text-muted-foreground">Session id</dt>
-          <dd className="font-mono text-[13px] break-all">{detail.sessionId}</dd>
+          <dd className="font-mono text-[13px]">{shortSessionId(detail.sessionId)}</dd>
         </div>
         <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-baseline gap-3">
           <dt className="text-xs text-muted-foreground">Status</dt>

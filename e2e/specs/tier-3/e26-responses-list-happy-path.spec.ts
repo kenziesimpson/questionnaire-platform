@@ -53,7 +53,7 @@ test.describe("E26 — the admin responses screens show a real submitted session
     await expect(row).toContainText("4 of 4");
 
     await admin.openSessionButton(receipt.sessionId).click();
-    await expect(admin.sessionPanel()).toContainText(receipt.sessionId);
+    await expect(admin.sessionPanel()).toContainText(receipt.sessionId.slice(0, 8));
     await expect(admin.sessionPanel()).toContainText("4 of 4 questions");
     await expect(page.getByText(`${DEMO_V1.title} · version 1`, { exact: true })).toBeVisible();
 

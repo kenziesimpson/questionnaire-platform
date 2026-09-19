@@ -36,7 +36,6 @@ export type SessionSummaryPage = Static<typeof SessionSummaryPage>;
 export const SessionDetailItem = Type.Object(
   {
     itemId: Slug,
-    position: PositiveInt,
     required: Type.Boolean(),
     visibleWhen: Type.Union([Predicate, Type.Null()]),
     question: QuestionContent,
