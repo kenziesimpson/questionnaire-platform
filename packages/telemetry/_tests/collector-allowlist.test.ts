@@ -12,7 +12,13 @@ const ATTRIBUTES_ALLOWED_AHEAD_OF_THE_REGISTRY: readonly string[] = [];
 
 const RESOURCE_KEYS_LEFT_UNFILTERED = ["service.name"];
 
-const SAMPLING_POLICIES = ["errors", "slow", "baseline"];
+const SAMPLING_POLICIES = ["errors", "slow", "baseline", "health_probes"];
+
+const HEALTH_ROUTES = ["/health/ready", "/health/live"];
+
+const NGINX_CONFIG = fileURLToPath(new URL("../../../deploy/frontend/nginx.conf", import.meta.url));
+
+const LOG_RECEIVER = "file_log/containers";
 
 const BASELINE_PERCENTAGE = 10;
 
@@ -115,5 +121,87 @@ describe("the Collector's tail sampling", () => {
     expect(recordAt(policies[0], "status_code").status_codes).toEqual(["ERROR"]);
     expect(recordAt(policies[1], "latency").threshold_ms).toEqual(expect.any(Number));
     expect(recordAt(policies[2], "probabilistic").sampling_percentage).toBe(BASELINE_PERCENTAGE);
+  });
+
+  it("drops a trace that touches a health probe route, and only those routes", () => {
+    const subPolicies = recordAt(policies[3], "drop").drop_sub_policy;
+    const dropping = Array.isArray(subPolicies) ? subPolicies : [];
+    expect(dropping).toHaveLength(1);
+    const attribute = recordAt(dropping[0], "string_attribute");
+    expect(attribute.key).toBe("http.route");
+    expect(stringsAt(attribute, "values")).toEqual(HEALTH_ROUTES);
+  });
+});
+
+describe("the request metrics", () => {
+  const conditions = stringsAt(recordAt(processors, "filter/counted_requests"), "trace_conditions");
+
+  it("leave out health probes and every span that is not a server span", () => {
+    expect(conditions).toContain("span.kind != SPAN_KIND_SERVER");
+    for (const route of HEALTH_ROUTES) expect(conditions).toContain(`span.attributes["http.route"] == "${route}"`);
+  });
+
+  it("read the spans through that filter", () => {
+    const counting = pipelines.filter(({ exporters }) => exporters.includes("span_metrics"));
+    expect(counting.map(({ processors: steps }) => steps)).toEqual([["filter/counted_requests"]]);
+  });
+});
+
+describe("the build stamp", () => {
+  it("is on every pipeline that exports to the store, after any redaction", () => {
+    const exporting = pipelines.filter(({ exporters }) => exporters.includes("otlp_http/lgtm"));
+    expect(exporting.length).toBeGreaterThan(0);
+    for (const { name, processors: steps } of exporting) {
+      expect(steps, name).toContain("resource/build");
+      if (steps.includes("redaction")) expect(steps.indexOf("resource/build"), name).toBeGreaterThan(steps.indexOf("redaction"));
+    }
+  });
+});
+
+describe("the nginx access log line and the Collector's log operators", () => {
+  const nginx = readFileSync(NGINX_CONFIG, "utf8");
+  const logFormat = /log_format telemetry escape=json((?:\s+'[^']*')+);/.exec(nginx)?.[1] ?? "";
+  const line = [...logFormat.matchAll(/'([^']*)'/g)]
+    .map((piece) => piece[1] ?? "")
+    .join("")
+    .replaceAll("$request_method", "GET")
+    .replaceAll("$logged_route", "/api/run/sessions/:sessionId")
+    .replaceAll("$logged_status", "200")
+    .replaceAll("$logged_trace_id", "")
+    .replaceAll("$logged_span_id", "");
+  const record: unknown = JSON.parse(line);
+  const operators = recordAt(collectorConfig, "receivers")[LOG_RECEIVER];
+  const steps = isRecord(operators) && Array.isArray(operators.operators) ? operators.operators.filter(isRecord) : [];
+
+  function step(id: string): Record<string, unknown> {
+    const found = steps.find((operator) => operator.id === id);
+    if (found === undefined) throw new Error(`the log receiver has no operator "${id}"`);
+    return found;
+  }
+
+  it("is a JSON object whose only key outside the registry is the message", () => {
+    expect(isRecord(record)).toBe(true);
+    const keys = isRecord(record) ? Object.keys(record) : [];
+    expect(keys.filter((key) => key !== "msg").filter((key) => !ALLOWED_ATTRIBUTES.includes(key))).toEqual([]);
+    expect(line.startsWith("{")).toBe(true);
+  });
+
+  it("has a message the Collector's message filter accepts", () => {
+    const expression = step("only_literal_messages").expr;
+    const shape = typeof expression === "string" ? /matches "(.+)"\)$/.exec(expression)?.[1] : undefined;
+    expect(shape).toBeDefined();
+    expect(new RegExp(shape ?? "$^").test(String(isRecord(record) ? record.msg : ""))).toBe(true);
+  });
+
+  it("has no level, so severity is parsed apart from the JSON and only when the level is present", () => {
+    expect(isRecord(record) && "level" in record).toBe(false);
+    expect(step("application_line").severity).toBeUndefined();
+    expect(step("severity_from_level").type).toBe("severity_parser");
+    expect(step("severity_from_level").if).toBe("attributes.level != nil");
+  });
+
+  it("drops a line on a parse error rather than exporting it as text", () => {
+    expect(step("application_line").on_error).toBe("drop");
+    expect(step("docker_line").on_error).toBe("drop");
   });
 });

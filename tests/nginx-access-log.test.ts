@@ -1,13 +1,16 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { definitionApi, executionApi, reportingApi, routePath, telemetryApi } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 const nginxConfig = readFileSync(resolve(repoRoot, "deploy/frontend/nginx.conf"), "utf8");
 
-const LOGGED_VARIABLES = ["request_method", "logged_route", "status", "logged_trace_id", "logged_span_id"];
+const LOGGED_VARIABLES = ["request_method", "logged_route", "logged_status", "logged_trace_id", "logged_span_id"];
+
+const UNMATCHED = ":unmatched";
 
 const SESSION_ID = "7f3c2a10-5b1e-4c7d-9a2e-0d6b8e4f1a35";
 const QUESTIONNAIRE_ID = "0b9e4c21-3d5a-4f6b-8c7d-1e2f3a4b5c6d";
@@ -23,7 +26,11 @@ interface MapRule {
 
 type Variables = Readonly<Record<string, string>>;
 
-const RULE_LINE = /^\s*(?:"~(.+?)"|default)\s+(?:"(.*)"|(\S+));$/;
+const RULE_LINE = /^\s*(?:"~(.+?)"|"([^"~][^"]*)"|default)\s+(?:"(.*)"|(\S+));$/;
+
+function escapedForRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 function mapRules(source: string, target: string): MapRule[] {
   const header = `map ${source} ${target} {`;
@@ -37,7 +44,8 @@ function mapRules(source: string, target: string): MapRule[] {
     .map((line) => {
       const match = RULE_LINE.exec(line);
       if (match === null) throw new Error(`cannot read the map line: ${line}`);
-      return { pattern: match[1] === undefined ? undefined : new RegExp(match[1]), value: match[2] ?? match[3] ?? "" };
+      const source = match[1] ?? (match[2] === undefined ? undefined : `^${escapedForRegExp(match[2])}$`);
+      return { pattern: source === undefined ? undefined : new RegExp(source), value: match[3] ?? match[4] ?? "" };
     });
 }
 
@@ -56,13 +64,35 @@ function applyMap(rules: readonly MapRule[], input: string, variables: Variables
 }
 
 const pathRules = mapRules("$request_uri", "$request_path");
-const routeRules = mapRules("$request_path", "$logged_route");
+const maskRules = mapRules("$request_path", "$masked_route");
+const routeRules = mapRules("$masked_route", "$logged_route");
+const statusRules = mapRules("$status", "$logged_status");
 const traceRules = mapRules("$http_traceparent", "$logged_trace_id");
 const spanRules = mapRules("$http_traceparent", "$logged_span_id");
 
 function loggedRoute(requestUri: string): string {
   const requestPath = applyMap(pathRules, requestUri);
-  return applyMap(routeRules, requestPath, { request_path: requestPath });
+  const maskedRoute = applyMap(maskRules, requestPath, { request_path: requestPath });
+  return applyMap(routeRules, maskedRoute, { masked_route: maskedRoute });
+}
+
+interface SharedRoute {
+  readonly url: string;
+}
+
+const SHARED_ROUTES: readonly { readonly prefix: string; readonly routes: readonly SharedRoute[] }[] = [
+  { prefix: definitionApi.DEFINITION_PREFIX, routes: definitionApi.definitionRoutes },
+  { prefix: executionApi.EXECUTION_PREFIX, routes: executionApi.executionRoutes },
+  { prefix: reportingApi.REPORTING_PREFIX, routes: reportingApi.reportingRoutes },
+  { prefix: telemetryApi.TELEMETRY_PREFIX, routes: telemetryApi.telemetryRoutes },
+];
+
+function sessionRoutePaths(): string[] {
+  return SHARED_ROUTES.flatMap(({ prefix, routes }) =>
+    routes
+      .filter((route) => route.url.includes(":sessionId"))
+      .map((route) => routePath(`${prefix}${route.url}`, { id: QUESTIONNAIRE_ID, sessionId: SESSION_ID })),
+  );
 }
 
 describe("the nginx access log names only what it may carry", () => {
@@ -85,52 +115,102 @@ describe("the nginx access log names only what it may carry", () => {
 });
 
 describe("the route the nginx access log carries", () => {
+  const sessionPaths = sessionRoutePaths();
+
+  it("finds the routes that carry a session id", () => {
+    expect(sessionPaths.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(sessionPaths)("masks the session id in the shared route %s", (path) => {
+    for (const requestUri of [path, `${path}/`, `${path}?cursor=${CURSOR}`]) {
+      const route = loggedRoute(requestUri);
+      expect(route).toContain(":sessionId");
+      expect(route).not.toContain(SESSION_ID);
+      expect(route).not.toContain(CURSOR);
+    }
+  });
+
+  it("masks the session id in the admin's response detail path", () => {
+    expect(loggedRoute(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}`)).toBe(
+      `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/:sessionId`,
+    );
+    expect(loggedRoute(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}?cursor=${CURSOR}`)).toBe(
+      `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/:sessionId`,
+    );
+  });
+
   it("drops the query string, so the cursor cannot be logged", () => {
     expect(loggedRoute(`/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses?cursor=${CURSOR}&order=asc`)).toBe(
       `/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses`,
     );
     expect(loggedRoute(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses?cursor=${CURSOR}`)).toBe(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses`);
-    expect(loggedRoute(`/api/run/sessions/${SESSION_ID}?cursor=${CURSOR}`)).not.toContain(CURSOR);
   });
 
   it.each([
-    [`/api/run/sessions/${SESSION_ID}`, "/api/run/sessions/:sessionId"],
-    [`/api/run/sessions/${SESSION_ID}/`, "/api/run/sessions/:sessionId/"],
-    [`/api/run/sessions/${SESSION_ID}/submit`, "/api/run/sessions/:sessionId/submit"],
-    [`/api/run/sessions/${SESSION_ID}/submit?x=1`, "/api/run/sessions/:sessionId/submit"],
-    [`/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}`, `/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses/:sessionId`],
-    [`/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}/`, `/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses/:sessionId/`],
-    [`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}`, `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/:sessionId`],
-    [`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}?cursor=${CURSOR}`, `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/:sessionId`],
-  ])("masks the session id in %s", (requestUri, expected) => {
-    expect(loggedRoute(requestUri)).toBe(expected);
-  });
-
-  it.each([
-    "/api/run/sessions/not-a-uuid",
-    `/api/run/sessions/${SESSION_ID.toUpperCase()}`,
-    `/api/run/sessions/${SESSION_ID.replace("-", "%2D")}`,
-    `/api/run/sessions/${SESSION_ID}/anything/else`,
-    `/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}/extra`,
-  ])("masks whatever occupies a session slot, even in %s", (requestUri) => {
+    ["a percent-encoded prefix", `/api/%72un/sessions/${SESSION_ID}`],
+    ["a doubled leading slash", `//api/run/sessions/${SESSION_ID}`],
+    ["a doubled slash inside", `/api/run//sessions/${SESSION_ID}`],
+    ["a dot segment", `/api/./run/sessions/${SESSION_ID}`],
+    ["a dot-dot segment", `/api/x/../run/sessions/${SESSION_ID}`],
+    ["a doubled slash in the admin path", `/admin//questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}`],
+    ["an absolute-form request target", `http://example.test/api/run/sessions/${SESSION_ID}`],
+    ["an absolute-form request target with a port", `http://example.test:8080/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}`],
+    ["a dot segment in the session slot", `/api/run/sessions/./${SESSION_ID}`],
+    ["a longer path under a session", `/api/run/sessions/${SESSION_ID}/anything/else`],
+    ["a longer path under a response", `/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}/extra`],
+    ["a longer admin path under a response", `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}/extra`],
+    ["a non-ASCII path", `/api/run/sessions/${SESSION_ID}/\u00e9`],
+    ["an empty target", ""],
+    ["a path with a space", `/api/run/sessions /${SESSION_ID}`],
+  ])("never logs a session id for %s", (_name, requestUri) => {
     const route = loggedRoute(requestUri);
-    expect(route).toContain(":sessionId");
+    expect(route).not.toContain(SESSION_ID);
     expect(route.toLowerCase()).not.toContain(SESSION_ID.slice(0, 8));
-    expect(route).not.toContain("not-a-uuid");
+    expect(route).not.toContain(CURSOR);
+  });
+
+  it.each([
+    `/api/%72un/sessions/${SESSION_ID}`,
+    `//api/run/sessions/${SESSION_ID}`,
+    `/api/./run/sessions/${SESSION_ID}`,
+    `/admin//questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}`,
+    `http://example.test/api/run/sessions/${SESSION_ID}`,
+    `/api/run/sessions/${SESSION_ID}/anything/else`,
+    "",
+  ])("logs the fixed marker for the path %s", (requestUri) => {
+    expect(loggedRoute(requestUri)).toBe(UNMATCHED);
+  });
+
+  it.each([
+    `/api/run/sessions/${SESSION_ID.toUpperCase()}`,
+    "/api/run/sessions/not-a-uuid",
+    `/api/run/sessions/${SESSION_ID.replace("-", "%2D")}`,
+  ])("masks whatever occupies a session slot, in %s", (requestUri) => {
+    expect(loggedRoute(requestUri)).toBe("/api/run/sessions/:sessionId");
   });
 
   it.each([
     "/",
-    "/q/0b9e4c21-3d5a-4f6b-8c7d-1e2f3a4b5c6d",
     "/admin/",
     "/admin/questionnaires",
-    `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses`,
     "/api/run/sessions",
-    `/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses`,
-    `/api/definition/questionnaires/${QUESTIONNAIRE_ID}/draft`,
     "/assets/index-abc123.js",
-  ])("leaves %s as it is", (requestUri) => {
+    "/assets/chunk.min.js",
+    `/q/${QUESTIONNAIRE_ID}`,
+    `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses`,
+    `/api/definition/questionnaires/${QUESTIONNAIRE_ID}/draft`,
+    `/api/definition/questionnaires/${QUESTIONNAIRE_ID}/draft/`,
+  ])("leaves the safe path %s as it is", (requestUri) => {
     expect(loggedRoute(requestUri)).toBe(requestUri);
+  });
+
+  it.each([
+    ["000", "0"],
+    ["200", "200"],
+    ["404", "404"],
+    ["499", "499"],
+  ])("logs the status %s as the JSON number %s", (status, expected) => {
+    expect(applyMap(statusRules, status, { status })).toBe(expected);
   });
 });
 

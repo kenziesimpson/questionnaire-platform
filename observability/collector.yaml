@@ -39,8 +39,10 @@ receivers:
         id: application_line
         parse_ints: true
         on_error: drop
-        severity:
-          parse_from: attributes.level
+      - type: severity_parser
+        id: severity_from_level
+        parse_from: attributes.level
+        if: 'attributes.level != nil'
       - type: filter
         id: only_literal_messages
         expr: 'not (attributes.msg matches "^[A-Za-z][A-Za-z0-9 ._:,/-]{0,127}$")'
@@ -145,7 +147,7 @@ processors:
     attributes:
       - key: service.version
         value: ${env:QP_SERVICE_VERSION}
-        action: insert
+        action: upsert
 
   resource/postgresql:
     attributes:
@@ -153,10 +155,12 @@ processors:
         value: postgresql
         action: insert
 
-  filter/non_server_spans:
+  filter/counted_requests:
     error_mode: ignore
     trace_conditions:
       - span.kind != SPAN_KIND_SERVER
+      - span.attributes["http.route"] == "/health/ready"
+      - span.attributes["http.route"] == "/health/live"
 
   tail_sampling:
     decision_wait: 10s
@@ -175,6 +179,15 @@ processors:
         type: probabilistic
         probabilistic:
           sampling_percentage: 10
+      - name: health_probes
+        type: drop
+        drop:
+          drop_sub_policy:
+            - name: health_route
+              type: string_attribute
+              string_attribute:
+                key: http.route
+                values: [/health/ready, /health/live]
 
   batch:
     timeout: 5s
@@ -208,7 +221,7 @@ service:
       exporters: [forward/spanmetrics, forward/sampling]
     traces/spanmetrics:
       receivers: [forward/spanmetrics]
-      processors: [filter/non_server_spans]
+      processors: [filter/counted_requests]
       exporters: [span_metrics]
     traces/sampled:
       receivers: [forward/sampling]
@@ -220,11 +233,11 @@ service:
       exporters: [otlp_http/lgtm]
     metrics/derived:
       receivers: [span_metrics]
-      processors: [batch]
+      processors: [resource/build, batch]
       exporters: [otlp_http/lgtm]
     metrics/postgresql:
       receivers: [postgresql]
-      processors: [memory_limiter, resource/postgresql, batch]
+      processors: [memory_limiter, resource/postgresql, resource/build, batch]
       exporters: [otlp_http/lgtm]
     logs/containers:
       receivers: [file_log/containers]
