@@ -22,6 +22,7 @@ const app = await buildApp({
   definition: { database: definition.db },
   execution: { database: execution.db },
   reporting: { reporting: reporting.db },
+  telemetry: { eventsPerSecond: config.ingestEventsPerSecond },
 });
 
 async function start() {

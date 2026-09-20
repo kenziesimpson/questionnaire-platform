@@ -15,6 +15,7 @@ export const INGEST_DROP_REASONS = [
   "invalid_field",
   "invalid_trace",
   "over_limit",
+  "over_capacity",
 ] as const;
 export type IngestDropReason = (typeof INGEST_DROP_REASONS)[number];
 

@@ -78,6 +78,23 @@ describe("buildApp", () => {
     expect([forwarded.body, spoofed.body, direct.body]).toEqual(["203.0.113.5", "203.0.113.6", "10.0.0.1"]);
   });
 
+  it("ignores a client-supplied x-request-id and generates its own, so a caller cannot choose the request id that logs and problem bodies carry", async () => {
+    const identified = await buildApp({
+      definition: { database: testDatabase.database("definition") },
+      execution: { database: testDatabase.database("execution") },
+      reporting: { reporting: testDatabase.database("reporting") },
+    });
+    identified.get("/request-id-probe", async (request) => request.id);
+
+    const supplied = await identified.inject({ method: "GET", url: "/request-id-probe", headers: { "x-request-id": "LEAK_DIABETES_8F3A" } });
+    const generated = await identified.inject({ method: "GET", url: "/request-id-probe" });
+    await identified.close();
+
+    expect(supplied.body).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(supplied.body).not.toBe(generated.body);
+    expect(supplied.body).not.toContain("LEAK");
+  });
+
   it("mounts the telemetry ingest at /api/telemetry", async () => {
     const response = await app.inject({ method: "POST", url: "/api/telemetry", payload: { events: [] } });
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { ingestBatch, withSpan } from "../src/index.js";
+import { createIngestCapacity, ingestBatch, withSpan } from "../src/index.js";
 import { configureLogging, resetLogging, type LogRecord } from "../src/logger.js";
 import { installTestTelemetry, type TestTelemetry } from "../src/testing.js";
 import { browserDomainEventOf } from "../src/wire-contract.js";
@@ -335,6 +335,80 @@ describe("ingestBatch: the registry decides what is kept, and every drop is coun
     expect(receipt).toEqual({ accepted: 50, dropped: 3 });
     expect(installed.logs()).toHaveLength(50);
     expect(await ingestDropsIn(installed)).toEqual({ over_limit: 3 });
+  });
+});
+
+describe("ingestBatch: the volume cap", () => {
+  const CAPACITY = 5;
+  const logEvents = (count: number) => Array.from({ length: count }, () => ({ name: "client.info", at: AT, fields: { method: "POST" } }));
+  const abandoned = (count: number) =>
+    Array.from({ length: count }, () => ({ name: "session.abandoned", at: AT, fields: { sessionId: SESSION_ID, lastItemId: "itm_02" } }));
+
+  it("sheds client log events past the share left for domain events, counts each as over capacity and logs none of them", async () => {
+    const installed = install();
+
+    const receipt = ingestBatch(logEvents(10), RECEIVED_AT, createIngestCapacity(CAPACITY));
+
+    expect(receipt).toEqual({ accepted: 3, dropped: 7 });
+    expect(installed.logs()).toHaveLength(3);
+    expect(await ingestDropsIn(installed)).toEqual({ over_capacity: 7 });
+  });
+
+  it("still accepts session.abandoned after the log events have used up their share, and sheds the log events that follow", async () => {
+    const installed = install();
+
+    const receipt = ingestBatch([...logEvents(6), ...abandoned(2), ...logEvents(2)], RECEIVED_AT, createIngestCapacity(CAPACITY));
+
+    expect(receipt).toEqual({ accepted: 5, dropped: 5 });
+    expect(installed.logs().filter((line) => line.msg === "session.abandoned")).toHaveLength(2);
+    expect(await ingestDropsIn(installed)).toEqual({ over_capacity: 5 });
+  });
+
+  it("sheds domain events too once the whole cap is used, so a flood of them is bounded", async () => {
+    const installed = install();
+
+    const receipt = ingestBatch(abandoned(8), RECEIVED_AT, createIngestCapacity(CAPACITY));
+
+    expect(receipt).toEqual({ accepted: 5, dropped: 3 });
+    expect(await ingestDropsIn(installed)).toEqual({ over_capacity: 3 });
+  });
+
+  it("counts across batches within one second, and admits again in the next", () => {
+    install();
+    const capacity = createIngestCapacity(CAPACITY);
+
+    const first = ingestBatch(logEvents(2), RECEIVED_AT, capacity);
+    const second = ingestBatch(logEvents(2), RECEIVED_AT + 999, capacity);
+    const third = ingestBatch(logEvents(2), RECEIVED_AT + 1000, capacity);
+
+    expect([first.accepted, second.accepted, third.accepted]).toEqual([2, 1, 2]);
+  });
+
+  it("spends none of the cap on events that were malformed or unknown", async () => {
+    const installed = install();
+    const refused = [...Array.from({ length: 10 }, () => ({ name: "not.allowlisted", at: AT })), "text", { name: 3 }];
+
+    const receipt = ingestBatch([...refused, ...logEvents(3)], RECEIVED_AT, createIngestCapacity(CAPACITY));
+
+    expect(receipt).toEqual({ accepted: 3, dropped: 12 });
+    expect(await ingestDropsIn(installed)).toEqual({ unknown_event: 10, malformed: 2 });
+  });
+
+  it("drops a shed event whole, so its fields are neither logged nor counted as field drops", async () => {
+    const installed = install();
+    const planted = { name: "client.info", at: AT, fields: { [LEAK]: LEAK, status: "not a status" }, traceparent: LEAK };
+
+    ingestBatch([planted], RECEIVED_AT, createIngestCapacity(1));
+
+    expect(installed.logs()).toEqual([]);
+    expect(await ingestDropsIn(installed)).toEqual({ over_capacity: 1 });
+    expect(JSON.stringify(await installed.metrics())).not.toContain(LEAK);
+  });
+
+  it("has no cap when none is passed", () => {
+    install();
+
+    expect(ingestBatch(logEvents(50), RECEIVED_AT)).toEqual({ accepted: 50, dropped: 0 });
   });
 });
 

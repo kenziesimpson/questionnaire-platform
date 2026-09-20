@@ -1,4 +1,4 @@
-import { DATABASE_POOLS, LOG_LEVELS, type LogLevel } from "@qp/telemetry";
+import { DATABASE_POOLS, DEFAULT_INGEST_EVENTS_PER_SECOND, LOG_LEVELS, type LogLevel } from "@qp/telemetry";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -37,6 +37,15 @@ function presentOrUndefined(value: string | undefined): string | undefined {
   return value === undefined || value === "" ? undefined : value;
 }
 
+function wholeNumberFrom(name: string, value: string | undefined, fallback: number, minimum: number): number {
+  if (presentOrUndefined(value) === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum) {
+    throw new Error(`Unsupported ${name} "${value}": expected a whole number of at least ${minimum}`);
+  }
+  return parsed;
+}
+
 const nodeEnv = process.env.NODE_ENV ?? "development";
 
 export const config = {
@@ -44,6 +53,12 @@ export const config = {
   port: Number(process.env.PORT ?? 3000),
   host: process.env.HOST ?? "0.0.0.0",
   logLevel: logLevelFrom(process.env.LOG_LEVEL),
+  ingestEventsPerSecond: wholeNumberFrom(
+    "TELEMETRY_INGEST_EVENTS_PER_SECOND",
+    process.env.TELEMETRY_INGEST_EVENTS_PER_SECOND,
+    DEFAULT_INGEST_EVENTS_PER_SECOND,
+    1,
+  ),
   telemetry: {
     serviceName: presentOrUndefined(process.env.OTEL_SERVICE_NAME) ?? "qp-backend",
     otlpEndpoint: presentOrUndefined(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
