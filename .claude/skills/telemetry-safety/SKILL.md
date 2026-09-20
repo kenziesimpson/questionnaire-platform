@@ -75,8 +75,9 @@ These are real and not fixed. The leak test's negative controls in
    `preValidation` or `preHandler`), and the name is a camel-case identifier (`[a-z][A-Za-z0-9]*`,
    which includes `anonymous`) or the literal plugin fallback `fastify -> @fastify/otel`; and
    `pg.query`, `pg.query:<verb>` with the verb from a closed list, `pg.connect` and `pg-pool.connect`.
-   The database slot of `pg.query:<verb> <db>` is never exported: the exporter rewrites it to
-   `pg.query:<verb>`, so a planted `pg.query:SELECT <sentinel>` in any case is clean. What remains is
+   Whatever follows the verb in `pg.query:<verb> <rest>` is never exported: the exporter takes the first
+   whitespace-delimited word and rewrites the name to `pg.query:<verb>` if it is on the closed list, so a planted
+   `pg.query:SELECT <sentinel>` in any case is clean. What remains is
    the `<name>` slot: a one-word lower-case camel-case name such as `handler - diabetes` passes, and
    the exporter cannot tell it from a function name. Function names are source identifiers, not data.
    The leak test plants the sentinel in a handler slot in upper and lower case, and both are rejected
@@ -277,8 +278,9 @@ drives the real path — a real request through `app.inject`, a real stored row,
 
 - **Assert your own plant took.** Check the status code, the stored row, the response body. A flow
   whose plant silently failed passes vacuously and proves nothing.
-- **A flow that emits no telemetry fails** with `TELEMETRY LEAK TEST VACUOUS`, and so does a flow in which a telemetry call failed and was swallowed (`run.internalDrops`, reason `internal`): the drop counter is not the flow's own telemetry. If your path is silent,
-  the flow is testing the wrong thing.
+- **A flow that emits no telemetry fails** with `TELEMETRY LEAK TEST VACUOUS`, and so does a flow in which a telemetry call failed and was swallowed (`run.internalDrops`, reason `internal`): the drop counter is not the flow's own telemetry. Neither are the pool and event-loop gauges, the `pg` spans and `db.client.operation.duration`: a flow
+  that queries the database but whose target path emits nothing is still vacuous, because `observed` leaves them out unless the flow sets `observesDatabase: true`,
+  which only a flow about the database itself should. If your path is silent, the flow is testing the wrong thing.
 - **Run it against the instrumented pipeline, and build the app after it starts.** Fastify's
   instrumentation patches an app only if it is installed before `Fastify()` runs, so an app built
   earlier produces no spans at all. `runOnLeakApp(testDatabase, flow, { autoInstrumentation: true })`

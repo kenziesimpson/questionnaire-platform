@@ -2,6 +2,7 @@ import type { MetricData } from "@opentelemetry/sdk-metrics";
 import { afterEach, describe, expect, it } from "vitest";
 import { watchPool } from "../src/index.js";
 import { installTestTelemetry, internalDropCount, type TestTelemetry } from "../src/testing.js";
+import { installFaultyMeter, internalDropsOf, restoreFaults } from "./faults.js";
 
 let telemetry: TestTelemetry | undefined;
 let stops: (() => void)[] = [];
@@ -77,3 +78,18 @@ describe("the pool gauges", () => {
     expect(internalDropCount(all)).toBeGreaterThan(0);
   });
 });
+
+describe("starting the pool gauges", () => {
+  afterEach(restoreFaults);
+
+  it("never throws into startup when the meter cannot create a gauge, and counts one internal metric drop", () => {
+    const recorded = installFaultyMeter({ failingGauges: true });
+
+    expect(() => {
+      telemetry = installTestTelemetry();
+    }).not.toThrow();
+
+    expect(internalDropsOf(recorded)).toEqual(["metric"]);
+  });
+});
+

@@ -41,6 +41,7 @@ export function runOnLeakApp(
 ): Promise<LeakRun> {
   const buildsItsOwnApp: LeakFlow<undefined> = {
     name: flow.name,
+    observesDatabase: flow.observesDatabase,
     run: async (_none, sentinel) => {
       const world = await buildLeakWorld(testDatabase);
       try {

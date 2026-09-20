@@ -1,10 +1,15 @@
 import { installTestTelemetry, type TestTelemetry } from "@qp/telemetry/testing";
+import Fastify from "fastify";
 import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 import { POOL_ROLES } from "../../src/config.js";
 import { useTestDatabase } from "./fixtures.js";
 
 const testDatabase = useTestDatabase();
+
+const INBOUND_TRACE_ID = "0af7651916cd43dd8448eb211c80319c";
+const INBOUND_SPAN_ID = "b7ad6b7169203331";
+const HOSTILE_VALUE = "hostile_tracestate_value_9z8y";
 
 let telemetry: TestTelemetry | undefined;
 
@@ -56,6 +61,34 @@ describe("openDatabase: the pg instrumentation on a pool", () => {
     const { traceId, spanId } = span?.spanContext() ?? { traceId: "", spanId: "" };
     expect(traceId).toMatch(/^[0-9a-f]{32}$/);
     expect(result.rows[0]?.query).toContain(`/*traceparent='00-${traceId}-${spanId}-01'*/`);
+  });
+
+  it("puts traceparent alone in the comment when the request that issued the statement carried a hostile tracestate", async () => {
+    telemetry = installTestTelemetry({ autoInstrumentation: true, loadedDatabaseDriver: pg });
+    const pool = testDatabase.pool("execution");
+    const app = Fastify();
+    app.get("/probe", async () => {
+      const result = await pool.query<{ query: string }>("SELECT query FROM pg_stat_activity WHERE pid = pg_backend_pid()");
+      return { query: result.rows[0]?.query };
+    });
+    await app.ready();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/probe",
+      headers: {
+        traceparent: `00-${INBOUND_TRACE_ID}-${INBOUND_SPAN_ID}-01`,
+        tracestate: `vendor=${HOSTILE_VALUE},${"k".repeat(200)}=${"v".repeat(250)}`,
+      },
+    });
+    await app.close();
+
+    const { query } = response.json<{ query: string }>();
+    expect(response.statusCode).toBe(200);
+    expect(query).toMatch(new RegExp(`/\\*traceparent='00-${INBOUND_TRACE_ID}-[0-9a-f]{16}-01'\\*/$`));
+    expect(query).not.toContain("tracestate");
+    expect(query).not.toContain(HOSTILE_VALUE);
+    expect(JSON.stringify(telemetry.spans())).not.toContain(HOSTILE_VALUE);
   });
 
   it("exports the statement's span without its text or its parameters", async () => {

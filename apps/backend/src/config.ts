@@ -1,4 +1,4 @@
-import { LOG_LEVELS, type LogLevel } from "@qp/telemetry";
+import { DATABASE_POOLS, LOG_LEVELS, type LogLevel } from "@qp/telemetry";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -8,7 +8,7 @@ function required(name: string): string {
   return value;
 }
 
-export const POOL_ROLES = ["definition", "execution", "reporting"] as const;
+export const POOL_ROLES = DATABASE_POOLS;
 export type PoolRole = (typeof POOL_ROLES)[number];
 
 export const DATABASE_ROLES = ["owner", ...POOL_ROLES] as const;

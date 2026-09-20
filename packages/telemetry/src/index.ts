@@ -1,5 +1,6 @@
 export { emitDomainEvent, type DomainEvent } from "./events.js";
 export {
+  DATABASE_POOLS,
   FIELDS,
   OUTCOMES,
   type FieldName,

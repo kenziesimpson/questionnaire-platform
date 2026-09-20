@@ -1,5 +1,5 @@
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
-import { isAmbientMetric } from "./ambient-metrics.js";
+import { isAmbientMetric, isDatabaseMetric, isDatabaseSpan } from "./ambient-signals.js";
 import { DROPPED_COUNTER } from "./instruments.js";
 import { installTestTelemetry, internalDropCount, type LoadedDatabaseDriver } from "./testing.js";
 import type { SignalKind } from "./vocabulary.js";
@@ -28,6 +28,7 @@ export interface LeakExposure {
 export interface LeakFlow<World> {
   readonly name: string;
   readonly emits?: readonly string[];
+  readonly observesDatabase?: boolean;
   run(world: World, sentinel: string): Promise<void>;
 }
 
@@ -96,12 +97,16 @@ export async function runLeakFlow<World>(
   try {
     await flow.run(world, sentinel);
     const flushed = await telemetry.metrics();
+    const countsDatabase = flow.observesDatabase === true;
     return {
       exposures: await exposuresOf({ logs: telemetry.logs, spans: telemetry.spans, metrics: async () => flushed }, sentinel),
       observed: {
         log: telemetry.logs().length,
-        span: telemetry.spans().length,
-        metric: flushed.filter((metric) => metric.descriptor.name !== DROPPED_COUNTER && !isAmbientMetric(metric.descriptor.name)).length,
+        span: telemetry.spans().filter((span) => countsDatabase || !isDatabaseSpan(span.name)).length,
+        metric: flushed.filter((metric) => {
+          const name = metric.descriptor.name;
+          return name !== DROPPED_COUNTER && !isAmbientMetric(name) && (countsDatabase || !isDatabaseMetric(name));
+        }).length,
       },
       internalDrops: internalDropCount(flushed),
       spanNames: telemetry.spans().map((span) => span.name),

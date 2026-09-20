@@ -151,3 +151,31 @@ describe("the metrics an instrumentation is allowed to export", () => {
     expect(point?.attributes).toEqual({ "db.operation.name": "SELECT", "db.namespace": "qp" });
   });
 });
+
+describe("the operation label of the pg duration metric", () => {
+  function exportedOperation(operation: string): unknown {
+    const delegate = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
+    scrubbingMetricExporter(delegate).export(
+      {
+        resource: resourceFromAttributes({}),
+        scopeMetrics: [{ scope: { name: "@opentelemetry/instrumentation-pg" }, metrics: [gauge("db.client.operation.duration", { "db.operation.name": operation })] }],
+      },
+      () => undefined,
+    );
+    return delegate.getMetrics()[0]?.scopeMetrics[0]?.metrics[0]?.dataPoints[0]?.attributes["db.operation.name"];
+  }
+
+  it.each([
+    ["SELECT", "SELECT"],
+    ["TRUNCATE\n", "TRUNCATE"],
+    ["CREATE", "CREATE"],
+    ["SELECT\n1", "SELECT"],
+    ["LEAK_DIABETES_8F3A", "OTHER"],
+    ["leakdiabetes", "OTHER"],
+    ["GRANT", "OTHER"],
+    ["SELECTED", "OTHER"],
+  ])("is normalised to a verb on the closed list, or OTHER: %j exports as %s", (operation, exported) => {
+    expect(exportedOperation(operation)).toBe(exported);
+  });
+});
+

@@ -11,10 +11,12 @@ import pino, { type DestinationStream } from "pino";
 import pretty from "pino-pretty";
 import { DatabaseInstrumentation, type LoadedDatabaseDriver } from "./database-instrumentation.js";
 import { scrubbingMetricExporter, scrubbingSpanExporter } from "./exporters.js";
+import { guarded } from "./guard.js";
 import { reportDropped, resetInstruments } from "./instruments.js";
 import { configureLogging, resetLogging, type LogLevel, type LogSink } from "./logger.js";
 import { startPoolGauges } from "./pool-metrics.js";
 import { scrubAttributes } from "./scrub.js";
+import { TraceparentOnlyPropagator } from "./trace-propagator.js";
 
 const LOADER_HOOK = "@opentelemetry/instrumentation/hook.mjs";
 
@@ -106,11 +108,12 @@ export function startPipeline(options: PipelineOptions): TelemetryHandle {
     autoDetectResources: false,
     spanProcessors: [traceProcessor],
     metricReaders,
+    textMapPropagator: new TraceparentOnlyPropagator(),
     logRecordProcessors: [],
     instrumentations,
   });
   sdk.start();
-  startPoolGauges();
+  guarded("metric", startPoolGauges);
   if (options.loadedDatabaseDriver !== undefined) database?.patchLoaded(options.loadedDatabaseDriver);
 
   return {

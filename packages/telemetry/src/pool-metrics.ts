@@ -1,8 +1,13 @@
 import { metrics } from "@opentelemetry/api";
-import { POOL_METRICS } from "./ambient-metrics.js";
 import { FIELDS, type FieldValue } from "./fields.js";
 import { guarded } from "./guard.js";
 import { INSTRUMENTATION_SCOPE } from "./vocabulary.js";
+
+export const POOL_METRICS = {
+  total: "db.pool.connections.total",
+  idle: "db.pool.connections.idle",
+  waiting: "db.pool.connections.waiting",
+} as const;
 
 export type PoolName = FieldValue<"pool">;
 

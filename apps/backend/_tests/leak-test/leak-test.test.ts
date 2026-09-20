@@ -96,6 +96,38 @@ describe("TELEMETRY LEAK (CI gate): the pipeline it runs patches the pg driver t
     expect(run.metricNames).toContain("db.pool.connections.total");
     expect(run.observed.metric).toBe(0);
   });
+
+  it("does not count a flow's queries as its own telemetry, so a flow that only touches the database is vacuous", async () => {
+    const touchesTheDatabase: BackendLeakFlow = {
+      name: "a flow whose target path emits nothing but which queries",
+      run: async (world) => {
+        await world.testDatabase.pool("execution").query("SELECT 1");
+      },
+    };
+
+    const run = await runFlow(touchesTheDatabase);
+
+    expect(run.spanNames).toContain("pg.query:SELECT");
+    expect(run.metricNames).toContain("db.client.operation.duration");
+    expect(run.observed).toEqual({ log: 0, span: 0, metric: 0 });
+    expect(() => expectCleanRun(touchesTheDatabase.name, run)).toThrow(/TELEMETRY LEAK TEST VACUOUS/);
+  });
+
+  it("counts them when the flow declares that it observes the database", async () => {
+    const observesTheDatabase: BackendLeakFlow = {
+      name: "a flow that is about the database",
+      observesDatabase: true,
+      run: async (world) => {
+        await world.testDatabase.pool("execution").query("SELECT 1");
+      },
+    };
+
+    const run = await runFlow(observesTheDatabase);
+
+    expect(run.observed.span).toBeGreaterThan(0);
+    expect(run.observed.metric).toBeGreaterThan(0);
+    expect(() => expectCleanRun(observesTheDatabase.name, run)).not.toThrow();
+  });
 });
 
 interface NegativeControl {

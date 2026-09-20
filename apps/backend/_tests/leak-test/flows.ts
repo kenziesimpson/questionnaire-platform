@@ -170,6 +170,7 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
     },
   },
   {
+    observesDatabase: true,
     name: "database: the sentinel as a bound parameter of statements pg's instrumentation traces, on a client and on a pool, that succeed and that fail with the value in the driver's message",
     run: async (world, sentinel) => {
       const client = await world.testDatabase.connect("execution");

@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { context, propagation, ROOT_CONTEXT } from "@opentelemetry/api";
 import { afterEach, describe, expect, it } from "vitest";
 import { DATABASE_INSTRUMENTATION_CONFIG } from "../src/database-instrumentation.js";
 import { installTestTelemetry, type TestTelemetry } from "../src/testing.js";
@@ -79,6 +80,23 @@ describe("patching a driver that was loaded before the instrumentation started",
     const { traceId, spanId } = span?.spanContext() ?? { traceId: "", spanId: "" };
     expect(sent).toEqual([{ text: `SELECT $1::text /*traceparent='00-${traceId}-${spanId}-01'*/`, values: [LEAK] }]);
     expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it("puts traceparent alone in the SQL comment when the inbound request carried a hostile tracestate", async () => {
+    const { driver, sent, FakeClient } = fakeDriver();
+    telemetry = installTestTelemetry({ autoInstrumentation: true, loadedDatabaseDriver: driver });
+    const traceId = "0af7651916cd43dd8448eb211c80319c";
+    const inbound = propagation.extract(ROOT_CONTEXT, {
+      traceparent: `00-${traceId}-b7ad6b7169203331-01`,
+      tracestate: `vendor=${LEAK},${"k".repeat(200)}=${"v".repeat(250)}`,
+    });
+
+    await context.with(inbound, () => new FakeClient().query("SELECT $1::text", [LEAK]));
+
+    const [statement] = sent;
+    expect(statement?.text).toMatch(new RegExp(`^SELECT \\$1::text /\\*traceparent='00-${traceId}-[0-9a-f]{16}-01'\\*/$`));
+    expect(JSON.stringify(sent)).not.toContain("tracestate");
+    expect(JSON.stringify([sent, telemetry.spans()])).not.toContain(LEAK);
   });
 
   it("traces a connection taken from the pool under the pool connect span name", async () => {

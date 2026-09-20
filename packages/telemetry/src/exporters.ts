@@ -1,8 +1,8 @@
 import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
 import { DataPointType, type DataPoint, type MetricData, type PushMetricExporter, type ResourceMetrics } from "@opentelemetry/sdk-metrics";
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace";
-import { isExportedInstrument } from "./ambient-metrics.js";
 import { guardedOr } from "./guard.js";
+import { isExportedInstrument } from "./instrument-allowlist.js";
 import { reportDropped } from "./instruments.js";
 import { oneDropped, scrubAttributes, type ScrubbedAttributes } from "./scrub.js";
 import { isSpanName } from "./spans.js";
@@ -38,6 +38,9 @@ const PG_COMMANDS = [
   "ROLLBACK",
   "SAVEPOINT",
   "RELEASE",
+  "CREATE",
+  "ALTER",
+  "DROP",
   "SET",
   "RESET",
   "SHOW",
@@ -53,17 +56,31 @@ const PG_COMMANDS = [
 const EXPORTED_AS_WRITTEN: readonly RegExp[] = [
   /^request$/,
   new RegExp(`^(?:${FASTIFY_SPAN_PREFIXES.join("|")}) - (?:[a-z][A-Za-z0-9]{0,63}|${FASTIFY_PLUGIN_NAME_FALLBACK})$`),
-  new RegExp(`^pg\\.query(?::(?:${PG_COMMANDS.join("|")}))?$`),
+  /^pg\.query$/,
   /^pg\.connect$/,
   /^pg-pool\.connect$/,
 ];
 
-const PG_QUERY_WITH_DATABASE = new RegExp(`^pg\\.query:(${PG_COMMANDS.join("|")}) \\S{1,63}$`);
+const PG_VERB = new RegExp(`^(${PG_COMMANDS.join("|")})(?:\\s|$)`);
+
+const PG_QUERY_PREFIX = "pg.query:";
+
+const OPERATION_LABEL = "db.operation.name";
+
+const OTHER_OPERATION = "OTHER";
+
+function pgVerbOf(text: string): string | undefined {
+  return PG_VERB.exec(text)?.[1];
+}
+
+function operationLabelOf(value: unknown): unknown {
+  return typeof value === "string" ? (pgVerbOf(value) ?? OTHER_OPERATION) : value;
+}
 
 function exportedNameOf(name: string): string {
   if (isSpanName(name) || EXPORTED_AS_WRITTEN.some((shape) => shape.test(name))) return name;
-  const command = PG_QUERY_WITH_DATABASE.exec(name)?.[1];
-  if (command !== undefined) return `pg.query:${command}`;
+  const verb = name.startsWith(PG_QUERY_PREFIX) ? pgVerbOf(name.slice(PG_QUERY_PREFIX.length)) : undefined;
+  if (verb !== undefined) return `${PG_QUERY_PREFIX}${verb}`;
   reportDropped("span", oneDropped("unknown"));
   return UNNAMED_SPAN;
 }
@@ -119,7 +136,8 @@ export function scrubbingSpanExporter(delegate: SpanExporter): SpanExporter {
 }
 
 function scrubbedPoint<T>(point: DataPoint<T>): DataPoint<T> {
-  return { ...point, attributes: cleaned(point.attributes, "metric") };
+  const labels = Object.fromEntries(Object.entries(point.attributes).map(([key, value]) => [key, key === OPERATION_LABEL ? operationLabelOf(value) : value]));
+  return { ...point, attributes: cleaned(labels, "metric") };
 }
 
 function scrubbedMetric(metric: MetricData): MetricData {

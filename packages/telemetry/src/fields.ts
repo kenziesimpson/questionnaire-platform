@@ -21,7 +21,7 @@ const MAX_COUNT = 1_000_000;
 
 const SIGNALS = ["SIGINT", "SIGTERM"] as const;
 
-const DATABASE_POOLS = ["definition", "execution", "reporting"] as const;
+export const DATABASE_POOLS = ["definition", "execution", "reporting"] as const;
 
 export interface FieldDefinition<V> {
   readonly attribute: string;

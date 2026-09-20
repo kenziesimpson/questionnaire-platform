@@ -232,8 +232,10 @@ The exporter applies the same list to every span it sees. A declared name and an
 the names the instrumentations produce pass: `request`; `<hook> - <name>` for a Fastify lifecycle
 hook, `handler` or `notFoundHandler`, where the name is a camel-case identifier (including
 `anonymous`) or the plugin fallback `fastify -> @fastify/otel`; `pg.query`, `pg.query:<verb>` for a
-closed list of SQL verbs, `pg.connect` and `pg-pool.connect`. The database slot of
-`pg.query:<verb> <db>` is dropped from the exported name. Any other name is exported as `unnamed`, and
+closed list of SQL verbs, `pg.connect` and `pg-pool.connect`. The exporter takes the first whitespace-delimited word after
+`pg.query:` (the instrumentation cuts at the first space, so a statement that continues on a new line, like `TRUNCATE` followed by
+a newline, leaves the newline in the name) and exports it only if it is on the list; the rest, including the database slot of
+`pg.query:<verb> <db>`, is dropped from the exported name. Any other name is exported as `unnamed`, and
 the span, its parent link and its scrubbed attributes are kept, so the trace stays whole. That costs one
 `span/unknown` drop per such span, which is how a new instrumentation shows up. Name route handlers and
 hook functions: an anonymous one is named after its plugin. A one-word lower-case camel-case name in the
@@ -456,7 +458,10 @@ logs and manual spans still work, and logs a warning.
 **Query spans and the SQL comment.** `DatabaseInstrumentation` (`src/database-instrumentation.ts`) is `@opentelemetry/instrumentation-pg`
 with `DATABASE_INSTRUMENTATION_CONFIG`: `addSqlCommenterCommentToQueries` on, so each statement leaves the process with a trailing
 comment `/*traceparent='00-<trace id>-<span id>-01'*/` naming its own span, and `enhancedDatabaseReporting` off, so bound
-parameters are never put on a span. Postgres shows the comment in `pg_stat_activity` and its log, and drops it when it
+parameters are never put on a span. The comment carries `traceparent` and nothing else. The instrumentation copies the whole W3C carrier
+into it, so the pipeline registers `TraceparentOnlyPropagator` (`src/trace-propagator.ts`) as the SDK's propagator: it extracts and injects
+`traceparent` only, and an inbound `tracestate`, which a caller controls and can make hundreds of bytes long, is never read, so it reaches no
+span, no outgoing header and no statement. It also drops `baggage`, which nothing here uses. Postgres shows the comment in `pg_stat_activity` and its log, and drops it when it
 normalises a statement, so `pg_stat_statements` does not split one statement by trace. A span exports only `db.system.name`,
 `db.namespace`, `server.address` and `server.port`; `db.query.text` is never exported and an error's message never reaches the span.
 
@@ -464,7 +469,8 @@ normalises a statement, so `pg_stat_statements` does not split one statement by 
 import already loaded, and only once per process. `patchLoaded(driver)` applies the instrumentation's own patch functions to the
 `Client` and `Pool` the caller hands over, and `disable()` (which the pipeline calls at shutdown) undoes it, so every flow gets a
 fresh patch against the driver the app under test uses. The pipeline only does this when `loadedDatabaseDriver` is given, and only
-tests give it; production keeps the module hooks and the `--import` preload.
+tests give it; production keeps the module hooks and the `--import` preload. `patchLoaded` patches `pg`'s JavaScript `Client` and `pg-pool`, not `pg.native`
+(the `pg-native` binding), so the gate is blind to a query issued through it; the repo does not use it.
 
 **Pool gauges.** `watchPool(pool, counts)` registers a pool under one of the bounded `pool` field's values (`definition`,
 `execution`, `reporting`) and returns a function that stops watching it. `openDatabase` calls it with `pool.totalCount`,
@@ -484,16 +490,21 @@ so they cannot tell them apart.
 **Event-loop lag.** `RuntimeNodeInstrumentation` exports `nodejs.eventloop.delay.{min,max,mean,stddev,p50,p90,p99}` (seconds) and
 `nodejs.eventloop.utilization`, none with a label. The delay gauges report nothing until the loop has been sampled five times.
 
-**Which instrument metrics leave the process.** `ambient-metrics.ts` lists them. The exporter keeps only `db.client.operation.duration`
+**Which instrument metrics leave the process.** `instrument-allowlist.ts` lists them. The exporter keeps only `db.client.operation.duration`
 from the `pg` scope and only the event-loop metrics from the runtime scope; `db.client.connection.count` and
 `db.client.connection.pending_requests` (labelled by pool name and state) and the runtime's GC, heap-space, resource and event-loop-time
 metrics carry labels that are not on the allowlist, so they are dropped whole rather than exported with their labels stripped. A scope
 that is not listed passes unchanged, its labels scrubbed as always. `db.client.operation.duration` keeps `db.operation.name`,
-`db.namespace`, `server.address` and `server.port`; an `error.type` that is a SQLSTATE such as `22P02` is not a class name, so that label is
-dropped and counted `invalid`.
+`db.namespace`, `server.address` and `server.port`; its `db.operation.name` is normalised the way the span name is (the statement's first
+whitespace-delimited word if it is on the verb list, else `OTHER`), so the label is a closed set. An `error.type` that is a SQLSTATE such as
+`22P02` is not a class name, so that label is dropped and counted `invalid`: every failing query adds one `metric/invalid` drop to
+`telemetry.scrub.dropped`.
 
-The pool gauges and the event-loop metrics exist because the process is running, not because a request did anything, so the leak test
-does not count them as a flow's own telemetry (`isAmbientMetric`): a flow that emits nothing still fails as vacuous.
+**What the leak test counts as a flow's own telemetry.** The pool gauges and the event-loop metrics exist because the process is running, and
+the `pg` spans and `db.client.operation.duration` exist because a flow touched the database, not because the path it targets emitted
+anything. `ambient-signals.ts` names them (`isAmbientMetric`, `isDatabaseSpan`, `isDatabaseMetric`) and `runLeakFlow` leaves them out of
+`observed`, so a flow that emits nothing of its own still fails as vacuous even when it queries the database. A flow whose subject is the
+database sets `observesDatabase: true` to count them; only the backend's `database:` flow does.
 
 ## Testing
 
@@ -557,9 +568,11 @@ The flows live with the code they exercise. The backend's registry is
 | `src/fields.ts` | `FIELDS`, `TelemetryContext`, the infrastructure allowlist, `OUTCOMES` |
 | `src/vocabulary.ts` | Constants shared by more than one module: the instrumentation scope, signal kinds, drop reasons, log modules and the attribute names the pipeline writes about itself |
 | `src/scrub.ts` | `scrubContext`, `scrubAttributes` |
-| `src/ambient-metrics.ts` | `POOL_METRICS`, which instrument metrics an instrumentation may export (`isExportedInstrument`) and which metrics exist because the process runs (`isAmbientMetric`) |
+| `src/instrument-allowlist.ts` | Which instrument metrics an instrumentation may export at all (`isExportedInstrument`), and the names it lists |
+| `src/ambient-signals.ts` | What the leak test does not count as a flow's own telemetry: `isAmbientMetric`, `isDatabaseSpan`, `isDatabaseMetric` |
+| `src/trace-propagator.ts` | `TraceparentOnlyPropagator` |
 | `src/database-instrumentation.ts` | `DatabaseInstrumentation`, `DATABASE_INSTRUMENTATION_CONFIG`, `LoadedDatabaseDriver` |
-| `src/pool-metrics.ts` | `watchPool`, `startPoolGauges` (pipeline only), `PoolCounts`, `PoolName` |
+| `src/pool-metrics.ts` | `watchPool`, `POOL_METRICS`, `startPoolGauges` (pipeline only, behind `guarded`), `PoolCounts`, `PoolName` |
 | `src/guard.ts` | `guarded`, `guardedOr`, `guardedAsync`: run a telemetry action, swallow a failure and count it as `internal` |
 | `src/logger.ts` | `logger`, `LOG_LEVELS`, `LiteralMessage`, the sink and threshold, and `logDomainEvent` with `isDomainEventRecord`, which mark the records `emitDomainEvent` writes |
 | `src/spans.ts` | `withSpan`, `SPAN_NAMES`, `SpanName`, `activeTraceId`, `annotateActiveSpan` |
