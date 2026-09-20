@@ -184,6 +184,17 @@ The isolation that actually matters here — a separate access path, separate gr
 - Audit writes go through a single repository function rather than being scattered inline at each call site, so the writer can be swapped for the outbox behind one interface.
 - Audit rows carry their own identifier and timestamp rather than borrowing the domain row's, so they remain meaningful once they live somewhere else.
 
+### 5.2 Why not pgaudit
+
+Considered after the mechanism above was built, and rejected as a replacement (Decisions Log #98). `pgaudit` logs SQL statements to the Postgres log, which does not fit what this trail is for:
+
+- **Statements, not domain events.** A publish shows up as an `INSERT` by `qp_definition`, not "user X published version 3" with a before/after summary and a `trace_id`. The human actor is invisible unless it is passed through `SET LOCAL` and parsed back out of the log.
+- **A log, not a table.** It loses the durability and same-transaction properties this section relies on, and it records statements that later roll back, where our audit row rolls back with the change it describes.
+- **Not queryable by the application**, which the `view_response` action (O14) and the responses browser need.
+- **Hosting.** It needs `shared_preload_libraries`, which a managed Postgres provider may not permit.
+
+It does see what this design cannot: direct database access, and the accepted gap where `qp_owner` calls `promote_draft` without an audit row ([[9-database-schema#4.3 Publishing goes through `definition.promote_draft`]]). If that matters later, object-level `pgaudit` on the `definition` tables is a backstop beside the `audit` schema, not instead of it.
+
 ## 6. Client-side telemetry
 
 The SPA receives the whole questionnaire and evaluates branching rules in the browser, keeping partial answers client-side. **A consequence worth stating plainly: the server never observes most navigation decisions.** Server traces are structurally blind to the respondent's actual path through the questionnaire. Without client telemetry, "which branch did they take before they gave up" is unanswerable.
