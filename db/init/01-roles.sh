@@ -8,6 +8,8 @@
 : "${QP_REPORTING_PASSWORD:?QP_REPORTING_PASSWORD must be set}"
 : "${QP_MONITOR_PASSWORD:?QP_MONITOR_PASSWORD must be set}"
 
+INIT_DIR=$(dirname "$0")
+
 for password in "$QP_OWNER_PASSWORD" "$QP_DEFINITION_PASSWORD" "$QP_EXECUTION_PASSWORD" "$QP_REPORTING_PASSWORD" "$QP_MONITOR_PASSWORD"; do
   case "$password" in
     *[!A-Za-z0-9._~-]*)
@@ -25,7 +27,8 @@ psql -v ON_ERROR_STOP=1 \
   --set qp_definition_password="$QP_DEFINITION_PASSWORD" \
   --set qp_execution_password="$QP_EXECUTION_PASSWORD" \
   --set qp_reporting_password="$QP_REPORTING_PASSWORD" \
-  --set qp_monitor_password="$QP_MONITOR_PASSWORD" <<'SQL'
+  --set qp_monitor_password="$QP_MONITOR_PASSWORD" \
+  --set pg_stat_statements_sql="$INIT_DIR/pg-stat-statements.sql" <<'SQL'
 SELECT 'CREATE ROLE qp_owner LOGIN'
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'qp_owner') \gexec
 SELECT format('ALTER ROLE qp_owner PASSWORD %L', :'qp_owner_password') \gexec
@@ -54,9 +57,7 @@ SELECT 'GRANT pg_monitor TO qp_monitor'
     WHERE granted.rolname = 'pg_monitor' AND member.rolname = 'qp_monitor'
  ) \gexec
 
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-REVOKE ALL ON pg_stat_statements, pg_stat_statements_info FROM PUBLIC;
-GRANT SELECT ON pg_stat_statements, pg_stat_statements_info TO qp_monitor;
+\i :pg_stat_statements_sql
 
 SELECT 'CREATE ROLE audit_owner NOLOGIN'
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'audit_owner') \gexec

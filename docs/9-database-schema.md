@@ -761,13 +761,13 @@ Roles are created outside migrations — see §11.
 
 Telemetry needs to read the database's own health without being able to read a respondent's answer ([[6-observability#14. Database telemetry]], layer 4). `qp_monitor` is the one identity it uses. It is a login role, created by `db/init/01-roles.sh` with the password in `QP_MONITOR_PASSWORD`, and a member of `pg_monitor`, which is `pg_read_all_settings`, `pg_read_all_stats` and `pg_stat_scan_tables`. It is not a member of `pg_read_all_data`, which would read every table.
 
-What `pg_monitor` gives it is the statistics views. `pg_stat_statements` (loaded by the `db` service, created by the same script) stores each statement with its constants replaced by placeholders, so it holds no bound value, and `pg_read_all_stats` lets `qp_monitor` read the text and counters of every role's statements instead of `<insufficient privilege>`. The roles script revokes the extension's two views from `PUBLIC` and grants `SELECT` on them to `qp_monitor`, so no application role reads them. Everything else `qp_monitor` reads is computed inside a function.
+What `pg_monitor` gives it is the statistics views, read directly and not through a function. `pg_read_all_stats` lets `qp_monitor` read every role's statement text and counters instead of `<insufficient privilege>`: `pg_stat_statements` (loaded by the `db` service) stores each statement with its constants replaced by placeholders, and `pg_stat_activity.query` holds every session's running and last statement exactly as sent. Both are safe only because the backend always binds values through Parse and Bind, so the text carries `$n` and never a value. The residual exposure is any future statement built with inline literals instead of bound parameters: its values would show in `pg_stat_activity.query` while it runs and after, in the `STATEMENT:` line of the Postgres log when it errors, and, for a utility statement, in `pg_stat_statements`. The extension and its grants live in `db/init/pg-stat-statements.sql`, which `01-roles.sh` runs with `\i` and the test harness runs against the template database when it is given `TEST_DATABASE_URL`, so there is one copy: it creates the extension, revokes the two views and the two functions behind them (`pg_stat_statements(boolean)`, `pg_stat_statements_info()`) from `PUBLIC`, and grants `SELECT` on the views to `qp_monitor`, so no application role reads them. The `monitor` functions below are the only thing `qp_monitor` reads that is computed rather than observed.
 
 Migration `0021` creates the `monitor` schema, owned by `qp_owner` like every other schema but `audit`, and grants `USAGE` on it to `qp_monitor`. Each object in it is a `SECURITY DEFINER` function owned by `qp_owner`, so it can read what `qp_monitor` cannot, with `search_path` pinned to `pg_catalog, pg_temp`, `EXECUTE` revoked from `PUBLIC` and granted to `qp_monitor`, and a return type that is an aggregate: a count or a number, never a row of an answer table. The schema holds no table or view, so there is no relation for a `SELECT` grant to widen onto.
 
 | Function | Returns | Reads |
 | --- | --- | --- |
-| `monitor.response_partition_months_ahead(as_of timestamptz DEFAULT now())` | `integer`: the months after the one containing `as_of` that a `response` partition covers, counted without a gap, and `0` when only that month, or none, is covered | the catalog's partition bounds of `execution.response` (§6.4); no row of any table |
+| `monitor.response_partition_months_ahead(as_of timestamptz DEFAULT now())` | `integer`: the months after the one containing `as_of` that a `response` partition covers, counted without a gap. `0` when only that month is covered and also `0` when that month has no partition, so the alert fires on `< 1` and does not tell the two apart | the catalog's partition bounds of `execution.response` (§6.4); no row of any table |
 
 That is the signal behind the sixth alert of [[6-observability#8.1 The six alerts]]: a missing partition fails every submit while every process is up, so it must read below one before the current month runs out (§11.4). A count of in-progress sessions was left out: it scans `execution.session` on every scrape, no alert reads it, and it would need an index first.
 
@@ -879,10 +879,10 @@ written to be re-run: each `CREATE ROLE` is guarded by `NOT EXISTS`, and each lo
 set by an unconditional `ALTER ROLE ... PASSWORD`, so the environment is always the source of truth.
 Adding a role means adding it to the script (plus its password variable in compose and `.env.example`)
 and granting it privileges in a normal migration; the `roles` service guarantees it exists before that
-migration runs. The script also runs `CREATE EXTENSION IF NOT EXISTS pg_stat_statements` in the application database, as the
+migration runs. The script also runs `db/init/pg-stat-statements.sql` (`CREATE EXTENSION IF NOT EXISTS pg_stat_statements` and its grants) in the application database, as the
 bootstrap superuser: extensions are per database and need a superuser, the `roles` service is the one path that runs as one
 on every `up` (so an existing volume gets the extension too), and `CREATE EXTENSION` succeeds whether or not the server has
-preloaded the library, which the `db` service does through its `command` (§10.1).
+preloaded the library, which the `db` service does through its `command` (§10.1). The SQL is a plain file with no password in it and no `psql` command, so the test harness can run it over an ordinary connection as well; the `db` service does not mount `db/init`, so nothing runs it at `initdb`.
 
 **`ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner` has a hidden dependency.** It applies only to objects
 created *by* `qp_owner`. If migrations ever run as some other identity — easy to do by pointing the
@@ -913,7 +913,7 @@ something someone has to remember. The tempting insurance is a `DEFAULT` partiti
 and §6.4 is the argument against it: it disables `DETACH ... CONCURRENTLY`, which is the archival
 operation the partitioning exists for. A missed rollover should fail loudly and be fixable, not
 silently accumulate rows that later block the fix. It is also watched:
-`monitor.response_partition_months_ahead()` (§10.1) reads below one when the next month has no partition, which is the
+`monitor.response_partition_months_ahead()` (§10.1) reads `0`, so below one, when the next month has no partition (or the current one has none either), which is the
 sixth alert of [[6-observability#8.1 The six alerts]].
 
 ### 11.5 The circular foreign key needs an `ALTER TABLE`

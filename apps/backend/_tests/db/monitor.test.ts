@@ -13,6 +13,10 @@ const OBSERVABILITY_DOC = fileURLToPath(new URL("../../../../docs/6-observabilit
 
 const BOUND_VALUE = "QP_BOUND_VALUE_A1B2C3";
 
+const ADVISORY_LOCK = 7_241_001;
+const ACTIVITY_POLLS = 200;
+const ACTIVITY_POLL_MILLISECONDS = 50;
+
 const PARTITIONS_AHEAD = "SELECT monitor.response_partition_months_ahead($1::timestamptz) AS months";
 
 const RELATION_PRIVILEGES = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"] as const;
@@ -238,6 +242,51 @@ describe("pg_stat_statements as qp_monitor", () => {
 
     await expectSqlState(client.query(`SELECT 1 FROM pg_stat_statements LIMIT 1`), SQLSTATE.insufficientPrivilege);
     await expectSqlState(client.query(`SELECT 1 FROM pg_stat_statements_info`), SQLSTATE.insufficientPrivilege);
+  });
+
+  it.each(["definition", "execution", "reporting"] as const)("is closed to qp_%s through the functions behind the views too", async (role) => {
+    const client = await testDatabase.connect(role);
+    const owner = await testDatabase.connect("owner");
+
+    const executable = await owner.query<{ name: string; execute: boolean }>(
+      `SELECT p.oid::regprocedure::text AS name, has_function_privilege($1, p.oid, 'EXECUTE') AS execute
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE p.proname IN ('pg_stat_statements', 'pg_stat_statements_info') AND p.prokind = 'f' AND n.nspname = 'public'
+        ORDER BY 1`,
+      [`qp_${role}`],
+    );
+
+    expect(executable.rows.map((row) => row.name)).toEqual(["pg_stat_statements(boolean)", "pg_stat_statements_info()"]);
+    expect(executable.rows.filter((row) => row.execute)).toEqual([]);
+    await expectSqlState(client.query(`SELECT 1 FROM pg_stat_statements(true) LIMIT 1`), SQLSTATE.insufficientPrivilege);
+    await expectSqlState(client.query(`SELECT 1 FROM pg_stat_statements_info()`), SQLSTATE.insufficientPrivilege);
+  });
+
+  it("shows a statement that is still running in pg_stat_activity with its placeholder, not the value bound to it", async () => {
+    const owner = await testDatabase.connect("owner");
+    const execution = await testDatabase.connect("execution");
+    const monitor = await testDatabase.connect("monitor");
+    await owner.query("SELECT pg_advisory_lock($1)", [ADVISORY_LOCK]);
+
+    const held = execution.query("SELECT $1::text AS held_statement_marker FROM (SELECT pg_advisory_lock($2)) AS held", [BOUND_VALUE, ADVISORY_LOCK]);
+    try {
+      let seen: { query: string }[] = [];
+      for (let attempt = 0; attempt < ACTIVITY_POLLS && seen.length === 0; attempt += 1) {
+        const activity = await monitor.query<{ query: string }>(
+          `SELECT query FROM pg_stat_activity
+            WHERE query LIKE '%held_statement_marker%' AND pid <> pg_backend_pid() AND state = 'active'`,
+        );
+        seen = activity.rows;
+        if (seen.length === 0) await new Promise((resolve) => setTimeout(resolve, ACTIVITY_POLL_MILLISECONDS));
+      }
+
+      expect(seen.length, "the running statement must be visible to qp_monitor for the assertion to prove anything").toBeGreaterThan(0);
+      expect(seen[0]?.query).toContain("$1");
+      expect(JSON.stringify(seen)).not.toContain(BOUND_VALUE);
+    } finally {
+      await owner.query("SELECT pg_advisory_unlock($1)", [ADVISORY_LOCK]);
+      await held;
+    }
   });
 
   it("shows another role's statement text, not the insufficient-privilege placeholder", async () => {
