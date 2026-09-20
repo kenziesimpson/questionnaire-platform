@@ -112,7 +112,7 @@ describe("every redaction stage", () => {
   const stages = Object.entries(processors).filter(([name]) => isRedaction(name));
 
   it("finds the stages", () => {
-    expect(stages.map(([name]) => name).sort()).toEqual(["redaction", "redaction/derived", "redaction/postgresql"]);
+    expect(stages.map(([name]) => name).sort()).toEqual(["redaction", "redaction/derived", "redaction/monitor", "redaction/postgresql"]);
   });
 
   it.each(stages)("%s fails closed: no allow-all switch, no key pattern, no value rule and no diagnostic attribute", (_name, stage) => {
@@ -134,11 +134,18 @@ describe("the Collector's pipelines", () => {
   const exporting = pipelines.filter(({ exporters }) => exporters.some((exporter) => !isConnector(exporter)));
 
   it("finds the pipelines that receive application data and the ones that export", () => {
-    expect(applicationPipelines.map(({ name }) => name).sort()).toEqual(["logs/application", "metrics/application", "metrics/postgresql", "traces/ingest"]);
+    expect(applicationPipelines.map(({ name }) => name).sort()).toEqual([
+      "logs/application",
+      "metrics/application",
+      "metrics/monitor",
+      "metrics/postgresql",
+      "traces/ingest",
+    ]);
     expect(exporting.map(({ name }) => name).sort()).toEqual([
       "logs/application",
       "metrics/application",
       "metrics/derived",
+      "metrics/monitor",
       "metrics/postgresql",
       "traces/sampled",
     ]);
@@ -199,6 +206,14 @@ describe("the metrics the Collector generates", () => {
     const allowed = stringsAt(recordAt(processors, "redaction/postgresql"), "allowed_keys");
     expect(allowed.filter((key) => KEYS_THAT_CAN_CARRY_A_VALUE.test(key))).toEqual([]);
     expect(allowed.filter((key) => ALLOWED_ATTRIBUTES.includes(key) && key.startsWith("questionnaire"))).toEqual([]);
+  });
+
+  it("allow the partition gauge no attribute, since a monitor query has no column an attribute could come from", () => {
+    expect(stringsAt(recordAt(processors, "redaction/monitor"), "allowed_keys")).toEqual([]);
+    const receiver = recordAt(recordAt(collectorConfig, "receivers"), "sql_query/monitor");
+    const columns = listAt(receiver, "queries").flatMap((query) => (isRecord(query) ? [query.attribute_columns, query.tracking_column] : []));
+    expect(columns.filter((column) => column !== undefined)).toEqual([]);
+    expect(listAt(receiver, "queries")).toHaveLength(1);
   });
 
   it("leave the Postgres receiver's query-sample and top-query events, which carry statement text, disabled", () => {

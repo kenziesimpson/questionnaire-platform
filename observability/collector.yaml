@@ -15,6 +15,28 @@ receivers:
     tls:
       insecure: true
 
+  sql_query/monitor:
+    driver: postgres
+    host: db
+    port: 5432
+    database: ${env:POSTGRES_DB}
+    username: qp_monitor
+    password: ${env:QP_MONITOR_PASSWORD}
+    additional_params:
+      sslmode: disable
+    collection_interval: 60s
+    timeout: 10s
+    max_open_conn: 1
+    queries:
+      - sql: SELECT monitor.response_partition_months_ahead() AS months_ahead
+        metrics:
+          - metric_name: qp.monitor.response_partition_months_ahead
+            value_column: months_ahead
+            value_type: int
+            data_type: gauge
+            unit: "{month}"
+            description: Months after the current one that a response partition covers without a gap.
+
 processors:
   memory_limiter:
     check_interval: 1s
@@ -104,6 +126,11 @@ processors:
       - source
       - state
       - type
+    summary: silent
+
+  redaction/monitor:
+    allow_all_keys: false
+    allowed_keys: []
     summary: silent
 
   redaction/derived:
@@ -215,6 +242,10 @@ service:
     metrics/postgresql:
       receivers: [postgresql]
       processors: [memory_limiter, redaction/postgresql, resource/postgresql, resource/build, batch]
+      exporters: [otlp_http/lgtm]
+    metrics/monitor:
+      receivers: [sql_query/monitor]
+      processors: [memory_limiter, redaction/monitor, resource/postgresql, resource/build, batch]
       exporters: [otlp_http/lgtm]
     logs/application:
       receivers: [otlp]
