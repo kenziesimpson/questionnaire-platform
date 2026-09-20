@@ -9,6 +9,7 @@ import {
   type MetricData,
   type ScopeMetrics,
 } from "@opentelemetry/sdk-metrics";
+import { SeverityNumber, logs } from "@opentelemetry/api-logs";
 import { InMemoryLogRecordExporter, type ReadableLogRecord } from "@opentelemetry/sdk-logs";
 import { InMemorySpanExporter } from "@opentelemetry/sdk-trace";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -243,6 +244,43 @@ describe("the scrubbing log exporter", () => {
   it("keeps a severity text of the closed list and drops any other", () => {
     expect(exported({ ...realRecord(), severityText: "ERROR" }).severityText).toBe("ERROR");
     expect(exported({ ...realRecord(), severityText: "ERROR diabetes" }).severityText).toBeUndefined();
+  });
+
+  it("scrubs the attributes of the instrumentation scope, keeps its name and version, and reuses one scope object per source", async () => {
+    const record = realRecord();
+    const scope = { name: "third-party", version: "1.0.0", attributes: { answer: "diabetes", "url.path": "/sessions/x", "questionnaire.session_id": SESSION_ID } };
+    const delegate = new InMemoryLogRecordExporter();
+
+    scrubbingLogExporter(delegate).export([{ ...record, instrumentationScope: scope }, { ...record, instrumentationScope: scope }], () => undefined);
+
+    const [first, second] = delegate.getFinishedLogRecords();
+    expect(first?.instrumentationScope).toEqual({ name: "third-party", version: "1.0.0", schemaUrl: undefined, attributes: { "questionnaire.session_id": SESSION_ID } });
+    expect(second?.instrumentationScope).toBe(first?.instrumentationScope);
+    expect(await dropsFor("unknown")).toBe(true);
+  });
+
+  it("exports a record emitted with an event name without it", () => {
+    realRecord();
+
+    logs.getLogger("third-party").emit({ eventName: "answer.given", body: "a line" });
+
+    const exportedRecord = installed().logRecords().find((candidate) => candidate.body === "a line");
+    expect(exportedRecord).toBeDefined();
+    expect(exportedRecord?.eventName).toBeUndefined();
+  });
+
+  it.each([
+    [SeverityNumber.DEBUG, SeverityNumber.DEBUG],
+    [SeverityNumber.INFO, SeverityNumber.INFO],
+    [SeverityNumber.WARN, SeverityNumber.WARN],
+    [SeverityNumber.ERROR, SeverityNumber.ERROR],
+    [SeverityNumber.TRACE, undefined],
+    [SeverityNumber.FATAL, undefined],
+    [SeverityNumber.INFO2, undefined],
+    [999, undefined],
+    [undefined, undefined],
+  ])("exports the severity number %j as %j", (severityNumber, expected) => {
+    expect(exported({ ...realRecord(), severityNumber }).severityNumber).toBe(expected);
   });
 
   it("keeps the trace context and the severity number", () => {

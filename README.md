@@ -140,6 +140,8 @@ The Collector keeps every trace that has an error, every trace longer than `QP_T
 
 This profile is a single-machine local stack. Grafana runs with anonymous Admin access and the Collector's OTLP port has no authentication. Both are published on `127.0.0.1` only, which is the whole protection (O22). Do not bind either to another address, and do not use this configuration to host anything: a hosted stack needs authentication, TLS and a bind decided by the platform.
 
+`lgtm` takes tens of seconds to accept OTLP and the Collector does not wait for it, so after a cold start the first exports are retried and some may be dropped.
+
 CI builds the default stack but not this profile; a person running the command above is the check for the profile itself.
 
 ## Useful scripts

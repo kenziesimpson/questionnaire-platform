@@ -67,7 +67,8 @@ These are real and not fixed. The leak test's negative controls in
    constraint name are still recorded.
 4. **Strings the exporter copies through unscrubbed.** A span event's name, a metric's name,
    description and unit, the instrumentation scope's name and version, and the resource attributes all
-   reach export as written. They are code constants in our code and in the instrumentations, so no
+   reach export as written. (A log record is the exception in two places: `scrubbingLogExporter` scrubs
+   the attributes of its instrumentation scope through the registry and does not copy its event name.) They are code constants in our code and in the instrumentations, so no
    answer reaches them today, but nothing checks them, and the leak test would only see one if a flow
    planted it there. If a change lets a variable reach any of these, it needs a runtime check first.
    Span names are checked, and what still passes is precise: `request`; `<hook> - <name>`, where the

@@ -185,7 +185,7 @@ export function plantThirdPartyTelemetry(sentinel: string): void {
     trace.getTracer("third-party").startSpan(name).end();
   }
   metrics.getMeter("third-party").createCounter("third_party.requests").add(1, { answer: sentinel, "url.path": sentinel });
-  logs.getLogger("third-party").emit({
+  logs.getLogger("third-party", "1.0.0", { attributes: { answer: sentinel, "url.path": `/api/run/sessions/s-1?answer=${sentinel}` } }).emit({
     body: `answer=${sentinel}`,
     severityText: `ERROR ${sentinel}`,
     attributes: { answer: sentinel, "url.path": `/api/run/sessions/s-1?answer=${sentinel}`, "http.request.body": sentinel },

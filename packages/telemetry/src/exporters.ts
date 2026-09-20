@@ -182,23 +182,42 @@ export function scrubbingMetricExporter(delegate: PushMetricExporter): PushMetri
 
 const LOG_SEVERITY_TEXTS: readonly string[] = Object.values(LOG_SEVERITIES).map((severity) => severity.text);
 
+const LOG_SEVERITY_NUMBERS: readonly number[] = Object.values(LOG_SEVERITIES).map((severity) => severity.number);
+
+type LogScope = ReadableLogRecord["instrumentationScope"];
+
+const scrubbedScopes = new WeakMap<object, LogScope>();
+
 function exportedLogBody(body: ReadableLogRecord["body"]): string {
   if (typeof body === "string" && LOG_MESSAGE_SHAPE.test(body)) return body;
   reportDropped("log", oneDropped("invalid"));
   return UNNAMED_LOG_MESSAGE;
 }
 
+function exportedLogScope(scope: LogScope): LogScope {
+  const known = scrubbedScopes.get(scope);
+  if (known !== undefined) return known;
+  const exported: LogScope = {
+    name: scope.name,
+    version: scope.version,
+    schemaUrl: scope.schemaUrl,
+    attributes: cleaned(scope.attributes, "log"),
+  };
+  scrubbedScopes.set(scope, exported);
+  return exported;
+}
+
 function scrubbedLogRecord(record: ReadableLogRecord): ReadableLogRecord {
-  const severityText = record.severityText;
+  const { severityText, severityNumber } = record;
   return {
     hrTime: record.hrTime,
     hrTimeObserved: record.hrTimeObserved,
     spanContext: record.spanContext,
     severityText: severityText !== undefined && LOG_SEVERITY_TEXTS.includes(severityText) ? severityText : undefined,
-    severityNumber: record.severityNumber,
+    severityNumber: severityNumber !== undefined && LOG_SEVERITY_NUMBERS.includes(severityNumber) ? severityNumber : undefined,
     body: exportedLogBody(record.body),
     resource: record.resource,
-    instrumentationScope: record.instrumentationScope,
+    instrumentationScope: exportedLogScope(record.instrumentationScope),
     attributes: cleaned(record.attributes, "log"),
     droppedAttributesCount: record.droppedAttributesCount,
   };

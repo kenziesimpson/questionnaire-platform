@@ -112,6 +112,7 @@ processors:
       - http.request.method
       - http.response.status_code
       - http.route
+      - otel.status_code
       - span.kind
       - span.name
       - status.code

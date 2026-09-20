@@ -63,7 +63,7 @@ describe("the observability profile leaves the default stack as it was", () => {
       expect(recordAt({ service }, "service").logging, name).toBeUndefined();
       expect(recordAt({ service }, "service").labels, name).toBeUndefined();
     }
-    expect(collector.user).toBeUndefined();
+    for (const [name, service] of Object.entries(services)) expect(recordAt({ service }, "service").user, name).toBeUndefined();
   });
 
   it("mounts no Docker log directory into any container", () => {
@@ -73,11 +73,33 @@ describe("the observability profile leaves the default stack as it was", () => {
   });
 });
 
+const collectorConfig: unknown = parse(readFileSync(resolve(repoRoot, "observability/collector.yaml"), "utf8"));
+
+const envExample = readFileSync(resolve(repoRoot, ".env.example"), "utf8");
+
+const ENV_REFERENCE = /^\$\{env:([A-Z_]+):-(\d+)\}$/;
+
+function collectorDefaults(): Record<string, string> {
+  const sampling = recordAt(recordAt(collectorConfig, "processors"), "tail_sampling");
+  const policies = Array.isArray(sampling.policies) ? sampling.policies : [];
+  const references = JSON.stringify(policies).match(/\$\{env:[A-Z_]+:-\d+\}/g) ?? [];
+  return Object.fromEntries(references.map((reference) => [ENV_REFERENCE.exec(reference)?.[1] ?? "", ENV_REFERENCE.exec(reference)?.[2] ?? ""]));
+}
+
+function exampleValue(name: string): string | undefined {
+  return new RegExp(`^${name}=(.*)$`, "m").exec(envExample)?.[1];
+}
+
 describe("the sampling knobs", () => {
-  it("reach the Collector with the defaults the Collector config also carries", () => {
-    const environment = recordAt(collector, "environment");
-    expect(environment.QP_TRACE_SAMPLE_PERCENT).toBe("${QP_TRACE_SAMPLE_PERCENT:-100}");
-    expect(environment.QP_TRACE_SLOW_MS).toBe("${QP_TRACE_SLOW_MS:-1000}");
+  const defaults = collectorDefaults();
+
+  it("are the two the Collector config reads from the environment", () => {
+    expect(Object.keys(defaults).sort()).toEqual(["QP_TRACE_SAMPLE_PERCENT", "QP_TRACE_SLOW_MS"]);
+  });
+
+  it.each(Object.entries(defaults))("%s has one default in the Collector config, Compose and .env.example", (name, value) => {
+    expect(recordAt(collector, "environment")[name]).toBe(`\${${name}:-${value}}`);
+    expect(exampleValue(name)).toBe(value);
   });
 });
 

@@ -7,8 +7,6 @@ import { LOG_MESSAGE_SHAPE } from "../src/vocabulary.js";
 
 const COLLECTOR_CONFIG = fileURLToPath(new URL("../../../observability/collector.yaml", import.meta.url));
 
-const APPLICATION_DATA_RECEIVERS = ["otlp"];
-
 const ATTRIBUTES_ALLOWED_AHEAD_OF_THE_REGISTRY: readonly string[] = [];
 
 const RESOURCE_KEYS_LEFT_UNFILTERED = ["service.name"];
@@ -16,8 +14,6 @@ const RESOURCE_KEYS_LEFT_UNFILTERED = ["service.name"];
 const SAMPLING_POLICIES = ["errors", "slow", "baseline"];
 
 const HEALTH_ROUTES = ["/health/ready", "/health/live"];
-
-const STORE_EXPORTER = "otlp_http/lgtm";
 
 const POSTGRESQL_RECEIVER_ATTRIBUTES = [
   "db.collection.name",
@@ -38,7 +34,7 @@ const POSTGRESQL_RECEIVER_ATTRIBUTES = [
 
 const KEYS_THAT_CAN_CARRY_A_VALUE = /query|statement|text|plan|(?:^|[._])sql(?:$|[._])|peer|user|application|lock|blocking|body|message|detail/i;
 
-const SPAN_METRICS_FIXED_ATTRIBUTES = ["span.kind", "span.name", "status.code"];
+const SPAN_METRICS_FIXED_ATTRIBUTES = ["otel.status_code", "span.kind", "span.name", "status.code"];
 
 const SAMPLE_PERCENT_VARIABLE = "QP_TRACE_SAMPLE_PERCENT";
 
@@ -86,8 +82,14 @@ function isRedaction(name: string): boolean {
   return name === "redaction" || name.startsWith("redaction/");
 }
 
+const connectors = Object.keys(recordAt(collectorConfig, "connectors"));
+
+function isConnector(name: string): boolean {
+  return connectors.includes(name);
+}
+
 function carriesApplicationData(receivers: readonly string[]): boolean {
-  return receivers.some((receiver) => APPLICATION_DATA_RECEIVERS.includes(receiver.split("/")[0] ?? receiver));
+  return receivers.some((receiver) => !isConnector(receiver));
 }
 
 describe("the Collector's redaction processor and the field registry", () => {
@@ -129,10 +131,10 @@ describe("every redaction stage", () => {
 
 describe("the Collector's pipelines", () => {
   const applicationPipelines = pipelines.filter(({ receivers }) => carriesApplicationData(receivers));
-  const exporting = pipelines.filter(({ exporters }) => exporters.includes(STORE_EXPORTER));
+  const exporting = pipelines.filter(({ exporters }) => exporters.some((exporter) => !isConnector(exporter)));
 
   it("finds the pipelines that receive application data and the ones that export", () => {
-    expect(applicationPipelines.map(({ name }) => name).sort()).toEqual(["logs/application", "metrics/application", "traces/ingest"]);
+    expect(applicationPipelines.map(({ name }) => name).sort()).toEqual(["logs/application", "metrics/application", "metrics/postgresql", "traces/ingest"]);
     expect(exporting.map(({ name }) => name).sort()).toEqual([
       "logs/application",
       "metrics/application",
@@ -154,7 +156,7 @@ describe("the Collector's pipelines", () => {
   it.each(applicationPipelines.map(({ name, processors: steps }) => [name, steps] as const))(
     "%s filters attributes before any other processor but the memory limiter",
     (_name, steps) => {
-      expect(steps.filter((step) => step !== "memory_limiter")[0]).toBe("redaction");
+      expect(isRedaction(steps.filter((step) => step !== "memory_limiter")[0] ?? "")).toBe(true);
     },
   );
 
