@@ -1,5 +1,6 @@
 import type pg from "pg";
 import { describe, expect, it } from "vitest";
+import { AUDIT_ACTIONS } from "../../src/db/schema.js";
 import { aDraftWithOneItem, aPublishedQuestionnaire, aSession, insertResponse } from "./fixtures.js";
 import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
 
@@ -14,6 +15,19 @@ const AUTHORING_TABLES = [
 ] as const;
 
 const auditRecordCall = `SELECT audit.record('publish', NULL, NULL, NULL, 'intruder', NULL, NULL)`;
+
+const ACTIONS_QP_REPORTING_CANNOT_RECORD = AUDIT_ACTIONS.filter((action) => action !== "view_response");
+
+const ACTION_SPELLINGS_QP_REPORTING_CANNOT_RECORD = [
+  ...ACTIONS_QP_REPORTING_CANNOT_RECORD,
+  "delete_everything",
+  "VIEW_RESPONSE",
+  " view_response",
+  "view_response ",
+  "",
+];
+
+const RECORD_WITH_ACTION = `SELECT audit.record($1, $2, $3, $4, 'reader-1', NULL, NULL)`;
 
 async function denied(client: pg.Client, statement: string, params: unknown[] = []): Promise<void> {
   await expectSqlState(client.query(statement, params), SQLSTATE.insufficientPrivilege);
@@ -288,13 +302,110 @@ describe("audit.record", () => {
     expect(await testDatabase.readAuditEvents()).toEqual(before);
   });
 
-  it("refuses qp_reporting an action outside the closed list", async () => {
+  it.each(ACTION_SPELLINGS_QP_REPORTING_CANNOT_RECORD)("refuses qp_reporting the action %j and leaves no audit row", async (action) => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const reporting = await testDatabase.connect("reporting");
+    const before = await testDatabase.readAuditEvents();
+
+    await denied(reporting, RECORD_WITH_ACTION, [action, published.questionnaireId, published.draftVersionId, published.version]);
+
+    expect(await testDatabase.readAuditEvents()).toEqual(before);
+  });
+
+  it("refuses qp_reporting a NULL action rather than passing it on to the table", async () => {
+    const reporting = await testDatabase.connect("reporting");
+    const before = await testDatabase.readAuditEvents();
+
+    await denied(reporting, RECORD_WITH_ACTION, [null, null, null, null]);
+
+    expect(await testDatabase.readAuditEvents()).toEqual(before);
+  });
+
+  it("names no caller-supplied text in the refusal", async () => {
     const reporting = await testDatabase.connect("reporting");
 
-    await expectSqlState(
-      reporting.query(`SELECT audit.record('delete_everything', NULL, NULL, NULL, NULL, NULL, NULL)`),
-      SQLSTATE.checkViolation,
+    const message = await reporting.query(RECORD_WITH_ACTION, ["patient answered yes", null, null, null]).then(
+      () => undefined,
+      (failure: unknown) => (failure instanceof Error ? failure.message : undefined),
     );
+
+    expect(message).toBe("qp_reporting may record view_response only");
+  });
+
+  it("leaves nothing behind when a refused action aborts a qp_reporting transaction that had recorded view_response", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const reporting = await testDatabase.connect("reporting");
+    const before = await testDatabase.readAuditEvents();
+
+    await reporting.query("BEGIN");
+    await reporting.query(RECORD_WITH_ACTION, ["view_response", published.questionnaireId, null, null]);
+    await denied(reporting, RECORD_WITH_ACTION, ["publish", published.questionnaireId, null, null]);
+    await reporting.query("ROLLBACK");
+
+    expect(await testDatabase.readAuditEvents()).toEqual(before);
+  });
+
+  it.each(AUDIT_ACTIONS)("still records %s for qp_definition", async (action) => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const definition = await testDatabase.connect("definition");
+    const before = (await testDatabase.readAuditEvents()).length;
+
+    await definition.query(RECORD_WITH_ACTION, [action, published.questionnaireId, published.draftVersionId, published.version]);
+
+    const events = await testDatabase.readAuditEvents();
+    expect(events).toHaveLength(before + 1);
+    expect(events.at(-1)).toMatchObject({ action, actor_id: "reader-1" });
+  });
+
+  it.each(AUDIT_ACTIONS)("still records %s when audit_owner calls it after SET ROLE from a qp_owner session, as the test harness does", async (action) => {
+    const owner = await testDatabase.connect("owner");
+    const before = (await testDatabase.readAuditEvents()).length;
+
+    await owner.query("SET ROLE audit_owner");
+    try {
+      await owner.query(RECORD_WITH_ACTION, [action, null, null, null]);
+    } finally {
+      await owner.query("RESET ROLE");
+    }
+
+    expect(await testDatabase.readAuditEvents()).toHaveLength(before + 1);
+  });
+
+  it("cannot be bypassed from a qp_reporting session by SET ROLE, because qp_reporting is a member of no role and no role is a member of it", async () => {
+    const owner = await testDatabase.connect("owner");
+    const memberships = await owner.query(
+      `SELECT granted.rolname AS granted_role, member.rolname AS member_role
+         FROM pg_auth_members m
+         JOIN pg_roles granted ON granted.oid = m.roleid
+         JOIN pg_roles member ON member.oid = m.member
+        WHERE 'qp_reporting' IN (granted.rolname, member.rolname)`,
+    );
+    const settable = await owner.query(
+      `SELECT r.rolname FROM pg_roles r WHERE r.rolname <> 'qp_reporting' AND pg_has_role('qp_reporting', r.oid, 'MEMBER') ORDER BY 1`,
+    );
+
+    expect(memberships.rows).toEqual([]);
+    expect(settable.rows).toEqual([]);
+  });
+
+  it.each(["qp_definition", "qp_owner", "audit_owner", "qp_execution"])(
+    "refuses SET ROLE %s to a qp_reporting session, and the check still applies after RESET ROLE",
+    async (target) => {
+      const reporting = await testDatabase.connect("reporting");
+
+      await denied(reporting, `SET ROLE ${target}`);
+      await reporting.query("RESET ROLE");
+
+      await denied(reporting, RECORD_WITH_ACTION, ["publish", null, null, null]);
+      const identities = await reporting.query(`SELECT session_user AS session_user, current_user AS current_user`);
+      expect(identities.rows).toEqual([{ session_user: "qp_reporting", current_user: "qp_reporting" }]);
+    },
+  );
+
+  it.each(["definition", "owner"] as const)("does not let a %s session become qp_reporting either", async (role) => {
+    const client = await testDatabase.connect(role);
+
+    await denied(client, `SET ROLE qp_reporting`);
   });
 
   it("only appends actions from the closed list", async () => {

@@ -650,6 +650,16 @@ could call `audit.record` — held back only by lacking `USAGE` on the schema, a
 report that it can. The revoke landed in a later migration (`0014`) with the same sweep for every function in
 the three schemas, so `qp_definition`'s explicit grant was the only one. `0020` adds a second, for `qp_reporting`, whose responses browser records a `view_response` row in the transaction that reads the answers (Decisions Log #89, [[6-observability#13. Decisions and open questions]] O14, O18); it also gains `USAGE` on the schema and nothing on the table.
 
+**`qp_reporting` may record `view_response` and nothing else (`0022`).** `EXECUTE` alone would let it record any action on the closed list, so `0022` replaces the `0006` function body shown above (`CREATE OR REPLACE` as `audit_owner`, so the signature, owner, `search_path` and grants are unchanged; the language becomes `plpgsql` to hold the check) with one guard ahead of the `INSERT`:
+
+```sql
+IF session_user = 'qp_reporting' AND p_action IS DISTINCT FROM 'view_response' THEN
+  RAISE EXCEPTION 'qp_reporting may record view_response only' USING ERRCODE = '42501';
+END IF;
+```
+
+The test is on `session_user`, the login role of the connection. Inside a `SECURITY DEFINER` function `current_user` is the owner (`audit_owner`), so it cannot tell callers apart, while `session_user` is unaffected by `SET ROLE` and cannot be changed without superuser (`SET SESSION AUTHORIZATION`). `qp_reporting` is a member of no role, so it cannot `SET ROLE` to one that holds `EXECUTE` without the check; the test suite asserts the membership catalogue is empty. Every other caller is untouched: `qp_definition` still records any action, and the harness's `SET ROLE audit_owner` from a `qp_owner` session has `session_user = 'qp_owner'`. A refusal is `42501` with a fixed message that names no caller-supplied text, raised before the `INSERT`, so it leaves no row. The guard compares with `=` and not `pg_has_role(session_user, 'qp_reporting', 'MEMBER')`, because `pg_has_role` is true for a superuser for every role and would refuse the bootstrap superuser.
+
 Verified end to end:
 
 - `qp_definition` calls `audit.record(...)` in the same transaction as a `definition` write, and both commit together.
@@ -672,7 +682,7 @@ should be "simplified" later.
 
 ## 10. Grants
 
-The migrations build this up across several files (`0005`, `0007`, `0009`, `0010`, `0013`, `0017`, `0018`, `0020`, `0021`); the net result is:
+The migrations build this up across several files (`0005`, `0007`, `0009`, `0010`, `0013`, `0017`, `0018`, `0020`, `0021`, `0022`); the net result is:
 
 ```sql
 GRANT USAGE ON SCHEMA definition TO qp_definition;
@@ -699,7 +709,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner IN SCHEMA definition
 
 -- qp_reporting: the admin responses browser (gh#18, Decisions Log #89) — SELECT only, and one write
 -- path, audit.record. 0017 grants the two execution tables; 0018 the published-versions view and one
--- column; 0020 the audit function.
+-- column; 0020 the audit function, which 0022 restricts to view_response for this role.
 GRANT USAGE ON SCHEMA execution TO qp_reporting;
 GRANT SELECT ON execution.session, execution.response TO qp_reporting;
 GRANT USAGE ON SCHEMA definition TO qp_reporting;
@@ -718,11 +728,11 @@ GRANT EXECUTE ON FUNCTION monitor.response_partition_months_ahead(timestamptz) T
 | --- | --- | --- | --- |
 | `qp_definition` | `SELECT, INSERT` on every table; `UPDATE` on every table except `questionnaire_version` and `questionnaire`, which get only the columns above; `DELETE` on `questionnaire_item` only; `EXECUTE` on `promote_draft` | none | `EXECUTE` on `audit.record` only (§9.1) |
 | `qp_execution` | `SELECT` on `questionnaire`, `version_question_index` and the `published_questionnaire_version` view — not the base `questionnaire_version` table | `SELECT, INSERT, UPDATE` on `session`; `SELECT, INSERT` on `response` | none |
-| `qp_reporting` | `SELECT` on the `published_questionnaire_version` view and on `questionnaire (id)` only — not the base `questionnaire_version` table | `SELECT` on `session` and `response` only | `EXECUTE` on `audit.record` and `USAGE` on the schema, nothing on `audit.event` (§9.1) |
+| `qp_reporting` | `SELECT` on the `published_questionnaire_version` view and on `questionnaire (id)` only — not the base `questionnaire_version` table | `SELECT` on `session` and `response` only | `EXECUTE` on `audit.record`, which refuses it every action but `view_response` (`0022`), and `USAGE` on the schema, nothing on `audit.event` (§9.1) |
 | `qp_monitor` | none — no privilege on any relation, no `USAGE` on the schema | none | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` |
 | `qp_owner` | owns every object | owns every object | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` (§9.1) |
 
-`qp_reporting` backs `/api/reporting`'s admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)), a narrow, later addition (Wave 3a) and not the wider "aggregate admin reporting" surface [[2-design-doc#18. Open Questions]] §8 still leaves open. It is deliberately not `qp_execution` with a different name and not a widened `qp_definition` — see Decisions Log #89 for why a fourth role rather than reusing either. It holds `SELECT` only, on every relation it touches, and `modules/reporting` holds no other pool, so the module cannot write except through `audit.record`, which records that an admin opened a session's answers (`view_response`, `0020`). The reporting repository's only audit function, `recordResponseView` in `db/reporting/audit.ts`, names that one action, so no code path in the module can record another; the database does not enforce it, since `audit.record` takes any action on the closed list from any role that can execute it. The published-versions view follows `0010`'s precedent (the one relation that exposes published snapshots without the base table), and `questionnaire` is granted by column — `id` alone — because the existence check reads nothing else. It was first shipped borrowing `qp_execution`'s pool for those two reads; review reversed that, since the borrowed credentials could write to `session` and `response`.
+`qp_reporting` backs `/api/reporting`'s admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)), a narrow, later addition (Wave 3a) and not the wider "aggregate admin reporting" surface [[2-design-doc#18. Open Questions]] §8 still leaves open. It is deliberately not `qp_execution` with a different name and not a widened `qp_definition` — see Decisions Log #89 for why a fourth role rather than reusing either. It holds `SELECT` only, on every relation it touches, and `modules/reporting` holds no other pool, so the module cannot write except through `audit.record`, and only for `view_response`, which records that an admin opened a session's answers (`0020`, restricted by `0022`). The reporting repository's only audit function, `recordResponseView` in `db/reporting/audit.ts`, names that one action, so no code path in the module can record another, and the database enforces the same limit independently: `audit.record` refuses any other action from a `qp_reporting` session (§9.1). The published-versions view follows `0010`'s precedent (the one relation that exposes published snapshots without the base table), and `questionnaire` is granted by column — `id` alone — because the existence check reads nothing else. It was first shipped borrowing `qp_execution`'s pool for those two reads; review reversed that, since the borrowed credentials could write to `session` and `response`.
 
 No function in `definition`, `execution`, `audit` or `monitor` keeps the default `EXECUTE` for `PUBLIC`: `promote_draft` is executable only by `qp_definition`, `audit.record` by `qp_definition` and `qp_reporting`, the `monitor` functions by `qp_monitor`, and the trigger functions by no application role (a
 trigger fires without its caller holding `EXECUTE`). A catalog test asserts it for the first three schemas and another for `monitor`, so a new function that forgets
