@@ -185,6 +185,8 @@ function portNumber(attribute: string): FieldDefinition<number> {
   };
 }
 
+export const ALLOWED_ATTRIBUTES: readonly string[] = [...new Set([...FIELD_ATTRIBUTES.keys(), ...INFRASTRUCTURE.keys()])].sort();
+
 const FIELD_NAMES_BY_ATTRIBUTE: ReadonlyMap<string, FieldName> = new Map(
   Object.keys(FIELDS)
     .filter(isFieldName)

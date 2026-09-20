@@ -1,0 +1,222 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+  postgresql:
+    endpoint: db:5432
+    transport: tcp
+    username: qp_monitor
+    password: ${env:QP_MONITOR_PASSWORD}
+    databases:
+      - ${env:POSTGRES_DB}
+    collection_interval: 30s
+    tls:
+      insecure: true
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  redaction:
+    allow_all_keys: false
+    allowed_keys:
+      - db.constraint
+      - db.name
+      - db.namespace
+      - db.operation
+      - db.operation.name
+      - db.pool
+      - db.sql.table
+      - db.system
+      - db.system.name
+      - error.code
+      - error.invariant
+      - error.stack
+      - error.type
+      - exception.type
+      - fastify.root
+      - fastify.type
+      - http.request.id
+      - http.request.method
+      - http.response.status_code
+      - http.route
+      - http.server.request.duration_ms
+      - module
+      - net.peer.name
+      - net.peer.port
+      - otel.status_code
+      - problem.code
+      - problem.slug
+      - process.signal
+      - questionnaire.code_finding_count
+      - questionnaire.duration_ms
+      - questionnaire.elapsed_seconds
+      - questionnaire.finding_count
+      - questionnaire.id
+      - questionnaire.item_id
+      - questionnaire.last_item_id
+      - questionnaire.omitted_count
+      - questionnaire.outcome
+      - questionnaire.question_count
+      - questionnaire.question_id
+      - questionnaire.question_type
+      - questionnaire.reason
+      - questionnaire.session_id
+      - questionnaire.version
+      - questionnaire.version_id
+      - server.address
+      - server.port
+      - span_id
+      - telemetry.event_age_ms
+      - telemetry.ingest_reason
+      - telemetry.reason
+      - telemetry.signal
+      - telemetry.source
+      - trace_id
+    ignored_keys:
+      - service.name
+    summary: silent
+
+  resource/build:
+    attributes:
+      - key: service.version
+        value: ${env:QP_SERVICE_VERSION}
+        action: upsert
+
+  redaction/postgresql:
+    allow_all_keys: false
+    allowed_keys:
+      - db.collection.name
+      - db.namespace
+      - operation
+      - postgresql.database.name
+      - postgresql.index.name
+      - postgresql.schema.name
+      - postgresql.table.name
+      - replication_client
+      - server.address
+      - server.port
+      - service.instance.id
+      - source
+      - state
+      - type
+    summary: silent
+
+  redaction/derived:
+    allow_all_keys: false
+    allowed_keys:
+      - http.request.method
+      - http.response.status_code
+      - http.route
+      - otel.status_code
+      - span.kind
+      - span.name
+      - status.code
+    ignored_keys:
+      - service.name
+    summary: silent
+
+  filter/log_bodies:
+    error_mode: ignore
+    log_conditions:
+      - 'not IsMatch(log.body.string, "^[A-Za-z][A-Za-z0-9 ._:,/-]{0,127}$")'
+
+  resource/postgresql:
+    attributes:
+      - key: service.name
+        value: postgresql
+        action: insert
+
+  filter/counted_requests:
+    error_mode: ignore
+    trace_conditions:
+      - span.kind != SPAN_KIND_SERVER
+      - span.attributes["http.route"] == "/health/ready"
+      - span.attributes["http.route"] == "/health/live"
+
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 20000
+    expected_new_traces_per_sec: 50
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: ${env:QP_TRACE_SLOW_MS:-1000}
+      - name: baseline
+        type: and
+        and:
+          and_sub_policy:
+            - name: share
+              type: probabilistic
+              probabilistic:
+                sampling_percentage: ${env:QP_TRACE_SAMPLE_PERCENT:-100}
+            - name: not_a_health_probe
+              type: string_attribute
+              string_attribute:
+                key: http.route
+                values: [/health/ready, /health/live]
+                invert_match: true
+
+  batch:
+    timeout: 5s
+
+connectors:
+  forward/spanmetrics: {}
+  forward/sampling: {}
+  span_metrics:
+    namespace: traces.span.metrics
+    histogram:
+      unit: ms
+      explicit:
+        buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2500ms, 5s, 10s]
+    dimensions:
+      - name: http.route
+      - name: http.request.method
+      - name: http.response.status_code
+    exclude_dimensions:
+      - collector.instance.id
+    metrics_flush_interval: 15s
+
+exporters:
+  otlp_http/lgtm:
+    endpoint: http://lgtm:4318
+
+service:
+  pipelines:
+    traces/ingest:
+      receivers: [otlp]
+      processors: [memory_limiter, redaction]
+      exporters: [forward/spanmetrics, forward/sampling]
+    traces/spanmetrics:
+      receivers: [forward/spanmetrics]
+      processors: [filter/counted_requests]
+      exporters: [span_metrics]
+    traces/sampled:
+      receivers: [forward/sampling]
+      processors: [redaction, tail_sampling, resource/build, batch]
+      exporters: [otlp_http/lgtm]
+    metrics/application:
+      receivers: [otlp]
+      processors: [memory_limiter, redaction, resource/build, batch]
+      exporters: [otlp_http/lgtm]
+    metrics/derived:
+      receivers: [span_metrics]
+      processors: [redaction/derived, resource/build, batch]
+      exporters: [otlp_http/lgtm]
+    metrics/postgresql:
+      receivers: [postgresql]
+      processors: [memory_limiter, redaction/postgresql, resource/postgresql, resource/build, batch]
+      exporters: [otlp_http/lgtm]
+    logs/application:
+      receivers: [otlp]
+      processors: [memory_limiter, redaction, filter/log_bodies, resource/build, batch]
+      exporters: [otlp_http/lgtm]

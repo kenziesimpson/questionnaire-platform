@@ -1,3 +1,4 @@
+import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import type { LogLevel } from "./logger.js";
@@ -49,6 +50,7 @@ function startPipelineFor(options: TelemetryOptions): TelemetryHandle {
     logDestination: undefined,
     traceExporter: exporting ? new OTLPTraceExporter({ url: signalUrl(otlpEndpoint, "/v1/traces") }) : undefined,
     metricExporter: exporting ? new OTLPMetricExporter({ url: signalUrl(otlpEndpoint, "/v1/metrics") }) : undefined,
+    logExporter: exporting ? new OTLPLogExporter({ url: signalUrl(otlpEndpoint, "/v1/logs") }) : undefined,
     synchronousExport: false,
     autoInstrumentation: options.autoInstrumentation,
     loaderHook: options.autoInstrumentation,

@@ -1,19 +1,22 @@
 import { register } from "node:module";
 import { FastifyOtelInstrumentation } from "@fastify/otel";
 import { context, metrics, propagation, trace } from "@opentelemetry/api";
+import { logs } from "@opentelemetry/api-logs";
 import type { Instrumentation } from "@opentelemetry/instrumentation";
 import { RuntimeNodeInstrumentation } from "@opentelemetry/instrumentation-runtime-node";
 import { resourceFromAttributes } from "@opentelemetry/resources";
+import { BatchLogRecordProcessor, SimpleLogRecordProcessor, type LogRecordExporter, type LogRecordProcessor } from "@opentelemetry/sdk-logs";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import { PeriodicExportingMetricReader, type PushMetricExporter } from "@opentelemetry/sdk-metrics";
 import { BatchSpanProcessor, NoopSpanProcessor, SimpleSpanProcessor, type SpanExporter, type SpanProcessor } from "@opentelemetry/sdk-trace";
 import pino, { type DestinationStream } from "pino";
 import pretty from "pino-pretty";
 import { DatabaseInstrumentation, type LoadedDatabaseDriver } from "./database-instrumentation.js";
-import { scrubbingMetricExporter, scrubbingSpanExporter } from "./exporters.js";
+import { scrubbingLogExporter, scrubbingMetricExporter, scrubbingSpanExporter } from "./exporters.js";
 import { guarded } from "./guard.js";
 import { reportDropped, resetInstruments } from "./instruments.js";
 import { configureLogging, resetLogging, type LogLevel, type LogSink } from "./logger.js";
+import { alsoEmittingLogRecords } from "./log-records.js";
 import { startPoolGauges } from "./pool-metrics.js";
 import { scrubAttributes } from "./scrub.js";
 import { TraceparentOnlyPropagator } from "./trace-propagator.js";
@@ -29,6 +32,7 @@ export interface PipelineOptions {
   readonly logDestination: DestinationStream | undefined;
   readonly traceExporter: SpanExporter | undefined;
   readonly metricExporter: PushMetricExporter | undefined;
+  readonly logExporter: LogRecordExporter | undefined;
   readonly synchronousExport: boolean;
   readonly autoInstrumentation: boolean;
   readonly loaderHook: boolean;
@@ -36,7 +40,7 @@ export interface PipelineOptions {
 }
 
 export interface TelemetryHandle {
-  readonly exporting: { readonly traces: boolean; readonly metrics: boolean };
+  readonly exporting: { readonly traces: boolean; readonly metrics: boolean; readonly logs: boolean };
   flush(): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -70,9 +74,16 @@ function spanProcessorFor(exporter: SpanExporter | undefined, synchronous: boole
   return synchronous ? new SimpleSpanProcessor({ exporter: scrubbing }) : new BatchSpanProcessor({ exporter: scrubbing });
 }
 
+function logProcessorFor(exporter: LogRecordExporter | undefined, synchronous: boolean): LogRecordProcessor | undefined {
+  if (exporter === undefined) return undefined;
+  const scrubbing = scrubbingLogExporter(exporter);
+  return synchronous ? new SimpleLogRecordProcessor({ exporter: scrubbing }) : new BatchLogRecordProcessor({ exporter: scrubbing });
+}
+
 function disableGlobalRegistrations(): void {
   trace.disable();
   metrics.disable();
+  logs.disable();
   context.disable();
   propagation.disable();
 }
@@ -80,7 +91,8 @@ function disableGlobalRegistrations(): void {
 export function startPipeline(options: PipelineOptions): TelemetryHandle {
   disableGlobalRegistrations();
   resetInstruments();
-  configureLogging({ level: options.logLevel, sink: pinoSink(options) });
+  const logProcessor = logProcessorFor(options.logExporter, options.synchronousExport);
+  configureLogging({ level: options.logLevel, sink: logProcessor === undefined ? pinoSink(options) : alsoEmittingLogRecords(pinoSink(options)) });
 
   if (options.loaderHook) {
     register(LOADER_HOOK, import.meta.url);
@@ -109,7 +121,7 @@ export function startPipeline(options: PipelineOptions): TelemetryHandle {
     spanProcessors: [traceProcessor],
     metricReaders,
     textMapPropagator: new TraceparentOnlyPropagator(),
-    logRecordProcessors: [],
+    logRecordProcessors: logProcessor === undefined ? [] : [logProcessor],
     instrumentations,
   });
   sdk.start();
@@ -117,9 +129,13 @@ export function startPipeline(options: PipelineOptions): TelemetryHandle {
   if (options.loadedDatabaseDriver !== undefined) database?.patchLoaded(options.loadedDatabaseDriver);
 
   return {
-    exporting: { traces: options.traceExporter !== undefined, metrics: options.metricExporter !== undefined },
+    exporting: { traces: options.traceExporter !== undefined, metrics: options.metricExporter !== undefined, logs: logProcessor !== undefined },
     flush: async () => {
-      await Promise.all([traceProcessor.forceFlush(), ...metricReaders.map((reader) => reader.forceFlush())]);
+      await Promise.all([
+        traceProcessor.forceFlush(),
+        ...metricReaders.map((reader) => reader.forceFlush()),
+        ...(logProcessor === undefined ? [] : [logProcessor.forceFlush()]),
+      ]);
     },
     shutdown: async () => {
       await sdk.shutdown();

@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { trace } from "@opentelemetry/api";
+import { logs } from "@opentelemetry/api-logs";
 import { afterEach, describe, expect, it } from "vitest";
 import { emitDomainEvent, logger, withSpan } from "../src/index.js";
 import { runningTelemetry, startTelemetry, type TelemetryHandle } from "../src/node.js";
@@ -52,7 +53,7 @@ afterEach(async () => {
 describe("startTelemetry with no endpoint configured", () => {
   it.each([undefined, ""])("exports nothing and reports it (endpoint %j)", (endpoint) => {
     handle = startTelemetry({ serviceName: "qp-test", logLevel: "error", prettyLogs: false, otlpEndpoint: endpoint, autoInstrumentation: false });
-    expect(handle.exporting).toEqual({ traces: false, metrics: false });
+    expect(handle.exporting).toEqual({ traces: false, metrics: false, logs: false });
   });
 
   it("still records real spans so a log line can carry a trace id, and never throws", async () => {
@@ -90,15 +91,17 @@ describe("runningTelemetry", () => {
 });
 
 describe("startTelemetry with an endpoint configured", () => {
-  it("posts traces and metrics to the endpoint and carries no unregistered attribute", async () => {
+  it("posts traces, metrics and logs to the endpoint and carries no unregistered attribute", async () => {
     sink = await collector();
     handle = startTelemetry({ serviceName: "qp-test", logLevel: "error", prettyLogs: false, otlpEndpoint: `${sink.url}/`, autoInstrumentation: false });
-    expect(handle.exporting).toEqual({ traces: true, metrics: true });
+    expect(handle.exporting).toEqual({ traces: true, metrics: true, logs: true });
 
     await withSpan("session.submit", { sessionId: SESSION_ID, outcome: "accepted" }, async () => {
       trace.getTracer("third-party").startSpan("GET", { attributes: { "http.request.body": LEAK, "url.path": `/sessions/${LEAK}` } }).end();
     });
     emitDomainEvent({ name: "session.started", sessionId: SESSION_ID, questionnaireId: QUESTIONNAIRE_ID, questionnaireVersion: 1 });
+    logger("execution").error("submit failed", { sessionId: SESSION_ID });
+    logs.getLogger("third-party").emit({ body: `answer=${LEAK}`, attributes: { answer: LEAK, "url.path": `/sessions/${LEAK}` } });
     await handle.flush();
     await handle.shutdown();
     handle = undefined;
@@ -106,6 +109,11 @@ describe("startTelemetry with an endpoint configured", () => {
     const paths = sink.received.map((request) => request.path);
     expect(paths).toContain("/v1/traces");
     expect(paths).toContain("/v1/metrics");
+    expect(paths).toContain("/v1/logs");
+    const logBodies = sink.received.filter((request) => request.path === "/v1/logs").map((request) => request.body).join("\n");
+    expect(logBodies).toContain("submit failed");
+    expect(logBodies).toContain("unnamed");
+    expect(logBodies).not.toContain(LEAK);
     const bodies = sink.received.map((request) => request.body).join("\n");
     expect(bodies).toContain("session.submit");
     expect(bodies).toContain("questionnaire.sessions.started");

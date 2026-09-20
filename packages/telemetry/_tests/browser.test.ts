@@ -11,7 +11,7 @@ const ENTRY = resolve(SOURCE_ROOT, "browser.ts");
 
 const ALLOWED_PACKAGES = ["@opentelemetry/api", "@opentelemetry/sdk-trace-web", "@qp/shared"];
 
-const NODE_ONLY_SOURCES = ["node.ts", "testing.ts", "leak-test.ts", "pipeline.ts", "exporters.ts"];
+const NODE_ONLY_SOURCES = ["node.ts", "testing.ts", "leak-test.ts", "pipeline.ts", "exporters.ts", "log-records.ts"];
 
 const IMPORT_SPECIFIER = /(?:from|import)\s*\(?\s*"([^"]+)"/g;
 

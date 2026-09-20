@@ -485,7 +485,7 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
     },
   },
   {
-    name: "auto-instrumentation: a real request with the sentinel in its URL, and third-party spans and metrics that carry it",
+    name: "auto-instrumentation: a real request with the sentinel in its URL, and third-party spans, metrics and log records that carry it",
     run: async ({ app }, sentinel) => {
       const response = await app.inject({ method: "GET", url: executionUrl(`/sessions/${sentinel}?answer=${sentinel}`) });
       expect(response.statusCode).toBeGreaterThanOrEqual(400);

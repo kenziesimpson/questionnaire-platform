@@ -1,4 +1,5 @@
 import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
+import type { LogRecordExporter, ReadableLogRecord } from "@opentelemetry/sdk-logs";
 import { DataPointType, type DataPoint, type MetricData, type PushMetricExporter, type ResourceMetrics } from "@opentelemetry/sdk-metrics";
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace";
 import { guardedOr } from "./guard.js";
@@ -6,8 +7,9 @@ import { isExportedInstrument } from "./instrument-allowlist.js";
 import { PG_QUERY_SPAN_PREFIX, PG_SPANS_EXPORTED_AS_WRITTEN } from "./pg-span-names.js";
 import { reportDropped } from "./instruments.js";
 import { oneDropped, scrubAttributes, type ScrubbedAttributes } from "./scrub.js";
+import { LOG_SEVERITIES } from "./log-records.js";
 import { isSpanName } from "./spans.js";
-import type { SignalKind } from "./vocabulary.js";
+import { LOG_MESSAGE_SHAPE, UNNAMED_LOG_MESSAGE, type SignalKind } from "./vocabulary.js";
 
 const UNNAMED_SPAN = "unnamed";
 
@@ -175,5 +177,63 @@ export function scrubbingMetricExporter(delegate: PushMetricExporter): PushMetri
     shutdown: () => delegate.shutdown(),
     selectAggregationTemporality: delegate.selectAggregationTemporality?.bind(delegate),
     selectAggregation: delegate.selectAggregation?.bind(delegate),
+  };
+}
+
+const LOG_SEVERITY_TEXTS: readonly string[] = Object.values(LOG_SEVERITIES).map((severity) => severity.text);
+
+const LOG_SEVERITY_NUMBERS: readonly number[] = Object.values(LOG_SEVERITIES).map((severity) => severity.number);
+
+type LogScope = ReadableLogRecord["instrumentationScope"];
+
+const scrubbedScopes = new WeakMap<object, LogScope>();
+
+function exportedLogBody(body: ReadableLogRecord["body"]): string {
+  if (typeof body === "string" && LOG_MESSAGE_SHAPE.test(body)) return body;
+  reportDropped("log", oneDropped("invalid"));
+  return UNNAMED_LOG_MESSAGE;
+}
+
+function exportedLogScope(scope: LogScope): LogScope {
+  const known = scrubbedScopes.get(scope);
+  if (known !== undefined) return known;
+  const exported: LogScope = {
+    name: scope.name,
+    version: scope.version,
+    schemaUrl: scope.schemaUrl,
+    attributes: cleaned(scope.attributes, "log"),
+  };
+  scrubbedScopes.set(scope, exported);
+  return exported;
+}
+
+function scrubbedLogRecord(record: ReadableLogRecord): ReadableLogRecord {
+  const { severityText, severityNumber } = record;
+  return {
+    hrTime: record.hrTime,
+    hrTimeObserved: record.hrTimeObserved,
+    spanContext: record.spanContext,
+    severityText: severityText !== undefined && LOG_SEVERITY_TEXTS.includes(severityText) ? severityText : undefined,
+    severityNumber: severityNumber !== undefined && LOG_SEVERITY_NUMBERS.includes(severityNumber) ? severityNumber : undefined,
+    body: exportedLogBody(record.body),
+    resource: record.resource,
+    instrumentationScope: exportedLogScope(record.instrumentationScope),
+    attributes: cleaned(record.attributes, "log"),
+    droppedAttributesCount: record.droppedAttributesCount,
+  };
+}
+
+export function scrubbingLogExporter(delegate: LogRecordExporter): LogRecordExporter {
+  return {
+    export: (records: ReadableLogRecord[], resultCallback: (result: ExportResult) => void) => {
+      const scrubbed = guardedOr<ReadableLogRecord[] | undefined>("log", undefined, () => records.map(scrubbedLogRecord));
+      if (scrubbed === undefined) {
+        resultCallback({ code: ExportResultCode.FAILED });
+        return;
+      }
+      delegate.export(scrubbed, resultCallback);
+    },
+    shutdown: () => delegate.shutdown(),
+    forceFlush: () => delegate.forceFlush(),
   };
 }

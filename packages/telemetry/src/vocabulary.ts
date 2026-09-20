@@ -24,6 +24,10 @@ export const SCRUB_ATTRIBUTES = {
   ingestReason: "telemetry.ingest_reason",
 } as const;
 
+export const LOG_MESSAGE_SHAPE = /^[A-Za-z][A-Za-z0-9 ._:,/-]{0,127}$/;
+
+export const UNNAMED_LOG_MESSAGE = "unnamed";
+
 export const EVENT_SOURCES = ["browser"] as const;
 
 export const CLIENT_LOG_LEVELS = ["info", "warn", "error"] as const satisfies readonly LogLevel[];
