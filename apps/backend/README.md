@@ -38,6 +38,11 @@ the working rules are in [`.claude/skills/database/SKILL.md`](../../.claude/skil
   through the real publish transaction. It is idempotent. See [`src/db/seed/README.md`](src/db/seed/README.md).
 - Roles are not migrations: `db/init/01-roles.sh` creates them, and the compose `roles` service re-applies it
   before `migrate` on every `up`, so a new role or changed password reaches an existing volume.
+- `0021_monitor_schema.sql` adds the `monitor` schema of `SECURITY DEFINER` functions that return aggregates to telemetry,
+  executable by `qp_monitor` and no other role; `qp_monitor` holds no privilege on any table
+  ([`docs/9-database-schema.md`](../../docs/9-database-schema.md) §10.1). The `db` service preloads `pg_stat_statements` and
+  logs no parameter or error detail; the roles script creates the extension. `openDatabase` names each pool's connections
+  `qp-backend:<pool>` in `pg_stat_activity`.
 
 ## Hand-edited migrations
 

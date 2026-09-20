@@ -20,23 +20,27 @@ has already bitten us.
 | Schema file | `apps/backend/src/db/schema.ts` |
 | Migration output | `apps/backend/drizzle/` |
 
-No Postgres extensions are assumed. **Postgres 16 has no `uuidv7()`** — ids are generated in the
+The one extension is `pg_stat_statements`, preloaded by the `db` service and created by `db/init/01-roles.sh`; nothing in the
+schema depends on it. **Postgres 16 has no `uuidv7()`** — ids are generated in the
 application.
 
 ## The schema at a glance
 
-Three schemas. The split is not cosmetic: it is what makes the definition/execution grant barrier
+Three schemas hold data, and a fourth, `monitor`, holds functions only. The split is not cosmetic: it is what makes the definition/execution grant barrier
 structural instead of a per-table list someone has to remember to extend.
 
 - **`definition`** — `question`, `question_version`, `question_version_option`, `questionnaire`,
   `questionnaire_version`, `questionnaire_item`, `version_question_index`
 - **`execution`** — `session`, `response`
 - **`audit`** — `event`
+- **`monitor`** — `SECURITY DEFINER` functions that return aggregates for telemetry (`0021`); no table or view
 
 Roles: `qp_owner` owns everything and runs migrations. `qp_definition`, `qp_execution` and `qp_reporting`
 are the three application roles (three pools, three connection strings; the owner's makes four).
 `qp_reporting` is read-only, apart from `audit.record`, and exists for the admin responses browser (Decisions Log #89).
-`audit_owner` owns the audit schema and the function that writes to it.
+`audit_owner` owns the audit schema and the function that writes to it. `qp_monitor` is the telemetry identity: a member of
+`pg_monitor`, `EXECUTE` on the `monitor.*` functions, no privilege of any kind on a table in `definition`, `execution` or `audit`. It has no backend
+connection string; the Collector connects as it.
 
 ## Invariants — do not break these
 
@@ -157,8 +161,11 @@ check instead, the change is wrong.
   JSON, so the next `generate` re-emits it and `migrate` dies on "already exists".
 - **`drizzle-kit generate --custom`** for triggers, functions and grants. drizzle-kit emits none of them.
 - **Every new function gets `REVOKE EXECUTE ... FROM PUBLIC`.** Postgres grants `EXECUTE` to `PUBLIC` by
-  default; a catalog test fails if any function in `definition`, `execution` or `audit` keeps it. Grant
+  default; a catalog test fails if any function in `definition`, `execution`, `audit` or `monitor` keeps it. Grant
   `EXECUTE` explicitly to the one role that needs it.
+- **A `monitor` function returns an aggregate, and `qp_monitor` never gains a table grant.** Add a function in a migration
+  (`SECURITY DEFINER`, owned by `qp_owner`, `SET search_path = pg_catalog, pg_temp`, everything schema-qualified), revoke `PUBLIC`, grant
+  `qp_monitor`. `_tests/db/monitor.test.ts` lists the schema's functions, so a new one is a reviewed line in that test.
 - **Roles are not migrations.** `CREATE ROLE ... LOGIN PASSWORD` goes in
   `docker-entrypoint-initdb.d`, from environment variables.
 - **Pre-create partitions** (24–36 months). No `DEFAULT` partition — see the traps below.
@@ -225,12 +232,12 @@ long-lived client to the harness, and do not cache one across tests in a test fi
 
 ## Roles and connection strings
 
-Six identities, four connection strings (Decisions Log #39 and #89,
+Seven identities, four connection strings (Decisions Log #39 and #89,
 [[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]), wired in
 `docker-compose.yml` and `.env.example`: the bootstrap superuser (`POSTGRES_USER`) runs `db/init/01-roles.sh`
 (at init, and from the `roles` service on every `up`); `qp_owner` runs migrations (`DATABASE_URL_OWNER`); the backend's three pools use
 `DATABASE_URL_DEFINITION`, `DATABASE_URL_EXECUTION` and `DATABASE_URL_REPORTING`, and the seed the first of them; `audit_owner` has no
-login. There is no unsuffixed `DATABASE_URL`.
+login; `qp_monitor` (`QP_MONITOR_PASSWORD`) connects only for the observability Collector. There is no unsuffixed `DATABASE_URL`.
 
 The four things that fail quietly if this is ever rewired:
 

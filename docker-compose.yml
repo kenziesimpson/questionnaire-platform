@@ -6,6 +6,14 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - log_parameter_max_length=0
+      - -c
+      - log_error_verbosity=terse
     environment:
       <<: *qp-db-env
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-questionnaire}
@@ -30,6 +38,7 @@ services:
       QP_DEFINITION_PASSWORD: ${QP_DEFINITION_PASSWORD:-qp_definition}
       QP_EXECUTION_PASSWORD: ${QP_EXECUTION_PASSWORD:-qp_execution}
       QP_REPORTING_PASSWORD: ${QP_REPORTING_PASSWORD:-qp_reporting}
+      QP_MONITOR_PASSWORD: ${QP_MONITOR_PASSWORD:-qp_monitor}
     volumes:
       - ./db/init:/qp-init:ro
     depends_on:
