@@ -438,13 +438,15 @@ The real sink is pino, created in `pipeline.ts`: JSON to stdout, or `pino-pretty
 
 | Option | Effect |
 | --- | --- |
-| `otlpEndpoint` set | Traces go to `<endpoint>/v1/traces` and metrics to `<endpoint>/v1/metrics`, each through the scrub |
+| `otlpEndpoint` set | Traces go to `<endpoint>/v1/traces`, metrics to `<endpoint>/v1/metrics` and logs to `<endpoint>/v1/logs`, each through the scrub |
 | `otlpEndpoint` unset or empty | Nothing is exported. Spans are still recorded, so logs carry trace ids |
 | `autoInstrumentation: false` | No loader hook and no instrumentations; for tests |
 
 `installTestTelemetry({ autoInstrumentation: true })` starts the same three instrumentations without the loader hook, which is enough for Fastify to be traced under test and lets the export-time scrub see real instrumentation output. It does not patch `pg`: the driver is imported before the instrumentation starts, so a test that needs query spans passes the driver it already loaded, `installTestTelemetry({ autoInstrumentation: true, loadedDatabaseDriver: pg })`.
 
-The SDK has no logs signal: logs leave through pino only.
+### Log records
+
+pino writes each line to stdout, exactly as before. When an endpoint is configured the logger's sink also emits an OpenTelemetry log record from the same record, after the call-time scrub (`log-records.ts`): the level is the severity (`DEBUG`, `INFO`, `WARN`, `ERROR`), the literal message is the body, the registered fields are the attributes, and the active span's context is the record's trace context (`trace_id` and `span_id` are not repeated as attributes). A `BatchLogRecordProcessor` (a `SimpleLogRecordProcessor` under test) sends it through `scrubbingLogExporter` (`exporters.ts`), which mirrors the span and metric exporters: the attributes pass through `scrubAttributes(…, "log")` again, a severity text outside the four names is dropped, a body that does not match `LOG_MESSAGE_SHAPE` (`^[A-Za-z][A-Za-z0-9 ._:,/-]{0,127}$`, in `vocabulary.ts`) is replaced by `unnamed` and counted as an `invalid` log drop, and a batch it cannot scrub is failed and counted as one `internal` drop, never thrown. The shape is a shape check: a one-word answer passes it, so the message stays a compile-time literal (`LiteralMessage`) and nothing builds one from a value. `installTestTelemetry().logRecords()` returns the records the exporter received.
 
 ### The `--import` preload
 
@@ -559,7 +561,7 @@ const { exposures, observed } = await runLeakFlow(flow, world);
 | `expectEmitted(name, run, messages)` | Throws a plain `Error` if the run did not write a log line for each of these messages (`run.logMessages`), so a flow that declares `emits` fails as vacuous when the code it was written for did not run |
 | `plantThirdPartyTelemetry(sentinel)` | Emits spans, one named for the sentinel, and a counter carrying the sentinel the way a third-party instrumentation would, to exercise the export-time scrub |
 | `plantThirdPartyCounter(labels)` | Emits a counter with exactly these labels, so a negative control can put a shaped value on a bounded metric label |
-| `exposuresOf(telemetry)` | Every log line, span and metric whose serialised form contains the sentinel, keys included, in any case |
+| `exposuresOf(telemetry)` | Every log line, exported log record, span and metric whose serialised form contains the sentinel, keys included, in any case. A log record is reported as a `log` exposure named `<body> (exported)` |
 
 `pg` spans appear under test when the flow's world hands the loaded driver to `runLeakFlow` (the backend's `runOnLeakApp` does), so a
 sentinel bound as a SQL parameter, or echoed in a driver error message, is checked against the query spans, their attributes and the
@@ -593,7 +595,8 @@ The flows live with the code they exercise. The backend's registry is
 | `src/trace-context.ts` | `formatTraceparent`, `parseTraceparent` and the `traceparent` field widths. No imports |
 | `src/frame-shape.ts` | The one definition of a safe stack frame: its pattern pieces, caps, placeholders, `isSafeFunctionName`, `isSafeScriptFile`, `isSafePosition`, `BROWSER_STACK_FRAME` and `isBrowserStack`. No imports, so the browser entry can use it |
 | `src/instruments.ts` | The counter and histogram primitives, the session-duration histogram, the scrub drop counter and the ingest drop counter; each swallows and counts its own failure |
-| `src/exporters.ts` | The scrubbing decorators for span and metric exporters |
+| `src/exporters.ts` | The scrubbing decorators for span, metric and log exporters |
+| `src/log-records.ts` | The sink decorator that also emits an OpenTelemetry log record, and the level-to-severity map |
 | `src/pipeline.ts` | Builds the SDK, the pino sink and the exporters |
 | `src/node.ts` | `startTelemetry`, `runningTelemetry` |
 | `src/testing.ts` | `installTestTelemetry` (its `internalDrops()` reads the swallowed-failure count), `internalDropCount` |

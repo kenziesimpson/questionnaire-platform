@@ -9,12 +9,13 @@ import {
   type MetricData,
   type ScopeMetrics,
 } from "@opentelemetry/sdk-metrics";
+import { InMemoryLogRecordExporter, type ReadableLogRecord } from "@opentelemetry/sdk-logs";
 import { InMemorySpanExporter } from "@opentelemetry/sdk-trace";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { withSpan } from "../src/index.js";
-import { scrubbingMetricExporter, scrubbingSpanExporter } from "../src/exporters.js";
+import { logger, withSpan } from "../src/index.js";
+import { scrubbingLogExporter, scrubbingMetricExporter, scrubbingSpanExporter } from "../src/exporters.js";
 import { installTestTelemetry, type TestTelemetry } from "../src/testing.js";
-import { internalDropsIn } from "./faults.js";
+import { internalDropsIn, metricPointsIn } from "./faults.js";
 import { SESSION_ID } from "./fixtures.js";
 
 let telemetry: TestTelemetry | undefined;
@@ -176,5 +177,100 @@ describe("the operation label of the pg duration metric", () => {
     ["SELECTED", "OTHER"],
   ])("is normalised to a verb on the closed list, or OTHER: %j exports as %s", (operation, exported) => {
     expect(exportedOperation(operation)).toBe(exported);
+  });
+});
+
+describe("the scrubbing log exporter", () => {
+  function realRecord(): ReadableLogRecord {
+    if (telemetry === undefined) {
+      telemetry = installTestTelemetry();
+      logger("execution").info("a real line", { sessionId: SESSION_ID });
+    }
+    const [record] = telemetry.logRecords();
+    if (record === undefined) throw new Error("the real log record is missing");
+    return record;
+  }
+
+  function installed(): TestTelemetry {
+    if (telemetry === undefined) throw new Error("telemetry is not installed");
+    return telemetry;
+  }
+
+  function exported(record: ReadableLogRecord): ReadableLogRecord {
+    const delegate = new InMemoryLogRecordExporter();
+    scrubbingLogExporter(delegate).export([record], () => undefined);
+    const [scrubbed] = delegate.getFinishedLogRecords();
+    if (scrubbed === undefined) throw new Error("nothing was exported");
+    return scrubbed;
+  }
+
+  async function dropsFor(reason: string): Promise<boolean> {
+    const dropped = await metricPointsIn(installed(), "telemetry.scrub.dropped");
+    return dropped.some((point) => point.attributes["telemetry.signal"] === "log" && point.attributes["telemetry.reason"] === reason);
+  }
+
+  it("keeps a registered attribute and drops every other one, counting the drop", async () => {
+    const record = { ...realRecord(), attributes: { "questionnaire.session_id": SESSION_ID, answer: "diabetes", "url.path": "/sessions/x", "http.request.body": "diabetes" } };
+
+    expect(exported(record).attributes).toEqual({ "questionnaire.session_id": SESSION_ID });
+    expect(await dropsFor("unknown")).toBe(true);
+  });
+
+  it("drops a registered attribute whose value fails its shape", () => {
+    const record = { ...realRecord(), attributes: { "questionnaire.session_id": "diabetes" } };
+
+    expect(exported(record).attributes).toEqual({});
+  });
+
+  it.each(["a real line", "session.started", "Migration failed:", `A${"x".repeat(127)}`])("keeps the literal-shaped body %j", (body) => {
+    expect(exported({ ...realRecord(), body }).body).toBe(body);
+  });
+
+  it.each(["answer=diabetes", "it's an answer", "line\nbreak", "9 starts with a number", "", "a".repeat(129), '{"answer":1}'])(
+    "replaces the body %j with unnamed and counts it invalid",
+    async (body) => {
+      const record = { ...realRecord(), body };
+
+      expect(exported(record).body).toBe("unnamed");
+      expect(await dropsFor("invalid")).toBe(true);
+    },
+  );
+
+  it.each([{ answer: "diabetes" }, ["diabetes"], 7, undefined])("replaces a body that is not a string (%j) with unnamed", (body) => {
+    expect(exported({ ...realRecord(), body }).body).toBe("unnamed");
+  });
+
+  it("keeps a severity text of the closed list and drops any other", () => {
+    expect(exported({ ...realRecord(), severityText: "ERROR" }).severityText).toBe("ERROR");
+    expect(exported({ ...realRecord(), severityText: "ERROR diabetes" }).severityText).toBeUndefined();
+  });
+
+  it("keeps the trace context and the severity number", () => {
+    const record = realRecord();
+
+    const scrubbed = exported(record);
+
+    expect(scrubbed.severityNumber).toBe(record.severityNumber);
+    expect(scrubbed.spanContext).toEqual(record.spanContext);
+  });
+
+  it("fails the batch, exports nothing and counts one internal log drop when a record's attributes cannot be read", async () => {
+    const real = realRecord();
+    const hostile = {
+      ...real,
+      get attributes(): ReadableLogRecord["attributes"] {
+        throw new Error("hostile attributes");
+      },
+    };
+    const delegate = new InMemoryLogRecordExporter();
+    const callback = vi.fn();
+
+    expect(() => {
+      scrubbingLogExporter(delegate).export([hostile], callback);
+    }).not.toThrow();
+
+    expect(callback).toHaveBeenCalledExactlyOnceWith({ code: ExportResultCode.FAILED });
+    expect(delegate.getFinishedLogRecords()).toEqual([]);
+    expect(await internalDropsIn(installed())).toEqual({ log: 1 });
   });
 });

@@ -10,12 +10,15 @@ const REAL_APP_FLOW = "500 path";
 
 const DATABASE_FLOW = "database:";
 
+const THIRD_PARTY_FLOW = "auto-instrumentation:";
+
 beforeEach(() => {
   vi.resetModules();
   vi.doMock(EXPORTERS, async (importOriginal) => ({
     ...(await importOriginal<Record<string, unknown>>()),
     scrubbingSpanExporter: (exporter: unknown) => exporter,
     scrubbingMetricExporter: (exporter: unknown) => exporter,
+    scrubbingLogExporter: (exporter: unknown) => exporter,
   }));
 });
 
@@ -53,5 +56,18 @@ describe("TELEMETRY LEAK TEST mutation check: with the export-time scrub removed
 
     expect(run.spanNames.some((name) => name.startsWith("pg.query:"))).toBe(true);
     expect(run.exposures.some((exposure) => exposure.signal === "span" && exposure.name.startsWith("pg.query:"))).toBe(true);
+  });
+
+  it("detects the sentinel in a log record a third party emitted, so the exported log path is under the gate", async () => {
+    const { LEAK_FLOWS } = await import("./flows.js");
+    const { runOnLeakApp } = await import("./harness.js");
+    const flow = LEAK_FLOWS.find((candidate) => candidate.name.startsWith(THIRD_PARTY_FLOW));
+    expect(flow, "the flow that plants third-party telemetry must still be registered").toBeDefined();
+    if (flow === undefined) return;
+
+    const run = await runOnLeakApp(testDatabase, flow, { autoInstrumentation: true });
+
+    expect(run.exportedLogs).toBeGreaterThan(0);
+    expect(run.exposures.some((exposure) => exposure.signal === "log" && exposure.name.endsWith("(exported)"))).toBe(true);
   });
 });

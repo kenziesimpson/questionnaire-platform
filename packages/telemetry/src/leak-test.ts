@@ -1,4 +1,5 @@
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
+import { logs } from "@opentelemetry/api-logs";
 import { isAmbientMetric, isDatabaseMetric, isDatabaseSpan } from "./ambient-signals.js";
 import { DROPPED_COUNTER } from "./instruments.js";
 import { installTestTelemetry, internalDropCount, type LoadedDatabaseDriver } from "./testing.js";
@@ -14,8 +15,13 @@ interface NamedMetric {
   readonly descriptor: Named;
 }
 
+interface NamedLogRecord {
+  readonly body?: unknown;
+}
+
 export interface CapturedTelemetry {
   logs(): readonly Record<string, unknown>[];
+  logRecords(): readonly NamedLogRecord[];
   spans(): readonly Named[];
   metrics(): Promise<readonly NamedMetric[]>;
 }
@@ -41,6 +47,7 @@ export interface LeakRunOptions {
 export interface LeakRun {
   readonly exposures: readonly LeakExposure[];
   readonly observed: Readonly<Record<SignalKind, number>>;
+  readonly exportedLogs: number;
   readonly internalDrops: number;
   readonly spanNames: readonly string[];
   readonly metricNames: readonly string[];
@@ -76,9 +83,14 @@ function messageOf(line: Record<string, unknown>): string {
   return typeof line.msg === "string" ? line.msg : "log line";
 }
 
+function exportedMessageOf(record: NamedLogRecord): string {
+  return `${typeof record.body === "string" ? record.body : "log record"} (exported)`;
+}
+
 export async function exposuresOf(telemetry: CapturedTelemetry, sentinel: string = LEAK_SENTINEL): Promise<LeakExposure[]> {
   return [
     ...exposed("log", telemetry.logs(), messageOf, sentinel),
+    ...exposed("log", telemetry.logRecords(), exportedMessageOf, sentinel),
     ...exposed("span", telemetry.spans(), (span) => span.name, sentinel),
     ...exposed("metric", await telemetry.metrics(), (metric) => metric.descriptor.name, sentinel),
   ];
@@ -99,7 +111,7 @@ export async function runLeakFlow<World>(
     const flushed = await telemetry.metrics();
     const countsDatabase = flow.observesDatabase === true;
     return {
-      exposures: await exposuresOf({ logs: telemetry.logs, spans: telemetry.spans, metrics: async () => flushed }, sentinel),
+      exposures: await exposuresOf({ logs: telemetry.logs, logRecords: telemetry.logRecords, spans: telemetry.spans, metrics: async () => flushed }, sentinel),
       observed: {
         log: telemetry.logs().length,
         span: telemetry.spans().filter((span) => countsDatabase || !isDatabaseSpan(span.name)).length,
@@ -108,6 +120,7 @@ export async function runLeakFlow<World>(
           return name !== DROPPED_COUNTER && !isAmbientMetric(name) && (countsDatabase || !isDatabaseMetric(name));
         }).length,
       },
+      exportedLogs: telemetry.logRecords().length,
       internalDrops: internalDropCount(flushed),
       spanNames: telemetry.spans().map((span) => span.name),
       metricNames: flushed.map((metric) => metric.descriptor.name),
@@ -132,7 +145,12 @@ export function expectCleanRun(flowName: string, run: LeakRun, sentinel: string 
       `TELEMETRY LEAK TEST VACUOUS: "${flowName}" had ${run.internalDrops} telemetry call(s) fail and be swallowed (telemetry.scrub.dropped reason internal), so the signal it was written to check may never have been emitted`,
     );
   }
-  if (run.observed.log + run.observed.span + run.observed.metric === 0) {
+  if (run.observed.log > 0 && run.exportedLogs === 0) {
+    throw new Error(
+      `TELEMETRY LEAK TEST VACUOUS: "${flowName}" wrote ${run.observed.log} log line(s) but no log record reached the exporter, so the exported log path proves nothing`,
+    );
+  }
+  if (run.observed.log + run.observed.span + run.observed.metric + run.exportedLogs === 0) {
     throw new Error(`TELEMETRY LEAK TEST VACUOUS: "${flowName}" emitted no telemetry, so it proves nothing`);
   }
 }
@@ -167,6 +185,11 @@ export function plantThirdPartyTelemetry(sentinel: string): void {
     trace.getTracer("third-party").startSpan(name).end();
   }
   metrics.getMeter("third-party").createCounter("third_party.requests").add(1, { answer: sentinel, "url.path": sentinel });
+  logs.getLogger("third-party").emit({
+    body: `answer=${sentinel}`,
+    severityText: `ERROR ${sentinel}`,
+    attributes: { answer: sentinel, "url.path": `/api/run/sessions/s-1?answer=${sentinel}`, "http.request.body": sentinel },
+  });
 }
 
 export function plantThirdPartyCounter(labels: Readonly<Record<string, string>>): void {

@@ -18,9 +18,10 @@ import { configureLogging } from "../src/logger.js";
 import { installTestTelemetry } from "../src/testing.js";
 import { SESSION_ID, QUESTIONNAIRE_ID } from "./fixtures.js";
 
-function captured(parts: Partial<{ logs: Record<string, unknown>[]; spans: object[]; metrics: object[] }> = {}): CapturedTelemetry {
+function captured(parts: Partial<{ logs: Record<string, unknown>[]; logRecords: object[]; spans: object[]; metrics: object[] }> = {}): CapturedTelemetry {
   return {
     logs: () => parts.logs ?? [],
+    logRecords: () => parts.logRecords ?? [],
     spans: () => (parts.spans ?? []).map((span) => ({ name: "a span", ...span })),
     metrics: async () => (parts.metrics ?? []).map((metric) => ({ descriptor: { name: "a.metric" }, ...metric })),
   };
@@ -35,6 +36,17 @@ describe("leak-test detector: exposuresOf", () => {
     });
 
     expect(await exposuresOf(clean)).toEqual([]);
+  });
+
+  it.each([
+    ["a body", { body: LEAK_SENTINEL }],
+    ["an attribute", { body: "session submitted", attributes: { answer: LEAK_SENTINEL } }],
+    ["a severity text", { body: "session submitted", severityText: LEAK_SENTINEL }],
+  ])("finds the sentinel in an exported log record's %s, reported as a log exposure", async (_where, record) => {
+    const exposures = await exposuresOf(captured({ logRecords: [record] }));
+
+    expect(exposures.map((exposure) => exposure.signal)).toEqual(["log"]);
+    expect(exposures[0]?.name).toMatch(/\(exported\)$/);
   });
 
   it("finds the sentinel in a log line, by message", async () => {
@@ -147,7 +159,9 @@ describe("leak-test runner: runLeakFlow", () => {
     const logged = await runLeakFlow(cleanFlow, { sessionId: SESSION_ID });
 
     expect(silent.observed).toEqual({ log: 0, span: 0, metric: 0 });
+    expect(silent.exportedLogs).toBe(0);
     expect(logged.observed).toEqual({ log: 1, span: 0, metric: 0 });
+    expect(logged.exportedLogs).toBe(1);
     expect(logged.exposures).toEqual([]);
   });
 
@@ -215,22 +229,34 @@ describe("leak-test runner: runLeakFlow", () => {
 });
 
 describe("leak-test assertion: expectCleanRun", () => {
-  const clean = { exposures: [], observed: { log: 1, span: 0, metric: 0 }, internalDrops: 0, spanNames: [], metricNames: [], logMessages: [] };
+  const clean = { exposures: [], observed: { log: 1, span: 0, metric: 0 }, exportedLogs: 1, internalDrops: 0, spanNames: [], metricNames: [], logMessages: [] };
 
   it("passes a run that emitted telemetry and leaked nothing", () => {
     expect(() => expectCleanRun("clean", clean)).not.toThrow();
   });
 
   it("throws a plain Error naming the flow, the signal and the leaking item", () => {
-    const leaky = { exposures: [{ signal: "span" as const, name: "GET" }], observed: { log: 0, span: 1, metric: 0 }, internalDrops: 0, spanNames: ["GET"], metricNames: [], logMessages: [] };
+    const leaky = { exposures: [{ signal: "span" as const, name: "GET" }], observed: { log: 0, span: 1, metric: 0 }, exportedLogs: 0, internalDrops: 0, spanNames: ["GET"], metricNames: [], logMessages: [] };
 
     expect(() => expectCleanRun("leaky flow", leaky)).toThrow(/TELEMETRY LEAK TEST FAILED: "leaky flow".*span: GET/);
   });
 
   it("throws for a run that emitted nothing, so a silent flow cannot pass", () => {
-    const silent = { exposures: [], observed: { log: 0, span: 0, metric: 0 }, internalDrops: 0, spanNames: [], metricNames: [], logMessages: [] };
+    const silent = { exposures: [], observed: { log: 0, span: 0, metric: 0 }, exportedLogs: 0, internalDrops: 0, spanNames: [], metricNames: [], logMessages: [] };
 
     expect(() => expectCleanRun("silent flow", silent)).toThrow(/TELEMETRY LEAK TEST VACUOUS: "silent flow"/);
+  });
+
+  it("throws for a run whose log lines never reached the log exporter, so the exported path is not vacuously clean", () => {
+    const unexported = { ...clean, exportedLogs: 0 };
+
+    expect(() => expectCleanRun("unexported flow", unexported)).toThrow(/TELEMETRY LEAK TEST VACUOUS: "unexported flow" wrote 1 log line/);
+  });
+
+  it("passes a run that only exported a log record, such as a third-party one", () => {
+    const recordsOnly = { ...clean, observed: { log: 0, span: 0, metric: 0 }, exportedLogs: 1 };
+
+    expect(() => expectCleanRun("records only", recordsOnly)).not.toThrow();
   });
 
   it("throws for a run in which a telemetry call failed and was swallowed, unless the flow opts in", () => {
@@ -318,6 +344,7 @@ describe("leak-test export-time scrub: a third-party span and counter that carry
 
     expect(run.observed.span).toBeGreaterThan(0);
     expect(run.observed.metric).toBeGreaterThan(0);
+    expect(run.exportedLogs).toBeGreaterThan(0);
     expect(() => expectCleanRun(thirdParty.name, run)).not.toThrow();
   });
 
@@ -346,12 +373,13 @@ describe("leak-test export-time scrub: a third-party span and counter that carry
       ...(await importOriginal<Record<string, unknown>>()),
       scrubbingSpanExporter: (exporter: unknown) => exporter,
       scrubbingMetricExporter: (exporter: unknown) => exporter,
+      scrubbingLogExporter: (exporter: unknown) => exporter,
     }));
     const mutated = await import("../src/leak-test.js");
 
     const run = await mutated.runLeakFlow({ name: thirdParty.name, run: async (_world, sentinel) => mutated.plantThirdPartyTelemetry(sentinel) }, {});
 
-    expect(new Set(run.exposures.map((exposure) => exposure.signal))).toEqual(new Set(["metric", "span"]));
+    expect(new Set(run.exposures.map((exposure) => exposure.signal))).toEqual(new Set(["log", "metric", "span"]));
     expect(run.exposures.filter((exposure) => exposure.signal === "span").length).toBeGreaterThanOrEqual(7);
     expect(() => mutated.expectCleanRun(thirdParty.name, run)).toThrow(/TELEMETRY LEAK TEST FAILED/);
   });

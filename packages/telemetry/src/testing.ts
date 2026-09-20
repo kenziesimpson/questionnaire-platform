@@ -1,4 +1,5 @@
 import { Writable } from "node:stream";
+import { InMemoryLogRecordExporter, type ReadableLogRecord } from "@opentelemetry/sdk-logs";
 import { AggregationTemporality, InMemoryMetricExporter, type MetricData } from "@opentelemetry/sdk-metrics";
 import { InMemorySpanExporter, type ReadableSpan } from "@opentelemetry/sdk-trace";
 import type { LoadedDatabaseDriver } from "./database-instrumentation.js";
@@ -12,6 +13,7 @@ export type { LoadedDatabaseDriver } from "./database-instrumentation.js";
 export interface TestTelemetry {
   spans(): readonly ReadableSpan[];
   logs(): readonly Record<string, unknown>[];
+  logRecords(): readonly ReadableLogRecord[];
   metrics(): Promise<readonly MetricData[]>;
   internalDrops(): Promise<number>;
   reset(): void;
@@ -45,6 +47,7 @@ function parsedLines(text: string): Record<string, unknown>[] {
 export function installTestTelemetry(options: TestTelemetryOptions = {}): TestTelemetry {
   const spanExporter = new InMemorySpanExporter();
   const metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
+  const logExporter = new InMemoryLogRecordExporter();
   let written = "";
   const logDestination = new Writable({
     write(chunk, _encoding, done) {
@@ -60,6 +63,7 @@ export function installTestTelemetry(options: TestTelemetryOptions = {}): TestTe
     logDestination,
     traceExporter: spanExporter,
     metricExporter,
+    logExporter,
     synchronousExport: true,
     autoInstrumentation: options.autoInstrumentation ?? false,
     loaderHook: false,
@@ -75,11 +79,13 @@ export function installTestTelemetry(options: TestTelemetryOptions = {}): TestTe
   return {
     spans: () => spanExporter.getFinishedSpans(),
     logs: () => parsedLines(written),
+    logRecords: () => logExporter.getFinishedLogRecords(),
     metrics: flushedMetrics,
     internalDrops: async () => internalDropCount(await flushedMetrics()),
     reset: () => {
       spanExporter.reset();
       metricExporter.reset();
+      logExporter.reset();
       written = "";
     },
     shutdown: () => handle.shutdown(),
