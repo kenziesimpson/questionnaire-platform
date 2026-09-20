@@ -288,7 +288,7 @@ Same three-way split as [[#13.1 Local / prototype (Docker Compose)]], on a diffe
 - **Domain events** are one call, `emitDomainEvent`, writing a log line and a counter, so the two cannot drift. Only the leak test calls it so far: the backend logs requests, problems, health and shutdown, and opens no manual span and emits no domain event yet.
 - **Errors and health.** Every non-2xx is an RFC 9457 problem, a 500 carries its trace id as `detail`, and `/health/live` and `/health/ready` back the probes ([[#13.2 Long-term (Kubernetes)]]).
 - **Export is off by default.** With `OTEL_EXPORTER_OTLP_ENDPOINT` unset the app records spans and writes logs but exports nothing. Set, it sends traces and metrics over OTLP/HTTP through the scrub. There is no logs signal; logs leave through stdout.
-- **A browser SDK**, `@qp/telemetry/browser`: a bounded queue, error capture that records a class name and stack frames and never a message, and a hand-built `traceparent`. The respondent app uses it (FE1); the admin app does not yet (FE2).
+- **A browser SDK**, `@qp/telemetry/browser`: a bounded queue, error capture that records a class name and stack frames and never a message, and a hand-built `traceparent`. Both apps use it (FE1, FE2).
 
 **Planned**, each owned by a numbered pull request:
 

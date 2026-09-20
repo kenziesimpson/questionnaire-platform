@@ -1,7 +1,8 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ALLOWED_ATTRIBUTES, EVENT_LOOP_METRIC_NAMES, FIELDS, PG_OPERATION_DURATION, POOL_METRICS } from "@qp/telemetry";
+import { ALLOWED_ATTRIBUTES, EVENT_LOOP_METRIC_NAMES, FIELDS, LOG_LEVELS, PG_OPERATION_DURATION, POOL_METRICS } from "@qp/telemetry";
+import { CLIENT_LOG_LEVELS } from "@qp/telemetry/browser";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
@@ -10,7 +11,7 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const GRAFANA_DIRECTORY = resolve(repoRoot, "observability/grafana");
 const DASHBOARDS_DIRECTORY = resolve(GRAFANA_DIRECTORY, "dashboards");
 
-const DASHBOARD_TITLES = ["Admin and authoring", "Database", "Respondent funnel", "Service health"];
+const DASHBOARD_TITLES = ["Admin and authoring", "Client", "Database", "Respondent funnel", "Service health"];
 
 const ALERT_TITLES = [
   "Submit success rate drops",
@@ -21,15 +22,19 @@ const ALERT_TITLES = [
   "Fewer than one month of future response partitions remain",
 ];
 
+const CLIENT_ALERT_TITLES = ["Client errors per page load rise", "The ingest drops what browsers send", "Page load p75 degrades"];
+
 const SEVERITIES = ["page", "ticket"];
 
 const NO_DATA_STATES = ["OK", "Alerting", "NoData"];
 
 const PROMETHEUS = "prometheus";
 
+const LOKI = "loki";
+
 const PROVISIONING_DIRECTORY = "/otel-lgtm/grafana/conf/provisioning";
 
-const OUR_METRIC_PREFIX = /^(?:questionnaire|db|nodejs|traces|qp|telemetry|postgresql)_/;
+const OUR_METRIC_PREFIX = /^(?:questionnaire|db|nodejs|traces|qp|telemetry|postgresql|browser)_/;
 
 type Kind = "counter" | "updown" | "gauge" | "histogram";
 
@@ -97,6 +102,8 @@ const collectorConfig: unknown = parse(read(resolve(repoRoot, "observability/col
 const composeConfig: unknown = parse(read(resolve(repoRoot, "docker-compose.yml")));
 const eventsSource = read(resolve(repoRoot, "packages/telemetry/src/events.ts"));
 const instrumentsSource = read(resolve(repoRoot, "packages/telemetry/src/instruments.ts"));
+const vocabularySource = read(resolve(repoRoot, "packages/telemetry/src/vocabulary.ts"));
+const wireContractSource = read(resolve(repoRoot, "packages/telemetry/src/wire-contract.ts"));
 
 function labelOfField(field: string): string {
   const entry = Object.entries(FIELDS).find(([name]) => name === field);
@@ -207,6 +214,7 @@ const dashboards = dashboardFiles().map((file) => ({ file, board: readBoard(file
 
 const alertGroups = listAt(parse(read(resolve(GRAFANA_DIRECTORY, "alert-rules.yaml"))), "groups");
 const alertRules = alertGroups.flatMap((group) => listAt(group, "rules"));
+const clientRules = listAt(alertGroups[1], "rules");
 
 function dashboardQueries(): Query[] {
   const queries: Query[] = [];
@@ -221,13 +229,26 @@ function dashboardQueries(): Query[] {
   return queries;
 }
 
-function alertQueries(): Query[] {
+function alertQueries(datasourceUid: string = PROMETHEUS): Query[] {
   return alertRules.flatMap((rule) =>
     listAt(rule, "data").flatMap((step) => {
       const model = recordAt(step, "model");
-      return typeof model.expr === "string" ? [{ source: textAt(rule, "title"), expression: model.expr }] : [];
+      return typeof model.expr === "string" && isRecord(step) && step.datasourceUid === datasourceUid ? [{ source: textAt(rule, "title"), expression: model.expr }] : [];
     }),
   );
+}
+
+function logQueries(): Query[] {
+  const queries: Query[] = alertQueries(LOKI);
+  for (const { file, board } of dashboards) {
+    walk(board, (node) => {
+      const datasource = isRecord(node.datasource) ? node.datasource.uid : undefined;
+      if (typeof node.expr === "string" && datasource === LOKI && typeof node.refId === "string") {
+        queries.push({ source: `${file}: ${node.refId}`, expression: node.expr });
+      }
+    });
+  }
+  return queries;
 }
 
 function panelTitles(board: unknown): string[] {
@@ -270,8 +291,101 @@ describe("the series the dashboards and alerts read", () => {
   });
 });
 
+const LOG_STREAM_LABELS = ["service_name"];
+
+const LOG_BUILT_IN_LABELS = ["detected_level"];
+
+const STAMPED_ATTRIBUTES = ["module", "telemetry.source", "telemetry.event_age_ms", "trace_id", "span_id"];
+
+function fieldNamesIn(block: string): string[] {
+  return [...block.matchAll(/"(\w+)"/g)].map((match) => match[1] ?? "");
+}
+
+function attributeLabelOf(field: string): string {
+  const entry = Object.entries(FIELDS).find(([name]) => name === field);
+  if (entry === undefined) throw new Error(`wire-contract.ts lists "${field}", which is not a registry field`);
+  return entry[1].attribute.replaceAll(".", "_");
+}
+
+const CLIENT_LINE_LABELS = [
+  ...fieldNamesIn(/CLIENT_LOG_FIELDS = \[([^\]]*)\]/.exec(wireContractSource)?.[1] ?? ""),
+  ...fieldNamesIn(/BROWSER_DOMAIN_FIELDS = \{([^}]*)\}/.exec(wireContractSource)?.[1] ?? ""),
+].map(attributeLabelOf);
+
+const INGEST_REASONS = [...(/INGEST_DROP_REASONS = \[([^\]]*)\]/.exec(vocabularySource)?.[1] ?? "").matchAll(/"(\w+)"/g)].map((match) => match[1] ?? "");
+
+const BROWSER_DOMAIN_EVENT_NAMES = [...(/BROWSER_DOMAIN_EVENTS = \[([^\]]*)\]/.exec(wireContractSource)?.[1] ?? "").matchAll(/"([\w.]+)"/g)].map((match) => match[1] ?? "");
+
+const CLIENT_LOG_LINES = ["client.", ...CLIENT_LOG_LEVELS.map((level) => `client.${level}`), ...BROWSER_DOMAIN_EVENT_NAMES];
+
+function matchersIn(expression: string): { label: string; operator: string; value: string }[] {
+  return [...expression.matchAll(/([a-z_][a-z0-9_]*)\s*(=~|!~|!=|=)\s*"([^"]*)"/g)].map((match) => ({
+    label: match[1] ?? "",
+    operator: match[2] ?? "",
+    value: match[3] ?? "",
+  }));
+}
+
+function lineFiltersIn(expression: string): string[] {
+  return [...expression.matchAll(/\|=\s*"([^"]*)"/g)].map((match) => match[1] ?? "");
+}
+
+describe("the log queries the dashboards and alerts read", () => {
+  const queries = logQueries();
+  const allowedLabels = new Set([...LOG_STREAM_LABELS, ...LOG_BUILT_IN_LABELS, ...STAMPED_ATTRIBUTES.map((attribute) => attribute.replaceAll(".", "_")), ...CLIENT_LINE_LABELS]);
+
+  it("finds the log queries to check, on the dashboards and in the alert rules", () => {
+    expect(queries.length).toBeGreaterThan(8);
+    expect(queries.some((query) => query.source.endsWith(".json: A"))).toBe(true);
+    expect(alertQueries(LOKI).length).toBeGreaterThan(0);
+  });
+
+  it.each(queries.map((query) => [query.source, query.expression] as const))("%s matches and groups only by labels a log line carries", (_source, expression) => {
+    const grouped = [...expression.matchAll(/\bby\s*\(([^)]*)\)/g)].flatMap((match) => (match[1] ?? "").split(",").map((label) => label.trim()));
+
+    expect(matchersIn(expression).map(({ label }) => label).filter((label) => !allowedLabels.has(label))).toEqual([]);
+    expect(grouped.filter((label) => label !== "" && !allowedLabels.has(label))).toEqual([]);
+  });
+
+  it.each(queries.map((query) => [query.source, query.expression] as const))("%s filters only on lines the ingest writes for a browser event", (_source, expression) => {
+    expect(lineFiltersIn(expression).filter((line) => !CLIENT_LOG_LINES.includes(line))).toEqual([]);
+  });
+
+  it.each(queries.map((query) => [query.source, query.expression] as const))("%s matches a level the logger has and a source the ingest stamps", (_source, expression) => {
+    for (const { label, value } of matchersIn(expression)) {
+      if (label === "detected_level") expect(value.split("|").filter((level) => !LOG_LEVELS.some((known) => known === level))).toEqual([]);
+      if (label === "telemetry_source") expect(FIELDS.source.accepts(value), value).toBe(true);
+    }
+  });
+
+  it("derives the labels a client line carries from the wire contract's field lists, not the whole registry", () => {
+    expect(CLIENT_LINE_LABELS).toEqual(expect.arrayContaining(["error_type", "http_route", "questionnaire_last_item_id", "questionnaire_session_id", "questionnaire_duration_ms"]));
+    expect(CLIENT_LINE_LABELS).not.toContain("http_response_status_code");
+    expect(CLIENT_LINE_LABELS).not.toContain("questionnaire_outcome");
+  });
+
+  it("derives the client lines from the SDK and the wire contract", () => {
+    expect(BROWSER_DOMAIN_EVENT_NAMES).toEqual(expect.arrayContaining(["session.abandoned", "page.loaded"]));
+    expect(CLIENT_LOG_LINES).toEqual(expect.arrayContaining(["client.error", "client.warn", "client.info"]));
+  });
+});
+
+describe("the Prometheus queries that read what the ingest drops", () => {
+  it("match only reasons the ingest counts", () => {
+    const reasons = [...dashboardQueries(), ...alertQueries()].flatMap((query) =>
+      matchersIn(query.expression)
+        .filter(({ label }) => label === "telemetry_ingest_reason")
+        .flatMap(({ value }) => value.split("|")),
+    );
+
+    expect(INGEST_REASONS.length).toBeGreaterThan(0);
+    expect(reasons.length).toBeGreaterThan(0);
+    expect(reasons.filter((reason) => !INGEST_REASONS.includes(reason))).toEqual([]);
+  });
+});
+
 describe("the dashboards", () => {
-  it("are the four the design asks for, one file each", () => {
+  it("are the five the design asks for, one file each", () => {
     expect(dashboards.map(({ board }) => textAt(board, "title")).sort()).toEqual(DASHBOARD_TITLES);
   });
 
@@ -304,6 +418,45 @@ describe("the dashboards", () => {
     expect(content).toContain("listSessions");
   });
 
+  it("give the client dashboard the panels the design lists, from the page load histogram, the ingest's drop counter and its log lines", () => {
+    const client = dashboards.find(({ board }) => textAt(board, "title") === "Client");
+    expect(panelTitles(client?.board)).toEqual(
+      expect.arrayContaining([
+        "Client errors",
+        "Errors per page load",
+        "Client events by level",
+        "Page load duration percentiles",
+        "Client errors by error type",
+        "Client errors by screen",
+        "Browser fields the ingest dropped",
+        "Sessions abandoned, by last item",
+        "Client warnings and errors, as logged",
+        "What this dashboard cannot show",
+      ]),
+    );
+    const expressions = dashboardQueries().filter((query) => query.source.startsWith(client?.file ?? "")).map((query) => query.expression).join("\n");
+    expect(expressions).toContain("browser_page_load_duration_milliseconds_bucket");
+    expect(expressions).toContain("telemetry_ingest_dropped_total");
+  });
+
+  it("keep the ingest's drop panel on the client dashboard and not on Service health", () => {
+    const titlesOf = (name: string) => panelTitles(dashboards.find(({ board }) => textAt(board, "title") === name)?.board);
+    expect(titlesOf("Client")).toContain("Browser fields the ingest dropped");
+    expect(titlesOf("Service health")).not.toContain("Browser fields the ingest dropped");
+  });
+
+  it("group the client dashboard only by registry fields a browser cannot turn into free text", () => {
+    const client = dashboards.find(({ board }) => textAt(board, "title") === "Client");
+    const expressions = [...dashboardQueries(), ...logQueries()].filter((query) => query.source.startsWith(client?.file ?? "")).map((query) => query.expression);
+    const grouped = new Set(expressions.flatMap((expression) => [...expression.matchAll(/\bby\s*\(([^)]*)\)/g)].flatMap((match) => (match[1] ?? "").split(",").map((label) => label.trim()))));
+    grouped.delete("le");
+
+    expect([...grouped].sort()).toEqual(["detected_level", "error_type", "http_route", "questionnaire_last_item_id", "telemetry_ingest_reason"]);
+    for (const label of grouped) {
+      if (label !== "detected_level") expect(ALLOWED_ATTRIBUTES.map((attribute) => attribute.replaceAll(".", "_")), label).toContain(label);
+    }
+  });
+
   it("chart the respondent funnel from the session counters", () => {
     const funnel = dashboards.find(({ board }) => textAt(board, "title") === "Respondent funnel");
     const expressions = dashboardQueries().filter((query) => query.source.startsWith(funnel?.file ?? "")).map((query) => query.expression).join("\n");
@@ -314,9 +467,57 @@ describe("the dashboards", () => {
 });
 
 describe("the alert rules", () => {
-  it("are the six of O10, in one group", () => {
-    expect(alertGroups).toHaveLength(1);
-    expect(alertRules.map((rule) => textAt(rule, "title"))).toEqual(ALERT_TITLES);
+  it("are the six of O10 in one group and the client three in a second", () => {
+    expect(alertGroups).toHaveLength(2);
+    expect(listAt(alertGroups[0], "rules").map((rule) => textAt(rule, "title"))).toEqual(ALERT_TITLES);
+    expect(clientRules.map((rule) => textAt(rule, "title"))).toEqual(CLIENT_ALERT_TITLES);
+    expect(textAt(alertGroups[1], "name")).toBe("Questionnaire platform, client");
+  });
+
+  it.each(CLIENT_ALERT_TITLES)("the client rule %s only tickets, has a traffic floor and reads Prometheus or Loki", (title) => {
+    const rule = clientRules.find((candidate) => isRecord(candidate) && candidate.title === title);
+    const annotations = recordAt(rule, "annotations");
+    for (const key of ["summary", "description", "first_look"]) expect(textAt(annotations, key).length, key).toBeGreaterThan(20);
+    expect(textAt(recordAt(rule, "labels"), "severity")).toBe("ticket");
+    expect(NO_DATA_STATES).toContain(textAt(rule, "noDataState"));
+    expect(textAt(rule, "for")).toMatch(/^\d+m$/);
+    expect([PROMETHEUS, LOKI]).toContain(textAt(listAt(rule, "data")[0], "datasourceUid"));
+    expect(textAt(annotations, "description")).toMatch(/at least 20|threshold is the traffic floor/);
+  });
+
+  it.each(CLIENT_ALERT_TITLES)("the client rule %s has its traffic floor in the query or as its threshold, and not only in its prose", (title) => {
+    const rule = clientRules.find((candidate) => isRecord(candidate) && candidate.title === title);
+    const expression = textAt(recordAt(listAt(rule, "data")[0], "model"), "expr");
+    const guard = /\band on\(\)\s*\(.*>=\s*(\d+)\)\s*$/.exec(expression)?.[1];
+    const threshold = Number(listAt(recordAt(listAt(recordAt(listAt(rule, "data")[2], "model"), "conditions")[0], "evaluator"), "params")[0]);
+    if (guard !== undefined) {
+      expect(Number(guard)).toBeGreaterThanOrEqual(20);
+    } else {
+      expect(expression).toMatch(/^sum\(increase\(/);
+      expect(threshold).toBeGreaterThanOrEqual(20);
+    }
+  });
+
+  it.each(CLIENT_ALERT_TITLES)("the client rule %s names, for each dashboard it sends a person to, a panel that dashboard has", (title) => {
+    const rule = clientRules.find((candidate) => isRecord(candidate) && candidate.title === title);
+    const lookFirst = textAt(recordAt(rule, "annotations"), "first_look");
+    const named = dashboards.filter(({ board }) => lookFirst.includes(`${textAt(board, "title")} dashboard`));
+    expect(named.length).toBeGreaterThan(0);
+    for (const { board } of named) expect(panelTitles(board).some((panel) => lookFirst.includes(panel)), textAt(board, "title")).toBe(true);
+  });
+
+  it("never page for what a browser reports, since client telemetry is unauthenticated and spoofable", () => {
+    for (const rule of clientRules) expect(recordAt(rule, "labels").severity, textAt(rule, "title")).toBe("ticket");
+    expect(alertRules.filter((rule) => isRecord(rule) && recordAt(rule, "labels").severity === "page")).toHaveLength(3);
+  });
+
+  it("read the series and log lines the client signals produce", () => {
+    const prometheus = alertQueries().filter((query) => CLIENT_ALERT_TITLES.includes(query.source)).flatMap((query) => seriesIn(query.expression));
+    for (const series of ["telemetry_ingest_dropped_total", "browser_page_load_duration_milliseconds_bucket", "browser_page_load_duration_milliseconds_count"]) {
+      expect(prometheus).toContain(series);
+    }
+    const lines = alertQueries(LOKI).flatMap((query) => lineFiltersIn(query.expression));
+    expect(lines).toEqual(expect.arrayContaining(["client.error", "page.loaded"]));
   });
 
   it.each(ALERT_TITLES)("%s is complete", (title) => {
@@ -329,6 +530,7 @@ describe("the alert rules", () => {
     const steps = listAt(rule, "data").map((step) => textAt(step, "refId"));
     expect(steps).toContain(textAt(rule, "condition"));
     expect(textAt(listAt(rule, "data")[0], "datasourceUid")).toBe(PROMETHEUS);
+    expect(alertRules.indexOf(rule)).toBeLessThan(ALERT_TITLES.length);
   });
 
   it("have unique uids no longer than Grafana allows", () => {

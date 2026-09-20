@@ -302,7 +302,7 @@
     {
       "type": "bargauge",
       "title": "Funnel over the selected range",
-      "description": "The abandoned bar reads zero until the respondent app reports session.abandoned.",
+      "description": "Abandoned is session.abandoned, which the respondent app reports when the page is hidden with a session in progress. A page hidden and shown again counts once, and a session that goes on to complete is still counted, so read it beside completed and not as a loss. Where sessions were abandoned is on the Client dashboard.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

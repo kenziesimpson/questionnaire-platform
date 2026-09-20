@@ -1,10 +1,25 @@
-import { definitionApi, problemType, type QuestionUsage, type VersionSummary } from "@qp/shared";
+import { definitionApi, problemType, reportingApi, type QuestionUsage, type VersionSummary } from "@qp/shared";
+import { startBrowserTracing, stopBrowserTracing } from "@qp/telemetry/browser-tracing";
 import { jsonResponse, problemResponse, respondInOrder, stubFetch } from "@qp/ui/testing";
-import { describe, expect, expectTypeOf, it } from "vitest";
-import { callDefinition, draftApi } from "../../src/api/client";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+import { callDefinition, callReporting, draftApi } from "../../src/api/client";
 import { ProblemError, UnexpectedResponseError, isProblem } from "../../src/api/problem-error";
 import { QUESTIONNAIRE_ID, QUESTION_ID, aDraft, etagAt } from "../support/builders";
 import { draftResponse } from "../support/http";
+
+const spanCalls = vi.hoisted(() => [] as unknown[][]);
+
+vi.mock("@qp/telemetry", async (importOriginal) => {
+  const original = await importOriginal<Record<string, unknown>>();
+  const { withSpan } = original;
+  return {
+    ...original,
+    withSpan: (...args: unknown[]): unknown => {
+      spanCalls.push(args);
+      return typeof withSpan === "function" ? Reflect.apply(withSpan, undefined, args) : undefined;
+    },
+  };
+});
 
 const aVersionSummary: VersionSummary = {
   questionnaireId: QUESTIONNAIRE_ID,
@@ -166,5 +181,74 @@ describe("the draft ETag round trip", () => {
       callDefinition(definitionApi.publishDraft, { params: { id: QUESTIONNAIRE_ID }, ifMatch: etagAt(1) }),
     ];
     expect(draftRoutesThroughTheGenericCall).toBeTypeOf("function");
+  });
+});
+
+describe("trace context", () => {
+  afterEach(async () => {
+    await stopBrowserTracing();
+  });
+
+  const TRACEPARENT = /^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/;
+
+  it("sends no traceparent while tracing has not been started", async () => {
+    const requests = stubFetch(respondInOrder(jsonResponse(200, [])));
+
+    await callDefinition(definitionApi.listQuestionnaires, {});
+
+    expect(requests[0]?.headers.get("traceparent")).toBeNull();
+    expect(requests[0]?.headers.get("accept")).toContain("application/json");
+  });
+
+  it("sends one traceparent once tracing is started, beside the headers the call already sent", async () => {
+    startBrowserTracing();
+    const requests = stubFetch(respondInOrder(draftResponse(aDraft(), 1)));
+
+    await draftApi.replace(QUESTIONNAIRE_ID, { title: "T", items: [] }, etagAt(0));
+
+    const headers = requests[0]?.headers;
+    expect(headers?.get("traceparent")).toMatch(TRACEPARENT);
+    expect([...(headers?.keys() ?? [])].sort()).toEqual(["accept", "content-type", "if-match", "traceparent"]);
+    expect(headers?.get("if-match")).toBe(etagAt(0));
+  });
+
+  it("sends a different span for each call, in one trace per call", async () => {
+    startBrowserTracing();
+    const requests = stubFetch(respondInOrder(jsonResponse(200, []), jsonResponse(200, [])));
+
+    await callDefinition(definitionApi.listQuestionnaires, {});
+    await callDefinition(definitionApi.listQuestionnaires, {});
+
+    const [first, second] = requests.map((request) => request.headers.get("traceparent"));
+    expect(first).toMatch(TRACEPARENT);
+    expect(second).toMatch(TRACEPARENT);
+    expect(first).not.toBe(second);
+  });
+
+  it("carries no route, url, session id or query in the header, only ids and flags", async () => {
+    startBrowserTracing();
+    const requests = stubFetch(respondInOrder(jsonResponse(200, [])));
+
+    await callDefinition(definitionApi.listQuestionnaires, {});
+
+    const traceparent = requests[0]?.headers.get("traceparent") ?? "";
+    expect(traceparent.split("-")).toHaveLength(4);
+    expect(traceparent).not.toMatch(/[/:?=]/);
+  });
+});
+
+describe("the browser.request span", () => {
+  it("names the route by its template, prefix and route url, and never the path it filled", async () => {
+    spanCalls.length = 0;
+    stubFetch(respondInOrder(jsonResponse(200, []), jsonResponse(200, { items: [], previousCursor: null, nextCursor: null })));
+
+    await callDefinition(definitionApi.getQuestionUsage, { params: { questionId: QUESTION_ID } });
+    await callReporting(reportingApi.listSessions, { params: { id: QUESTIONNAIRE_ID }, query: { cursor: "abc" } });
+
+    expect(spanCalls.map(([name, context]) => [name, context])).toEqual([
+      ["browser.request", { method: "GET", route: `${definitionApi.DEFINITION_PREFIX}${definitionApi.getQuestionUsage.url}` }],
+      ["browser.request", { method: "GET", route: `${reportingApi.REPORTING_PREFIX}${reportingApi.listSessions.url}` }],
+    ]);
+    expect(JSON.stringify(spanCalls.map(([, context]) => context))).not.toMatch(new RegExp(`${QUESTION_ID}|${QUESTIONNAIRE_ID}|abc`));
   });
 });

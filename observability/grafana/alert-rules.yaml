@@ -395,3 +395,202 @@ groups:
         labels:
           severity: page
         isPaused: false
+  - orgId: 1
+    name: Questionnaire platform, client
+    folder: Questionnaire platform
+    interval: 1m
+    rules:
+      - uid: qp-client-error-rate
+        title: Client errors per page load rise
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: loki
+            model:
+              datasource:
+                type: loki
+                uid: loki
+              editorMode: code
+              expr: (sum(count_over_time({service_name=~"qp-.+"} |= "client.error" [30m])) or vector(0)) / sum(count_over_time({service_name=~"qp-.+"} |= "page.loaded" [30m])) and on() (sum(count_over_time({service_name=~"qp-.+"} |= "page.loaded" [30m])) >= 20)
+              queryType: instant
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.05
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        annotations:
+          summary: More than 5% as many client errors as page loads were logged in the last 30 minutes.
+          description: client.error log lines over page.loaded log lines, both written by the ingest from what browsers report. Errors from the admin app count in the numerator and only the respondent reports page loads, so the ratio is a trend and not a rate per session. It needs at least 20 page loads in the window. Client telemetry is unauthenticated and spoofable, so this rule only ever tickets.
+          first_look: "Client dashboard, panels Client errors by error type and Client errors by screen: which class of error, on which screen. Then the Client warnings and errors, as logged panel for the frames."
+        labels:
+          severity: ticket
+        isPaused: false
+      - uid: qp-client-ingest-drops
+        title: The ingest drops what browsers send
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: sum(increase(telemetry_ingest_dropped_total{telemetry_ingest_reason=~"unknown_field|invalid_field|unknown_event|malformed|invalid_trace"}[30m]))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 50
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        annotations:
+          summary: The ingest dropped more than 50 fields or events in the last 30 minutes because of what a browser sent, not because of volume.
+          description: Counts telemetry.ingest.dropped for the reasons that mean the ingest and a deployed build disagree about the schema (unknown_field, invalid_field, unknown_event, malformed and invalid_trace). over_limit is left out, since it is volume. A healthy build drops none, so the threshold is the traffic floor. It is a count and not a share, because the ingest keeps no counter of the events it received.
+          first_look: "Client dashboard, panel Browser fields the ingest dropped: which reason. unknown_field or unknown_event means a deployed build sends something the ingest does not list, and the fields change expand-then-contract (O17)."
+        labels:
+          severity: ticket
+        isPaused: false
+      - uid: qp-client-page-load-p75
+        title: Page load p75 degrades
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: histogram_quantile(0.75, sum by (le) (rate(browser_page_load_duration_milliseconds_bucket[30m]))) and on() (sum(increase(browser_page_load_duration_milliseconds_count[30m])) >= 20)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 4000
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 30m
+        annotations:
+          summary: The 75th percentile of the respondent's page load time is above 4 seconds over the last 30 minutes.
+          description: browser.page.load.duration is the time from navigation start to the end of the load event, reported by the respondent's browser, so it includes the respondent's network and device. It needs at least 20 page loads in the window. Client telemetry is unauthenticated and spoofable, so this rule only ever tickets.
+          first_look: "Client dashboard, panel Page load duration percentiles: whether the median or the tail moved. Then the Service health dashboard, panel Latency p95 by route, to see whether the backend moved with it."
+        labels:
+          severity: ticket
+        isPaused: false

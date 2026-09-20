@@ -1,4 +1,5 @@
-import { QueryClient } from "@tanstack/react-query";
+import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
+import { reportMutationFailure, reportQueryFailure } from "../telemetry/report";
 import { ProblemError } from "./problem-error";
 
 const MAX_QUERY_RETRIES = 3;
@@ -9,5 +10,9 @@ export function shouldRetryQuery(failureCount: number, error: Error): boolean {
 }
 
 export function createQueryClient(): QueryClient {
-  return new QueryClient({ defaultOptions: { queries: { retry: shouldRetryQuery } } });
+  return new QueryClient({
+    queryCache: new QueryCache({ onError: reportQueryFailure }),
+    mutationCache: new MutationCache({ onError: reportMutationFailure }),
+    defaultOptions: { queries: { retry: shouldRetryQuery } },
+  });
 }

@@ -334,7 +334,9 @@ Flows built so far, in `flows.ts`:
   answers, checked in the sent batches and the beacon bodies; the abandonment beacon; the SDK's own flow (`packages/telemetry/_tests/browser/`)
   now covers the encoded wire bytes, a forged `page.loaded` and the trace headers built from every input shape.
 
-Still owed, by the lane that builds each path: the admin response-detail screen through its telemetry wrapper (O20), and any new reporting read. A new reporting read gets a span, an event and a flow of
+- The admin response-detail screen (O20): a stored sentinel answer rendered by the real screen, with the wrapper's inputs (the queue's `enqueueRecord` and `enqueue`), the sent batches and the beacon bodies checked across a failed refetch that still holds the answer in the cache, a window error and a rejection; and a component error whose message carries the answer, which the router's fallback does not show and telemetry does not carry. Focus and reconnect do not refetch the detail, since each read writes an audit row.
+
+Still owed, by the lane that builds each path: any new reporting read. A new reporting read gets a span, an event and a flow of
 its own, and its cursor and any session id inside it stay out of every signal (O19).
 
 ## The gate

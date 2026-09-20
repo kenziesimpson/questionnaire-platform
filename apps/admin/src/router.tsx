@@ -9,6 +9,7 @@ import {
   type RouterHistory,
 } from "@tanstack/react-router";
 import { Value } from "typebox/value";
+import { ErrorFallback } from "./components/error-fallback";
 import { DraftEditorScreen } from "./screens/draft-editor";
 import { NotFoundScreen } from "./screens/not-found";
 import { QuestionBankScreen } from "./screens/question-bank";
@@ -19,6 +20,7 @@ import { VersionHistoryScreen } from "./screens/version-history";
 import { VersionPreviewScreen } from "./screens/version-preview";
 import { pageTitle } from "./page-title";
 import { AppShell } from "./shell/app-shell";
+import { reportRenderError } from "./telemetry/start";
 
 export interface RouterContext {
   queryClient: QueryClient;
@@ -164,6 +166,8 @@ export function createAppRouter({ queryClient, history }: { queryClient: QueryCl
     history,
     basepath: ROUTER_BASEPATH,
     context: { queryClient },
+    defaultErrorComponent: ErrorFallback,
+    defaultOnCatch: reportRenderError,
   });
 }
 
