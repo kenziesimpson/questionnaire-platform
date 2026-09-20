@@ -471,7 +471,8 @@ describe("createEventQueue: flushOnExit", () => {
     expect(beacons.map((batch) => batch.length)).toEqual([2, 1]);
     expect(queue.stats().pending).toBe(0);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(queue.stats().sent).toBe(3);
+    expect(queue.stats().beaconed).toBe(3);
+    expect(queue.stats().sent).toBe(0);
   });
 
   it("cancels the interval flush", () => {
@@ -509,6 +510,8 @@ describe("createEventQueue: flushOnExit", () => {
     }).not.toThrow();
     expect(refusing.queue.stats().droppedEvents.undelivered).toBe(1);
     expect(throwing.queue.stats().droppedEvents.undelivered).toBe(1);
+    expect(refusing.queue.stats().beaconed).toBe(0);
+    expect(throwing.queue.stats().beaconed).toBe(0);
   });
 });
 

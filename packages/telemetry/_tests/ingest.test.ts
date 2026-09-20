@@ -136,6 +136,26 @@ describe("ingestBatch: what a browser domain event keeps", () => {
     expect(await ingestDropsIn(installed)).toEqual({});
   });
 
+  it("relays page.loaded as a log line with its route and duration, and records its duration in the page load histogram", async () => {
+    const installed = install();
+
+    const receipt = ingestBatch(
+      [{ name: "page.loaded", at: AT, fields: { route: "/q/:questionnaireId", durationMs: 850, sessionId: SESSION_ID, message: LEAK } }],
+      RECEIVED_AT,
+    );
+
+    expect(receipt).toEqual({ accepted: 1, dropped: 0 });
+    expect(installed.logs()).toMatchObject([
+      { level: "info", msg: "page.loaded", module: "events", "http.route": "/q/:questionnaireId", "questionnaire.duration_ms": 850, "telemetry.source": "browser" },
+    ]);
+    expect(installed.logs()[0]).not.toHaveProperty("questionnaire.session_id");
+    expect(JSON.stringify(installed.logs())).not.toContain(LEAK);
+    const points = await metricPointsIn(installed, "browser.page.load.duration");
+    expect(points).toHaveLength(1);
+    expect(points[0]?.attributes).toEqual({});
+    expect(await ingestDropsIn(installed)).toEqual({ unknown_field: 2 });
+  });
+
   it("refuses session.item_skipped and the other events the server owns, counting each one", async () => {
     const installed = install();
 
@@ -220,14 +240,15 @@ describe("ingestBatch: only the fields a browser legitimately knows are kept", (
     expect(await ingestDropsIn(installed)).toEqual({ unknown_field: 6 });
   });
 
-  it("accepts exactly the client log events and session.abandoned", () => {
+  it("accepts exactly the client log events, session.abandoned and page.loaded", () => {
     install();
 
-    const names = ["client.info", "client.warn", "client.error", "session.abandoned", "session.item_skipped", "session.completed"];
+    const names = ["client.info", "client.warn", "client.error", "session.abandoned", "page.loaded", "session.item_skipped", "session.completed"];
     const receipt = ingestBatch(names.map((name) => ({ name, at: AT })), RECEIVED_AT);
 
-    expect(receipt).toEqual({ accepted: 4, dropped: 2 });
+    expect(receipt).toEqual({ accepted: 5, dropped: 2 });
     expect(browserDomainEventOf("session.abandoned")).toBe("session.abandoned");
+    expect(browserDomainEventOf("page.loaded")).toBe("page.loaded");
     expect(browserDomainEventOf("session.item_skipped")).toBeUndefined();
   });
 });

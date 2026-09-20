@@ -80,6 +80,17 @@ describe("emitDomainEvent never throws into the caller", () => {
     expect(internalDropsOf(recorded)).toEqual(["metric"]);
   });
 
+  it("records the page load duration of page.loaded in a histogram with no counter and no labels, and ignores a negative one", () => {
+    const recorded = installFaultyMeter();
+    recordingSink();
+
+    emitDomainEvent({ name: "page.loaded", route: "/q/:questionnaireId", durationMs: 850 });
+    emitDomainEvent({ name: "page.loaded", route: "/q/:questionnaireId", durationMs: -1 });
+
+    expect(written).toHaveLength(2);
+    expect(recorded).toEqual([{ name: "browser.page.load.duration", value: 850, attributes: undefined }]);
+  });
+
   it("returns normally when getMeter throws", () => {
     installFaultyMeter({ unavailable: true });
     recordingSink();

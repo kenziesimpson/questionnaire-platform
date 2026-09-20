@@ -1,7 +1,7 @@
 import type { DraftItemCode, ResponseType, SubmissionItemCode } from "@qp/shared";
 import { FIELDS, isCount, type CountField, type FieldName, type Outcome, type TelemetryContext } from "./fields.js";
 import { guarded } from "./guard.js";
-import { incrementCounter, recordSessionDuration, reportDropped } from "./instruments.js";
+import { incrementCounter, recordPageLoadDuration, recordSessionDuration, reportDropped } from "./instruments.js";
 import { logDomainEvent, relayLog } from "./logger.js";
 import { oneDropped, scrubContext, type ScrubbedAttributes } from "./scrub.js";
 import { EVENTS_LOG_MODULE } from "./vocabulary.js";
@@ -61,6 +61,7 @@ const DOMAIN_EVENTS = {
   ),
   "session.item_skipped": event<{ sessionId: string; itemId: string; questionId: string }>("questionnaire.items.skipped"),
   "session.abandoned": event<{ sessionId: string; lastItemId: string | null }>("questionnaire.sessions.abandoned"),
+  "page.loaded": logOnly<{ route: string; durationMs: number }>(),
   "session.completed": event<{ sessionId: string; durationMs: number; questionCount: number }>("questionnaire.sessions.completed"),
   "session.rejected_past_cutoff": event<{ sessionId: string; questionnaireId: string; questionnaireVersion: number }>(
     "questionnaire.sessions.rejected_past_cutoff",
@@ -106,6 +107,9 @@ function countDomainEvent(name: DomainEventName, fields: Readonly<Record<string,
   const { durationMs } = fields;
   if (name === "session.completed" && FIELDS.durationMs.accepts(durationMs)) {
     recordSessionDuration(durationMs);
+  }
+  if (name === "page.loaded" && FIELDS.durationMs.accepts(durationMs) && durationMs >= 0) {
+    recordPageLoadDuration(durationMs);
   }
 }
 

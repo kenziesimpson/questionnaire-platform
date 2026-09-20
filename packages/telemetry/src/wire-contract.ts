@@ -3,7 +3,7 @@ import { FIELDS, type FieldName } from "./fields.js";
 import { isBrowserStack } from "./frame-shape.js";
 import type { ClientLogEvent, IngestDropReason } from "./vocabulary.js";
 
-export const BROWSER_DOMAIN_EVENTS = ["session.abandoned"] as const satisfies readonly DomainEventName[];
+export const BROWSER_DOMAIN_EVENTS = ["session.abandoned", "page.loaded"] as const satisfies readonly DomainEventName[];
 export type BrowserDomainEvent = (typeof BROWSER_DOMAIN_EVENTS)[number];
 
 type BrowserFieldRefusal = Extract<IngestDropReason, "unknown_field" | "invalid_field">;
@@ -25,6 +25,7 @@ const CLIENT_LOG_FIELDS = [
 
 const BROWSER_DOMAIN_FIELDS = {
   "session.abandoned": ["sessionId", "lastItemId"],
+  "page.loaded": ["route", "durationMs"],
 } as const satisfies { readonly [N in BrowserDomainEvent]: readonly (DomainEventField<N> & FieldName)[] };
 
 const BROWSER_FIELDS = {

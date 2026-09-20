@@ -6,7 +6,9 @@ import { flushOnPageHide } from "../../src/browser/lifecycle.js";
 import { routeLogsToQueue } from "../../src/browser/logging.js";
 import { createEventQueue } from "../../src/browser/queue.js";
 import { startBrowserTelemetry } from "../../src/browser/start.js";
-import { injectTraceHeaders, stopBrowserTracing } from "../../src/browser/tracing.js";
+import { injectTraceHeaders, type HeadersInput } from "../../src/browser/trace-headers.js";
+import { startBrowserTracing, stopBrowserTracing } from "../../src/browser/tracing.js";
+import { createTransport } from "../../src/browser/transport.js";
 import { emitDomainEvent, logger, withSpan } from "../../src/index.js";
 import { expectCleanRun, LEAK_SENTINEL, runLeakFlow, type LeakFlow } from "../../src/leak-test.js";
 import { SESSION_ID } from "../fixtures.js";
@@ -36,6 +38,8 @@ function plantThroughLogger(sentinel: string): void {
   log.error("submit failed", { status: 500 }, new Error(sentinel));
   emitDomainEvent({ name: "session.abandoned", sessionId: sentinel, lastItemId: sentinel });
   emitDomainEvent({ name: "session.item_skipped", sessionId: sentinel, itemId: sentinel, questionId: sentinel });
+  emitDomainEvent({ name: "page.loaded", route: `/q/${sentinel}`, durationMs: Number.NaN });
+  emitDomainEvent({ name: "page.loaded", route: sentinel, durationMs: 850 });
 }
 
 function plantEverywhere(page: FakeWindow, enqueue: (level: string, message: unknown, attributes: unknown) => void, sentinel: string): void {
@@ -116,6 +120,55 @@ function run(sentinel: string, exit: Exit): Delivery {
   return { sent, beaconed };
 }
 
+interface WireBytes {
+  readonly posted: readonly string[];
+  readonly beaconed: readonly string[];
+}
+
+async function bytesOnTheWire(sentinel: string, exit: Exit): Promise<WireBytes> {
+  const page = new FakeWindow();
+  const posted: string[] = [];
+  const blobs: Blob[] = [];
+  const queue = createEventQueue({
+    ...createTransport({
+      url: "/api/telemetry",
+      fetch: (_url, init) => {
+        posted.push(init.body);
+        return Promise.resolve({ ok: true });
+      },
+      sendBeacon: (_url, blob) => {
+        blobs.push(blob);
+        return blob.type === "application/json";
+      },
+    }),
+    screen: () => `/run/${sentinel}`,
+    batchSize: 1000,
+    maxPending: 1000,
+  });
+  const removers = [routeLogsToQueue(queue), installErrorCapture(queue, page), flushOnPageHide(queue, page)];
+  try {
+    plantEverywhere(
+      page,
+      (level, message, attributes) => {
+        queue.enqueueRecord({ level, message, attributes });
+      },
+      sentinel,
+    );
+    if (exit === "send") queue.flush();
+    else page.dispatch("pagehide");
+    await settled();
+  } finally {
+    for (const remove of removers) remove();
+  }
+  return { posted, beaconed: await Promise.all(blobs.map((blob) => blob.text())) };
+}
+
+function settled(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
 function lowerCasedTokenQueued(): readonly QueuedEvent[] {
   const sent: QueuedEvent[] = [];
   const queue = createEventQueue({
@@ -171,17 +224,61 @@ describe("the browser telemetry never lets a planted answer reach the batch, the
     expect(events).toContainEqual({ level: "info", at: expect.any(String), message: "unnamed", attributes: {} });
   });
 
-  it("keeps the sentinel out of the trace headers", async () => {
-    const telemetry = startBrowserTelemetry({ page: new FakeWindow(), send: () => undefined, beacon: () => true });
+  it.each([
+    ["the sent envelopes", "send", "posted"],
+    ["the beacon bodies", "beacon", "beaconed"],
+  ] as const)("keeps the sentinel out of the bytes of %s, the encoding the ingest reads", async (_where, exit, reached) => {
+    const bodies = (await bytesOnTheWire(LEAK_SENTINEL, exit))[reached];
+
+    expect(bodies.length, "the plants must have produced bodies for this test to prove anything").toBeGreaterThan(0);
+    expect(carries(bodies, LEAK_SENTINEL)).toBe(false);
+    expect(bodies.some((body) => body.includes(SESSION_ID))).toBe(true);
+  });
+
+  it("negative control: the wire check flags a body that does carry the sentinel", () => {
+    expect(carries([JSON.stringify({ events: [{ name: "client.info", at: "x", fields: { itemId: LEAK_SENTINEL.toLowerCase() } }] })], LEAK_SENTINEL)).toBe(true);
+  });
+
+  it.each([
+    ["a record", (): HeadersInput => ({ accept: "application/json" })],
+    ["a Headers object", (): HeadersInput => new Headers({ accept: "application/json" })],
+    ["an array of pairs", (): HeadersInput => [["accept", "application/json"]]],
+  ])("keeps the sentinel out of the trace headers built from %s", async (_shape, input) => {
+    startBrowserTracing();
     let headers: Record<string, string> = {};
 
-    await withSpan("session.submit", { sessionId: LEAK_SENTINEL }, async () => {
-      headers = injectTraceHeaders({ accept: "application/json" });
+    await withSpan("browser.request", { sessionId: LEAK_SENTINEL, route: `/run/${LEAK_SENTINEL}` }, async () => {
+      headers = injectTraceHeaders(input());
     });
-    telemetry.stop();
 
     expect(Object.keys(headers).sort()).toEqual(["accept", "traceparent"]);
     expect(carries(headers, LEAK_SENTINEL)).toBe(false);
+  });
+
+  it("drops the forged route of a page load from the wire, keeps its duration, and keeps a real route", async () => {
+    const posted: string[] = [];
+    const queue = createEventQueue({
+      ...createTransport({
+        url: "/api/telemetry",
+        fetch: (_url, init) => {
+          posted.push(init.body);
+          return Promise.resolve({ ok: true });
+        },
+        sendBeacon: () => true,
+      }),
+    });
+    const stopRouting = routeLogsToQueue(queue);
+    emitDomainEvent({ name: "page.loaded", route: `/q/${LEAK_SENTINEL}`, durationMs: 850 });
+    emitDomainEvent({ name: "page.loaded", route: "/q/:questionnaireId", durationMs: 900 });
+    stopRouting();
+    queue.flush();
+    await settled();
+
+    expect(carries(posted, LEAK_SENTINEL)).toBe(false);
+    expect(JSON.parse(posted[0] ?? "{}").events).toEqual([
+      { name: "page.loaded", at: expect.any(String), fields: { durationMs: 850 } },
+      { name: "page.loaded", at: expect.any(String), fields: { route: "/q/:questionnaireId", durationMs: 900 } },
+    ]);
   });
 
   it("never lets an exception carrying the sentinel out of a capture", () => {
@@ -210,11 +307,11 @@ describe("the browser telemetry never lets a planted answer reach the batch, the
 describe("the browser flow, run through the leak-test runner beside the real pipeline", () => {
   it("leaves the sentinel out of every exporter and out of the queue, and is not vacuous", async () => {
     const flow: LeakFlow<undefined> = {
-      name: "browser: forged fields, messages, stacks, screens and domain events through the queue",
-      run: (_world, sentinel) => {
+      name: "browser: forged fields, messages, stacks, screens, page loads and domain events through the queue and onto the wire",
+      run: async (_world, sentinel) => {
         plantThroughLogger(sentinel);
         expect(carries(run(sentinel, "send"), sentinel)).toBe(false);
-        return Promise.resolve();
+        expect(carries(await bytesOnTheWire(sentinel, "beacon"), sentinel)).toBe(false);
       },
     };
 

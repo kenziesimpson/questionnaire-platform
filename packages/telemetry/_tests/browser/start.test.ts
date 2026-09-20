@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { QueuedEvent } from "../../src/browser/events.js";
 import { startBrowserTelemetry, type BrowserTelemetry } from "../../src/browser/start.js";
 import { stopBrowserTracing } from "../../src/browser/tracing.js";
-import { emitDomainEvent, logger, type LogLevel } from "../../src/index.js";
+import { injectTraceHeaders } from "../../src/browser/trace-headers.js";
+import { emitDomainEvent, logger, withSpan, type LogLevel } from "../../src/index.js";
+import { currentLogging } from "../../src/logger.js";
 import { SESSION_ID } from "../fixtures.js";
 import { FakeWindow } from "./page-fakes.js";
 
@@ -15,7 +17,7 @@ afterEach(async () => {
   await stopBrowserTracing();
 });
 
-function started(overrides: { debug?: (record: { level: LogLevel; message: string }) => void } = {}) {
+function started(overrides: { debug?: (record: { level: LogLevel; message: string }) => void; beforeExit?: () => void } = {}) {
   const page = new FakeWindow();
   const sent: QueuedEvent[] = [];
   const beaconed: QueuedEvent[] = [];
@@ -113,6 +115,20 @@ describe("startBrowserTelemetry", () => {
     expect(sent).toEqual([]);
   });
 
+  it("runs beforeExit before it hands what is queued to the beacon, so the abandonment it emits is beaconed with the rest", () => {
+    const { page, beaconed } = started({
+      beforeExit: () => {
+        emitDomainEvent({ name: "session.abandoned", sessionId: SESSION_ID, lastItemId: "itm_03" });
+      },
+    });
+    log.info("session submitted");
+
+    page.dispatch("pagehide");
+
+    expect(beaconed.map((event) => event.message)).toEqual(["session submitted", "session.abandoned"]);
+    expect(beaconed.map((event) => event.event)).toEqual([undefined, "session.abandoned"]);
+  });
+
   it("stops everything it started, handing what is queued to the beacon", () => {
     const { page, sent, beaconed, telemetry } = started();
     log.info("session submitted");
@@ -149,6 +165,27 @@ describe("startBrowserTelemetry", () => {
     vi.useRealTimers();
 
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores the logging that was configured before it started when it stops", () => {
+    const before = currentLogging();
+    const { telemetry } = started();
+
+    expect(currentLogging().sink).not.toBe(before.sink);
+    telemetry.stop();
+
+    expect(currentLogging()).toEqual(before);
+  });
+
+  it("does not start tracing: inside a span there is no traceparent until the app starts it", async () => {
+    started();
+    let headers: Record<string, string> = { unset: "unset" };
+
+    await withSpan("browser.request", {}, async () => {
+      headers = injectTraceHeaders();
+    });
+
+    expect(headers).toEqual({});
   });
 
   it("starts once: a second call returns the running handle and adds no listeners, and a stopped one can start again", () => {

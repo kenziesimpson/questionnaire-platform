@@ -15,17 +15,21 @@ const INGEST_DROPPED_COUNTER = "telemetry.ingest.dropped";
 
 const SESSION_DURATION = "questionnaire.session.duration";
 
+const PAGE_LOAD_DURATION = "browser.page.load.duration";
+
 const SESSION_DURATION_BUCKETS_MS = [
   1_000, 5_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000, 1_800_000, 3_600_000, 7_200_000, 14_400_000, 43_200_000, 86_400_000,
 ];
 
+const PAGE_LOAD_DURATION_BUCKETS_MS = [100, 250, 500, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 60_000];
+
 const counters = new Map<string, Counter>();
 
-let sessionDuration: Histogram | undefined;
+const histograms = new Map<string, Histogram>();
 
 export function resetInstruments(): void {
   counters.clear();
-  sessionDuration = undefined;
+  histograms.clear();
 }
 
 function counter(name: string): Counter {
@@ -36,12 +40,23 @@ function counter(name: string): Counter {
   return created;
 }
 
-function durationHistogram(): Histogram {
-  sessionDuration ??= metrics.getMeter(INSTRUMENTATION_SCOPE).createHistogram(SESSION_DURATION, {
+function durationHistogram(name: string, buckets: readonly number[]): Histogram {
+  const existing = histograms.get(name);
+  if (existing !== undefined) return existing;
+  const created = metrics.getMeter(INSTRUMENTATION_SCOPE).createHistogram(name, {
     unit: "ms",
-    advice: { explicitBucketBoundaries: SESSION_DURATION_BUCKETS_MS },
+    advice: { explicitBucketBoundaries: [...buckets] },
   });
-  return sessionDuration;
+  histograms.set(name, created);
+  return created;
+}
+
+function recordDuration(name: string, buckets: readonly number[], milliseconds: number): void {
+  try {
+    durationHistogram(name, buckets).record(milliseconds);
+  } catch {
+    addDropped("metric", "internal", 1);
+  }
 }
 
 function addDropped(kind: SignalKind, reason: DropReason, amount: number): boolean {
@@ -62,11 +77,11 @@ export function incrementCounter(name: string, attributes: ScrubbedAttributes, a
 }
 
 export function recordSessionDuration(milliseconds: number): void {
-  try {
-    durationHistogram().record(milliseconds);
-  } catch {
-    addDropped("metric", "internal", 1);
-  }
+  recordDuration(SESSION_DURATION, SESSION_DURATION_BUCKETS_MS, milliseconds);
+}
+
+export function recordPageLoadDuration(milliseconds: number): void {
+  recordDuration(PAGE_LOAD_DURATION, PAGE_LOAD_DURATION_BUCKETS_MS, milliseconds);
 }
 
 export function reportDropped(kind: SignalKind, dropped: DropCounts): void {
