@@ -164,7 +164,7 @@
     {
       "type": "stat",
       "title": "Abandoned",
-      "description": "Reported by the browser on the way out, so a closed laptop is not counted.",
+      "description": "Reported by the browser on the way out, so a closed laptop is not counted. Nothing emits session.abandoned yet: the respondent app sends it with the frontend telemetry work, so this reads zero until then.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -302,7 +302,7 @@
     {
       "type": "bargauge",
       "title": "Funnel over the selected range",
-      "description": "",
+      "description": "The abandoned bar reads zero until the respondent app reports session.abandoned.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

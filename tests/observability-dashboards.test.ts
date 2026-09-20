@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ALLOWED_ATTRIBUTES, FIELDS } from "@qp/telemetry";
+import { ALLOWED_ATTRIBUTES, EVENT_LOOP_METRIC_NAMES, FIELDS, PG_OPERATION_DURATION, POOL_METRICS } from "@qp/telemetry";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
@@ -48,12 +48,16 @@ const QUERY_DURATION_LABELS = ["db_operation_name", "db_namespace", "server_addr
 
 const UNIT_SUFFIXES: Readonly<Record<string, string>> = { ms: "_milliseconds", s: "_seconds", By: "_bytes" };
 
-const DATABASE_AND_RUNTIME_METRICS: readonly OtelMetric[] = [
-  ...["total", "idle", "waiting"].map((state): OtelMetric => ({ name: `db.pool.connections.${state}`, kind: "gauge", unit: "{connection}", labels: ["db_pool"] })),
-  ...["min", "max", "mean", "stddev", "p50", "p90", "p99"].map((statistic): OtelMetric => ({ name: `nodejs.eventloop.delay.${statistic}`, kind: "gauge", unit: "s", labels: [] })),
-  { name: "nodejs.eventloop.utilization", kind: "gauge", unit: "1", labels: [] },
-  { name: "db.client.operation.duration", kind: "histogram", unit: "s", labels: QUERY_DURATION_LABELS },
-];
+const EVENT_LOOP_UTILIZATION = "nodejs.eventloop.utilization";
+
+function databaseAndRuntimeMetrics(): OtelMetric[] {
+  const poolLabel = FIELDS.pool.attribute.replaceAll(".", "_");
+  return [
+    ...Object.values(POOL_METRICS).map((name): OtelMetric => ({ name, kind: "gauge", unit: "{connection}", labels: [poolLabel] })),
+    ...EVENT_LOOP_METRIC_NAMES.map((name): OtelMetric => ({ name, kind: "gauge", unit: name === EVENT_LOOP_UTILIZATION ? "1" : "s", labels: [] })),
+    { name: PG_OPERATION_DURATION, kind: "histogram", unit: "s", labels: QUERY_DURATION_LABELS },
+  ];
+}
 
 const POSTGRESQL_RECEIVER_METRICS: readonly OtelMetric[] = [
   { name: "postgresql.backends", kind: "updown", unit: "1", labels: ["db_namespace"] },
@@ -149,7 +153,7 @@ function prometheusSeries({ name, kind, unit, labels }: OtelMetric): [string, re
 }
 
 const KNOWN_SERIES: ReadonlyMap<string, readonly string[]> = new Map(
-  [...applicationMetrics(), ...collectorMetrics(), ...DATABASE_AND_RUNTIME_METRICS, ...POSTGRESQL_RECEIVER_METRICS].flatMap(prometheusSeries),
+  [...applicationMetrics(), ...collectorMetrics(), ...databaseAndRuntimeMetrics(), ...POSTGRESQL_RECEIVER_METRICS].flatMap(prometheusSeries),
 );
 
 const KNOWN_LABELS = new Set([...ALLOWED_ATTRIBUTES.map((attribute) => attribute.replaceAll(".", "_")), ...SPAN_METRICS_BUILT_IN_LABELS, "le"]);

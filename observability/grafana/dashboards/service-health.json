@@ -908,7 +908,7 @@
     {
       "type": "logs",
       "title": "Warnings and errors",
-      "description": "Backend log lines at warn and error, from the container logs the Collector reads. nginx lines carry no level, so they never appear here: see the next panel. Open a line's trace_id to reach its trace.",
+      "description": "The backend's log records at warn and error, which it sends over OTLP. Open a record's trace_id to reach its trace. nginx's access log is not sent to Grafana; read it with docker compose logs frontend.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -936,39 +936,6 @@
         "y": 45,
         "w": 24,
         "h": 10
-      }
-    },
-    {
-      "type": "logs",
-      "title": "nginx responses with a 5xx status",
-      "description": "Lines of nginx's JSON access log with a 5xx status, from the frontend container. The route is a template with session ids masked, or :unmatched. Empty in the dev override, where Vite serves the apps and nginx does not run.",
-      "datasource": {
-        "type": "loki",
-        "uid": "loki"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "loki",
-            "uid": "loki"
-          },
-          "expr": "{service_name=\"qp-frontend\"} | http_response_status_code >= 500",
-          "editorMode": "code"
-        }
-      ],
-      "options": {
-        "showTime": true,
-        "wrapLogMessage": true,
-        "sortOrder": "Descending",
-        "enableLogDetails": true
-      },
-      "id": 18,
-      "gridPos": {
-        "x": 0,
-        "y": 55,
-        "w": 24,
-        "h": 8
       }
     }
   ]
