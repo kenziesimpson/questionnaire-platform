@@ -854,54 +854,7 @@
       "gridPos": {
         "x": 0,
         "y": 37,
-        "w": 12,
-        "h": 8
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Browser fields the ingest dropped",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (telemetry_ingest_reason) (increase(telemetry_ingest_dropped_total[$__rate_interval]))",
-          "editorMode": "code"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "id": 16,
-      "gridPos": {
-        "x": 12,
-        "y": 37,
-        "w": 12,
+        "w": 24,
         "h": 8
       }
     },
