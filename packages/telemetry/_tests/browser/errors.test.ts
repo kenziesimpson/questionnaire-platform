@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { captureError, installErrorCapture } from "../../src/browser/errors.js";
 import type { QueuedEvent } from "../../src/browser/events.js";
 import { createEventQueue } from "../../src/browser/queue.js";
+import { STAMPED_TRACEPARENT } from "../fixtures.js";
 import { FakeWindow } from "./page-fakes.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
@@ -48,6 +49,7 @@ describe("installErrorCapture", () => {
       {
         level: "error",
         at: expect.any(String),
+        traceparent: STAMPED_TRACEPARENT,
         message: "unhandled error",
         attributes: { "error.type": "TypeError", "error.stack": "    at render (index-a1b2.js:10:20)\n    at anonymous.js:5:6" },
       },
@@ -62,7 +64,7 @@ describe("installErrorCapture", () => {
     page.dispatch("error", scriptError);
     queue.flush();
 
-    expect(sent).toEqual([{ level: "error", at: expect.any(String), message: "unhandled error", attributes: {} }]);
+    expect(sent).toEqual([{ level: "error", at: expect.any(String), traceparent: STAMPED_TRACEPARENT, message: "unhandled error", attributes: {} }]);
   });
 
   it("records the type and frames of a rejection's reason, and nothing for a reason that is not an error", () => {
@@ -75,10 +77,10 @@ describe("installErrorCapture", () => {
     queue.flush();
 
     expect(sent).toEqual([
-      { level: "error", at: expect.any(String), message: "unhandled rejection", attributes: { "error.type": "RangeError", "error.stack": "    at go (main.js:1:2)" } },
-      { level: "error", at: expect.any(String), message: "unhandled rejection", attributes: {} },
-      { level: "error", at: expect.any(String), message: "unhandled rejection", attributes: {} },
-      { level: "error", at: expect.any(String), message: "unhandled rejection", attributes: {} },
+      { level: "error", at: expect.any(String), traceparent: STAMPED_TRACEPARENT, message: "unhandled rejection", attributes: { "error.type": "RangeError", "error.stack": "    at go (main.js:1:2)" } },
+      { level: "error", at: expect.any(String), traceparent: STAMPED_TRACEPARENT, message: "unhandled rejection", attributes: {} },
+      { level: "error", at: expect.any(String), traceparent: STAMPED_TRACEPARENT, message: "unhandled rejection", attributes: {} },
+      { level: "error", at: expect.any(String), traceparent: STAMPED_TRACEPARENT, message: "unhandled rejection", attributes: {} },
     ]);
   });
 

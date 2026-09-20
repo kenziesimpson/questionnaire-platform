@@ -4,7 +4,7 @@ import { captureError } from "../../src/browser/errors.js";
 import type { QueuedEvent } from "../../src/browser/events.js";
 import { routeLogsToQueue } from "../../src/browser/logging.js";
 import { createEventQueue, type EventQueue } from "../../src/browser/queue.js";
-import { startBrowserTracing, stopBrowserTracing } from "../../src/browser/tracing.js";
+import { injectTraceHeaders } from "../../src/browser/trace-headers.js";
 import { toEnvelopes, toFetchInit, type WireEnvelope } from "../../src/browser/wire.js";
 import { activeTraceId, emitDomainEvent, ingestBatch, logger, withSpan } from "../../src/index.js";
 import { LEAK_SENTINEL } from "../../src/leak-test.js";
@@ -25,7 +25,6 @@ let telemetry: TestTelemetry | undefined;
 afterEach(async () => {
   await telemetry?.shutdown();
   telemetry = undefined;
-  await stopBrowserTracing();
 });
 
 function fakeClock(): () => number {
@@ -38,7 +37,7 @@ function fakeClock(): () => number {
 
 interface Browser {
   readonly queued: readonly QueuedEvent[];
-  readonly traceId: string | undefined;
+  readonly pageTraceId: string | undefined;
 }
 
 async function runBrowser(plant: (queue: EventQueue) => void | Promise<void>, screen: string = SCREEN): Promise<Browser> {
@@ -54,21 +53,15 @@ async function runBrowser(plant: (queue: EventQueue) => void | Promise<void>, sc
     maxPending: 1000,
   });
   const stopRouting = routeLogsToQueue(queue);
-  startBrowserTracing();
-  let traceId: string | undefined;
   try {
-    await withSpan("session.submit", { sessionId: SESSION_ID }, async () => {
-      traceId = activeTraceId();
-      log.info("screen shown", { sessionId: SESSION_ID, questionId: QUESTION_ID, questionType: "text" });
-    });
+    log.info("screen shown", { sessionId: SESSION_ID, questionId: QUESTION_ID, questionType: "text" });
     await plant(queue);
     queue.flush();
   } finally {
     stopRouting();
     queue.close();
-    await stopBrowserTracing();
   }
-  return { queued, traceId };
+  return { queued, pageTraceId: injectTraceHeaders().traceparent?.split("-")[1] };
 }
 
 function plantLegitimate(queue: EventQueue): void {
@@ -204,18 +197,37 @@ describe("the wire contract: what the SDK sends is what the ingest accepts", () 
     expect(points[0]?.value).toMatchObject({ count: 1, sum: 850 });
   });
 
-  it("gives the log line the browser's trace and span, and gives an event sent outside a span none", async () => {
-    const { queued, traceId } = await runBrowser(plantLegitimate);
-    const inSpan = queued.find((event) => event.traceparent !== undefined);
-    const spanId = inSpan?.traceparent?.split("-")[2];
+  it("logs each event with the page's trace id as client.trace_id, under the ingest request's own trace and never as its parent", async () => {
+    const { queued, pageTraceId } = await runBrowser(plantLegitimate);
+    const installed = installTestTelemetry();
+    telemetry = installed;
+    let ingestTraceId: string | undefined;
+    await withSpan("telemetry.ingest", {}, async () => {
+      ingestTraceId = activeTraceId();
+      for (const body of bodiesOf(wireOf(queued))) ingestBatch(body.events, RECEIVED_AT);
+    });
 
-    const { installed } = ingestEnvelopes(wireOf(queued));
+    expect(pageTraceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(ingestTraceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(ingestTraceId).not.toBe(pageTraceId);
+    const lines = installed.logs();
+    expect(lines).toHaveLength(queued.length);
+    for (const line of lines) expect(line).toMatchObject({ "client.trace_id": pageTraceId, trace_id: ingestTraceId });
+    expect(installed.logRecords().map((record) => record.attributes["client.trace_id"])).toEqual(lines.map(() => pageTraceId));
+    expect(installed.spans().map((span) => span.spanContext().traceId)).toEqual([ingestTraceId]);
+    expect(installed.spans()[0]?.parentSpanContext).toBeUndefined();
+  });
 
-    expect(traceId).toMatch(/^[0-9a-f]{32}$/);
-    expect(queued.filter((event) => event.traceparent !== undefined)).toHaveLength(1);
-    const traced = installed.logs().filter((line) => "trace_id" in line);
-    expect(traced).toHaveLength(1);
-    expect(traced[0]).toMatchObject({ msg: "client.info", trace_id: traceId, span_id: spanId });
+  it("carries a traceparent on every event of a body, the page's trace id and a different span id for each", async () => {
+    const { queued, pageTraceId } = await runBrowser(plantLegitimate);
+
+    const events = bodiesOf(wireOf(queued)).flatMap((body) => body.events);
+
+    const traceparents = events.map((event) => (typeof event === "object" && event !== null ? Reflect.get(event, "traceparent") : undefined));
+    expect(traceparents).toHaveLength(queued.length);
+    const parts = traceparents.map((traceparent) => String(traceparent).split("-"));
+    expect(new Set(parts.map((part) => part[1]))).toEqual(new Set([pageTraceId]));
+    expect(new Set(parts.map((part) => part[2])).size).toBe(queued.length);
   });
 
   it("stamps each event when it was queued, so the ingest sees its age at the receipt", async () => {

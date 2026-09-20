@@ -1,25 +1,10 @@
 import { definitionApi, problemType, reportingApi, type QuestionUsage, type VersionSummary } from "@qp/shared";
-import { startBrowserTracing, stopBrowserTracing } from "@qp/telemetry/browser-tracing";
 import { jsonResponse, problemResponse, respondInOrder, stubFetch } from "@qp/ui/testing";
-import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { callDefinition, callReporting, draftApi } from "../../src/api/client";
 import { ProblemError, UnexpectedResponseError, isProblem } from "../../src/api/problem-error";
 import { QUESTIONNAIRE_ID, QUESTION_ID, aDraft, etagAt } from "../support/builders";
 import { draftResponse } from "../support/http";
-
-const spanCalls = vi.hoisted(() => [] as unknown[][]);
-
-vi.mock("@qp/telemetry", async (importOriginal) => {
-  const original = await importOriginal<Record<string, unknown>>();
-  const { withSpan } = original;
-  return {
-    ...original,
-    withSpan: (...args: unknown[]): unknown => {
-      spanCalls.push(args);
-      return typeof withSpan === "function" ? Reflect.apply(withSpan, undefined, args) : undefined;
-    },
-  };
-});
 
 const aVersionSummary: VersionSummary = {
   questionnaireId: QUESTIONNAIRE_ID,
@@ -185,23 +170,9 @@ describe("the draft ETag round trip", () => {
 });
 
 describe("trace context", () => {
-  afterEach(async () => {
-    await stopBrowserTracing();
-  });
+  const TRACEPARENT = /^00-[0-9a-f]{32}-[0-9a-f]{16}-00$/;
 
-  const TRACEPARENT = /^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/;
-
-  it("sends no traceparent while tracing has not been started", async () => {
-    const requests = stubFetch(respondInOrder(jsonResponse(200, [])));
-
-    await callDefinition(definitionApi.listQuestionnaires, {});
-
-    expect(requests[0]?.headers.get("traceparent")).toBeNull();
-    expect(requests[0]?.headers.get("accept")).toContain("application/json");
-  });
-
-  it("sends one traceparent once tracing is started, beside the headers the call already sent", async () => {
-    startBrowserTracing();
+  it("sends a traceparent beside the headers the call already sent, with nothing started", async () => {
     const requests = stubFetch(respondInOrder(draftResponse(aDraft(), 1)));
 
     await draftApi.replace(QUESTIONNAIRE_ID, { title: "T", items: [] }, etagAt(0));
@@ -212,43 +183,47 @@ describe("trace context", () => {
     expect(headers?.get("if-match")).toBe(etagAt(0));
   });
 
-  it("sends a different span for each call, in one trace per call", async () => {
-    startBrowserTracing();
+  it("sends a traceparent on a call with no body and no precondition", async () => {
+    const requests = stubFetch(respondInOrder(jsonResponse(200, [])));
+
+    await callDefinition(definitionApi.listQuestionnaires, {});
+
+    expect(requests[0]?.headers.get("traceparent")).toMatch(TRACEPARENT);
+    expect(requests[0]?.headers.get("accept")).toContain("application/json");
+  });
+
+  it("sends the page's one trace id with a different span id on each call", async () => {
     const requests = stubFetch(respondInOrder(jsonResponse(200, []), jsonResponse(200, [])));
 
     await callDefinition(definitionApi.listQuestionnaires, {});
     await callDefinition(definitionApi.listQuestionnaires, {});
 
-    const [first, second] = requests.map((request) => request.headers.get("traceparent"));
-    expect(first).toMatch(TRACEPARENT);
-    expect(second).toMatch(TRACEPARENT);
-    expect(first).not.toBe(second);
+    const [first, second] = requests.map((request) => (request.headers.get("traceparent") ?? "").split("-"));
+    expect(first?.[1]).toMatch(/^[0-9a-f]{32}$/);
+    expect(second?.[1]).toBe(first?.[1]);
+    expect(second?.[2]).toMatch(/^[0-9a-f]{16}$/);
+    expect(second?.[2]).not.toBe(first?.[2]);
   });
 
-  it("carries no route, url, session id or query in the header, only ids and flags", async () => {
-    startBrowserTracing();
-    const requests = stubFetch(respondInOrder(jsonResponse(200, [])));
-
-    await callDefinition(definitionApi.listQuestionnaires, {});
-
-    const traceparent = requests[0]?.headers.get("traceparent") ?? "";
-    expect(traceparent.split("-")).toHaveLength(4);
-    expect(traceparent).not.toMatch(/[/:?=]/);
-  });
-});
-
-describe("the browser.request span", () => {
-  it("names the route by its template, prefix and route url, and never the path it filled", async () => {
-    spanCalls.length = 0;
-    stubFetch(respondInOrder(jsonResponse(200, []), jsonResponse(200, { items: [], previousCursor: null, nextCursor: null })));
+  it("sends the same page trace id on the reporting side as on the definition side", async () => {
+    const requests = stubFetch(respondInOrder(jsonResponse(200, []), jsonResponse(200, { items: [], previousCursor: null, nextCursor: null })));
 
     await callDefinition(definitionApi.getQuestionUsage, { params: { questionId: QUESTION_ID } });
     await callReporting(reportingApi.listSessions, { params: { id: QUESTIONNAIRE_ID }, query: { cursor: "abc" } });
 
-    expect(spanCalls.map(([name, context]) => [name, context])).toEqual([
-      ["browser.request", { method: "GET", route: `${definitionApi.DEFINITION_PREFIX}${definitionApi.getQuestionUsage.url}` }],
-      ["browser.request", { method: "GET", route: `${reportingApi.REPORTING_PREFIX}${reportingApi.listSessions.url}` }],
-    ]);
-    expect(JSON.stringify(spanCalls.map(([, context]) => context))).not.toMatch(new RegExp(`${QUESTION_ID}|${QUESTIONNAIRE_ID}|abc`));
+    const [definition, reporting] = requests.map((request) => (request.headers.get("traceparent") ?? "").split("-"));
+    expect(definition?.[1]).toMatch(/^[0-9a-f]{32}$/);
+    expect(reporting?.[1]).toBe(definition?.[1]);
+  });
+
+  it("carries no route, url, session id or query in the header, only ids and flags", async () => {
+    const requests = stubFetch(respondInOrder(jsonResponse(200, { items: [], previousCursor: null, nextCursor: null })));
+
+    await callReporting(reportingApi.listSessions, { params: { id: QUESTIONNAIRE_ID }, query: { cursor: "abc" } });
+
+    const traceparent = requests[0]?.headers.get("traceparent") ?? "";
+    expect(traceparent.split("-")).toHaveLength(4);
+    expect(traceparent).not.toMatch(/[/:?=]/);
+    expect(traceparent).not.toContain(QUESTIONNAIRE_ID);
   });
 });

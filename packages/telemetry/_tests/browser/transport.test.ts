@@ -156,6 +156,27 @@ describe("createTransport: beacon", () => {
     expect(queue.stats().sent).toBe(0);
   });
 
+  it("carries the page's traceparent on every event of the beacon body, one trace id and a span id of its own for each", async () => {
+    const { transport, beaconed } = transportWith();
+    const queue = createEventQueue(transport);
+
+    queue.enqueueRecord({ level: "info", message: "session submitted", attributes: {} });
+    queue.enqueueRecord({ level: "warn", message: "request retried", attributes: {} });
+    queue.flushOnExit();
+
+    const bodies = await Promise.all(beaconed.map(({ blob }) => blob.text()));
+    const events: { traceparent?: string }[] = bodies.flatMap((body) => JSON.parse(body).events);
+    const parts = events.map((event) => (event.traceparent ?? "").split("-"));
+    expect(parts).toHaveLength(2);
+    for (const [version, traceId, spanId, flags] of parts) {
+      expect([version, flags]).toEqual(["00", "00"]);
+      expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+      expect(spanId).toMatch(/^[0-9a-f]{16}$/);
+    }
+    expect(parts[1]?.[1]).toBe(parts[0]?.[1]);
+    expect(parts[1]?.[2]).not.toBe(parts[0]?.[2]);
+  });
+
   it("produces a body the real ingest accepts whole", async () => {
     telemetry = installTestTelemetry();
     const { transport, beaconed } = transportWith();

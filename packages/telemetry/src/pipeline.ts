@@ -11,6 +11,7 @@ import { PeriodicExportingMetricReader, type PushMetricExporter } from "@opentel
 import { BatchSpanProcessor, NoopSpanProcessor, SimpleSpanProcessor, type SpanExporter, type SpanProcessor } from "@opentelemetry/sdk-trace";
 import pino, { type DestinationStream } from "pino";
 import pretty from "pino-pretty";
+import { ClientTraceSpanProcessor } from "./client-trace-processor.js";
 import { DatabaseInstrumentation, type LoadedDatabaseDriver } from "./database-instrumentation.js";
 import { scrubbingLogExporter, scrubbingMetricExporter, scrubbingSpanExporter } from "./exporters.js";
 import { guarded } from "./guard.js";
@@ -118,7 +119,7 @@ export function startPipeline(options: PipelineOptions): TelemetryHandle {
   const sdk = new NodeSDK({
     resource: resourceFromAttributes({ "service.name": options.serviceName }),
     autoDetectResources: false,
-    spanProcessors: [traceProcessor],
+    spanProcessors: [new ClientTraceSpanProcessor(), traceProcessor],
     metricReaders,
     textMapPropagator: new TraceparentOnlyPropagator(),
     logRecordProcessors: logProcessor === undefined ? [] : [logProcessor],

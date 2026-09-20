@@ -1,5 +1,5 @@
 import { sensitive } from "@qp/shared";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { captureError, installErrorCapture } from "../../src/browser/errors.js";
 import type { QueuedEvent } from "../../src/browser/events.js";
 import { flushOnPageHide } from "../../src/browser/lifecycle.js";
@@ -7,11 +7,10 @@ import { routeLogsToQueue } from "../../src/browser/logging.js";
 import { createEventQueue } from "../../src/browser/queue.js";
 import { startBrowserTelemetry } from "../../src/browser/start.js";
 import { injectTraceHeaders, type HeadersInput } from "../../src/browser/trace-headers.js";
-import { startBrowserTracing, stopBrowserTracing } from "../../src/browser/tracing.js";
 import { createTransport } from "../../src/browser/transport.js";
-import { emitDomainEvent, logger, withSpan } from "../../src/index.js";
+import { emitDomainEvent, logger } from "../../src/index.js";
 import { expectCleanRun, LEAK_SENTINEL, runLeakFlow, type LeakFlow } from "../../src/leak-test.js";
-import { SESSION_ID } from "../fixtures.js";
+import { SESSION_ID, STAMPED_TRACEPARENT } from "../fixtures.js";
 import { FakeWindow } from "./page-fakes.js";
 
 const log = logger("execution");
@@ -183,10 +182,6 @@ function lowerCasedTokenQueued(): readonly QueuedEvent[] {
   return sent;
 }
 
-afterEach(async () => {
-  await stopBrowserTracing();
-});
-
 describe("the browser telemetry never lets a planted answer reach the batch, the beacon or an exception", () => {
   it.each([
     ["the sent batch", "send", "sent"],
@@ -202,10 +197,11 @@ describe("the browser telemetry never lets a planted answer reach the batch, the
   it("delivers the legitimate events beside the planted ones with their own fields intact", () => {
     const events = run(LEAK_SENTINEL, "send").sent;
 
-    expect(events).toContainEqual({ level: "warn", at: expect.any(String), message: "unnamed", attributes: { "questionnaire.session_id": SESSION_ID } });
+    expect(events).toContainEqual({ level: "warn", at: expect.any(String), traceparent: STAMPED_TRACEPARENT, message: "unnamed", attributes: { "questionnaire.session_id": SESSION_ID } });
     expect(events).toContainEqual({
       level: "error",
       at: expect.any(String),
+      traceparent: STAMPED_TRACEPARENT,
       message: "unhandled error",
       attributes: { "error.type": "Error", "error.stack": "    at render (main.js:1:2)" },
     });
@@ -214,14 +210,15 @@ describe("the browser telemetry never lets a planted answer reach the batch, the
   it("cuts a caller-supplied error stack, a function name and a disguised message to their safe forms", () => {
     const events = run(LEAK_SENTINEL, "send").sent;
 
-    expect(events).toContainEqual({ level: "info", at: expect.any(String), message: "answer received", attributes: { "error.stack": "    at render (anonymous.js:1:2)" } });
+    expect(events).toContainEqual({ level: "info", at: expect.any(String), traceparent: STAMPED_TRACEPARENT, message: "answer received", attributes: { "error.stack": "    at render (anonymous.js:1:2)" } });
     expect(events).toContainEqual({
       level: "error",
       at: expect.any(String),
+      traceparent: STAMPED_TRACEPARENT,
       message: "unhandled error",
       attributes: { "error.type": "Error", "error.stack": "    at anonymous (main.js:1:2)" },
     });
-    expect(events).toContainEqual({ level: "info", at: expect.any(String), message: "unnamed", attributes: {} });
+    expect(events).toContainEqual({ level: "info", at: expect.any(String), traceparent: STAMPED_TRACEPARENT, message: "unnamed", attributes: {} });
   });
 
   it.each([
@@ -243,15 +240,11 @@ describe("the browser telemetry never lets a planted answer reach the batch, the
     ["a record", (): HeadersInput => ({ accept: "application/json" })],
     ["a Headers object", (): HeadersInput => new Headers({ accept: "application/json" })],
     ["an array of pairs", (): HeadersInput => [["accept", "application/json"]]],
-  ])("keeps the sentinel out of the trace headers built from %s", async (_shape, input) => {
-    startBrowserTracing();
-    let headers: Record<string, string> = {};
-
-    await withSpan("browser.request", { sessionId: LEAK_SENTINEL, route: `/run/${LEAK_SENTINEL}` }, async () => {
-      headers = injectTraceHeaders(input());
-    });
+  ])("keeps the sentinel out of the trace headers built from %s", (_shape, input) => {
+    const headers = injectTraceHeaders(input());
 
     expect(Object.keys(headers).sort()).toEqual(["accept", "traceparent"]);
+    expect(headers.traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-00$/);
     expect(carries(headers, LEAK_SENTINEL)).toBe(false);
   });
 
@@ -276,8 +269,8 @@ describe("the browser telemetry never lets a planted answer reach the batch, the
 
     expect(carries(posted, LEAK_SENTINEL)).toBe(false);
     expect(JSON.parse(posted[0] ?? "{}").events).toEqual([
-      { name: "page.loaded", at: expect.any(String), fields: { durationMs: 850 } },
-      { name: "page.loaded", at: expect.any(String), fields: { route: "/q/:questionnaireId", durationMs: 900 } },
+      { name: "page.loaded", at: expect.any(String), traceparent: STAMPED_TRACEPARENT, fields: { durationMs: 850 } },
+      { name: "page.loaded", at: expect.any(String), traceparent: STAMPED_TRACEPARENT, fields: { route: "/q/:questionnaireId", durationMs: 900 } },
     ]);
   });
 

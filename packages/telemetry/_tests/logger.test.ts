@@ -1,3 +1,4 @@
+import { context, propagation, ROOT_CONTEXT } from "@opentelemetry/api";
 import { afterEach, describe, expect, it } from "vitest";
 import { logger, withSpan } from "../src/index.js";
 import { configureLogging, resetLogging, type LogRecord } from "../src/logger.js";
@@ -108,6 +109,27 @@ describe("logger records", () => {
     const [span] = installed.spans();
     expect(inside).toMatchObject({ trace_id: span?.spanContext().traceId, span_id: span?.spanContext().spanId });
     expect(outside).not.toHaveProperty("trace_id");
+  });
+
+  it("carries the client trace id of the request it runs in, on every line and every log record, and none outside one", async () => {
+    const installed = install();
+    const CLIENT_TRACE_ID = "0af7651916cd43dd8448eb211c80319c";
+    const inbound = propagation.extract(ROOT_CONTEXT, { traceparent: `00-${CLIENT_TRACE_ID}-b7ad6b7169203331-01` });
+
+    await context.with(inbound, async () => {
+      log.info("before the span");
+      await withSpan("session.submit", { sessionId: SESSION_ID }, async () => {
+        await Promise.resolve();
+        log.warn("inside the span");
+      });
+    });
+    log.info("outside the request");
+
+    const [before, inside, outside] = installed.logs();
+    expect(before).toMatchObject({ "client.trace_id": CLIENT_TRACE_ID });
+    expect(inside).toMatchObject({ "client.trace_id": CLIENT_TRACE_ID });
+    expect(outside).not.toHaveProperty(["client.trace_id"]);
+    expect(installed.logRecords().map((record) => record.attributes["client.trace_id"])).toEqual([CLIENT_TRACE_ID, CLIENT_TRACE_ID, undefined]);
   });
 
   it("records an error's type and stack frames but never its message", () => {

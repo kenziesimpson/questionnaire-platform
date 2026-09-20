@@ -412,22 +412,89 @@ describe("ingestBatch: the volume cap", () => {
   });
 });
 
-describe("ingestBatch: trace context", () => {
-  it("logs a client event under the trace and span the browser sent", () => {
+describe("ingestBatch: the client trace id", () => {
+  const CLIENT_TRACE_ID = "0af7651916cd43dd8448eb211c80319c";
+
+  const OTHER_CLIENT_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
+
+  it("logs a client event with the trace id its traceparent named as client.trace_id, and with no trace or span of its own when none is active", () => {
     const installed = install();
 
     ingestBatch([{ name: "client.info", at: AT, traceparent: TRACEPARENT }], RECEIVED_AT);
 
-    expect(installed.logs()[0]).toMatchObject({ trace_id: "0af7651916cd43dd8448eb211c80319c", span_id: "b7ad6b7169203331" });
+    expect(installed.logs()[0]).toMatchObject({ "client.trace_id": CLIENT_TRACE_ID });
+    expect(installed.logs()[0]).not.toHaveProperty("trace_id");
+    expect(installed.logs()[0]).not.toHaveProperty("span_id");
+    expect(JSON.stringify(installed.logs())).not.toContain("b7ad6b7169203331");
   });
 
-  it("logs a client event under the server's active trace when the browser sent none", async () => {
+  it("carries it on the log record the pipeline exports, beside the level and the module and not as the record's trace", () => {
+    const installed = install();
+
+    ingestBatch([{ name: "client.warn", at: AT, traceparent: TRACEPARENT }], RECEIVED_AT);
+
+    const [record] = installed.logRecords();
+    expect(record?.attributes["client.trace_id"]).toBe(CLIENT_TRACE_ID);
+    expect(record?.spanContext).toBeUndefined();
+  });
+
+  it("carries it on a browser domain event's log line too", () => {
+    const installed = install();
+
+    ingestBatch([{ name: "session.abandoned", at: AT, fields: { sessionId: SESSION_ID }, traceparent: TRACEPARENT }], RECEIVED_AT);
+
+    expect(installed.logs()[0]).toMatchObject({ msg: "session.abandoned", module: "events", "client.trace_id": CLIENT_TRACE_ID });
+  });
+
+  it("logs a client event under the ingest request's own trace, not the browser's, with the client trace id beside it", async () => {
+    const installed = install();
+
+    await withSpan("telemetry.ingest", {}, async () => ingestBatch([{ name: "client.info", at: AT, traceparent: TRACEPARENT }], RECEIVED_AT));
+
+    const [span] = installed.spans();
+    expect(span?.spanContext().traceId).not.toBe(CLIENT_TRACE_ID);
+    expect(span?.parentSpanContext).toBeUndefined();
+    expect(span?.attributes["client.trace_id"]).toBeUndefined();
+    expect(installed.logs()[0]).toMatchObject({
+      trace_id: span?.spanContext().traceId,
+      span_id: span?.spanContext().spanId,
+      "client.trace_id": CLIENT_TRACE_ID,
+    });
+  });
+
+  it("gives each event its own client trace id, and an event with none does not inherit the one before it", () => {
+    const installed = install();
+
+    ingestBatch(
+      [
+        { name: "client.info", at: AT, traceparent: TRACEPARENT },
+        { name: "client.info", at: AT },
+        { name: "client.info", at: AT, traceparent: `00-${OTHER_CLIENT_TRACE_ID}-b7ad6b7169203331-00` },
+      ],
+      RECEIVED_AT,
+    );
+
+    expect(installed.logs().map((line) => line["client.trace_id"])).toEqual([CLIENT_TRACE_ID, undefined, OTHER_CLIENT_TRACE_ID]);
+  });
+
+  it("does not let the browser's sampled flag or its span id reach the log line", () => {
+    const installed = install();
+
+    ingestBatch([{ name: "client.info", at: AT, traceparent: `00-${CLIENT_TRACE_ID}-b7ad6b7169203331-00` }], RECEIVED_AT);
+
+    expect(installed.logs()[0]).toMatchObject({ "client.trace_id": CLIENT_TRACE_ID });
+    expect(JSON.stringify(installed.logs())).not.toContain("b7ad6b7169203331");
+  });
+
+  it("logs a client event with no client trace id when the browser sent none, and counts nothing", async () => {
     const installed = install();
 
     await withSpan("session.submit", {}, async () => ingestBatch([{ name: "client.info", at: AT }], RECEIVED_AT));
 
     const [span] = installed.spans();
     expect(installed.logs()[0]).toMatchObject({ trace_id: span?.spanContext().traceId });
+    expect(installed.logs()[0]).not.toHaveProperty(["client.trace_id"]);
+    expect(await ingestDropsIn(installed)).toEqual({});
   });
 
   it.each([
@@ -436,17 +503,36 @@ describe("ingestBatch: trace context", () => {
     ["an all-zero trace id", "00-00000000000000000000000000000000-b7ad6b7169203331-01"],
     ["an all-zero span id", "00-0af7651916cd43dd8448eb211c80319c-0000000000000000-01"],
     ["upper-case hex", "00-0AF7651916CD43DD8448EB211C80319C-B7AD6B7169203331-01"],
+    ["an oversized trace id", `00-${"a".repeat(4096)}-b7ad6b7169203331-01`],
+    ["a sentinel in the trace id", `00-${LEAK}-b7ad6b7169203331-01`],
+    ["a sentinel in the span id", `00-0af7651916cd43dd8448eb211c80319c-${LEAK}-01`],
+    ["a sentinel in the flags", `00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-${LEAK}`],
     ["a number", 7],
+    ["an object", { traceId: CLIENT_TRACE_ID }],
     ["the sentinel", LEAK],
-  ])("keeps the event, ignores %s and counts it", async (_name, traceparent) => {
+  ])("keeps the event, takes no client trace id from %s and counts it as an invalid trace", async (_name, traceparent) => {
     const installed = install();
 
     const receipt = ingestBatch([{ name: "client.info", at: AT, traceparent }], RECEIVED_AT);
 
     expect(receipt).toEqual({ accepted: 1, dropped: 0 });
+    expect(installed.logs()[0]).not.toHaveProperty(["client.trace_id"]);
     expect(installed.logs()[0]).not.toHaveProperty("trace_id");
+    expect(installed.logRecords()[0]?.attributes).not.toHaveProperty(["client.trace_id"]);
     expect(JSON.stringify(installed.logs())).not.toContain(LEAK);
     expect(await ingestDropsIn(installed)).toEqual({ invalid_trace: 1 });
+  });
+
+  it("takes the client trace id from the event's traceparent and never from a field named like it", () => {
+    const installed = install();
+
+    const receipt = ingestBatch(
+      [{ name: "client.info", at: AT, fields: { clientTraceId: OTHER_CLIENT_TRACE_ID, "client.trace_id": OTHER_CLIENT_TRACE_ID } }],
+      RECEIVED_AT,
+    );
+
+    expect(receipt).toEqual({ accepted: 1, dropped: 0 });
+    expect(installed.logs()[0]).not.toHaveProperty(["client.trace_id"]);
   });
 });
 

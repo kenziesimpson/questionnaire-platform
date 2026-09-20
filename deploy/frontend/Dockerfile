@@ -16,8 +16,6 @@ COPY packages/telemetry packages/telemetry
 COPY packages/ui packages/ui
 COPY apps/respondent apps/respondent
 COPY apps/admin apps/admin
-ARG VITE_TELEMETRY_TRACING=""
-ENV VITE_TELEMETRY_TRACING=$VITE_TELEMETRY_TRACING
 RUN npm run build -w packages/shared && npm run build -w packages/telemetry && npm run build -w apps/respondent && npm run build -w apps/admin
 
 FROM nginx:1.27-alpine AS runtime

@@ -1,0 +1,118 @@
+{
+  "uid": "qp-client-page-view",
+  "title": "Client page view",
+  "description": "Everything the backend recorded for one page view of a browser: the traces of its requests and the log lines they and its own client events wrote. The client trace id is a correlation id the browser mints for a page load, never a parent; each request is a trace of its own.",
+  "tags": [
+    "questionnaire-platform",
+    "client"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 0,
+  "refresh": "",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "textbox",
+        "name": "client_trace_id",
+        "label": "Client trace id",
+        "description": "32 lower-case hex digits: the trace id of a traceparent a browser sent, as recorded in client_trace_id on a log line or client.trace_id on a request span. The default is not a valid id, so it matches nothing.",
+        "query": "00000000000000000000000000000000",
+        "current": {
+          "selected": false,
+          "text": "00000000000000000000000000000000",
+          "value": "00000000000000000000000000000000"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "00000000000000000000000000000000",
+            "value": "00000000000000000000000000000000"
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "table",
+      "title": "Backend traces of this page view",
+      "description": "One row per backend trace whose request span carries this client trace id: one per API request the page made, each a trace of its own. Open a row to see the trace.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ span.client.trace_id = \"$client_trace_id\" }",
+          "limit": 50,
+          "tableType": "traces"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 10
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Log lines of this page view",
+      "description": "The backend's log lines for the requests of this page view and for the client events the page reported. Each request line carries the trace_id of its own backend trace.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{service_name=\"qp-backend\"} | client_trace_id=\"$client_trace_id\"",
+          "editorMode": "code"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      },
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 14
+      }
+    }
+  ]
+}

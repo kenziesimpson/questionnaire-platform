@@ -38,7 +38,7 @@ describe("browserFieldsOf", () => {
   it("never lets a browser event carry a field the server alone stamps or measures", () => {
     for (const name of NAMES) {
       const fields = browserFieldsOf(name) ?? [];
-      for (const serverOnly of ["source", "eventAgeMs", "outcome", "status", "requestId", "problem"] as const) {
+      for (const serverOnly of ["source", "eventAgeMs", "outcome", "status", "requestId", "problem", "clientTraceId"] as const) {
         expect(fields).not.toContain(serverOnly);
       }
       if (name !== "page.loaded") expect(fields).not.toContain("durationMs");

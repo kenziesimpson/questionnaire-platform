@@ -1,6 +1,7 @@
 import { createEventQueue, routeLogsToQueue, type QueuedEvent } from "@qp/telemetry/browser";
 import { afterEach, describe, expect, it } from "vitest";
 import { reportAbandonment, watchAbandonment, type SessionProgress } from "../../src/telemetry/abandonment";
+import { STAMPED_TRACEPARENT } from "../fixtures";
 
 const removers: (() => void)[] = [];
 
@@ -44,6 +45,7 @@ describe("reportAbandonment", () => {
       {
         level: "info",
         at: expect.any(String),
+        traceparent: STAMPED_TRACEPARENT,
         event: "session.abandoned",
         message: "session.abandoned",
         attributes: { "questionnaire.session_id": sessionIdOf(1), "questionnaire.last_item_id": "itm_03", module: "events" },

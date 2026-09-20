@@ -15,7 +15,6 @@ import {
   type SuccessBody,
   type VersionSummary,
 } from "@qp/shared";
-import { withSpan } from "@qp/telemetry";
 import { injectTraceHeaders } from "@qp/telemetry/browser";
 import { Value } from "typebox/value";
 import type { DraftContent, VersionedDraft } from "./draft-types";
@@ -66,13 +65,12 @@ async function jsonOf(response: Response): Promise<unknown> {
 }
 
 interface ApiSide {
-  readonly prefix: string;
   readonly urlOf: typeof definitionUrl;
 }
 
-const DEFINITION_SIDE: ApiSide = { prefix: definitionApi.DEFINITION_PREFIX, urlOf: definitionUrl };
+const DEFINITION_SIDE: ApiSide = { urlOf: definitionUrl };
 
-const REPORTING_SIDE: ApiSide = { prefix: reportingApi.REPORTING_PREFIX, urlOf: reportingUrl };
+const REPORTING_SIDE: ApiSide = { urlOf: reportingUrl };
 
 function requestHeaders(parts: LooseParts): Record<string, string> {
   const headers: Record<string, string> = { accept: `application/json, ${PROBLEM_CONTENT_TYPE}` };
@@ -81,29 +79,27 @@ function requestHeaders(parts: LooseParts): Record<string, string> {
   return headers;
 }
 
-async function checkedExchangeAt({ prefix, urlOf }: ApiSide, route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {
-  return withSpan("browser.request", { method: route.method, route: prefix + route.url }, async () => {
-    const headers = injectTraceHeaders(requestHeaders(parts));
-    const response = await fetch(urlOf(route, parts), {
-      method: route.method,
-      headers,
-      body: parts.body === undefined ? undefined : JSON.stringify(parts.body),
-      signal: parts.signal,
-    });
-    const body = await jsonOf(response);
-
-    if (!response.ok) {
-      throw problemErrorFrom(response.status, body) ?? new UnexpectedResponseError(response.status, "not a problem+json body");
-    }
-    const schema = successSchemaOf(route, response.status);
-    if (schema === undefined) {
-      throw new UnexpectedResponseError(response.status, `${route.method} ${route.url} does not declare this status`);
-    }
-    if (!Value.Check(schema, body)) {
-      throw new UnexpectedResponseError(response.status, `the body does not match ${route.method} ${route.url}`);
-    }
-    return { status: response.status, body, headers: response.headers };
+async function checkedExchangeAt({ urlOf }: ApiSide, route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {
+  const headers = injectTraceHeaders(requestHeaders(parts));
+  const response = await fetch(urlOf(route, parts), {
+    method: route.method,
+    headers,
+    body: parts.body === undefined ? undefined : JSON.stringify(parts.body),
+    signal: parts.signal,
   });
+  const body = await jsonOf(response);
+
+  if (!response.ok) {
+    throw problemErrorFrom(response.status, body) ?? new UnexpectedResponseError(response.status, "not a problem+json body");
+  }
+  const schema = successSchemaOf(route, response.status);
+  if (schema === undefined) {
+    throw new UnexpectedResponseError(response.status, `${route.method} ${route.url} does not declare this status`);
+  }
+  if (!Value.Check(schema, body)) {
+    throw new UnexpectedResponseError(response.status, `the body does not match ${route.method} ${route.url}`);
+  }
+  return { status: response.status, body, headers: response.headers };
 }
 
 function checkedExchange(route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {

@@ -626,7 +626,7 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
     },
   },
   {
-    name: "reporting: a stored sentinel answer read with a traceparent whose tracestate and baggage carry the sentinel, and the admin's failure of that read reported through the ingest under the same trace",
+    name: "reporting: a stored sentinel answer read with a traceparent whose tracestate and baggage carry the sentinel, and the admin's failure of that read reported through the ingest with the browser's trace id as the client trace id",
     emits: ["reporting.responses_listed", "reporting.response_viewed", "client.warn", "client.error"],
     run: async (world, sentinel) => {
       const sessionId = await submitPlantedResponse(world, sentinel);
@@ -664,6 +664,46 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
       });
       expect(reported.statusCode, "the reported failure must be accepted for the flow to prove anything").toBe(202);
       expect(reported.json()).toEqual({ accepted: 3, dropped: 0 });
+    },
+  },
+  {
+    name: "trace context: a traceparent with the sentinel in every position, oversized, non-hex and all zero, on real requests and on every event of a batch, beside a valid one",
+    emits: ["client.info"],
+    run: async ({ app, testDatabase }, sentinel) => {
+      await seedIntakeV1(testDatabase);
+      const lower = sentinel.toLowerCase();
+      const traceId = "0af7651916cd43dd8448eb211c80319c";
+      const spanId = "b7ad6b7169203331";
+      const hostile = [
+        `00-${traceId}-${spanId}-01`,
+        `00-${sentinel}-${spanId}-01`,
+        `00-${traceId}-${sentinel}-01`,
+        `00-${traceId}-${spanId}-${sentinel}`,
+        `${sentinel}-${traceId}-${spanId}-01`,
+        `00-${lower}-${lower}-${lower}`,
+        `00-${traceId}-${spanId}-01 ${sentinel}`,
+        `00-${"a".repeat(4096)}-${spanId}-01`,
+        `00-${"0".repeat(32)}-${spanId}-01`,
+        sentinel,
+        lower,
+      ];
+      for (const traceparent of hostile) {
+        const response = await app.inject({
+          method: "GET",
+          url: listSessionsUrl(INTAKE_QUESTIONNAIRE_ID),
+          headers: { traceparent, tracestate: `vendor=${sentinel}`, baggage: `answer=${sentinel}` },
+        });
+        expect(response.statusCode, "a hostile traceparent must not stop the request").toBe(200);
+      }
+      const at = new Date().toISOString();
+      const batch = await app.inject({
+        method: "POST",
+        url: telemetryApi.TELEMETRY_PREFIX,
+        headers: { traceparent: `00-${sentinel}-${spanId}-01` },
+        payload: { events: hostile.map((traceparent) => ({ name: "client.info", at, traceparent })) },
+      });
+      expect(batch.statusCode, "the batch must be accepted for the flow to prove anything").toBe(202);
+      expect(batch.json()).toEqual({ accepted: hostile.length, dropped: 0 });
     },
   },
 ];

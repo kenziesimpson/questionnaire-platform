@@ -1,5 +1,5 @@
 import { executionApi, PROBLEM_CONTENT_TYPE, problemFromWire, type HttpMethod, type WireProblem } from "@qp/shared";
-import { logger, withSpan } from "@qp/telemetry";
+import { logger } from "@qp/telemetry";
 import { injectTraceHeaders } from "@qp/telemetry/browser";
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
@@ -34,17 +34,14 @@ function requestHeaders(body: string | undefined): Record<string, string> {
 }
 
 async function exchange({ method, route, path, body }: ExecutionRequest<TSchema, ExecutionProblemSlug>): Promise<Exchange | undefined> {
-  const template = executionApi.EXECUTION_PREFIX + route;
-  return withSpan("browser.request", { method, route: template }, async () => {
-    const headers = injectTraceHeaders(requestHeaders(body));
-    try {
-      const response = await fetch(executionApi.EXECUTION_PREFIX + path, { method, headers, body });
-      return { status: response.status, text: await response.text() };
-    } catch {
-      log.warn("request failed", { method, route: template });
-      return undefined;
-    }
-  });
+  const headers = injectTraceHeaders(requestHeaders(body));
+  try {
+    const response = await fetch(executionApi.EXECUTION_PREFIX + path, { method, headers, body });
+    return { status: response.status, text: await response.text() };
+  } catch {
+    log.warn("request failed", { method, route: executionApi.EXECUTION_PREFIX + route });
+    return undefined;
+  }
 }
 
 function parsedJson(text: string): unknown {

@@ -389,27 +389,32 @@ describe.skipIf(!serverLogCaptured)("the Postgres server log, and the values tha
     expect(failure.code).toBe("22021");
   });
 
-  it("carries the trace context of the statement in the STATEMENT line, and no tracestate a caller sent", async () => {
-    const traceId = randomBytes(16).toString("hex");
+  it("carries the trace context of the statement in the STATEMENT line, in a trace of the backend's own, and neither a tracestate nor the trace id a caller sent", async () => {
+    const callerTraceId = randomBytes(16).toString("hex");
     const callerSpanId = randomBytes(8).toString("hex");
     const hostile = uniqueToken();
 
     const response = await app.inject({
       method: "GET",
       url: PROBE_PATH,
-      headers: { traceparent: `00-${traceId}-${callerSpanId}-01`, tracestate: `vendor=${hostile}` },
+      headers: { traceparent: `00-${callerTraceId}-${callerSpanId}-01`, tracestate: `vendor=${hostile}` },
     });
     const log = await readPostgresLogAfterBarrier(testDatabase);
 
     expect(response.json()).toEqual({ failed: true });
+    const traceId = telemetry.spans().find((span) => span.name === "request")?.spanContext().traceId ?? "";
+    expect(traceId, "the request span is the root of a backend trace").toMatch(/^[0-9a-f]{32}$/);
+    expect(traceId).not.toBe(callerTraceId);
     const statements = linesMentioning(log, traceId).filter((line) => line.includes("STATEMENT:"));
     expect(statements, "the failed statement must be in the log with its trace context").toHaveLength(1);
     const comment = new RegExp(`SELECT \\$1::integer /\\*traceparent='00-${traceId}-([0-9a-f]{16})-01'\\*/$`).exec(statements[0] ?? "");
     expect(comment, "the statement's comment holds traceparent alone").not.toBeNull();
     const statementSpan = telemetry.spans().find((span) => span.spanContext().spanId === comment?.[1]);
-    expect(statementSpan?.spanContext().traceId, "the span in the log line is a span of the caller's trace").toBe(traceId);
+    expect(statementSpan?.spanContext().traceId, "the span in the log line is a span of the backend's trace").toBe(traceId);
     expect(statementSpan?.name).toBe("pg.query:SELECT");
     expect(linesMentioning(log, hostile)).toEqual([]);
+    expect(linesMentioning(log, callerTraceId), "the caller's trace id never reaches the Postgres log").toEqual([]);
+    expect(linesMentioning(log, callerSpanId)).toEqual([]);
     expect(statements[0]).not.toContain("tracestate");
   });
 });
