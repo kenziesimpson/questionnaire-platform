@@ -2,11 +2,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { createQueryClient } from "../../src/api/query-client";
 import { App } from "../../src/app";
 import { createAppRouter } from "../../src/router";
 
 export function testQueryClient(): QueryClient {
-  return new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } } });
+  const client = createQueryClient();
+  client.setDefaultOptions({ queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } });
+  return client;
 }
 
 export function withQueryClient(children: ReactNode) {

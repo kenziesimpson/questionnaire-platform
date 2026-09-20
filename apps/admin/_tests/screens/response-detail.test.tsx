@@ -1,10 +1,12 @@
 import { reportingApi, type QuestionnaireSummary, type SessionDetail, type SessionSummaryPage, type VersionSummary } from "@qp/shared";
 import { axeViolations, contractResponse, jsonResponse, problemResponse, stubFetch, type Reply } from "@qp/ui/testing";
-import { screen, waitFor, within } from "@testing-library/react";
+import { QueryObserver, focusManager, onlineManager } from "@tanstack/react-query";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { QUESTIONNAIRE_ID } from "../support/builders";
-import { renderAppAt } from "../support/render-app";
+import { responseQueries } from "../../src/api/queries";
+import { renderAppAt, testQueryClient } from "../support/render-app";
 import {
   YES_CONDITION_STATES,
   aSessionDetail,
@@ -486,5 +488,62 @@ describe("the response detail screen", () => {
     await findItems();
 
     expect(await axeViolations(container)).toEqual([]);
+  });
+});
+
+describe("the response detail screen and the audit trail", () => {
+  const readsOf = (requests: readonly { readonly url: string }[], n = 1) => requests.filter((request) => request.url === sessionUrl(sessionIdOf(n)));
+
+  function settle(): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+  }
+
+  it("reads the session once when it is opened, and does not read it again when the window regains focus or the connection returns", async () => {
+    const { requests } = renderDetail(serve());
+    await findItems();
+    expect(readsOf(requests)).toHaveLength(1);
+
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    act(() => {
+      onlineManager.setOnline(false);
+      onlineManager.setOnline(true);
+    });
+    await settle();
+
+    expect(readsOf(requests)).toHaveLength(1);
+  });
+
+  it("opts the query out of refetching on focus and on reconnect, and keeps it stale so opening it again is a new read", () => {
+    const options = responseQueries.session(QUESTIONNAIRE_ID, sessionIdOf(1));
+
+    expect(options.refetchOnWindowFocus).toBe(false);
+    expect(options.refetchOnReconnect).toBe(false);
+    expect(options.staleTime).toBe(0);
+  });
+
+  it("control: the same query would be read again on focus if it were not opted out, so the check above can fail", async () => {
+    const requests = stubFetch(serve());
+    const client = testQueryClient();
+    const observer = new QueryObserver(client, { ...responseQueries.session(QUESTIONNAIRE_ID, sessionIdOf(1)), refetchOnWindowFocus: true });
+    const unsubscribe = observer.subscribe(() => undefined);
+    await waitFor(() => {
+      expect(readsOf(requests)).toHaveLength(1);
+    });
+    await settle();
+
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+
+    await waitFor(() => {
+      expect(readsOf(requests)).toHaveLength(2);
+    });
+    unsubscribe();
   });
 });
