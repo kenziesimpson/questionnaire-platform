@@ -19,7 +19,7 @@ groups:
                 type: prometheus
                 uid: prometheus
               editorMode: code
-              expr: ((sum(increase(questionnaire_submissions_total{questionnaire_outcome=~"accepted|replayed"}[15m])) or vector(0)) / sum(increase(questionnaire_submissions_total[15m]))) and on() (sum(increase(questionnaire_submissions_total[15m])) >= 10)
+              expr: ((sum(increase(questionnaire_submissions_total{questionnaire_outcome=~"accepted|replayed"}[15m])) or vector(0)) / sum(increase(questionnaire_submissions_total{questionnaire_outcome=~"accepted|replayed|rejected_validation|failed"}[15m]))) and on() (sum(increase(questionnaire_submissions_total{questionnaire_outcome=~"accepted|replayed|rejected_validation|failed"}[15m])) >= 10)
               instant: true
               range: false
               intervalMs: 1000
@@ -64,9 +64,9 @@ groups:
         execErrState: Error
         for: 15m
         annotations:
-          summary: Fewer than 85% of submissions in the last 15 minutes were accepted or replayed.
-          description: Success is accepted plus replayed over every outcome, including rejected_validation, rejected_conflict and failed. It needs at least 10 submissions in the window.
-          first_look: "Respondent funnel dashboard, panel Submissions by outcome: which outcome grew. failed points at the backend or the database, rejected_validation at a client or definition change, rejected_conflict at a version or session problem."
+          summary: Fewer than 85% of counted submissions in the last 15 minutes were accepted or replayed.
+          description: Success is accepted plus replayed over accepted, replayed, rejected_validation and failed. rejected_conflict (a double submit, or a questionnaire that closed) is not counted; refusals past the cutoff are watched in questionnaire.sessions.rejected_past_cutoff. It needs at least 10 counted submissions in the window.
+          first_look: "Respondent funnel dashboard, panel Submissions by outcome: which outcome grew. failed points at the backend or the database, rejected_validation at a client or definition change."
         labels:
           severity: page
         isPaused: false

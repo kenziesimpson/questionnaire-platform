@@ -368,7 +368,7 @@
     {
       "type": "timeseries",
       "title": "Submissions by outcome",
-      "description": "accepted and replayed count as success; rejected_validation, rejected_conflict and failed do not.",
+      "description": "accepted and replayed are success; rejected_validation and failed are not. rejected_conflict (a double submit, or a questionnaire that closed) is shown here but left out of the success ratio; refusals past the cutoff have their own counter in the funnel.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -419,7 +419,7 @@
     {
       "type": "timeseries",
       "title": "Submit success ratio",
-      "description": "The alert fires below 85% for 15 minutes, with at least 10 submissions in the window.",
+      "description": "(accepted + replayed) over (accepted + replayed + rejected_validation + failed); rejected_conflict is not counted. The alert fires below 85% for 15 minutes, with at least 10 counted submissions in the window.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -431,7 +431,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(sum(increase(questionnaire_submissions_total{questionnaire_outcome=~\"accepted|replayed\"}[$__rate_interval])) or vector(0)) / sum(increase(questionnaire_submissions_total[$__rate_interval]))",
+          "expr": "(sum(increase(questionnaire_submissions_total{questionnaire_outcome=~\"accepted|replayed\"}[$__rate_interval])) or vector(0)) / sum(increase(questionnaire_submissions_total{questionnaire_outcome=~\"accepted|replayed|rejected_validation|failed\"}[$__rate_interval]))",
           "editorMode": "code"
         }
       ],

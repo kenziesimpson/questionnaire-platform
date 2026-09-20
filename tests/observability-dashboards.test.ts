@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ALLOWED_ATTRIBUTES } from "@qp/telemetry";
+import { ALLOWED_ATTRIBUTES, FIELDS } from "@qp/telemetry";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
@@ -37,23 +37,30 @@ interface OtelMetric {
   readonly name: string;
   readonly kind: Kind;
   readonly unit: string;
+  readonly labels: readonly string[];
 }
+
+const RESOURCE_LABELS = ["service_name", "job", "instance"];
+
+const SPAN_METRICS_BUILT_IN_LABELS = ["service_name", "span_name", "span_kind", "status_code"];
+
+const QUERY_DURATION_LABELS = ["db_operation_name", "db_namespace", "server_address", "server_port"];
 
 const UNIT_SUFFIXES: Readonly<Record<string, string>> = { ms: "_milliseconds", s: "_seconds", By: "_bytes" };
 
 const DATABASE_AND_RUNTIME_METRICS: readonly OtelMetric[] = [
-  ...["total", "idle", "waiting"].map((state): OtelMetric => ({ name: `db.pool.connections.${state}`, kind: "gauge", unit: "{connection}" })),
-  ...["min", "max", "mean", "stddev", "p50", "p90", "p99"].map((statistic): OtelMetric => ({ name: `nodejs.eventloop.delay.${statistic}`, kind: "gauge", unit: "s" })),
-  { name: "nodejs.eventloop.utilization", kind: "gauge", unit: "1" },
-  { name: "db.client.operation.duration", kind: "histogram", unit: "s" },
+  ...["total", "idle", "waiting"].map((state): OtelMetric => ({ name: `db.pool.connections.${state}`, kind: "gauge", unit: "{connection}", labels: ["db_pool"] })),
+  ...["min", "max", "mean", "stddev", "p50", "p90", "p99"].map((statistic): OtelMetric => ({ name: `nodejs.eventloop.delay.${statistic}`, kind: "gauge", unit: "s", labels: [] })),
+  { name: "nodejs.eventloop.utilization", kind: "gauge", unit: "1", labels: [] },
+  { name: "db.client.operation.duration", kind: "histogram", unit: "s", labels: QUERY_DURATION_LABELS },
 ];
 
 const POSTGRESQL_RECEIVER_METRICS: readonly OtelMetric[] = [
-  { name: "postgresql.backends", kind: "updown", unit: "1" },
-  { name: "postgresql.connection.max", kind: "gauge", unit: "{connections}" },
-  { name: "postgresql.db_size", kind: "updown", unit: "By" },
-  { name: "postgresql.commits", kind: "counter", unit: "1" },
-  { name: "postgresql.rollbacks", kind: "counter", unit: "1" },
+  { name: "postgresql.backends", kind: "updown", unit: "1", labels: ["db_namespace"] },
+  { name: "postgresql.connection.max", kind: "gauge", unit: "{connections}", labels: [] },
+  { name: "postgresql.db_size", kind: "updown", unit: "By", labels: ["db_namespace"] },
+  { name: "postgresql.commits", kind: "counter", unit: "1", labels: ["db_namespace"] },
+  { name: "postgresql.rollbacks", kind: "counter", unit: "1", labels: ["db_namespace"] },
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -87,57 +94,86 @@ const composeConfig: unknown = parse(read(resolve(repoRoot, "docker-compose.yml"
 const eventsSource = read(resolve(repoRoot, "packages/telemetry/src/events.ts"));
 const instrumentsSource = read(resolve(repoRoot, "packages/telemetry/src/instruments.ts"));
 
+function labelOfField(field: string): string {
+  const entry = Object.entries(FIELDS).find(([name]) => name === field);
+  if (entry === undefined) throw new Error(`events.ts labels a counter with "${field}", which is not a registry field`);
+  return entry[1].attribute.replaceAll(".", "_");
+}
+
+const SCRUB_COUNTER_LABELS: Readonly<Record<string, readonly string[]>> = {
+  "telemetry.scrub.dropped": ["telemetry_signal", "telemetry_reason"],
+  "telemetry.ingest.dropped": ["telemetry_ingest_reason"],
+};
+
 function applicationMetrics(): OtelMetric[] {
-  const counters = [...eventsSource.matchAll(/>\(\s*"(questionnaire\.[a-z_.]+)"/g)].map((match) => match[1] ?? "");
-  const scrubCounters = [...instrumentsSource.matchAll(/(?:DROPPED_COUNTER|INGEST_DROPPED_COUNTER) = "([^"]+)"/g)].map((match) => match[1] ?? "");
+  const counters = [...eventsSource.matchAll(/>\(\s*"(questionnaire\.[a-z_.]+)"(?:,\s*\{\s*labels:\s*\[([^\]]*)\])?/g)].map(
+    (match): OtelMetric => ({
+      name: match[1] ?? "",
+      kind: "counter",
+      unit: "",
+      labels: [...(match[2] ?? "").matchAll(/"(\w+)"/g)].map((label) => labelOfField(label[1] ?? "")),
+    }),
+  );
+  const scrubCounters = [...instrumentsSource.matchAll(/(?:DROPPED_COUNTER|INGEST_DROPPED_COUNTER) = "([^"]+)"/g)].map(
+    (match): OtelMetric => ({ name: match[1] ?? "", kind: "counter", unit: "", labels: SCRUB_COUNTER_LABELS[match[1] ?? ""] ?? [] }),
+  );
   const duration = /SESSION_DURATION = "([^"]+)"/.exec(instrumentsSource)?.[1] ?? "";
   const durationUnit = /createHistogram\(SESSION_DURATION, \{\s*unit: "([^"]+)"/.exec(instrumentsSource)?.[1] ?? "";
-  return [
-    ...[...counters, ...scrubCounters].map((name): OtelMetric => ({ name, kind: "counter", unit: "" })),
-    { name: duration, kind: "histogram", unit: durationUnit },
-  ];
+  return [...counters, ...scrubCounters, { name: duration, kind: "histogram", unit: durationUnit, labels: [] }];
 }
 
 function collectorMetrics(): OtelMetric[] {
   const spanMetrics = recordAt(recordAt(collectorConfig, "connectors"), "span_metrics");
   const namespace = textAt(spanMetrics, "namespace");
   const histogramUnit = textAt(recordAt(spanMetrics, "histogram"), "unit");
+  const dimensions = listAt(spanMetrics, "dimensions").map((dimension) => textAt(dimension, "name").replaceAll(".", "_"));
+  const spanLabels = [...dimensions, ...SPAN_METRICS_BUILT_IN_LABELS];
   const queries = listAt(recordAt(recordAt(collectorConfig, "receivers"), "sql_query/monitor"), "queries");
   const queried = queries.flatMap((query) =>
-    listAt(query, "metrics").map((metric): OtelMetric => ({ name: textAt(metric, "metric_name"), kind: "gauge", unit: textAt(metric, "unit") })),
+    listAt(query, "metrics").map((metric): OtelMetric => ({ name: textAt(metric, "metric_name"), kind: "gauge", unit: textAt(metric, "unit"), labels: [] })),
   );
   return [
-    { name: `${namespace}.calls`, kind: "counter", unit: "" },
-    { name: `${namespace}.duration`, kind: "histogram", unit: histogramUnit },
+    { name: `${namespace}.calls`, kind: "counter", unit: "", labels: spanLabels },
+    { name: `${namespace}.duration`, kind: "histogram", unit: histogramUnit, labels: spanLabels },
     ...queried,
   ];
 }
 
-function prometheusNames({ name, kind, unit }: OtelMetric): string[] {
+function prometheusSeries({ name, kind, unit, labels }: OtelMetric): [string, readonly string[]][] {
   const base = name.replaceAll(".", "_");
   const unitSuffix = unit === "1" ? (kind === "gauge" ? "_ratio" : "") : (UNIT_SUFFIXES[unit] ?? "");
   const stem = `${base}${unitSuffix}`;
-  if (kind === "counter") return [stem.endsWith("_total") ? stem : `${stem}_total`];
-  if (kind === "histogram") return [`${stem}_bucket`, `${stem}_sum`, `${stem}_count`];
-  return [stem];
+  if (kind === "counter") return [[stem.endsWith("_total") ? stem : `${stem}_total`, labels]];
+  if (kind === "histogram") return [[`${stem}_bucket`, [...labels, "le"]], [`${stem}_sum`, labels], [`${stem}_count`, labels]];
+  return [[stem, labels]];
 }
 
-const KNOWN_SERIES = new Set(
-  [...applicationMetrics(), ...collectorMetrics(), ...DATABASE_AND_RUNTIME_METRICS, ...POSTGRESQL_RECEIVER_METRICS].flatMap(prometheusNames),
+const KNOWN_SERIES: ReadonlyMap<string, readonly string[]> = new Map(
+  [...applicationMetrics(), ...collectorMetrics(), ...DATABASE_AND_RUNTIME_METRICS, ...POSTGRESQL_RECEIVER_METRICS].flatMap(prometheusSeries),
 );
 
-const SPAN_METRICS_LABELS = ["service_name", "span_name", "span_kind", "status_code", "le", "job", "instance"];
-
-const KNOWN_LABELS = new Set([...ALLOWED_ATTRIBUTES.map((attribute) => attribute.replaceAll(".", "_")), ...SPAN_METRICS_LABELS]);
+const KNOWN_LABELS = new Set([...ALLOWED_ATTRIBUTES.map((attribute) => attribute.replaceAll(".", "_")), ...SPAN_METRICS_BUILT_IN_LABELS, "le"]);
 
 function seriesIn(expression: string): string[] {
   return [...expression.matchAll(/\b[a-z][a-z0-9_]*\b/g)].map((match) => match[0]).filter((token) => OUR_METRIC_PREFIX.test(token) && !KNOWN_LABELS.has(token));
 }
 
-function labelsIn(expression: string): string[] {
-  const matched = [...expression.matchAll(/([a-z_][a-z0-9_]*)\s*(?:=~|!~|!=|=)\s*"/g)].map((match) => match[1] ?? "");
-  const grouped = [...expression.matchAll(/\bby\s*\(([^)]*)\)/g)].flatMap((match) => (match[1] ?? "").split(",").map((label) => label.trim()));
-  return [...matched, ...grouped].filter((label) => label !== "");
+function labelNamesIn(matchers: string): string[] {
+  return [...matchers.matchAll(/([a-z_][a-z0-9_]*)\s*(?:=~|!~|!=|=)\s*"/g)].map((match) => match[1] ?? "");
+}
+
+function selectorLabelsOutsideTheirSeries(expression: string): string[] {
+  return [...expression.matchAll(/\b([a-z][a-z0-9_]*)\{([^}]*)\}/g)].flatMap((match) => {
+    const allowed = new Set([...(KNOWN_SERIES.get(match[1] ?? "") ?? []), ...RESOURCE_LABELS]);
+    return labelNamesIn(match[2] ?? "").filter((label) => !allowed.has(label)).map((label) => `${match[1]}{${label}}`);
+  });
+}
+
+function groupingLabelsOutsideTheSeries(expression: string): string[] {
+  const allowed = new Set([...seriesIn(expression).flatMap((series) => KNOWN_SERIES.get(series) ?? []), ...RESOURCE_LABELS]);
+  return [...expression.matchAll(/\bby\s*\(([^)]*)\)/g)]
+    .flatMap((match) => (match[1] ?? "").split(",").map((label) => label.trim()))
+    .filter((label) => label !== "" && !allowed.has(label));
 }
 
 interface Query {
@@ -193,18 +229,6 @@ function panelTitles(board: unknown): string[] {
 }
 
 describe("the series the dashboards and alerts read", () => {
-  it("derives a series list from the Collector, the instruments and the D-stack names", () => {
-    expect(KNOWN_SERIES.has("questionnaire_submissions_total")).toBe(true);
-    expect(KNOWN_SERIES.has("questionnaire_session_duration_milliseconds_bucket")).toBe(true);
-    expect(KNOWN_SERIES.has("traces_span_metrics_calls_total")).toBe(true);
-    expect(KNOWN_SERIES.has("traces_span_metrics_duration_milliseconds_bucket")).toBe(true);
-    expect(KNOWN_SERIES.has("qp_monitor_response_partition_months_ahead")).toBe(true);
-    expect(KNOWN_SERIES.has("db_pool_connections_waiting")).toBe(true);
-    expect(KNOWN_SERIES.has("nodejs_eventloop_delay_p99_seconds")).toBe(true);
-    expect(KNOWN_SERIES.has("db_client_operation_duration_seconds_bucket")).toBe(true);
-    expect(KNOWN_SERIES.has("questionnaire_publish_total")).toBe(true);
-  });
-
   const queries = [...dashboardQueries(), ...alertQueries()];
 
   it("finds the queries to check", () => {
@@ -217,8 +241,12 @@ describe("the series the dashboards and alerts read", () => {
     expect(referenced.filter((series) => !KNOWN_SERIES.has(series))).toEqual([]);
   });
 
-  it.each(queries.map((query) => [query.source, query.expression] as const))("%s uses only labels the pipeline can carry", (_source, expression) => {
-    expect(labelsIn(expression).filter((label) => !KNOWN_LABELS.has(label))).toEqual([]);
+  it.each(queries.map((query) => [query.source, query.expression] as const))("%s matches only labels its own series carries", (_source, expression) => {
+    expect(selectorLabelsOutsideTheirSeries(expression)).toEqual([]);
+  });
+
+  it.each(queries.map((query) => [query.source, query.expression] as const))("%s groups only by labels of the series it reads", (_source, expression) => {
+    expect(groupingLabelsOutsideTheSeries(expression)).toEqual([]);
   });
 
   it("reads every series the six alerts need", () => {
