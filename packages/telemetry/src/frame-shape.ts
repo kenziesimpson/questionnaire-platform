@@ -32,6 +32,8 @@ export const BROWSER_STACK_FRAME = new RegExp(
   `^ {4}at (?:(?<name>${FUNCTION_NAME}) \\((?:${SCRIPT_FILE}:${POSITION}|<anonymous>|native)\\)|${SCRIPT_FILE}:${POSITION})$`,
 );
 
+export const SERVER_STACK_FRAME = /^ {4}at (?:.+ \((?:[^\s()]+:\d+:\d+|<anonymous>|native)\)|[^\s()]+:\d+:\d+)$/;
+
 export function isSafeFunctionName(name: string): boolean {
   return name.length <= MAX_FUNCTION_NAME_LENGTH && FUNCTION_NAME_SHAPE.test(name);
 }

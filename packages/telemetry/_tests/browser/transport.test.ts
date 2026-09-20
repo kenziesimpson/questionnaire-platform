@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { QueuedEvent } from "../../src/browser/events.js";
 import { createEventQueue } from "../../src/browser/queue.js";
-import { createTransport, type TransportOptions } from "../../src/browser/transport.js";
+import { browserTransport, createTransport, type TransportOptions } from "../../src/browser/transport.js";
 import { BEACON_BODY_BUDGET_BYTES } from "../../src/browser/wire.js";
 import { ingestBatch } from "../../src/index.js";
 import { installTestTelemetry, type TestTelemetry } from "../../src/testing.js";
@@ -17,6 +17,7 @@ let telemetry: TestTelemetry | undefined;
 
 afterEach(async () => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   await telemetry?.shutdown();
   telemetry = undefined;
 });
@@ -164,5 +165,73 @@ describe("createTransport: beacon", () => {
     const receipts = bodies.map((body) => ingestBatch(JSON.parse(body).events, Date.parse("2026-09-19T10:00:05.000Z")));
 
     expect(receipts).toEqual([{ accepted: 2, dropped: 0 }]);
+  });
+});
+
+describe("browserTransport", () => {
+  it("posts an application/json envelope to /api/telemetry with the global fetch, looked up when it sends", async () => {
+    const transport = browserTransport();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ accepted: 1, dropped: 0 }), { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await transport.send([abandonment()]);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe(URL_PATH);
+    expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("content-type")).toBe("application/json");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      events: [{ name: "session.abandoned", at: AT, fields: { sessionId: SESSION_ID, lastItemId: "itm_03" } }],
+    });
+  });
+
+  it("rejects when the ingest answers with an error status, so the queue counts the batch undelivered", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("{}", { status: 429 })));
+
+    await expect(browserTransport().send([abandonment()])).rejects.toThrow();
+  });
+
+  it("hands navigator.sendBeacon a Blob typed application/json at /api/telemetry, called on navigator", () => {
+    const calls: { self: unknown; url: string; data: unknown }[] = [];
+    const host = {
+      sendBeacon(this: unknown, url: string, data: unknown): boolean {
+        calls.push({ self: this, url, data });
+        return true;
+      },
+    };
+    vi.stubGlobal("navigator", host);
+
+    const accepted = browserTransport().beacon([abandonment()]);
+
+    expect(accepted).toBe(true);
+    expect(calls[0]?.self).toBe(host);
+    expect(calls[0]?.url).toBe(URL_PATH);
+    expect(calls[0]?.data instanceof Blob ? calls[0].data.type : undefined).toBe("application/json");
+  });
+
+  it.each([
+    ["no fetch", { fetch: undefined }],
+    ["a fetch that is not a function", { fetch: "fetch" }],
+  ])("is inert with %s: a send rejects and posts nothing", async (_name, globals) => {
+    vi.stubGlobal("fetch", globals.fetch);
+
+    await expect(browserTransport().send([abandonment()])).rejects.toThrow();
+  });
+
+  it.each([
+    ["no navigator", undefined],
+    ["a navigator without sendBeacon", {}],
+    ["a null navigator", null],
+    ["a sendBeacon that is not a function", { sendBeacon: true }],
+  ])("is inert with %s: a beacon reports the events undelivered and throws nothing", (_name, navigator) => {
+    vi.stubGlobal("navigator", navigator);
+
+    expect(browserTransport().beacon([abandonment()])).toBe(false);
+  });
+
+  it("reports false when the browser refuses the body", () => {
+    vi.stubGlobal("navigator", { sendBeacon: () => false });
+
+    expect(browserTransport().beacon([abandonment()])).toBe(false);
   });
 });

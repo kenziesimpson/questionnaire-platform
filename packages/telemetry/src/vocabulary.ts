@@ -25,9 +25,35 @@ export const SCRUB_ATTRIBUTES = {
   ingestReason: "telemetry.ingest_reason",
 } as const;
 
-export const LOG_MESSAGE_SHAPE = /^[A-Za-z][A-Za-z0-9 ._:,/-]{0,127}$/;
+const LOWER_CASE = "a-z";
 
-export const UNNAMED_LOG_MESSAGE = "unnamed";
+const UPPER_CASE = "A-Z";
+
+const DIGITS = "0-9";
+
+const SEPARATORS = " ._:";
+
+const EXPORT_ONLY_SEPARATORS = ",/";
+
+const HYPHEN = "-";
+
+const MAX_EXPORT_MESSAGE_LENGTH = 128;
+
+const MAX_BROWSER_MESSAGE_LENGTH = 80;
+
+function messageShape(first: string, rest: string, maxLength: number): RegExp {
+  return new RegExp(`^[${first}][${rest}]{0,${maxLength - 1}}$`);
+}
+
+export const LOG_MESSAGE_SHAPE = messageShape(
+  `${UPPER_CASE}${LOWER_CASE}`,
+  `${UPPER_CASE}${LOWER_CASE}${DIGITS}${SEPARATORS}${EXPORT_ONLY_SEPARATORS}${HYPHEN}`,
+  MAX_EXPORT_MESSAGE_LENGTH,
+);
+
+export const BROWSER_MESSAGE_SHAPE = messageShape(LOWER_CASE, `${LOWER_CASE}${DIGITS}${SEPARATORS}${HYPHEN}`, MAX_BROWSER_MESSAGE_LENGTH);
+
+export const UNNAMED = "unnamed";
 
 export const EVENT_SOURCES = ["browser"] as const;
 

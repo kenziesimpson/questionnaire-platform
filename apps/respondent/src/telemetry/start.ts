@@ -1,5 +1,12 @@
-import { afterFirstPaint, captureError, startBrowserTelemetry, type BrowserTelemetry, type PageWindow, type Transport } from "@qp/telemetry/browser";
-import { browserTransport } from "../api/telemetry-transport";
+import {
+  afterFirstPaint,
+  browserTransport,
+  captureError,
+  startBrowserTelemetry,
+  type BrowserTelemetry,
+  type PageWindow,
+  type Transport,
+} from "@qp/telemetry/browser";
 import { questionnaireIdFromPath } from "../entry/questionnaire-path";
 import { reportAbandonment } from "./abandonment";
 import { reportPageLoad, type PagePerformance } from "./page-speed";

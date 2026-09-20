@@ -1,5 +1,12 @@
-import { afterFirstPaint, captureError, startBrowserTelemetry, type BrowserTelemetry, type PageWindow, type Transport } from "@qp/telemetry/browser";
-import { browserTransport } from "../api/telemetry-transport";
+import {
+  afterFirstPaint,
+  browserTransport,
+  captureError,
+  startBrowserTelemetry,
+  type BrowserTelemetry,
+  type PageWindow,
+  type Transport,
+} from "@qp/telemetry/browser";
 
 interface AdminTelemetryOptions {
   readonly page: PageWindow;

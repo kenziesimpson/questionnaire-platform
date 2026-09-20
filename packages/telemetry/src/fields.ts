@@ -1,6 +1,6 @@
 import { PROBLEM_SLUGS, RESPONSE_TYPES, SLUG_PATTERN, SUBMISSION_ITEM_CODES, UUID_PATTERN } from "@qp/shared";
 import { PROBLEM_CODES } from "./problems.js";
-import { MAX_STACK_FRAMES } from "./frame-shape.js";
+import { MAX_STACK_FRAMES, SERVER_STACK_FRAME } from "./frame-shape.js";
 import { SPAN_ID_LENGTH, TRACE_ID_LENGTH } from "./trace-context.js";
 import {
   DROP_REASONS,
@@ -45,7 +45,6 @@ const DB_OPERATION = /^[A-Za-z_]{1,32}$/;
 const HOST_NAME = /^[A-Za-z0-9_.-]{1,255}$/;
 const HEX_TRACE_ID = new RegExp(`^[0-9a-f]{${TRACE_ID_LENGTH}}$`);
 const HEX_SPAN_ID = new RegExp(`^[0-9a-f]{${SPAN_ID_LENGTH}}$`);
-const STACK_FRAME = /^ {4}at (?:.+ \((?:[^\s()]+:\d+:\d+|<anonymous>|native)\)|[^\s()]+:\d+:\d+)$/;
 
 function matching(attribute: string, expression: RegExp, bounded: boolean): FieldDefinition<string> {
   return {
@@ -86,7 +85,7 @@ function isStackTrace(value: unknown): value is string {
 }
 
 function frameLines(lines: readonly string[]): string[] {
-  return lines.filter((line) => STACK_FRAME.test(line)).slice(0, MAX_STACK_FRAMES);
+  return lines.filter((line) => SERVER_STACK_FRAME.test(line)).slice(0, MAX_STACK_FRAMES);
 }
 
 export function stackFramesOf(error: Error): string | undefined {

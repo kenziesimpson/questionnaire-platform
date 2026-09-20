@@ -69,7 +69,6 @@ describe("the respondent's import graph", () => {
         "src/app.tsx",
         "src/api/request.ts",
         "src/telemetry/start.ts",
-        "src/telemetry/error-boundary.tsx",
         "browser.ts",
         "browser/queue.ts",
         "browser/trace-headers.ts",
@@ -98,5 +97,20 @@ describe("the respondent's import graph", () => {
       expect(graph.files.has(resolve(TELEMETRY_ROOT, nodeOnly))).toBe(false);
     }
     expect([...graph.packages].filter((name) => name === "pino" || name.startsWith("@opentelemetry/sdk-node"))).toEqual([]);
+  });
+});
+
+describe("the respondent's entry point", () => {
+  const main = readFileSync(ENTRY, "utf8");
+
+  it("gives the one shared ErrorBoundary its fallback and reportRenderError as onError, and no other reporter", () => {
+    const boundaries = [...main.matchAll(/<ErrorBoundary\b(.*\})>\s*$/gm)].map((match) => match[1]?.trim());
+
+    expect(boundaries).toEqual(["fallback={<EntryFailedScreen />} onError={reportRenderError}"]);
+  });
+
+  it("takes the boundary from @qp/ui/error-boundary and the reporter from its own telemetry start module", () => {
+    expect(main).toContain('import { ErrorBoundary } from "@qp/ui/error-boundary";');
+    expect(main).toMatch(/import \{[^}]*\breportRenderError\b[^}]*\} from "\.\/telemetry\/start";/);
   });
 });

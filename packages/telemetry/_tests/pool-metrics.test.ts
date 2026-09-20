@@ -1,6 +1,7 @@
+import { getPoolName } from "@opentelemetry/instrumentation-pg/build/src/utils.js";
 import type { MetricData } from "@opentelemetry/sdk-metrics";
 import { afterEach, describe, expect, it } from "vitest";
-import { watchPool } from "../src/index.js";
+import { DATABASE_POOLS, watchPool } from "../src/index.js";
 import { installTestTelemetry, internalDropCount, type TestTelemetry } from "../src/testing.js";
 import { installFaultyMeter, internalDropsOf, restoreFaults } from "./faults.js";
 
@@ -90,5 +91,38 @@ describe("starting the pool gauges", () => {
     }).not.toThrow();
 
     expect(internalDropsOf(recorded)).toEqual(["metric"]);
+  });
+});
+
+type PoolOptions = Parameters<typeof getPoolName>[0];
+
+function poolOptions(overrides: Partial<PoolOptions>): PoolOptions {
+  return {
+    allowExitOnIdle: false,
+    database: "",
+    host: "",
+    idleTimeoutMillis: 10_000,
+    max: 10,
+    maxClient: 10,
+    maxLifetimeSeconds: 0,
+    maxUses: Number.POSITIVE_INFINITY,
+    namespace: "",
+    port: 0,
+    user: "",
+    ...overrides,
+  };
+}
+
+describe("why the gauges exist beside the pg instrumentation's own pool metrics", () => {
+  it("names a pool by host, port and database alone, so pools that differ only by role share one name", () => {
+    const names = DATABASE_POOLS.map((pool) => getPoolName(poolOptions({ host: "db", port: 5432, database: "qp", user: `qp_${pool}` })));
+
+    expect(names).toEqual(["db:5432/qp", "db:5432/qp", "db:5432/qp"]);
+  });
+
+  it("names a pool built from a connection string unknown_host:unknown_port/unknown_database, because the pool's options never parse the string", () => {
+    const names = DATABASE_POOLS.map((pool) => getPoolName(poolOptions({ connectionString: `postgres://qp_${pool}:secret@db:5432/qp` })));
+
+    expect(new Set(names)).toEqual(new Set(["unknown_host:unknown_port/unknown_database"]));
   });
 });

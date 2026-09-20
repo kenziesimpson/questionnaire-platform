@@ -389,10 +389,12 @@ const confine = (...globals) => ["error", ...globals];
 
 const apiClients = ["apps/*/src/api/**/*.{ts,tsx,mts,cts,js,mjs,cjs}"];
 
-const fetchOwners = [...apiClients, "e2e/fixtures/**", "e2e/stack/**"];
+const theBrowserTransport = "packages/telemetry/src/browser/transport.ts";
+
+const fetchOwners = [...apiClients, theBrowserTransport, "e2e/fixtures/**", "e2e/stack/**"];
 
 const transportSeamMessage =
-  "fetch belongs to an app's API client (apps/*/src/api/**) or to the e2e fixtures and stack, so one module per app owns the transport that trace headers and client spans will attach to.";
+  "fetch belongs to an app's API client (apps/*/src/api/**), to the telemetry SDK's browser transport (packages/telemetry/src/browser/transport.ts) or to the e2e fixtures and stack, so the transport that trace headers attach to has one owner per app, and the SDK's one file binds the page's global `fetch` for telemetry only.";
 
 const fetchAwayFromTheTransport = { name: "fetch", message: transportSeamMessage };
 
@@ -753,7 +755,7 @@ export default tseslint.config(
     },
   },
   {
-    name: "L16: fetch outside the API clients, the e2e fixtures and the e2e stack",
+    name: "L16: fetch outside the API clients, the SDK's browser transport, the e2e fixtures and the e2e stack",
     files: everyFile,
     ignores: fetchOwners,
     rules: {
@@ -764,15 +766,15 @@ export default tseslint.config(
   {
     name: "L16, L17 and L18: fetch, localStorage and process.env in the sources that own none of them",
     files: everySourceFile,
-    ignores: [...apiClients, theStorageSeam, theEnvironmentReader],
+    ignores: [...apiClients, theBrowserTransport, theStorageSeam, theEnvironmentReader],
     rules: {
       "no-restricted-globals": confine(fetchAwayFromTheTransport, localStorageAwayFromTheSeam),
       "no-restricted-properties": ["error", ...fetchThroughAnObject, ...localStorageThroughAnObject, ...processEnvAwayFromTheReader],
     },
   },
   {
-    name: "L17 and L18: localStorage and process.env inside the API clients, which own the transport and neither of the other two",
-    files: apiClients,
+    name: "L17 and L18: localStorage and process.env inside the API clients and the SDK's browser transport, which own the transport and neither of the other two",
+    files: [...apiClients, theBrowserTransport],
     rules: {
       "no-restricted-globals": confine(localStorageAwayFromTheSeam),
       "no-restricted-properties": ["error", ...localStorageThroughAnObject, ...processEnvAwayFromTheReader],

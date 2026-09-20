@@ -90,6 +90,7 @@ describe("the browser entry point", () => {
       "BEACON_BODY_BUDGET_BYTES",
       "CLIENT_LOG_LEVELS",
       "afterFirstPaint",
+      "browserTransport",
       "captureError",
       "createEventQueue",
       "createTransport",

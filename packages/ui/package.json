@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./error-boundary": "./src/error-boundary.tsx",
     "./globals.css": "./src/styles/globals.css",
     "./icons": "./src/icons.ts",
     "./lib/*": "./src/lib/*.ts",
