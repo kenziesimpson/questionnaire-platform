@@ -1,31 +1,38 @@
 import type { DraftItemCode, ResponseType, SubmissionItemCode } from "@qp/shared";
 import { FIELDS, isCount, type CountField, type FieldName, type Outcome, type TelemetryContext } from "./fields.js";
 import { guarded } from "./guard.js";
-import { incrementCounter, recordSessionDuration, reportDropped } from "./instruments.js";
+import { incrementCounter, recordPageLoadDuration, recordSessionDuration, reportDropped } from "./instruments.js";
 import { logDomainEvent, relayLog } from "./logger.js";
 import { oneDropped, scrubContext, type ScrubbedAttributes } from "./scrub.js";
 import { EVENTS_LOG_MODULE } from "./vocabulary.js";
 
 type NumericPayloadField<P> = { [K in keyof P]-?: NonNullable<P[K]> extends number ? K : never }[keyof P];
 
+interface HistogramRecording<P> {
+  readonly field: FieldName & NumericPayloadField<P>;
+  readonly record: (milliseconds: number) => void;
+}
+
 interface EventDefinition<P> {
   readonly counter: string | null;
   readonly labels: readonly FieldName[];
   readonly countBy: CountField | undefined;
+  readonly histogram: HistogramRecording<P> | undefined;
   readonly payload?: P;
 }
 
 interface EventOptions<P> {
   readonly labels?: readonly FieldName[];
   readonly countBy?: CountField & NumericPayloadField<P>;
+  readonly histogram?: HistogramRecording<P>;
 }
 
 function event<P>(counter: string, options: EventOptions<P> = {}): EventDefinition<P> {
-  return { counter, labels: options.labels ?? [], countBy: options.countBy };
+  return { counter, labels: options.labels ?? [], countBy: options.countBy, histogram: options.histogram };
 }
 
-function logOnly<P>(): EventDefinition<P> {
-  return { counter: null, labels: [], countBy: undefined };
+function logOnly<P>(options: Pick<EventOptions<P>, "histogram"> = {}): EventDefinition<P> {
+  return { counter: null, labels: [], countBy: undefined, histogram: options.histogram };
 }
 
 const DOMAIN_EVENTS = {
@@ -61,7 +68,10 @@ const DOMAIN_EVENTS = {
   ),
   "session.item_skipped": event<{ sessionId: string; itemId: string; questionId: string }>("questionnaire.items.skipped"),
   "session.abandoned": event<{ sessionId: string; lastItemId: string | null }>("questionnaire.sessions.abandoned"),
-  "session.completed": event<{ sessionId: string; durationMs: number; questionCount: number }>("questionnaire.sessions.completed"),
+  "page.loaded": logOnly<{ route: string; durationMs: number }>({ histogram: { field: "durationMs", record: recordPageLoadDuration } }),
+  "session.completed": event<{ sessionId: string; durationMs: number; questionCount: number }>("questionnaire.sessions.completed", {
+    histogram: { field: "durationMs", record: recordSessionDuration },
+  }),
   "session.rejected_past_cutoff": event<{ sessionId: string; questionnaireId: string; questionnaireVersion: number }>(
     "questionnaire.sessions.rejected_past_cutoff",
   ),
@@ -98,14 +108,14 @@ function amountOf(countBy: CountField | undefined, fields: Readonly<Record<strin
 }
 
 function countDomainEvent(name: DomainEventName, fields: Readonly<Record<string, unknown>>): void {
-  const { counter, countBy } = DOMAIN_EVENTS[name];
+  const { counter, countBy, histogram } = DOMAIN_EVENTS[name];
   if (counter !== null) {
     const amount = amountOf(countBy, fields);
     if (amount !== undefined) incrementCounter(counter, labelsOf(name, fields), amount);
   }
-  const { durationMs } = fields;
-  if (name === "session.completed" && FIELDS.durationMs.accepts(durationMs)) {
-    recordSessionDuration(durationMs);
+  if (histogram !== undefined) {
+    const value = fields[histogram.field];
+    if (typeof value === "number" && FIELDS[histogram.field].accepts(value)) histogram.record(value);
   }
 }
 

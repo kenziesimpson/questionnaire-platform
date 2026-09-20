@@ -121,9 +121,11 @@ function applicationMetrics(): OtelMetric[] {
   const scrubCounters = [...instrumentsSource.matchAll(/(?:DROPPED_COUNTER|INGEST_DROPPED_COUNTER) = "([^"]+)"/g)].map(
     (match): OtelMetric => ({ name: match[1] ?? "", kind: "counter", unit: "", labels: SCRUB_COUNTER_LABELS[match[1] ?? ""] ?? [] }),
   );
-  const duration = /SESSION_DURATION = "([^"]+)"/.exec(instrumentsSource)?.[1] ?? "";
-  const durationUnit = /createHistogram\(SESSION_DURATION, \{\s*unit: "([^"]+)"/.exec(instrumentsSource)?.[1] ?? "";
-  return [...counters, ...scrubCounters, { name: duration, kind: "histogram", unit: durationUnit, labels: [] }];
+  const durationUnit = /createHistogram\(name, \{\s*unit: "([^"]+)"/.exec(instrumentsSource)?.[1] ?? "";
+  const durations = [...instrumentsSource.matchAll(/(?:SESSION_DURATION|PAGE_LOAD_DURATION) = "([^"]+)"/g)].map(
+    (match): OtelMetric => ({ name: match[1] ?? "", kind: "histogram", unit: durationUnit, labels: [] }),
+  );
+  return [...counters, ...scrubCounters, ...durations];
 }
 
 function collectorMetrics(): OtelMetric[] {

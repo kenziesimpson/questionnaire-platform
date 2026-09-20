@@ -6,6 +6,7 @@ import { oneDropped, scrubContext } from "./scrub.js";
 import { INSTRUMENTATION_SCOPE } from "./vocabulary.js";
 
 export const SPAN_NAMES = [
+  "browser.request",
   "questionnaire.create",
   "questionnaire.edit_draft",
   "questionnaire.open_draft",

@@ -498,3 +498,77 @@ describe("startNewSession", () => {
     expect(client.createSession).not.toHaveBeenCalled();
   });
 });
+
+describe("progress", () => {
+  it("is nothing until a session has started, and nothing while it is being created", () => {
+    const client = fakeClient();
+    const storage = fakeStorage();
+    client.createSession.mockReturnValueOnce(new Promise(() => undefined));
+    const session = createRespondentSession(INTAKE_QUESTIONNAIRE_ID, client, storage);
+
+    expect(session.progress()).toBeUndefined();
+    void session.enter();
+
+    expect(session.progress()).toBeUndefined();
+  });
+
+  it("is the session id and no item once the form is ready and nothing has been touched", async () => {
+    const session = await readySession(fakeClient(), fakeStorage());
+
+    expect(session.progress()).toEqual({ sessionId: SESSION_ID, lastItemId: null });
+  });
+
+  it("names the last item the respondent changed, and keeps naming it", async () => {
+    const session = await readySession(fakeClient(), fakeStorage());
+
+    session.changeAnswers("itm_01");
+    session.changeAnswers("itm_04");
+
+    expect(session.progress()).toEqual({ sessionId: SESSION_ID, lastItemId: "itm_04" });
+  });
+
+  it("is nothing while a submit is in flight, since it may be accepted", async () => {
+    const client = fakeClient();
+    const session = await readySession(client, fakeStorage());
+    client.submitSession.mockReturnValueOnce(new Promise(() => undefined));
+
+    void session.submit(noBranchAnswers);
+
+    expect(session.getState().name).toBe("submitting");
+    expect(session.progress()).toBeUndefined();
+  });
+
+  it("is still the session when the submit failed and can be retried", async () => {
+    const client = fakeClient();
+    const session = await readySession(client, fakeStorage());
+    client.submitSession.mockResolvedValueOnce(networkError);
+    session.changeAnswers("itm_04");
+
+    await session.submit(noBranchAnswers);
+
+    expect(session.getState()).toMatchObject({ name: "failed", step: "submitting" });
+    expect(session.progress()).toEqual({ sessionId: SESSION_ID, lastItemId: "itm_04" });
+  });
+
+  it("is nothing once the answers were accepted", async () => {
+    const client = fakeClient();
+    const session = await readySession(client, fakeStorage());
+    client.submitSession.mockResolvedValueOnce(ok({ receipt }));
+
+    await session.submit(noBranchAnswers);
+
+    expect(session.getState().name).toBe("done");
+    expect(session.progress()).toBeUndefined();
+  });
+
+  it("is nothing for a resumed session that was already submitted", async () => {
+    const client = fakeClient();
+    const storage = fakeStorage({ [INTAKE_QUESTIONNAIRE_ID]: storedPartials(SESSION_ID, {}) });
+    client.getSession.mockResolvedValueOnce(ok({ session: submittedSession, definition: intakeV1 }));
+    const session = createRespondentSession(INTAKE_QUESTIONNAIRE_ID, client, storage);
+
+    await session.enter();
+
+    expect(session.progress()).toBeUndefined();
+  });
+});

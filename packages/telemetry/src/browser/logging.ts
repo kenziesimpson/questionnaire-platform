@@ -1,4 +1,4 @@
-import { configureLogging, resetLogging, type LogRecord } from "../logger.js";
+import { configureLogging, currentLogging, type LogRecord } from "../logger.js";
 import type { EventQueue } from "./queue.js";
 
 export interface LoggingRoute {
@@ -7,19 +7,20 @@ export interface LoggingRoute {
 
 export function routeLogsToQueue(queue: Pick<EventQueue, "enqueueRecord">, route: LoggingRoute = {}): () => void {
   const { debug } = route;
-  configureLogging({
-    level: debug === undefined ? "info" : "debug",
-    sink: (record) => {
-      if (record.level !== "debug") {
-        queue.enqueueRecord(record);
-        return;
-      }
-      try {
-        debug?.(record);
-      } catch {
-        return;
-      }
-    },
-  });
-  return resetLogging;
+  const previous = currentLogging();
+  const sink = (record: LogRecord): void => {
+    if (record.level !== "debug") {
+      queue.enqueueRecord(record);
+      return;
+    }
+    try {
+      debug?.(record);
+    } catch {
+      return;
+    }
+  };
+  configureLogging({ level: debug === undefined ? "info" : "debug", sink });
+  return () => {
+    if (currentLogging().sink === sink) configureLogging(previous);
+  };
 }

@@ -74,6 +74,44 @@ describe("flushOnPageHide", () => {
     expect(beacons).toHaveLength(1);
   });
 
+  it("runs beforeExit first on pagehide and on a hidden page, so what it queues is in the batch handed to the beacon", () => {
+    const { queue, beacons } = pendingQueue();
+    const page = new FakeWindow();
+    flushOnPageHide(queue, page, () => {
+      queue.enqueue({ level: "info", message: "abandonment", attributes: {} });
+    });
+    page.document.visibilityState = "hidden";
+
+    page.document.dispatch("visibilitychange");
+
+    expect(beacons.map((batch) => batch.map((event) => event.message))).toEqual([["session abandoned", "abandonment"]]);
+  });
+
+  it("does not run beforeExit when the page becomes visible again", () => {
+    const { queue } = pendingQueue();
+    const page = new FakeWindow();
+    const beforeExit = vi.fn();
+    flushOnPageHide(queue, page, beforeExit);
+    page.document.visibilityState = "visible";
+
+    page.document.dispatch("visibilitychange");
+
+    expect(beforeExit).not.toHaveBeenCalled();
+  });
+
+  it("still hands the queue to the beacon, and does not throw, when beforeExit throws", () => {
+    const { queue, beacons } = pendingQueue();
+    const page = new FakeWindow();
+    flushOnPageHide(queue, page, () => {
+      throw new Error("probe failed");
+    });
+
+    expect(() => {
+      page.dispatch("pagehide");
+    }).not.toThrow();
+    expect(beacons).toHaveLength(1);
+  });
+
   it("stops listening when removed", () => {
     const { queue, beacons } = pendingQueue();
     const page = new FakeWindow();

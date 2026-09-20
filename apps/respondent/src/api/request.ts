@@ -1,4 +1,6 @@
 import { executionApi, PROBLEM_CONTENT_TYPE, problemFromWire, type HttpMethod, type WireProblem } from "@qp/shared";
+import { logger, withSpan } from "@qp/telemetry";
+import { injectTraceHeaders } from "@qp/telemetry/browser";
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
 import type { ExecutionProblem, ExecutionProblemSlug } from "./problems";
@@ -11,6 +13,7 @@ export type ExecutionOutcome<Body, S extends ExecutionProblemSlug> =
 
 export interface ExecutionRequest<Success extends TSchema, S extends ExecutionProblemSlug> {
   readonly method: HttpMethod;
+  readonly route: string;
   readonly path: string;
   readonly body?: string;
   readonly success: { readonly status: number; readonly schema: Success };
@@ -22,15 +25,26 @@ interface Exchange {
   readonly text: string;
 }
 
-async function exchange({ method, path, body }: ExecutionRequest<TSchema, ExecutionProblemSlug>): Promise<Exchange | undefined> {
+const log = logger("browser");
+
+function requestHeaders(body: string | undefined): Record<string, string> {
   const headers: Record<string, string> = { accept: `application/json, ${PROBLEM_CONTENT_TYPE}` };
   if (body !== undefined) headers["content-type"] = "application/json";
-  try {
-    const response = await fetch(executionApi.EXECUTION_PREFIX + path, { method, headers, body });
-    return { status: response.status, text: await response.text() };
-  } catch {
-    return undefined;
-  }
+  return headers;
+}
+
+async function exchange({ method, route, path, body }: ExecutionRequest<TSchema, ExecutionProblemSlug>): Promise<Exchange | undefined> {
+  const template = executionApi.EXECUTION_PREFIX + route;
+  return withSpan("browser.request", { method, route: template }, async () => {
+    const headers = injectTraceHeaders(requestHeaders(body));
+    try {
+      const response = await fetch(executionApi.EXECUTION_PREFIX + path, { method, headers, body });
+      return { status: response.status, text: await response.text() };
+    } catch {
+      log.warn("request failed", { method, route: template });
+      return undefined;
+    }
+  });
 }
 
 function parsedJson(text: string): unknown {

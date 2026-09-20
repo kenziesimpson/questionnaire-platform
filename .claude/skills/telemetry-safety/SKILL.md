@@ -216,7 +216,14 @@ O19). The rules are the server's rules, applied before anything is queued:
 - `debug` is never queued. An app may pass a `debug` function to `routeLogsToQueue` in a development
   build only.
 - No session replay, DOM capture, `instrumentation-fetch` or patched global `fetch` (O12). The app's
-  one `fetch` wrapper calls `injectTraceHeaders`, which adds a `traceparent` and nothing else.
+  one `fetch` wrapper calls `injectTraceHeaders`, which adds a `traceparent` and nothing else, inside a
+  `browser.request` span named by method and route template. The web tracer is not in `./browser`: an app
+  loads `@qp/telemetry/browser-tracing` with a dynamic `import()` behind a build switch, and a test fails if
+  its static graph reaches `sdk-trace-web`.
+- The browser reports only what the server cannot see: `session.abandoned` (the session id and the last
+  definition item id, emitted from the page-hide hook, once per session, only for a session in progress and
+  not submitted) and `page.loaded` (a route template and a duration). Neither can carry an answer; a new
+  browser event takes its fields from the definition, the route template or a clock, never from a form.
 - Keep the entry point browser-safe: no `node:` import, `pino`, `./node`, `./testing` or `./leak-test`.
   `packages/telemetry/_tests/browser.test.ts` reads the import graph and fails on one.
 - A new browser code path extends `packages/telemetry/_tests/browser/leak-test.browser.test.ts`, which
@@ -323,8 +330,11 @@ Flows built so far, in `flows.ts`:
 - The reporting reads: a stored sentinel answer read back through the list, with a real and a forged cursor, and the detail,
   then the `view_response` audit row: one for the detail read, none for the list, no sentinel in it (O14, O20).
 
-Still owed, by the lane that builds each path: the apps' use of the browser SDK, both the admin response-detail screen and
-the respondent app, through their telemetry wrapper (O20), and any new reporting read. A new reporting read gets a span, an event and a flow of
+- The respondent's browser paths: a typed answer, an error and a rejection carrying the sentinel, and a resumed session's stored
+  answers, checked in the sent batches and the beacon bodies; the abandonment beacon; the SDK's own flow (`packages/telemetry/_tests/browser/`)
+  now covers the encoded wire bytes, a forged `page.loaded` and the trace headers built from every input shape.
+
+Still owed, by the lane that builds each path: the admin response-detail screen through its telemetry wrapper (O20), and any new reporting read. A new reporting read gets a span, an event and a flow of
 its own, and its cursor and any session id inside it stay out of every signal (O19).
 
 ## The gate

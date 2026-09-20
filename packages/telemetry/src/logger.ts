@@ -34,9 +34,18 @@ const DEFAULT_LOG_LEVEL: LogLevel = "info";
 
 const state: { threshold: LogLevel; sink: LogSink | undefined } = { threshold: DEFAULT_LOG_LEVEL, sink: undefined };
 
-export function configureLogging(settings: { readonly level: LogLevel; readonly sink: LogSink | undefined }): void {
+interface LoggingSettings {
+  readonly level: LogLevel;
+  readonly sink: LogSink | undefined;
+}
+
+export function configureLogging(settings: LoggingSettings): void {
   state.threshold = settings.level;
   state.sink = settings.sink;
+}
+
+export function currentLogging(): LoggingSettings {
+  return { level: state.threshold, sink: state.sink };
 }
 
 export function resetLogging(): void {

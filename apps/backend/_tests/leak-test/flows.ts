@@ -428,7 +428,7 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
   },
   {
     name: "telemetry ingest: events carrying the sentinel in every registry field, a frame-shaped stack, a server-owned field, a nested object, an event name, a timestamp and a traceparent",
-    emits: ["client.error", "client.warn", "client.info", "session.abandoned"],
+    emits: ["client.error", "client.warn", "client.info", "session.abandoned", "page.loaded"],
     run: async ({ app }, sentinel) => {
       const at = new Date().toISOString();
       const forged = forgedRegistryContext(sentinel);
@@ -442,6 +442,8 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
             { name: "client.error", at, fields: forged },
             { name: "client.warn", at, fields: { ...forged, [sentinel]: sentinel, nested: { deep: { sessionId: sentinel } }, list: [sentinel] } },
             { name: "session.abandoned", at, fields: forged, traceparent: sentinel },
+            { name: "page.loaded", at, fields: { ...forged, durationMs: sentinel } },
+            { name: "page.loaded", at, fields: { route: `/q/${sentinel}`, durationMs: Number.NaN } },
             stack(`    at ${sentinel} patient answered yes (x.js:1:1)`),
             stack(`    at Object.${sentinel} (x.js:1:2)`),
             stack(`    at render (http://localhost/${sentinel}.js:1:2)`),
@@ -461,8 +463,8 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
         },
       });
       expect(response.statusCode, "the planted batch must be accepted for the flow to prove anything").toBe(202);
-      expect(response.json(), "the eight events that fail only in their fields or trace are kept, the ten malformed or unknown ones dropped").toEqual({
-        accepted: 8,
+      expect(response.json(), "the ten events that fail only in their fields or trace are kept, the ten malformed or unknown ones dropped").toEqual({
+        accepted: 10,
         dropped: 10,
       });
     },

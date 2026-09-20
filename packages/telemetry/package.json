@@ -8,6 +8,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./browser": "./dist/browser.js",
+    "./browser-tracing": "./dist/browser-tracing.js",
     "./node": "./dist/node.js",
     "./testing": "./dist/testing.js",
     "./leak-test": "./dist/leak-test.js"

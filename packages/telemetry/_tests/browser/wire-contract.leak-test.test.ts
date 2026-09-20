@@ -9,7 +9,7 @@ import { toEnvelopes, toFetchInit, type WireEnvelope } from "../../src/browser/w
 import { activeTraceId, emitDomainEvent, ingestBatch, logger, withSpan } from "../../src/index.js";
 import { LEAK_SENTINEL } from "../../src/leak-test.js";
 import { installTestTelemetry, type TestTelemetry } from "../../src/testing.js";
-import { counterValueIn, forgedModuleAttributes, ingestDropsIn } from "../faults.js";
+import { counterValueIn, forgedModuleAttributes, ingestDropsIn, metricPointsIn } from "../faults.js";
 import { QUESTION_ID, SESSION_ID } from "../fixtures.js";
 
 const log = logger("execution");
@@ -181,6 +181,27 @@ describe("the wire contract: what the SDK sends is what the ingest accepts", () 
       "telemetry.source": "browser",
     });
     expect(await counterValueIn(installed, "questionnaire.sessions.abandoned")).toBe(1);
+  });
+
+  it("carries page.loaded with its route template and duration, through the event log and the page load histogram, dropping nothing", async () => {
+    const { queued } = await runBrowser(() => {
+      emitDomainEvent({ name: "page.loaded", route: "/q/:questionnaireId", durationMs: 850 });
+    });
+
+    const ingested = ingestEnvelopes(wireOf(queued));
+
+    expect(ingested.dropped).toBe(0);
+    expect(await ingestDropsIn(ingested.installed)).toEqual({});
+    expect(lineFor(ingested.installed, "page.loaded")).toMatchObject({
+      level: "info",
+      module: "events",
+      "http.route": "/q/:questionnaireId",
+      "questionnaire.duration_ms": 850,
+      "telemetry.source": "browser",
+    });
+    const points = await metricPointsIn(ingested.installed, "browser.page.load.duration");
+    expect(points).toHaveLength(1);
+    expect(points[0]?.value).toMatchObject({ count: 1, sum: 850 });
   });
 
   it("gives the log line the browser's trace and span, and gives an event sent outside a span none", async () => {

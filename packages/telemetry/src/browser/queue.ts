@@ -1,8 +1,8 @@
 import { isDomainEventRecord } from "../logger.js";
 import type { DropCounts } from "../scrub.js";
 import { DROP_REASONS, type DropReason } from "../vocabulary.js";
-import { abandonmentsFirst, callerRecord, scrubbedEvent, type CallerEvent, type EventRecord, type QueuedEvent } from "./events.js";
-import { activeTraceparent } from "./tracing.js";
+import { domainEventsFirst, callerRecord, scrubbedEvent, type CallerEvent, type EventRecord, type QueuedEvent } from "./events.js";
+import { activeTraceparent } from "./trace-headers.js";
 
 const EVENT_DROP_REASONS = ["overflow", "undelivered", "internal", "level"] as const;
 export type EventDropReason = (typeof EVENT_DROP_REASONS)[number];
@@ -24,6 +24,7 @@ export interface EventQueueOptions {
 export interface QueueStats {
   readonly pending: number;
   readonly sent: number;
+  readonly beaconed: number;
   readonly droppedEvents: Readonly<Record<EventDropReason, number>>;
   readonly droppedFields: DropCounts;
 }
@@ -54,6 +55,7 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
   const droppedEvents: Record<EventDropReason, number> = { overflow: 0, undelivered: 0, internal: 0, level: 0 };
   const droppedFields: Record<DropReason, number> = { unknown: 0, invalid: 0, unbounded: 0, internal: 0 };
   let sent = 0;
+  let beaconed = 0;
   let inFlight = false;
   let closed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -111,7 +113,7 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
 
   function beaconBatch(batch: readonly QueuedEvent[]): void {
     try {
-      if (options.beacon(batch)) sent += batch.length;
+      if (options.beacon(batch)) beaconed += batch.length;
       else droppedEvents.undelivered += batch.length;
     } catch {
       droppedEvents.undelivered += batch.length;
@@ -120,7 +122,7 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
 
   function flushOnExit(): void {
     stopTimer();
-    const ordered = abandonmentsFirst(pending.splice(0));
+    const ordered = domainEventsFirst(pending.splice(0));
     while (ordered.length > 0) beaconBatch(ordered.splice(0, batchSize));
   }
 
@@ -164,7 +166,7 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
   }
 
   function stats(): QueueStats {
-    return { pending: pending.length, sent, droppedEvents: { ...droppedEvents }, droppedFields: { ...droppedFields } };
+    return { pending: pending.length, sent, beaconed, droppedEvents: { ...droppedEvents }, droppedFields: { ...droppedFields } };
   }
 
   return { enqueue, enqueueRecord, flush, flushOnExit, close, stats };

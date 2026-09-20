@@ -2,7 +2,7 @@ import { telemetryApi } from "@qp/shared";
 import { fieldNameOfAttribute } from "../fields.js";
 import { clientLogEventOf } from "../vocabulary.js";
 import { browserDomainEventOf, keepsFromBrowser, type BrowserEventName } from "../wire-contract.js";
-import { abandonmentsFirst, type QueuedEvent } from "./events.js";
+import { domainEventsFirst, type QueuedEvent } from "./events.js";
 
 export type WireEvent = telemetryApi.TelemetryEvent & { readonly name: BrowserEventName };
 
@@ -56,7 +56,7 @@ export function toEnvelopes(events: readonly QueuedEvent[], maxBytes: number = t
   const envelopes: WireEnvelope[] = [];
   let current: WireEvent[] = [];
   let bytes = EMPTY_ENVELOPE_BYTES;
-  for (const wire of abandonmentsFirst(events).map(toWireEvent)) {
+  for (const wire of domainEventsFirst(events).map(toWireEvent)) {
     const size = jsonBytes(wire);
     const separator = current.length === 0 ? 0 : SEPARATOR_BYTES;
     const full = current.length >= telemetryApi.MAX_TELEMETRY_EVENTS || bytes + size + separator > maxBytes;

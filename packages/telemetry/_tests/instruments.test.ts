@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { incrementCounter, recordSessionDuration, reportDropped } from "../src/instruments.js";
+import { incrementCounter, recordPageLoadDuration, recordSessionDuration, reportDropped } from "../src/instruments.js";
 import { oneDropped } from "../src/scrub.js";
 import { DROPPED_COUNTER, installFaultyMeter, internalDropsOf, restoreFaults } from "./faults.js";
 
@@ -22,6 +22,29 @@ describe("instruments record normally", () => {
     const recorded = installFaultyMeter();
     recordSessionDuration(1200);
     expect(recorded).toEqual([{ name: "questionnaire.session.duration", value: 1200, attributes: undefined }]);
+  });
+
+  it("records a page load duration in its own histogram, apart from the session duration", () => {
+    const recorded = installFaultyMeter();
+    recordPageLoadDuration(850);
+    recordSessionDuration(1200);
+    expect(recorded).toEqual([
+      { name: "browser.page.load.duration", value: 850, attributes: undefined },
+      { name: "questionnaire.session.duration", value: 1200, attributes: undefined },
+    ]);
+  });
+
+  it.each([-1, 3_600_001, 1e300, Number.NaN, Number.POSITIVE_INFINITY])("records no page load duration of %s, which a forged event could send", (milliseconds) => {
+    const recorded = installFaultyMeter();
+    recordPageLoadDuration(milliseconds);
+    expect(recorded).toEqual([]);
+  });
+
+  it("records a page load duration of 0 and of exactly an hour", () => {
+    const recorded = installFaultyMeter();
+    recordPageLoadDuration(0);
+    recordPageLoadDuration(3_600_000);
+    expect(recorded.map((entry) => entry.value)).toEqual([0, 3_600_000]);
   });
 
   it("counts each dropped reason by signal, and nothing when nothing was dropped", () => {
@@ -56,6 +79,14 @@ describe("instruments never throw", () => {
     const recorded = installFaultyMeter({ failing: ["questionnaire.session.duration"] });
     expect(() => {
       recordSessionDuration(1200);
+    }).not.toThrow();
+    expect(internalDropsOf(recorded)).toEqual(["metric"]);
+  });
+
+  it("swallows a page load histogram that throws and counts one internal metric drop", () => {
+    const recorded = installFaultyMeter({ failing: ["browser.page.load.duration"] });
+    expect(() => {
+      recordPageLoadDuration(850);
     }).not.toThrow();
     expect(internalDropsOf(recorded)).toEqual(["metric"]);
   });

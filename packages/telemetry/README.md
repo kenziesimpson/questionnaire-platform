@@ -26,7 +26,8 @@ Three layers hold it here:
 | Import | Use it for | Loads |
 | --- | --- | --- |
 | `@qp/telemetry` | `logger`, `withSpan`, `emitDomainEvent`, `watchPool`, the field registry and its types | `@opentelemetry/api` only; safe for a browser bundle |
-| `@qp/telemetry/browser` | `createEventQueue`, `startBrowserTelemetry`, `installErrorCapture`, `injectTraceHeaders`, `afterFirstPaint`: the browser SDK | the core, `@opentelemetry/api`, `@opentelemetry/sdk-trace-web`; no Node built-in, `pino`, `./node`, `./testing` or `./leak-test` |
+| `@qp/telemetry/browser` | `createEventQueue`, `createTransport`, `startBrowserTelemetry`, `installErrorCapture`, `injectTraceHeaders`, `afterFirstPaint`: the browser SDK | the core, `@opentelemetry/api`; no Node built-in, `pino`, `./node`, `./testing`, `./leak-test` or `@opentelemetry/sdk-trace-web` |
+| `@qp/telemetry/browser-tracing` | `startBrowserTracing`, `stopBrowserTracing`: the web tracer provider, kept out of `./browser` so an app ships it only when it loads this entry point with a dynamic `import()` | `@opentelemetry/api`, `@opentelemetry/sdk-trace-web` |
 | `@qp/telemetry/node` | `startTelemetry`: starts the SDK, pino and the auto-instrumentation; `runningTelemetry`: the handle it returned, until that handle shuts down | the Node SDK, exporters, pino |
 | `@qp/telemetry/testing` | `installTestTelemetry`: in-memory exporters for tests | the Node SDK |
 | `@qp/telemetry/leak-test` | `LEAK_SENTINEL`, `runLeakFlow`, `expectCleanRun`, `exposuresOf`, `expectEmitted`, `plantThirdPartyTelemetry`, `plantThirdPartyCounter`: the sentinel leak test's detector, runner and assertions | the Node SDK |
@@ -42,33 +43,48 @@ separate entry points, so the browser-safe `.` entry never loads them.
 
 ## Browser
 
-`@qp/telemetry/browser` is the browser half of decisions O5, O8, O11, O12, O17 and O19 ([`docs/6-observability.md`](../../docs/6-observability.md) §6). It knows nothing of the wire: the caller supplies `send` and `beacon`, so the `/telemetry` ingest and its envelope live with the app that calls it.
+`@qp/telemetry/browser` is the browser half of decisions O5, O8, O11, O12, O17 and O19 ([`docs/6-observability.md`](../../docs/6-observability.md) §6). The queue knows nothing of the wire: it takes a `send` and a `beacon`. `createTransport` builds both for the `/api/telemetry` ingest from the app's own `fetch` and `navigator.sendBeacon`, so the one place an app names either is its API client.
 
 ```ts
-import { afterFirstPaint, injectTraceHeaders, startBrowserTelemetry } from "@qp/telemetry/browser";
+import { afterFirstPaint, createTransport, injectTraceHeaders, startBrowserTelemetry } from "@qp/telemetry/browser";
+
+const transport = createTransport({
+  url: "/api/telemetry",
+  fetch: (url, init) => fetch(url, init),
+  sendBeacon: (url, data) => navigator.sendBeacon(url, data),
+});
 
 afterFirstPaint(() => {
   startBrowserTelemetry({
+    ...transport,
     page: window,
-    send: (events) => postBatch(events),
-    beacon: (events) => navigator.sendBeacon(TELEMETRY_URL, toBlob(events)),
     screen: () => currentRouteTemplate(),
-    debug: import.meta.env.DEV ? (record) => console.debug(record) : undefined,
+    beforeExit: () => reportWhatOnlyTheBrowserKnows(),
   });
 }, window);
 
-fetch(url, { headers: injectTraceHeaders({ accept: "application/json" }) });
+if (tracingIsEnabled) {
+  const { startBrowserTracing } = await import("@qp/telemetry/browser-tracing");
+  startBrowserTracing();
+}
+
+await withSpan("browser.request", { method: "GET", route }, async () => {
+  const headers = injectTraceHeaders({ accept: "application/json" });
+  return fetch(url, { headers });
+});
 ```
 
 | Export | What it does |
 | --- | --- |
-| `createEventQueue({ send, beacon, screen?, maxPending?, batchSize?, flushIntervalMs? })` | A bounded queue of `{ level, message, attributes }` events. `enqueue({ level, message, attributes })` is the form for app code: the message is a literal (`LiteralMessage`, as in `logger`), the level is not `debug`, and the attributes cannot name `error.stack` or `module`, and a `module` an app passes anyway is discarded. `enqueueRecord` takes a plain record and is for `routeLogsToQueue` and `captureError`. Both scrub before they queue and never throw; `flush()` sends through `send`; `flushOnExit()` hands everything left to `beacon`; `close()` stops the timer and every later send, and ignores later events; `stats()` reports pending, sent and every drop |
-| `routeLogsToQueue(queue, { debug? })` | Points `logger(...)` and `emitDomainEvent` at the queue. `debug` never reaches it: it goes to the optional `debug` function, which an app passes only in a development build |
-| `flushOnPageHide(queue, window)` | `flushOnExit()` on `pagehide` and when `visibilitychange` finds the page hidden |
+| `createEventQueue({ send, beacon, screen?, now?, maxPending?, batchSize?, flushIntervalMs? })` | A bounded queue of `{ level, message, attributes }` events. `enqueue({ level, message, attributes })` is the form for app code: the message is a literal (`LiteralMessage`, as in `logger`), the level is not `debug`, and the attributes cannot name `error.stack` or `module`, and a `module` an app passes anyway is discarded. `enqueueRecord` takes a plain record and is for `routeLogsToQueue` and `captureError`. Both scrub before they queue and never throw; `flush()` sends through `send`; `flushOnExit()` hands everything left to `beacon`; `close()` stops the timer and every later send, and ignores later events; `stats()` reports `pending`, `sent` (delivered by `send`), `beaconed` (accepted by `beacon`) and every drop |
+| `createTransport({ url, fetch, sendBeacon })` | The queue's `send` and `beacon` for the ingest, built on `toEnvelopes`, `toFetchInit` and `toBeaconBlob`, so there is one mapping. `send` posts one `application/json` envelope at a time, in order, and rejects on a non-2xx answer or a failed `fetch`, which the queue counts `undelivered`; a batch over the body cap goes as several posts. `beacon` splits under `BEACON_BODY_BUDGET_BYTES`, hands `sendBeacon` a `Blob` typed `application/json` for each envelope and is true only if the browser accepted every one. `fetch` and `sendBeacon` are arguments, so the SDK reads no browser global |
+| `routeLogsToQueue(queue, { debug? })` | Points `logger(...)` and `emitDomainEvent` at the queue, and returns a function that restores the sink and level that were configured before it, not a cleared one (and leaves alone a sink something else configured since). `debug` never reaches the queue: it goes to the optional `debug` function, which an app passes only in a development build |
+| `flushOnPageHide(queue, window, beforeExit?)` | `flushOnExit()` on `pagehide` and when `visibilitychange` finds the page hidden. `beforeExit` runs first, under the never-throw guard, so an event it emits, such as `session.abandoned`, is in the first batch handed to the beacon; it runs on every hide, so it must be idempotent |
 | `installErrorCapture(queue, window)`, `captureError(queue, kind, error)` | An `error` and an `unhandledrejection` listener, and the same capture for an error boundary. Records the error's class name and its stack frames only. Installing twice on one page adds no second listener |
-| `startBrowserTracing()`, `stopBrowserTracing()`, `injectTraceHeaders(headers)` | A web tracer provider with a synchronous context manager, and the `traceparent` of the active span added to a headers record. With no active span the headers come back without any `traceparent`, so a stale one is never propagated. No `instrumentation-fetch` and no patching of global `fetch` (O12): the app's one `fetch` wrapper calls `injectTraceHeaders` by hand |
+| `injectTraceHeaders(headers?)` | The `traceparent` of the active span added to a copy of the headers, which may be a plain record, a `Headers` or an array of `[name, value]` pairs (a repeated name is joined with `, `). It always returns a plain record. With no active span the headers come back without any `traceparent`, so a stale one is never propagated. No `instrumentation-fetch` and no patching of global `fetch` (O12): the app's one `fetch` wrapper calls `injectTraceHeaders` by hand, inside a `withSpan("browser.request", …)` |
+| `startBrowserTracing()`, `stopBrowserTracing()` (from `@qp/telemetry/browser-tracing`) | A web tracer provider with a synchronous context manager. Loaded with a dynamic `import()` behind an explicit switch, so `./browser` and a build that does not use tracing never contain `sdk-trace-web`. Nothing else starts it: `startBrowserTelemetry` does not |
 | `afterFirstPaint(start, window)` | Runs `start` in a `requestIdleCallback` after `load`, or a timeout after `load` where there is none; returns a cancel function |
-| `startBrowserTelemetry({ page, ...queue options, debug? })` | Tracing, the queue, log routing, page-hide flush and error capture in one call; `stop()` undoes them, hands what is queued to `beacon` and closes the queue, so nothing is sent afterwards. A second call while one is running returns the running handle |
+| `startBrowserTelemetry({ page, ...queue options, debug?, beforeExit? })` | The queue, log routing, page-hide flush and error capture in one call; `stop()` undoes them, hands what is queued to `beacon`, restores the logging that was configured before it, and closes the queue, so nothing is sent afterwards. A second call while one is running returns the running handle. It does not start tracing |
 
 Rules the code holds:
 
@@ -77,9 +93,10 @@ Rules the code holds:
 - **An error is its class name and its frames, never its message.** `stackFramesOf` still decides whether the stack lines up with the message and keeps only frame-shaped lines; the queue then rewrites every frame of any `error.stack` it is given, from `captureError`, the logger or a caller alike. The location becomes the last path segment's script file name, `index-3f9a.js:10:20`, or `anonymous.js` for anything else, so no page URL, session id or query string survives. The function name is kept only if it is an identifier path (`Object.<anonymous>`, `async Promise.all`, `new Screen`, no interior underscore or space) of at most 100 characters and is otherwise `anonymous`. What counts as a safe frame is defined once, in `src/frame-shape.ts`, and the rewriter and the ingest's validator both use it: a file name past 80 characters becomes `anonymous.js`, a position past seven digits or a line past 200 characters becomes a fixed placeholder frame, and a stack is cut to 40 frames, so a stack the SDK produces is always one the ingest accepts. That is a shape check, so a one-word lower-case function name derived from an answer would pass; never build one from an answer. Stack frames in another browser's format (`fn@url:1:2`) do not line up, so those errors carry a type and no frames. The capture never reads an error event's `message`, `filename` or position.
 - **The queue never blocks and never throws.** It holds at most `maxPending` events and drops the oldest, counting `overflow`; one `send` is in flight at a time; a batch whose `send` rejects or throws, or a beacon that returns `false`, is dropped and counted `undelivered`; anything the queue cannot handle is counted `internal`.
 - **Never captured:** session replay, DOM or element text (a clicked option's label is an answer), URLs, query strings, cursors, request or response bodies.
-- **Browser-safe by construction.** `_tests/browser.test.ts` reads the entry point's import graph and fails on a Node built-in, `pino`, `./node`, `./testing`, `./leak-test` or any package beyond `@opentelemetry/api`, `@opentelemetry/sdk-trace-web` and `@qp/shared`.
+- **Browser-safe by construction.** `_tests/browser.test.ts` reads the entry point's import graph and fails on a Node built-in, `pino`, `./node`, `./testing`, `./leak-test` or any package beyond `@opentelemetry/api` and `@qp/shared`; it also fails if the graph reaches `sdk-trace-web`. The tracing entry point's graph is held to `@opentelemetry/api`, `sdk-trace-web` and `@qp/shared` (its guard reaches the scrub), and `apps/respondent/_tests/main.test.ts` fails if the respondent's static graph reaches either the web tracer or the tracing entry point.
 - **The page is injected.** No module reads `window`, `document` or `navigator`; the caller hands over `window` (a `PageWindow`) and its own `beacon`, so the tests run in the package's Node environment against fakes in `_tests/browser/page-fakes.ts`.
 - **Limitation.** The context manager is synchronous: `injectTraceHeaders` sees the active span only when called before the first `await` inside `withSpan`. The apps' one `fetch` wrapper builds its headers before it awaits anything.
+- **`stats()` is client-side only.** `sent`, `beaconed` and the drop counts describe this tab's queue and never reach the server, so nothing on the server can chart beacon delivery.
 
 ## Write a log line
 
@@ -223,7 +240,7 @@ find is counted too, through `reportDropped`.
 await withSpan("session.submit", { sessionId }, async () => submit());
 ```
 
-- `SpanName` is derived from `SPAN_NAMES` (`questionnaire.create`, `questionnaire.edit_draft`, `questionnaire.open_draft`, `questionnaire.publish`,
+- `SpanName` is derived from `SPAN_NAMES` (`browser.request`, the browser's span around one API call, never exported; `questionnaire.create`, `questionnaire.edit_draft`, `questionnaire.open_draft`, `questionnaire.publish`,
   `questionnaire.retire`, `reporting.list_sessions`, `reporting.session_detail`, `rule.evaluate`, `session.submit`,
   `telemetry.ingest`); a new span is one more member of that array.
   The backend wraps a submit in `session.submit` and its answer evaluation in `rule.evaluate`, each questionnaire lifecycle
@@ -276,7 +293,7 @@ are all registry fields.
 
 Each event is defined once, in the `DOMAIN_EVENTS` table in `src/events.ts`: its name, its payload
 type and its counter name (or `logOnly`) on one entry. `DomainEvent` and the counter lookup are derived from that
-table, so adding an event is one entry.
+table, so adding an event is one entry. An entry may also name a duration histogram, `histogram: { field, record }`, which the same call feeds from the payload's numeric field (`session.completed` and `page.loaded` do); a value the histogram's recorder refuses, such as a page load above one hour, is not recorded.
 
 ```ts
 "session.answers_rejected": event<{ sessionId: string; reason: SubmissionItemCode; codeFindingCount: number }>(
@@ -310,6 +327,7 @@ sums one across the other. All three are numbers on the log line and never metri
 | `questionnaire.draft_conflict` | `questionnaire.draft.conflicts` |
 | `reporting.responses_listed`, `reporting.response_viewed` | `questionnaire.responses.listed`, `questionnaire.responses.viewed` |
 | `session.started`, `.resumed`, `.abandoned`, `.completed` | `questionnaire.sessions.started`, `.resumed`, `.abandoned`, `.completed` |
+| `page.loaded` | none: a log line carrying `route` and `durationMs`, and a duration in the `browser.page.load.duration` histogram. Only a browser emits it |
 | `session.question_answered` | `questionnaire.answers.accepted`, labelled by `questionType` |
 | `session.answer_rejected` | none: a log line per rejection, at most `MAX_FINDINGS` per submit; `itemId` and `questionId` are `null` for an unknown item key, which came from the respondent |
 | `session.answers_rejected` | `questionnaire.answers.rejected`, labelled by `reason`, adding `codeFindingCount` (one event per distinct reason) |
@@ -317,7 +335,7 @@ sums one across the other. All three are numbers on the log line and never metri
 | `session.rejected_past_cutoff` | `questionnaire.sessions.rejected_past_cutoff` |
 | `session.submit_finished` | `questionnaire.submissions`, labelled by `outcome` (`accepted`, `replayed`, `rejected_validation`, `rejected_conflict`, `failed`); `questionnaireId` and `questionnaireVersion` are `null` for `failed`, which is known only by the session id; `findingCount` and `omittedCount` ride on the line for a validation refusal |
 
-`session.completed` also records `questionnaire.session.duration`, a histogram in milliseconds with explicit bucket boundaries from one second to a day.
+`session.completed` also records `questionnaire.session.duration`, a histogram in milliseconds with explicit bucket boundaries from one second to a day. `page.loaded` records `browser.page.load.duration`, a histogram in milliseconds with explicit bucket boundaries from 100 ms to a minute, ignoring a negative or non-numeric duration; it has no labels, because a browser chooses its own label values.
 Counters carry bounded labels only, named per event in its `labels`. The ingest stamps `source: "browser"` on the ones a browser
 sends; `emitDomainEvent` stamps nothing, since the browser SDK routes it into its own queue too.
 
@@ -331,7 +349,7 @@ limit and the body cap; this function owns what is kept. It takes each event as 
    as `malformed`.
 2. A name outside the allowlist is dropped as `unknown_event`. The allowlist is the client log events (`client.info`, `client.warn`,
    `client.error`: `client.` and one of `CLIENT_LOG_LEVELS`, the levels O8 lets a browser send) plus `BROWSER_DOMAIN_EVENTS` (`wire-contract.ts`), which is
-   `session.abandoned` alone. The events the server emits, `session.item_skipped` among them (O11), are not on it, so a browser
+   `session.abandoned` and `page.loaded`. The events the server emits, `session.item_skipped` among them (O11), are not on it, so a browser
    cannot move `questionnaire.published` or the session-duration histogram. A client log line carries no message: its level is
    its name and its meaning is its fields.
 3. Each event has its own closed list of browser-eligible fields (the `BROWSER_FIELDS` table in `wire-contract.ts`, typed against `FieldName` and read through `browserFieldsOf` and `judgeBrowserField`, which the SDK's wire mapping uses too): the
@@ -388,7 +406,7 @@ and by test. It is the one home of that mapping; `_tests/browser/wire-contract.l
   drops every attribute with no registry entry and every field `keepsFromBrowser` refuses, the same gate the ingest applies through
   `judgeBrowserField`: the field must be on the event's own list and its value must pass the field's check. A field the ingest would
   count as dropped is never sent. A client log line's message is not sent: its level is its name, `clientLogEventOf(level)`.
-- A queued event is a browser domain event, and is named `session.abandoned`, only if the queue marked it, and only a record that
+- A queued event is a browser domain event, and is named `session.abandoned` or `page.loaded`, only if the queue marked it, and only a record that
   `emitDomainEvent` wrote can be marked. `logger.ts` keeps a `WeakSet` of the records `logDomainEvent` builds, which is what
   `emitDomainEvent` calls and nothing else does, and `isDomainEventRecord` reads it; `scrubbedEvent` sets the `event` marker only for
   such a record whose message is a `BROWSER_DOMAIN_EVENTS` member. The `module` attribute is never trusted: `logger("events")` from
@@ -400,17 +418,17 @@ and by test. It is the one home of that mapping; `_tests/browser/wire-contract.l
   that runs ahead reads as 0, since the server never stamps a negative age. The age is a log field only and drives no counter or alert.
   `traceparent` is the active span's, formatted by `formatTraceparent`, and is absent when no valid span is active.
 - `toEnvelopes(events, maxBytes?)` returns `{ events }` envelopes of at most `MAX_TELEMETRY_EVENTS` events and `maxBytes` bytes of UTF-8 JSON
-  (`MAX_TELEMETRY_BODY_BYTES` from `@qp/shared` by default), splitting into several when a batch is larger. `session.abandoned` events come
+  (`MAX_TELEMETRY_BODY_BYTES` from `@qp/shared` by default), splitting into several when a batch is larger. Browser domain events (`session.abandoned`, `page.loaded`) come
   first. A beacon passes `BEACON_BODY_BUDGET_BYTES` (half of `MAX_TELEMETRY_BODY_BYTES`, 32 KiB) so that one envelope never uses the whole of `sendBeacon`'s roughly 64 KiB
-  quota. `flushOnExit` orders the whole pending queue with the abandonments first before it slices it into batches, so an abandonment
+  quota. `flushOnExit` orders the whole pending queue with the browser domain events first before it slices it into batches, so an abandonment
   is in the first batch handed to the beacon and, mapped with the budget, in the first envelope. No single event can outgrow an
   envelope: a stack is at most 40 frames of 200 characters, and every other field is short.
 - `toBeaconBlob(envelope)` is a `Blob` typed `application/json`, for `navigator.sendBeacon`; `toFetchInit(envelope)` is a `POST` with
-  `content-type: application/json`, for the app's one `fetch` call. Both send the same bytes.
+  `content-type: application/json`, for the app's one `fetch` call. Both send the same bytes. `createTransport` (`src/browser/transport.ts`) is the only caller of either, and the queue's `send` and `beacon` are what it returns.
 
 `trace-context.ts` has no imports and holds the `traceparent` version and field widths, `formatTraceparent` and `parseTraceparent`, so
 the header the SDK writes and the field the ingest reads cannot drift; `_tests/trace-context.test.ts` round-trips one through the other.
-`injectTraceHeaders`, `startBrowserTracing` and `stopBrowserTracing` run under `guarded`, `guardedOr` and `guardedAsync` (the two global disables each under their own guard), and a
+`injectTraceHeaders` (in `browser/trace-headers.ts`, which imports only `@opentelemetry/api`), `startBrowserTracing` and `stopBrowserTracing` (in `browser/tracing.ts`, the one file that imports `sdk-trace-web`) run under `guarded`, `guardedOr` and `guardedAsync` (the two global disables each under their own guard), and a
 `startBrowserTracing` that fails to register its context manager unregisters the tracer provider it had registered.
 
 ## Sinks
@@ -575,7 +593,8 @@ The flows live with the code they exercise. The backend's registry is
 | File | Contents |
 | --- | --- |
 | `src/index.ts` | The core entry point's exports |
-| `src/browser.ts`, `src/browser/` | The browser entry point and its parts: `queue.ts`, `events.ts` (the queued event and its scrub), `errors.ts`, `frames.ts` (the stack-frame rewrite), `lifecycle.ts`, `logging.ts`, `idle.ts`, `tracing.ts`, `wire.ts` (the queue's events as ingest envelopes, and their encodings), `start.ts`, `page.ts` (the structural types for `window`) |
+| `src/browser.ts`, `src/browser/` | The browser entry point and its parts: `queue.ts`, `events.ts` (the queued event and its scrub), `errors.ts`, `frames.ts` (the stack-frame rewrite), `lifecycle.ts`, `logging.ts`, `idle.ts`, `trace-headers.ts` (`injectTraceHeaders`, the active `traceparent`), `wire.ts` (the queue's events as ingest envelopes, and their encodings), `transport.ts` (`createTransport`), `start.ts`, `page.ts` (the structural types for `window`) |
+| `src/browser-tracing.ts`, `src/browser/tracing.ts` | The tracing entry point and the web tracer provider behind it; the only files that import `sdk-trace-web` |
 | `src/fields.ts` | `FIELDS`, `TelemetryContext`, the infrastructure allowlist, `OUTCOMES` |
 | `src/vocabulary.ts` | Constants shared by more than one module: the instrumentation scope, signal kinds, drop reasons, log modules and the attribute names the pipeline writes about itself |
 | `src/scrub.ts` | `scrubContext`, `scrubAttributes` |

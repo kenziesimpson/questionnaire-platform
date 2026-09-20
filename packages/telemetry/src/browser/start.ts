@@ -3,10 +3,10 @@ import { flushOnPageHide } from "./lifecycle.js";
 import { routeLogsToQueue, type LoggingRoute } from "./logging.js";
 import type { PageWindow } from "./page.js";
 import { createEventQueue, type EventQueue, type EventQueueOptions } from "./queue.js";
-import { startBrowserTracing, stopBrowserTracing } from "./tracing.js";
 
 export interface BrowserTelemetryOptions extends EventQueueOptions, LoggingRoute {
   readonly page: PageWindow;
+  readonly beforeExit?: () => void;
 }
 
 export interface BrowserTelemetry {
@@ -18,11 +18,10 @@ let running: BrowserTelemetry | undefined;
 
 export function startBrowserTelemetry(options: BrowserTelemetryOptions): BrowserTelemetry {
   if (running !== undefined) return running;
-  startBrowserTracing();
   const queue = createEventQueue(options);
   const removers = [
     routeLogsToQueue(queue, options),
-    flushOnPageHide(queue, options.page),
+    flushOnPageHide(queue, options.page, options.beforeExit),
     installErrorCapture(queue, options.page),
   ];
   const started: BrowserTelemetry = {
@@ -33,7 +32,6 @@ export function startBrowserTelemetry(options: BrowserTelemetryOptions): Browser
       for (const remove of removers) remove();
       queue.flushOnExit();
       queue.close();
-      void stopBrowserTracing();
     },
   };
   running = started;

@@ -35,6 +35,21 @@ describe("afterFirstPaint", () => {
     expect(start).toHaveBeenCalledTimes(1);
   });
 
+  it("does not let a start that throws surface, and starts only once", () => {
+    const { page, scheduled } = windowWithIdleCallbacks();
+    const start = vi.fn(() => {
+      throw new Error("start failed");
+    });
+
+    afterFirstPaint(start, page);
+
+    expect(() => {
+      scheduled[0]?.();
+      scheduled[0]?.();
+    }).not.toThrow();
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
   it("waits for load before asking for an idle callback", () => {
     const { page, scheduled, request } = windowWithIdleCallbacks();
     page.document.readyState = "loading";

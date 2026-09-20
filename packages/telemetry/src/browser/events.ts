@@ -85,7 +85,7 @@ export function callerRecord<M extends string>(event: CallerEvent<M>): EventReco
   return { level: event.level, message: event.message, attributes: Object.fromEntries(attributes) };
 }
 
-export function abandonmentsFirst(events: readonly QueuedEvent[]): QueuedEvent[] {
+export function domainEventsFirst(events: readonly QueuedEvent[]): QueuedEvent[] {
   const isAbandonment = (event: QueuedEvent): boolean => browserDomainEventOf(event.event) !== undefined;
   return [...events.filter(isAbandonment), ...events.filter((event) => !isAbandonment(event))];
 }
