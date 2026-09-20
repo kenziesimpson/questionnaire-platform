@@ -14,3 +14,11 @@ export function guardedOr<T>(kind: SignalKind, fallback: T, action: () => T): T 
 export function guarded(kind: SignalKind, action: () => void): void {
   guardedOr<void>(kind, undefined, action);
 }
+
+export async function guardedAsync(kind: SignalKind, action: () => Promise<void>): Promise<void> {
+  try {
+    await action();
+  } catch {
+    reportDropped(kind, oneDropped("internal"));
+  }
+}

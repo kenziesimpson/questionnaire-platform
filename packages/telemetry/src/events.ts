@@ -2,7 +2,7 @@ import type { ResponseType, SubmissionItemCode } from "@qp/shared";
 import { FIELDS, type FieldName, type Outcome, type TelemetryContext } from "./fields.js";
 import { guarded } from "./guard.js";
 import { incrementCounter, recordSessionDuration, reportDropped } from "./instruments.js";
-import { logger, relayLog } from "./logger.js";
+import { logDomainEvent, relayLog } from "./logger.js";
 import { scrubContext, type ScrubbedAttributes } from "./scrub.js";
 import { EVENTS_LOG_MODULE } from "./vocabulary.js";
 
@@ -59,6 +59,8 @@ export type DomainEventName = keyof typeof DOMAIN_EVENTS;
 
 type PayloadOf<N extends DomainEventName> = NonNullable<(typeof DOMAIN_EVENTS)[N]["payload"]>;
 
+export type DomainEventField<N extends DomainEventName> = keyof PayloadOf<N>;
+
 export type DomainEvent = { [N in DomainEventName]: { readonly name: N } & Readonly<PayloadOf<N>> }[DomainEventName];
 
 function labelsOf(name: DomainEventName, fields: Readonly<Record<string, unknown>>): ScrubbedAttributes {
@@ -75,13 +77,11 @@ function countDomainEvent(name: DomainEventName, fields: Readonly<Record<string,
   }
 }
 
-const eventLog = logger(EVENTS_LOG_MODULE);
-
 export function emitDomainEvent(event: DomainEvent): void {
   guarded("log", () => {
     const { name, ...fields } = event;
     const context: TelemetryContext = fields;
-    eventLog.info(name, context);
+    logDomainEvent(name, context);
   });
   guarded("metric", () => {
     const { name, ...fields } = event;

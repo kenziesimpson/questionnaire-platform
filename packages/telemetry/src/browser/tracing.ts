@@ -1,6 +1,6 @@
 import { context, isSpanContextValid, trace } from "@opentelemetry/api";
 import { StackContextManager, WebTracerProvider } from "@opentelemetry/sdk-trace-web";
-import { guarded, guardedOr } from "../guard.js";
+import { guarded, guardedAsync, guardedOr } from "../guard.js";
 import { formatTraceparent, TRACEPARENT_HEADER } from "../trace-context.js";
 
 let provider: WebTracerProvider | undefined;
@@ -10,7 +10,12 @@ export function startBrowserTracing(): void {
     if (provider !== undefined) return;
     const created = new WebTracerProvider();
     trace.setGlobalTracerProvider(created);
-    context.setGlobalContextManager(new StackContextManager().enable());
+    try {
+      context.setGlobalContextManager(new StackContextManager().enable());
+    } catch (failure) {
+      trace.disable();
+      throw failure;
+    }
     provider = created;
   });
 }
@@ -18,9 +23,13 @@ export function startBrowserTracing(): void {
 export async function stopBrowserTracing(): Promise<void> {
   const stopped = provider;
   provider = undefined;
-  trace.disable();
-  context.disable();
-  await stopped?.shutdown();
+  guarded("span", () => {
+    trace.disable();
+    context.disable();
+  });
+  await guardedAsync("span", async () => {
+    await stopped?.shutdown();
+  });
 }
 
 function withoutTraceparent(headers: Readonly<Record<string, string>>): Record<string, string> {

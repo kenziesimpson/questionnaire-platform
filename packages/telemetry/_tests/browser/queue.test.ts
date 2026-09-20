@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { QueuedEvent } from "../../src/browser/events.js";
+import type { CallerAttributes, QueuedEvent } from "../../src/browser/events.js";
+import { routeLogsToQueue } from "../../src/browser/logging.js";
 import { createEventQueue, type EventQueueOptions } from "../../src/browser/queue.js";
 import { startBrowserTracing, stopBrowserTracing } from "../../src/browser/tracing.js";
-import { withSpan } from "../../src/index.js";
+import { emitDomainEvent, logger, withSpan } from "../../src/index.js";
 import { SESSION_ID } from "../fixtures.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
@@ -27,6 +28,11 @@ function queueWith(overrides: Partial<EventQueueOptions> = {}) {
 
 function info(message: string, attributes: unknown = {}) {
   return { level: "info", message, attributes };
+}
+
+function forgedModule(): CallerAttributes {
+  const attributes: CallerAttributes = JSON.parse('{"module":"events"}');
+  return attributes;
 }
 
 function messagesOf(batches: readonly (readonly QueuedEvent[])[]): string[] {
@@ -523,16 +529,58 @@ describe("createEventQueue: what each event is stamped with when it is queued", 
     expect(outside).not.toHaveProperty("traceparent");
   });
 
-  it("marks an event as a browser domain event only when the events module names one, never by its message alone", () => {
+  it("marks a record as a browser domain event only when emitDomainEvent wrote it, never by its module attribute or its message", () => {
     const { queue, batches } = queueWith();
 
     queue.enqueueRecord(info("session.abandoned", { module: "events" }));
-    queue.enqueueRecord(info("session.abandoned", { module: "execution" }));
+    queue.enqueue({ level: "info", message: "session.abandoned", attributes: forgedModule() });
     queue.enqueueRecord(info("session.abandoned"));
-    queue.enqueueRecord(info("session.item_skipped", { module: "events" }));
-    queue.enqueueRecord(info("session.completed", { module: "events" }));
     queue.flush();
 
-    expect(batches.flat().map((event) => event.event)).toEqual(["session.abandoned", undefined, undefined, undefined, undefined]);
+    expect(batches.flat().map((event) => event.event)).toEqual([undefined, undefined, undefined]);
+  });
+
+  it("marks the record emitDomainEvent writes for a browser event, and not a logger call from app code or an event a browser may not send", () => {
+    const { queue, batches } = queueWith();
+    const stopRouting = routeLogsToQueue(queue);
+
+    emitDomainEvent({ name: "session.abandoned", sessionId: SESSION_ID, lastItemId: "itm_03" });
+    emitDomainEvent({ name: "session.completed", sessionId: SESSION_ID, durationMs: 1000, questionCount: 2 });
+    logger("events").info("session.abandoned", { sessionId: SESSION_ID });
+    stopRouting();
+    queue.flush();
+
+    expect(batches.flat().map((event) => [event.message, event.event])).toEqual([
+      ["session.abandoned", "session.abandoned"],
+      ["session.completed", undefined],
+      ["session.abandoned", undefined],
+    ]);
+  });
+
+  it("ignores a module attribute an app passes to enqueue and keeps its other attributes", () => {
+    const { queue, batches } = queueWith();
+
+    queue.enqueue({ level: "info", message: "screen shown", attributes: { ...forgedModule(), "questionnaire.session_id": SESSION_ID } });
+    queue.flush();
+
+    expect(batches[0]?.[0]?.attributes).toEqual({ "questionnaire.session_id": SESSION_ID });
+  });
+});
+
+describe("createEventQueue: flushOnExit puts the abandonments first across the whole queue", () => {
+  it("hands a session.abandoned queued behind a full batch to the first beacon, not a later one", () => {
+    const { queue, beacons } = queueWith({ batchSize: 2, send: () => new Promise<void>(() => undefined) });
+    const stopRouting = routeLogsToQueue(queue);
+    queue.enqueueRecord(info("one"));
+    queue.enqueueRecord(info("two"));
+    queue.enqueueRecord(info("three"));
+    queue.enqueueRecord(info("four"));
+    queue.enqueueRecord(info("five"));
+    emitDomainEvent({ name: "session.abandoned", sessionId: SESSION_ID, lastItemId: null });
+
+    queue.flushOnExit();
+    stopRouting();
+
+    expect(beacons.map((batch) => batch.map((event) => event.message))).toEqual([["session.abandoned", "three"], ["four", "five"]]);
   });
 });

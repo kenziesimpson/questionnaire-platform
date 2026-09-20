@@ -1,7 +1,7 @@
 import { telemetryApi } from "@qp/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { captureError } from "../../src/browser/errors.js";
-import type { QueuedEvent } from "../../src/browser/events.js";
+import type { CallerAttributes, QueuedEvent } from "../../src/browser/events.js";
 import { routeLogsToQueue } from "../../src/browser/logging.js";
 import { createEventQueue, type EventQueue } from "../../src/browser/queue.js";
 import { startBrowserTracing, stopBrowserTracing } from "../../src/browser/tracing.js";
@@ -9,6 +9,7 @@ import { toEnvelopes, toFetchInit, type WireEnvelope } from "../../src/browser/w
 import { activeTraceId, emitDomainEvent, ingestBatch, logger, withSpan } from "../../src/index.js";
 import { LEAK_SENTINEL } from "../../src/leak-test.js";
 import { installTestTelemetry, type TestTelemetry } from "../../src/testing.js";
+import { counterValueIn, ingestDropsIn } from "../faults.js";
 import { QUESTION_ID, SESSION_ID } from "../fixtures.js";
 
 const log = logger("execution");
@@ -109,18 +110,6 @@ function ingestEnvelopes(envelopes: readonly WireEnvelope[]): Ingested {
   };
 }
 
-async function ingestDrops(installed: TestTelemetry): Promise<Record<string, unknown>> {
-  const all = await installed.metrics();
-  const points = all.find((metric) => metric.descriptor.name === "telemetry.ingest.dropped")?.dataPoints ?? [];
-  return Object.fromEntries(points.map((point) => [`${point.attributes["telemetry.ingest_reason"]}`, point.value]));
-}
-
-async function counterValue(installed: TestTelemetry, name: string): Promise<number> {
-  const all = await installed.metrics();
-  const points = all.find((metric) => metric.descriptor.name === name)?.dataPoints ?? [];
-  return points.reduce((total, point) => total + (typeof point.value === "number" ? point.value : 0), 0);
-}
-
 function lineFor(installed: TestTelemetry, message: string): Record<string, unknown> | undefined {
   return installed.logs().find((line) => line.msg === message);
 }
@@ -136,7 +125,7 @@ describe("the wire contract: what the SDK sends is what the ingest accepts", () 
     expect(ingested.sent).toBe(queued.length);
     expect(ingested.accepted).toBe(ingested.sent);
     expect(ingested.dropped).toBe(0);
-    expect(await ingestDrops(ingested.installed)).toEqual({});
+    expect(await ingestDropsIn(ingested.installed)).toEqual({});
     expect(await ingested.installed.internalDrops()).toBe(0);
     expect(ingested.installed.logs()).toHaveLength(queued.length);
   });
@@ -191,7 +180,7 @@ describe("the wire contract: what the SDK sends is what the ingest accepts", () 
       "questionnaire.last_item_id": "itm_03",
       "telemetry.source": "browser",
     });
-    expect(await counterValue(installed, "questionnaire.sessions.abandoned")).toBe(1);
+    expect(await counterValueIn(installed, "questionnaire.sessions.abandoned")).toBe(1);
   });
 
   it("gives the log line the browser's trace and span, and gives an event sent outside a span none", async () => {
@@ -232,7 +221,7 @@ describe("the wire contract: what the SDK sends is what the ingest accepts", () 
     expect(ingested.sent).toBe(queued.length);
     expect(ingested.accepted).toBe(queued.length);
     expect(ingested.dropped).toBe(0);
-    expect(await ingestDrops(ingested.installed)).toEqual({});
+    expect(await ingestDropsIn(ingested.installed)).toEqual({});
   });
 
   it("splits events whose bytes exceed the body cap into several envelopes, each under the cap, all accepted", async () => {
@@ -254,7 +243,7 @@ describe("the wire contract: what the SDK sends is what the ingest accepts", () 
     expect(ingested.sent).toBe(queued.length);
     expect(ingested.accepted).toBe(queued.length);
     expect(ingested.dropped).toBe(0);
-    expect(await ingestDrops(ingested.installed)).toEqual({});
+    expect(await ingestDropsIn(ingested.installed)).toEqual({});
   });
 });
 
@@ -310,5 +299,39 @@ describe("the wire contract: a planted answer never leaves the browser", () => {
     };
 
     expect(JSON.stringify(leaking).toLowerCase()).toContain(LEAK_SENTINEL.toLowerCase());
+  });
+});
+
+describe("the wire contract: negative controls", () => {
+  it("names session.abandoned only for the record emitDomainEvent wrote, never for a forged module or a logger call from app code", async () => {
+    const forgedAttributes: CallerAttributes = JSON.parse('{"module":"events"}');
+    const { queued } = await runBrowser((queue) => {
+      queue.enqueue({ level: "info", message: "session.abandoned", attributes: forgedAttributes });
+      queue.enqueueRecord({ level: "info", message: "session.abandoned", attributes: { module: "events" } });
+      logger("events").info("session.abandoned", { sessionId: SESSION_ID, lastItemId: "itm_03" });
+      emitDomainEvent({ name: "session.abandoned", sessionId: SESSION_ID, lastItemId: "itm_04" });
+    });
+    const envelopes = wireOf(queued);
+
+    const ingested = ingestEnvelopes(envelopes);
+
+    const names = envelopes.flatMap((envelope) => envelope.events.map((event) => event.name));
+    expect(queued.filter((event) => event.message === "session.abandoned")).toHaveLength(4);
+    expect(names.filter((name) => name === "session.abandoned")).toHaveLength(1);
+    expect(names.filter((name) => name === "client.info")).toHaveLength(4);
+    expect(ingested.accepted).toBe(queued.length);
+    expect(await counterValueIn(ingested.installed, "questionnaire.sessions.abandoned")).toBe(1);
+    expect(lineFor(ingested.installed, "session.abandoned")).toMatchObject({ "questionnaire.last_item_id": "itm_04" });
+  });
+
+  it("negative control: a lower-case, route-shaped screen name IS sent, since the route check is a shape check only", async () => {
+    const { queued } = await runBrowser(() => undefined, `/run/${LEAK_SENTINEL.toLowerCase()}`);
+    const envelopes = wireOf(queued);
+
+    const ingested = ingestEnvelopes(envelopes);
+
+    expect(JSON.stringify(envelopes).toLowerCase()).toContain(LEAK_SENTINEL.toLowerCase());
+    expect(ingested.dropped).toBe(0);
+    expect(JSON.stringify(ingested.installed.logs()).toLowerCase()).toContain(LEAK_SENTINEL.toLowerCase());
   });
 });

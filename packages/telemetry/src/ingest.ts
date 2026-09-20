@@ -1,13 +1,12 @@
 import { context, trace, type SpanContext } from "@opentelemetry/api";
 import { telemetryApi } from "@qp/shared";
 import { relayBrowserEvent } from "./events.js";
-import type { FieldName } from "./fields.js";
 import { guardedOr } from "./guard.js";
 import { reportIngestDropped } from "./instruments.js";
 import { relayLog } from "./logger.js";
 import { parseTraceparent } from "./trace-context.js";
-import { CLIENT_LOG_LEVELS, EVENT_SOURCES, type IngestDropReason } from "./vocabulary.js";
-import { acceptsFromBrowser, browserDomainEventOf, browserFieldsOf, isClientLogEvent } from "./wire-contract.js";
+import { clientLogEventOf, clientLogLevelOf, EVENT_SOURCES, type IngestDropReason } from "./vocabulary.js";
+import { browserDomainEventOf, browserFieldsOf, judgeBrowserField } from "./wire-contract.js";
 
 const BROWSER_SOURCE: (typeof EVENT_SOURCES)[number] = "browser";
 
@@ -26,20 +25,16 @@ interface KeptFields {
   readonly rejected: number;
 }
 
-function keptFieldsOf(fields: Record<string, unknown>, eligible: readonly FieldName[]): KeptFields {
+function keptFieldsOf(fields: Record<string, unknown>, eventName: string): KeptFields {
   const kept: Record<string, unknown> = {};
   let unregistered = 0;
   let rejected = 0;
   for (const [key, value] of Object.entries(fields)) {
     if (value === null || value === undefined) continue;
-    const field = eligible.find((candidate) => candidate === key);
-    if (field === undefined) {
-      unregistered += 1;
-    } else if (acceptsFromBrowser(field, value)) {
-      kept[field] = value;
-    } else {
-      rejected += 1;
-    }
+    const verdict = judgeBrowserField(eventName, key, value);
+    if (verdict === "unknown_field") unregistered += 1;
+    else if (verdict === "invalid_field") rejected += 1;
+    else kept[verdict] = value;
   }
   return { kept, unregistered, rejected };
 }
@@ -50,7 +45,8 @@ function refused(reason: IngestDropReason): false {
 }
 
 function relay(name: string, fields: Record<string, unknown>): boolean {
-  if (isClientLogEvent(name)) return relayLog(CLIENT_LOG_LEVELS[name], "browser", name, fields);
+  const level = clientLogLevelOf(name);
+  if (level !== undefined) return relayLog(level, "browser", clientLogEventOf(level), fields);
   const domainEvent = browserDomainEventOf(name);
   return domainEvent !== undefined && relayBrowserEvent(domainEvent, fields);
 }
@@ -65,10 +61,9 @@ function ingestEventUnguarded(raw: unknown, receivedAt: number): boolean {
   if (typeof name !== "string" || typeof at !== "string" || Number.isNaN(Date.parse(at)) || !isRecord(fields)) {
     return refused("malformed");
   }
-  const eligible = browserFieldsOf(name);
-  if (eligible === undefined) return refused("unknown_event");
+  if (browserFieldsOf(name) === undefined) return refused("unknown_event");
 
-  const { kept, unregistered, rejected } = keptFieldsOf(fields, eligible);
+  const { kept, unregistered, rejected } = keptFieldsOf(fields, name);
   reportIngestDropped("unknown_field", unregistered);
   reportIngestDropped("invalid_field", rejected);
   const parent = traceparentOf(traceparent);

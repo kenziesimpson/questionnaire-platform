@@ -1,6 +1,7 @@
+import { isDomainEventRecord } from "../logger.js";
 import type { DropCounts } from "../scrub.js";
 import { DROP_REASONS, type DropReason } from "../vocabulary.js";
-import { scrubbedEvent, type CallerEvent, type EventRecord, type QueuedEvent } from "./events.js";
+import { abandonmentsFirst, callerRecord, scrubbedEvent, type CallerEvent, type EventRecord, type QueuedEvent } from "./events.js";
 import { activeTraceparent } from "./tracing.js";
 
 const EVENT_DROP_REASONS = ["overflow", "undelivered", "internal", "level"] as const;
@@ -119,13 +120,18 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
 
   function flushOnExit(): void {
     stopTimer();
-    while (pending.length > 0) beaconBatch(pending.splice(0, batchSize));
+    const ordered = abandonmentsFirst(pending.splice(0));
+    while (ordered.length > 0) beaconBatch(ordered.splice(0, batchSize));
   }
 
   function enqueueRecord(record: EventRecord): void {
     if (closed) return;
     try {
-      const scrubbed = scrubbedEvent(record, screenNow(), { at: new Date(now()).toISOString(), traceparent: activeTraceparent() });
+      const scrubbed = scrubbedEvent(record, screenNow(), {
+        at: new Date(now()).toISOString(),
+        traceparent: activeTraceparent(),
+        isDomainEvent: isDomainEventRecord(record),
+      });
       addDropped(droppedFields, scrubbed.dropped);
       if (scrubbed.event === undefined) {
         droppedEvents.level += 1;
@@ -144,7 +150,7 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
   }
 
   function enqueue<M extends string>(event: CallerEvent<M>): void {
-    enqueueRecord(event);
+    enqueueRecord(callerRecord(event));
   }
 
   function close(): void {

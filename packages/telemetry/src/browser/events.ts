@@ -1,16 +1,17 @@
 import { FIELDS } from "../fields.js";
-import type { LiteralMessage, LogLevel, LogRecord } from "../logger.js";
+import type { LiteralMessage, LogRecord } from "../logger.js";
 import { scrubAttributes, type DropCounts } from "../scrub.js";
-import { EVENTS_LOG_MODULE, LOG_ATTRIBUTES } from "../vocabulary.js";
+import { CLIENT_LOG_LEVELS, LOG_ATTRIBUTES, type ClientLogLevel } from "../vocabulary.js";
 import { browserDomainEventOf, type BrowserDomainEvent } from "../wire-contract.js";
 import { safeFrames } from "./frames.js";
 
-export const QUEUED_LEVELS = ["info", "warn", "error"] as const satisfies readonly LogLevel[];
-export type QueuedLevel = (typeof QUEUED_LEVELS)[number];
+export const QUEUED_LEVELS = CLIENT_LOG_LEVELS;
+export type QueuedLevel = ClientLogLevel;
 
 interface EventStamp {
   readonly at: string;
   readonly traceparent: string | undefined;
+  readonly isDomainEvent: boolean;
 }
 
 export type QueuedEvent = Omit<LogRecord, "level"> & {
@@ -26,7 +27,7 @@ export interface EventRecord {
   readonly attributes?: unknown;
 }
 
-export type CallerAttributes = { readonly [attribute: string]: unknown; readonly "error.stack"?: never };
+export type CallerAttributes = { readonly [attribute: string]: unknown; readonly "error.stack"?: never; readonly module?: never };
 
 export interface CallerEvent<M extends string> {
   readonly level: QueuedLevel;
@@ -68,7 +69,7 @@ export function scrubbedEvent(input: EventRecord, screen: string | undefined, st
   const dropped = { ...scrubbed.dropped, invalid: scrubbed.dropped.invalid + (message === undefined ? 1 : 0) };
   const { level } = input;
   if (!isQueuedLevel(level)) return { event: undefined, dropped };
-  const domainEvent = scrubbed.attributes[LOG_ATTRIBUTES.module] === EVENTS_LOG_MODULE ? browserDomainEventOf(message) : undefined;
+  const domainEvent = stamp.isDomainEvent ? browserDomainEventOf(message) : undefined;
   return {
     event: {
       level,
@@ -80,4 +81,14 @@ export function scrubbedEvent(input: EventRecord, screen: string | undefined, st
     },
     dropped,
   };
+}
+
+export function callerRecord<M extends string>(event: CallerEvent<M>): EventRecord {
+  const attributes = Object.entries(attributesOf(event.attributes)).filter(([key]) => key !== LOG_ATTRIBUTES.module);
+  return { level: event.level, message: event.message, attributes: Object.fromEntries(attributes) };
+}
+
+export function abandonmentsFirst(events: readonly QueuedEvent[]): QueuedEvent[] {
+  const isAbandonment = (event: QueuedEvent): boolean => browserDomainEventOf(event.event) !== undefined;
+  return [...events.filter(isAbandonment), ...events.filter((event) => !isAbandonment(event))];
 }

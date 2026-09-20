@@ -1,3 +1,5 @@
+import type { LogLevel } from "./logger.js";
+
 export const INSTRUMENTATION_SCOPE = "qp.telemetry";
 
 export const SIGNAL_KINDS = ["log", "span", "metric"] as const;
@@ -24,13 +26,18 @@ export const SCRUB_ATTRIBUTES = {
 
 export const EVENT_SOURCES = ["browser"] as const;
 
-export const CLIENT_LOG_EVENTS = ["client.info", "client.warn", "client.error"] as const;
-export type ClientLogEvent = (typeof CLIENT_LOG_EVENTS)[number];
+export const CLIENT_LOG_LEVELS = ["info", "warn", "error"] as const satisfies readonly LogLevel[];
+export type ClientLogLevel = (typeof CLIENT_LOG_LEVELS)[number];
 
-export const CLIENT_LOG_LEVELS = { "client.info": "info", "client.warn": "warn", "client.error": "error" } as const satisfies Record<
-  ClientLogEvent,
-  "info" | "warn" | "error"
->;
+export type ClientLogEvent = `client.${ClientLogLevel}`;
+
+export function clientLogEventOf(level: ClientLogLevel): ClientLogEvent {
+  return `client.${level}`;
+}
+
+export function clientLogLevelOf(name: unknown): ClientLogLevel | undefined {
+  return CLIENT_LOG_LEVELS.find((level) => clientLogEventOf(level) === name);
+}
 
 export const LOG_ATTRIBUTES = { traceId: "trace_id", spanId: "span_id", module: "module" } as const;
 

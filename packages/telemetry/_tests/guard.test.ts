@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { guarded, guardedOr } from "../src/guard.js";
+import { guarded, guardedAsync, guardedOr } from "../src/guard.js";
 import { DROPPED_COUNTER, installFaultyMeter, internalDropsOf, restoreFaults } from "./faults.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
@@ -36,6 +36,35 @@ describe("guarded", () => {
       }),
     ).not.toThrow();
     expect(recorded).toEqual([]);
+  });
+});
+
+describe("guardedAsync", () => {
+  it("awaits the action and records nothing when it resolves", async () => {
+    const recorded = installFaultyMeter();
+    let done = false;
+
+    await guardedAsync("span", async () => {
+      await Promise.resolve();
+      done = true;
+    });
+
+    expect(done).toBe(true);
+    expect(recorded).toEqual([]);
+  });
+
+  it("swallows a rejection and counts it as an internal drop of the given signal, never recording its message", async () => {
+    const recorded = installFaultyMeter();
+
+    await expect(
+      guardedAsync("span", async () => {
+        await Promise.resolve();
+        throw new Error(`failed ${LEAK}`);
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(recorded).toEqual([{ name: DROPPED_COUNTER, value: 1, attributes: { "telemetry.signal": "span", "telemetry.reason": "internal" } }]);
+    expect(JSON.stringify(recorded)).not.toContain(LEAK);
   });
 });
 

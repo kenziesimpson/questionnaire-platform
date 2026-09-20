@@ -3,7 +3,7 @@ import { ingestBatch, withSpan } from "../src/index.js";
 import { configureLogging, resetLogging, type LogRecord } from "../src/logger.js";
 import { installTestTelemetry, type TestTelemetry } from "../src/testing.js";
 import { browserDomainEventOf } from "../src/wire-contract.js";
-import { installFaultyMeter, internalDropsOf, restoreFaults } from "./faults.js";
+import { ingestDropsIn, installFaultyMeter, metricPointsIn, internalDropsOf, restoreFaults } from "./faults.js";
 import { QUESTION_ID, SESSION_ID } from "./fixtures.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
@@ -28,16 +28,6 @@ afterEach(async () => {
   resetLogging();
   restoreFaults();
 });
-
-async function metricPoints(installed: TestTelemetry, name: string) {
-  const all = await installed.metrics();
-  return all.find((metric) => metric.descriptor.name === name)?.dataPoints ?? [];
-}
-
-async function dropsByReason(installed: TestTelemetry): Promise<Record<string, unknown>> {
-  const points = await metricPoints(installed, "telemetry.ingest.dropped");
-  return Object.fromEntries(points.map((point) => [`${point.attributes["telemetry.ingest_reason"]}`, point.value]));
-}
 
 describe("ingestBatch: what a browser log line keeps", () => {
   it("re-emits a client log event as a log line in the browser module, at the level its name carries, with the server's stamps", () => {
@@ -80,7 +70,7 @@ describe("ingestBatch: what a browser log line keeps", () => {
     ingestBatch([{ name: "client.error", at: AT, fields: { errorType: "Error", errorStack: `Error: ${LEAK}\n    at x (y.js:1:1)` } }], RECEIVED_AT);
 
     expect(installed.logs()[0]).not.toHaveProperty("error.stack");
-    expect(await dropsByReason(installed)).toEqual({ invalid_field: 1 });
+    expect(await ingestDropsIn(installed)).toEqual({ invalid_field: 1 });
   });
 
   it.each([
@@ -109,7 +99,7 @@ describe("ingestBatch: what a browser log line keeps", () => {
     expect(receipt).toEqual({ accepted: 1, dropped: 0 });
     expect(installed.logs()[0]).not.toHaveProperty("error.stack");
     expect(JSON.stringify(installed.logs())).not.toContain(LEAK);
-    expect(await dropsByReason(installed)).toEqual({ invalid_field: 1 });
+    expect(await ingestDropsIn(installed)).toEqual({ invalid_field: 1 });
   });
 
   it.each([
@@ -142,8 +132,8 @@ describe("ingestBatch: what a browser domain event keeps", () => {
       { level: "info", msg: "session.abandoned", module: "events", "questionnaire.session_id": SESSION_ID, "telemetry.source": "browser" },
     ]);
     expect(installed.logs()[0]).not.toHaveProperty("questionnaire.last_item_id");
-    expect((await metricPoints(installed, "questionnaire.sessions.abandoned")).map((point) => point.value)).toEqual([1]);
-    expect(await dropsByReason(installed)).toEqual({});
+    expect((await metricPointsIn(installed, "questionnaire.sessions.abandoned")).map((point) => point.value)).toEqual([1]);
+    expect(await ingestDropsIn(installed)).toEqual({});
   });
 
   it("refuses session.item_skipped and the other events the server owns, counting each one", async () => {
@@ -161,9 +151,9 @@ describe("ingestBatch: what a browser domain event keeps", () => {
 
     expect(receipt).toEqual({ accepted: 0, dropped: 4 });
     expect(installed.logs()).toEqual([]);
-    expect(await dropsByReason(installed)).toEqual({ unknown_event: 4 });
-    expect(await metricPoints(installed, "questionnaire.sessions.completed")).toEqual([]);
-    expect(await metricPoints(installed, "questionnaire.session.duration")).toEqual([]);
+    expect(await ingestDropsIn(installed)).toEqual({ unknown_event: 4 });
+    expect(await metricPointsIn(installed, "questionnaire.sessions.completed")).toEqual([]);
+    expect(await metricPointsIn(installed, "questionnaire.session.duration")).toEqual([]);
   });
 });
 
@@ -191,21 +181,23 @@ describe("ingestBatch: only the fields a browser legitimately knows are kept", (
     const receipt = ingestBatch([{ name: "client.error", at: AT, fields: { [field]: value } }], RECEIVED_AT);
 
     expect(receipt).toEqual({ accepted: 1, dropped: 0 });
-    expect(await dropsByReason(installed)).toEqual({ unknown_field: 1 });
+    expect(await ingestDropsIn(installed)).toEqual({ unknown_field: 1 });
     if (typeof value === "string") expect(JSON.stringify(installed.logs())).not.toContain(value);
   });
 
-  it("keeps only the fields a session.abandoned event needs, and drops a client log field from it", async () => {
+  it("keeps only the fields a session.abandoned event carries, and drops the rest as unknown", async () => {
     const installed = install();
 
     ingestBatch(
-      [{ name: "session.abandoned", at: AT, fields: { sessionId: SESSION_ID, questionCount: 4, elapsedSeconds: 90, errorType: "Error", route: "/x" } }],
+      [{ name: "session.abandoned", at: AT, fields: { sessionId: SESSION_ID, lastItemId: "itm_03", questionCount: 4, elapsedSeconds: 90, errorType: "Error", route: "/x" } }],
       RECEIVED_AT,
     );
 
-    expect(installed.logs()[0]).toMatchObject({ "questionnaire.session_id": SESSION_ID, "questionnaire.question_count": 4, "questionnaire.elapsed_seconds": 90 });
+    expect(installed.logs()[0]).toMatchObject({ "questionnaire.session_id": SESSION_ID, "questionnaire.last_item_id": "itm_03" });
     expect(installed.logs()[0]).not.toHaveProperty("error.type");
-    expect(await dropsByReason(installed)).toEqual({ unknown_field: 2 });
+    expect(installed.logs()[0]).not.toHaveProperty("questionnaire.question_count");
+    expect(installed.logs()[0]).not.toHaveProperty("questionnaire.elapsed_seconds");
+    expect(await ingestDropsIn(installed)).toEqual({ unknown_field: 4 });
   });
 
   it("accepts exactly the client log events and session.abandoned", () => {
@@ -239,7 +231,7 @@ describe("ingestBatch: the registry decides what is kept, and every drop is coun
     expect(installed.logs()).toHaveLength(1);
     expect(installed.logs()[0]).toMatchObject({ "questionnaire.session_id": SESSION_ID });
     expect(JSON.stringify(installed.logs())).not.toContain(LEAK);
-    expect(await dropsByReason(installed)).toEqual({ unknown_field: 4, invalid_field: 2 });
+    expect(await ingestDropsIn(installed)).toEqual({ unknown_field: 4, invalid_field: 2 });
   });
 
   it("never lets a browser set the fields the server stamps", () => {
@@ -276,7 +268,7 @@ describe("ingestBatch: the registry decides what is kept, and every drop is coun
 
     expect(receipt).toEqual({ accepted: 2, dropped: 1 });
     expect(installed.logs().map((line) => line.msg)).toEqual(["client.info", "client.warn"]);
-    expect(await dropsByReason(installed)).toEqual({ malformed: 1 });
+    expect(await ingestDropsIn(installed)).toEqual({ malformed: 1 });
   });
 
   it.each([LEAK, LEAK.toLowerCase(), `client.info ${LEAK}`, "client.debug", "CLIENT.INFO", "toString", "__proto__", ""])(
@@ -288,7 +280,7 @@ describe("ingestBatch: the registry decides what is kept, and every drop is coun
 
       expect(receipt).toEqual({ accepted: 0, dropped: 1 });
       expect(installed.logs()).toEqual([]);
-      expect(await dropsByReason(installed)).toEqual({ unknown_event: 1 });
+      expect(await ingestDropsIn(installed)).toEqual({ unknown_event: 1 });
       expect(JSON.stringify(await installed.metrics())).not.toContain(LEAK);
     },
   );
@@ -301,7 +293,7 @@ describe("ingestBatch: the registry decides what is kept, and every drop is coun
 
     expect(receipt).toEqual({ accepted: 50, dropped: 3 });
     expect(installed.logs()).toHaveLength(50);
-    expect(await dropsByReason(installed)).toEqual({ over_limit: 3 });
+    expect(await ingestDropsIn(installed)).toEqual({ over_limit: 3 });
   });
 });
 
@@ -339,7 +331,7 @@ describe("ingestBatch: trace context", () => {
     expect(receipt).toEqual({ accepted: 1, dropped: 0 });
     expect(installed.logs()[0]).not.toHaveProperty("trace_id");
     expect(JSON.stringify(installed.logs())).not.toContain(LEAK);
-    expect(await dropsByReason(installed)).toEqual({ invalid_trace: 1 });
+    expect(await ingestDropsIn(installed)).toEqual({ invalid_trace: 1 });
   });
 });
 

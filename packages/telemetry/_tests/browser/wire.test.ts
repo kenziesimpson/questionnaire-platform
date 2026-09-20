@@ -1,7 +1,7 @@
 import { telemetryApi } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import type { QueuedEvent } from "../../src/browser/events.js";
-import { toBeaconBlob, toEnvelopes, toFetchInit, toWireEvent } from "../../src/browser/wire.js";
+import { BEACON_BODY_BUDGET_BYTES, toBeaconBlob, toEnvelopes, toFetchInit, toWireEvent } from "../../src/browser/wire.js";
 import { FIELDS } from "../../src/fields.js";
 import { QUESTION_ID, SESSION_ID } from "../fixtures.js";
 
@@ -26,8 +26,6 @@ function stackOf(frames: number, width: number): string {
 function bytesOf(value: unknown): number {
   return Buffer.byteLength(JSON.stringify(value), "utf8");
 }
-
-const EMPTY_ENVELOPE_BYTES = bytesOf({ events: [] });
 
 describe("toWireEvent: the registry names", () => {
   it("renames dotted attribute keys to the registry field names, through FIELDS", () => {
@@ -68,11 +66,16 @@ describe("toWireEvent: the registry names", () => {
       queued({ attributes: { [FIELDS.elapsedSeconds.attribute]: 12, [FIELDS.outcome.attribute]: "accepted", [FIELDS.source.attribute]: "browser", [FIELDS.sessionId.attribute]: SESSION_ID } }),
     );
     const domain = abandoned({
-      attributes: { [FIELDS.elapsedSeconds.attribute]: 12, [FIELDS.route.attribute]: "/run/x", [FIELDS.sessionId.attribute]: SESSION_ID },
+      attributes: {
+        [FIELDS.elapsedSeconds.attribute]: 12,
+        [FIELDS.route.attribute]: "/run/x",
+        [FIELDS.lastItemId.attribute]: "itm_03",
+        [FIELDS.sessionId.attribute]: SESSION_ID,
+      },
     });
 
     expect(client.fields).toEqual({ sessionId: SESSION_ID });
-    expect(toWireEvent(domain).fields).toEqual({ elapsedSeconds: 12, sessionId: SESSION_ID });
+    expect(toWireEvent(domain).fields).toEqual({ lastItemId: "itm_03", sessionId: SESSION_ID });
   });
 
   it("drops a value the ingest would refuse", () => {
@@ -108,6 +111,12 @@ describe("toWireEvent: the name", () => {
   it("names a record marked as a browser domain event by the marker, whatever its level", () => {
     expect(toWireEvent(abandoned({ level: "info" })).name).toBe("session.abandoned");
     expect(toWireEvent(abandoned({ level: "warn" })).name).toBe("session.abandoned");
+  });
+
+  it("checks the marker against the closed list, so a marker that names another event is ignored", () => {
+    const forged: Partial<QueuedEvent> = JSON.parse('{"event":"session.completed"}');
+
+    expect(toWireEvent(queued({ ...forged, level: "warn" })).name).toBe("client.warn");
   });
 
   it("does not read the message: text that spells a domain event without the marker stays a client log", () => {
@@ -193,11 +202,32 @@ describe("toEnvelopes: the shape and the caps", () => {
     }
     expect(envelopes.flatMap((envelope) => envelope.events.map((event) => event.at))).toEqual(events.map((event) => event.at));
   });
+});
 
-  it("drops an event that alone could not fit an envelope, and keeps the ones beside it", () => {
-    const envelopes = toEnvelopes([queued({ level: "warn" }), queued({ at: "x".repeat(telemetryApi.MAX_TELEMETRY_BODY_BYTES - EMPTY_ENVELOPE_BYTES) }), queued({ level: "error" })]);
+describe("toEnvelopes: the beacon budget", () => {
+  it("keeps a beacon envelope well under the server's limit", () => {
+    expect(BEACON_BODY_BUDGET_BYTES).toBeLessThanOrEqual(telemetryApi.MAX_TELEMETRY_BODY_BYTES / 2);
+  });
 
-    expect(envelopes.flatMap((envelope) => envelope.events.map((event) => event.name))).toEqual(["client.warn", "client.error"]);
+  it("splits at the budget it is given, each envelope within it, and at the server's limit by default", () => {
+    const events = Array.from({ length: 30 }, () => queued({ level: "error", attributes: { [FIELDS.errorStack.attribute]: stackOf(40, 90) } }));
+
+    const beacon = toEnvelopes(events, BEACON_BODY_BUDGET_BYTES);
+    const fetched = toEnvelopes(events);
+
+    expect(beacon.length).toBeGreaterThan(fetched.length);
+    for (const envelope of beacon) expect(bytesOf(envelope)).toBeLessThanOrEqual(BEACON_BODY_BUDGET_BYTES);
+    for (const envelope of fetched) expect(bytesOf(envelope)).toBeLessThanOrEqual(telemetryApi.MAX_TELEMETRY_BODY_BYTES);
+    expect(beacon.flatMap((envelope) => envelope.events)).toHaveLength(30);
+  });
+
+  it("puts the abandonment in the first envelope, which stays within the budget", () => {
+    const logs = Array.from({ length: 20 }, () => queued({ level: "error", attributes: { [FIELDS.errorStack.attribute]: stackOf(40, 90) } }));
+
+    const [first] = toEnvelopes([...logs, abandoned()], BEACON_BODY_BUDGET_BYTES);
+
+    expect(first?.events[0]?.name).toBe("session.abandoned");
+    expect(bytesOf(first)).toBeLessThanOrEqual(BEACON_BODY_BUDGET_BYTES);
   });
 });
 

@@ -1,6 +1,7 @@
 import { PROBLEM_SLUGS, RESPONSE_TYPES, SLUG_PATTERN, SUBMISSION_ITEM_CODES, UUID_PATTERN } from "@qp/shared";
 import { PROBLEM_CODES } from "./problems.js";
 import { MAX_STACK_FRAMES } from "./frame-shape.js";
+import { SPAN_ID_LENGTH, TRACE_ID_LENGTH } from "./trace-context.js";
 import {
   DROP_REASONS,
   EVENT_SOURCES,
@@ -40,6 +41,8 @@ const CONSTRAINT_NAME = /^(?=.{1,63}$)[a-z][a-z0-9]*(?:_+[a-z0-9]+)+$/;
 const DB_SYSTEM = /^[a-z][a-z0-9_.]{0,31}$/;
 const DB_OPERATION = /^[A-Za-z_]{1,32}$/;
 const HOST_NAME = /^[A-Za-z0-9_.-]{1,255}$/;
+const HEX_TRACE_ID = new RegExp(`^[0-9a-f]{${TRACE_ID_LENGTH}}$`);
+const HEX_SPAN_ID = new RegExp(`^[0-9a-f]{${SPAN_ID_LENGTH}}$`);
 const STACK_FRAME = /^ {4}at (?:.+ \((?:[^\s()]+:\d+:\d+|<anonymous>|native)\)|[^\s()]+:\d+:\d+)$/;
 
 function matching(attribute: string, expression: RegExp, bounded: boolean): FieldDefinition<string> {
@@ -135,8 +138,8 @@ function indexedByAttribute(definitions: readonly FieldDefinition<unknown>[]): R
 const FIELD_ATTRIBUTES = indexedByAttribute(Object.values(FIELDS));
 
 const INFRASTRUCTURE = indexedByAttribute([
-  matching(LOG_ATTRIBUTES.traceId, /^[0-9a-f]{32}$/, false),
-  matching(LOG_ATTRIBUTES.spanId, /^[0-9a-f]{16}$/, false),
+  matching(LOG_ATTRIBUTES.traceId, HEX_TRACE_ID, false),
+  matching(LOG_ATTRIBUTES.spanId, HEX_SPAN_ID, false),
   oneOf(LOG_ATTRIBUTES.module, LOG_MODULES),
   matching("exception.type", EXCEPTION_TYPE, true),
   oneOf("otel.status_code", ["OK", "ERROR"]),
