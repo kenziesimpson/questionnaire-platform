@@ -4,68 +4,6 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
-  file_log/containers:
-    include:
-      - /var/lib/docker/containers/*/*-json.log
-    start_at: end
-    include_file_name: false
-    operators:
-      - type: json_parser
-        id: docker_line
-        parse_ints: true
-        on_error: drop
-        timestamp:
-          parse_from: attributes.time
-          layout_type: gotime
-          layout: 2006-01-02T15:04:05.999999999Z07:00
-      - type: filter
-        id: only_labelled_containers
-        expr: 'not (attributes.attrs != nil and attributes.attrs.qp_log_service != nil)'
-      - type: move
-        id: service_name_from_label
-        from: attributes.attrs.qp_log_service
-        to: resource["service.name"]
-      - type: move
-        id: line_from_docker
-        from: attributes.log
-        to: body
-      - type: remove
-        id: drop_docker_fields
-        field: attributes
-      - type: filter
-        id: only_json_lines
-        expr: 'not (body matches "^\\{")'
-      - type: json_parser
-        id: application_line
-        parse_ints: true
-        on_error: drop
-      - type: severity_parser
-        id: severity_from_level
-        parse_from: attributes.level
-        if: 'attributes.level != nil'
-      - type: filter
-        id: only_literal_messages
-        expr: 'not (attributes.msg matches "^[A-Za-z][A-Za-z0-9 ._:,/-]{0,127}$")'
-      - type: move
-        id: message_to_body
-        from: attributes.msg
-        to: body
-      - type: trace_parser
-        id: trace_context
-        if: 'attributes.trace_id != nil and attributes.trace_id != "" and attributes.span_id != nil and attributes.span_id != ""'
-        trace_id:
-          parse_from: attributes.trace_id
-        span_id:
-          parse_from: attributes.span_id
-      - type: remove
-        id: drop_empty_trace_id
-        field: attributes.trace_id
-        if: 'attributes.trace_id == ""'
-      - type: remove
-        id: drop_empty_span_id
-        field: attributes.span_id
-        if: 'attributes.span_id == ""'
-
   postgresql:
     endpoint: db:5432
     transport: tcp
@@ -149,6 +87,43 @@ processors:
         value: ${env:QP_SERVICE_VERSION}
         action: upsert
 
+  redaction/postgresql:
+    allow_all_keys: false
+    allowed_keys:
+      - db.collection.name
+      - db.namespace
+      - operation
+      - postgresql.database.name
+      - postgresql.index.name
+      - postgresql.schema.name
+      - postgresql.table.name
+      - replication_client
+      - server.address
+      - server.port
+      - service.instance.id
+      - source
+      - state
+      - type
+    summary: silent
+
+  redaction/derived:
+    allow_all_keys: false
+    allowed_keys:
+      - http.request.method
+      - http.response.status_code
+      - http.route
+      - span.kind
+      - span.name
+      - status.code
+    ignored_keys:
+      - service.name
+    summary: silent
+
+  filter/log_bodies:
+    error_mode: ignore
+    log_conditions:
+      - 'not IsMatch(log.body.string, "^[A-Za-z][A-Za-z0-9 ._:,/-]{0,127}$")'
+
   resource/postgresql:
     attributes:
       - key: service.name
@@ -174,20 +149,21 @@ processors:
       - name: slow
         type: latency
         latency:
-          threshold_ms: 1000
+          threshold_ms: ${env:QP_TRACE_SLOW_MS:-1000}
       - name: baseline
-        type: probabilistic
-        probabilistic:
-          sampling_percentage: 10
-      - name: health_probes
-        type: drop
-        drop:
-          drop_sub_policy:
-            - name: health_route
+        type: and
+        and:
+          and_sub_policy:
+            - name: share
+              type: probabilistic
+              probabilistic:
+                sampling_percentage: ${env:QP_TRACE_SAMPLE_PERCENT:-100}
+            - name: not_a_health_probe
               type: string_attribute
               string_attribute:
                 key: http.route
                 values: [/health/ready, /health/live]
+                invert_match: true
 
   batch:
     timeout: 5s
@@ -217,7 +193,7 @@ service:
   pipelines:
     traces/ingest:
       receivers: [otlp]
-      processors: [memory_limiter, redaction, resource/build]
+      processors: [memory_limiter, redaction]
       exporters: [forward/spanmetrics, forward/sampling]
     traces/spanmetrics:
       receivers: [forward/spanmetrics]
@@ -225,7 +201,7 @@ service:
       exporters: [span_metrics]
     traces/sampled:
       receivers: [forward/sampling]
-      processors: [tail_sampling, batch]
+      processors: [redaction, tail_sampling, resource/build, batch]
       exporters: [otlp_http/lgtm]
     metrics/application:
       receivers: [otlp]
@@ -233,13 +209,13 @@ service:
       exporters: [otlp_http/lgtm]
     metrics/derived:
       receivers: [span_metrics]
-      processors: [resource/build, batch]
+      processors: [redaction/derived, resource/build, batch]
       exporters: [otlp_http/lgtm]
     metrics/postgresql:
       receivers: [postgresql]
-      processors: [memory_limiter, resource/postgresql, resource/build, batch]
+      processors: [memory_limiter, redaction/postgresql, resource/postgresql, resource/build, batch]
       exporters: [otlp_http/lgtm]
-    logs/containers:
-      receivers: [file_log/containers]
-      processors: [memory_limiter, redaction, resource/build, batch]
+    logs/application:
+      receivers: [otlp]
+      processors: [memory_limiter, redaction, filter/log_bodies, resource/build, batch]
       exporters: [otlp_http/lgtm]

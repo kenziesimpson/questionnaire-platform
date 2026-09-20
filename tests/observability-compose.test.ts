@@ -10,7 +10,7 @@ const OBSERVABILITY_PROFILE = "observability";
 
 const OBSERVABILITY_SERVICES = ["collector", "lgtm"];
 
-const LOG_LABEL = "qp_log_service";
+const LOOPBACK = "127.0.0.1";
 
 const DOCKER_LOG_DIRECTORY = "/var/lib/docker/containers";
 
@@ -27,16 +27,11 @@ function recordAt(parent: unknown, key: string): Record<string, unknown> {
 const composeDocument: unknown = parse(readFileSync(resolve(repoRoot, "docker-compose.yml"), "utf8"));
 const services = recordAt(composeDocument, "services");
 const backend = recordAt(services, "backend");
-const collectorConfig = readFileSync(resolve(repoRoot, "observability/collector.yaml"), "utf8");
-const backendConfig = readFileSync(resolve(repoRoot, "apps/backend/src/config.ts"), "utf8");
+const collector = recordAt(services, "collector");
 
-function volumesOf(service: unknown): string[] {
-  const volumes = isRecord(service) ? service.volumes : undefined;
-  return Array.isArray(volumes) ? volumes.filter((volume): volume is string => typeof volume === "string") : [];
-}
-
-function serviceNameDefault(reference: unknown): string | undefined {
-  return typeof reference === "string" ? /^\$\{OTEL_SERVICE_NAME:-([^}]+)\}$/.exec(reference)?.[1] : undefined;
+function stringsOf(service: unknown, key: string): string[] {
+  const values = isRecord(service) ? service[key] : undefined;
+  return Array.isArray(values) ? values.filter((value): value is string => typeof value === "string") : [];
 }
 
 describe("the observability profile leaves the default stack as it was", () => {
@@ -62,38 +57,38 @@ describe("the observability profile leaves the default stack as it was", () => {
   it("keeps the frontend's start condition as it was, since nginx resolves the backend's name at startup", () => {
     expect(recordAt(services, "frontend").depends_on).toEqual(["backend"]);
   });
+
+  it("changes no service's log driver, labels or user: telemetry leaves the app through OTLP, not through Docker's log files", () => {
+    for (const [name, service] of Object.entries(services)) {
+      expect(recordAt({ service }, "service").logging, name).toBeUndefined();
+      expect(recordAt({ service }, "service").labels, name).toBeUndefined();
+    }
+    expect(collector.user).toBeUndefined();
+  });
+
+  it("mounts no Docker log directory into any container", () => {
+    for (const [name, service] of Object.entries(services)) {
+      expect(stringsOf(service, "volumes").filter((volume) => volume.includes(DOCKER_LOG_DIRECTORY)), name).toEqual([]);
+    }
+  });
 });
 
-describe("the container logs the Collector reads", () => {
-  it("are those of the containers that carry the label, and only the backend and the frontend do", () => {
-    const labelled = Object.entries(services)
-      .filter(([, service]) => isRecord(service) && isRecord(service.labels) && LOG_LABEL in service.labels)
-      .map(([name]) => name);
-    expect(labelled).toEqual(["backend", "frontend"]);
-    for (const name of labelled) {
-      expect(recordAt(recordAt(services, name), "logging")).toEqual({ driver: "json-file", options: { labels: LOG_LABEL } });
-    }
-    expect(recordAt(services, "db").labels).toBeUndefined();
-    expect(recordAt(services, "db").logging).toBeUndefined();
+describe("the sampling knobs", () => {
+  it("reach the Collector with the defaults the Collector config also carries", () => {
+    const environment = recordAt(collector, "environment");
+    expect(environment.QP_TRACE_SAMPLE_PERCENT).toBe("${QP_TRACE_SAMPLE_PERCENT:-100}");
+    expect(environment.QP_TRACE_SLOW_MS).toBe("${QP_TRACE_SLOW_MS:-1000}");
+  });
+});
+
+describe("the ports the observability profile publishes (O22)", () => {
+  const published = OBSERVABILITY_SERVICES.flatMap((name) => stringsOf(recordAt(services, name), "ports").map((port) => [name, port] as const));
+
+  it("finds the Collector's OTLP port and Grafana's", () => {
+    expect(published.map(([name]) => name).sort()).toEqual(["collector", "lgtm"]);
   });
 
-  it("are selected in the Collector by the same label", () => {
-    expect(collectorConfig).toContain(`attributes.attrs.${LOG_LABEL} != nil`);
-    expect(collectorConfig).toContain(`from: attributes.attrs.${LOG_LABEL}`);
-  });
-
-  it("are named for the service that the backend exports under, by default", () => {
-    const labelled = serviceNameDefault(recordAt(backend, "labels")[LOG_LABEL]);
-    const configured = /process\.env\.OTEL_SERVICE_NAME\) \?\? "([^"]+)"/.exec(backendConfig)?.[1];
-    expect(labelled).toBeDefined();
-    expect(labelled).toBe(configured);
-  });
-
-  it("are mounted read-only into the Collector and into no other container", () => {
-    const mounting = Object.entries(services)
-      .filter(([, service]) => volumesOf(service).some((volume) => volume.includes(DOCKER_LOG_DIRECTORY)))
-      .map(([name]) => name);
-    expect(mounting).toEqual(["collector"]);
-    expect(volumesOf(recordAt(services, "collector"))).toContain(`${DOCKER_LOG_DIRECTORY}:${DOCKER_LOG_DIRECTORY}:ro`);
+  it.each(published)("%s publishes %s on the loopback address only", (_name, port) => {
+    expect(port.startsWith(`${LOOPBACK}:`)).toBe(true);
   });
 });

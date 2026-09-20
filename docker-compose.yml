@@ -71,12 +71,6 @@ services:
       DATABASE_URL_REPORTING: postgres://qp_reporting:${QP_REPORTING_PASSWORD:-qp_reporting}@db:5432/${POSTGRES_DB:-questionnaire_platform}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
-    labels:
-      qp_log_service: ${OTEL_SERVICE_NAME:-qp-backend}
-    logging:
-      driver: json-file
-      options:
-        labels: qp_log_service
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/ready', { signal: AbortSignal.timeout(4000) }).then((response) => process.exit(response.ok ? 0 : 1), () => process.exit(1))"]
       interval: 5s
@@ -94,12 +88,6 @@ services:
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-8080}:80"
-    labels:
-      qp_log_service: qp-frontend
-    logging:
-      driver: json-file
-      options:
-        labels: qp_log_service
     depends_on:
       - backend
 
@@ -107,17 +95,17 @@ services:
     profiles: ["observability"]
     image: otel/opentelemetry-collector-contrib:0.160.0
     command: ["--config=/etc/otelcol/collector.yaml"]
-    user: "0:0"
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-questionnaire_platform}
       QP_MONITOR_PASSWORD: ${QP_MONITOR_PASSWORD:-qp_monitor}
       QP_SERVICE_VERSION: ${QP_SERVICE_VERSION:-dev}
+      QP_TRACE_SAMPLE_PERCENT: ${QP_TRACE_SAMPLE_PERCENT:-100}
+      QP_TRACE_SLOW_MS: ${QP_TRACE_SLOW_MS:-1000}
     ports:
       - "127.0.0.1:${OTLP_PORT:-4318}:4318"
     volumes:
       - ./observability/collector.yaml:/etc/otelcol/collector.yaml:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
     depends_on:
       roles:
         condition: service_completed_successfully
