@@ -148,6 +148,13 @@
       "when": 1789847000000,
       "tag": "0020_reporting_records_view_response",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789869019116,
+      "tag": "0021_monitor_schema",
+      "breakpoints": true
     }
   ]
 }

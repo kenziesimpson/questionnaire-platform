@@ -6,13 +6,14 @@
 
 ## 1. Shape
 
-Three Postgres schemas.
+Four Postgres schemas, three of them holding data.
 
 | Schema | Holds | Written by |
 | --- | --- | --- |
 | `definition` | question bank, question versions, questionnaires, versions, draft items, `version_question_index` | `qp_definition` |
 | `execution` | sessions, responses | `qp_execution` |
 | `audit` | the audit log | nobody directly — see §8 |
+| `monitor` | `SECURITY DEFINER` functions that return aggregates for telemetry, and nothing else | `qp_owner`, at migration time; read by `qp_monitor` (§10.1) |
 
 [[7-application-boundary#3.2 Database grants]] already puts the definition/execution barrier in Postgres grants. Schemas are what make that rule structural instead of a list to maintain: `ALTER DEFAULT PRIVILEGES IN SCHEMA definition` means every authoring table added later is denied to `qp_execution` automatically. A per-table grant list has to be remembered, and `GRANT ... ON ALL TABLES IN SCHEMA` covers only the tables that exist when it runs — verified: a table added by a later migration is not covered, and the failure surfaces at runtime as `permission denied` rather than at migration time.
 
@@ -671,7 +672,7 @@ should be "simplified" later.
 
 ## 10. Grants
 
-The migrations build this up across several files (`0005`, `0007`, `0009`, `0010`, `0013`, `0017`, `0018`, `0020`); the net result is:
+The migrations build this up across several files (`0005`, `0007`, `0009`, `0010`, `0013`, `0017`, `0018`, `0020`, `0021`); the net result is:
 
 ```sql
 GRANT USAGE ON SCHEMA definition TO qp_definition;
@@ -706,6 +707,11 @@ GRANT SELECT ON definition.published_questionnaire_version TO qp_reporting;
 GRANT SELECT (id) ON definition.questionnaire TO qp_reporting;
 GRANT USAGE ON SCHEMA audit TO qp_reporting;
 GRANT EXECUTE ON FUNCTION audit.record(text, uuid, uuid, int, text, jsonb, text) TO qp_reporting;
+
+-- qp_monitor (§10.1): no table, and one schema of aggregate functions. 0021.
+GRANT USAGE ON SCHEMA monitor TO qp_monitor;
+REVOKE EXECUTE ON FUNCTION monitor.response_partition_months_ahead(timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION monitor.response_partition_months_ahead(timestamptz) TO qp_monitor;
 ```
 
 | Role | `definition` | `execution` | `audit` |
@@ -713,12 +719,13 @@ GRANT EXECUTE ON FUNCTION audit.record(text, uuid, uuid, int, text, jsonb, text)
 | `qp_definition` | `SELECT, INSERT` on every table; `UPDATE` on every table except `questionnaire_version` and `questionnaire`, which get only the columns above; `DELETE` on `questionnaire_item` only; `EXECUTE` on `promote_draft` | none | `EXECUTE` on `audit.record` only (§9.1) |
 | `qp_execution` | `SELECT` on `questionnaire`, `version_question_index` and the `published_questionnaire_version` view — not the base `questionnaire_version` table | `SELECT, INSERT, UPDATE` on `session`; `SELECT, INSERT` on `response` | none |
 | `qp_reporting` | `SELECT` on the `published_questionnaire_version` view and on `questionnaire (id)` only — not the base `questionnaire_version` table | `SELECT` on `session` and `response` only | `EXECUTE` on `audit.record` and `USAGE` on the schema, nothing on `audit.event` (§9.1) |
+| `qp_monitor` | none — no privilege on any relation, no `USAGE` on the schema | none | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` |
 | `qp_owner` | owns every object | owns every object | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` (§9.1) |
 
 `qp_reporting` backs `/api/reporting`'s admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)), a narrow, later addition (Wave 3a) and not the wider "aggregate admin reporting" surface [[2-design-doc#18. Open Questions]] §8 still leaves open. It is deliberately not `qp_execution` with a different name and not a widened `qp_definition` — see Decisions Log #89 for why a fourth role rather than reusing either. It holds `SELECT` only, on every relation it touches, and `modules/reporting` holds no other pool, so the module cannot write except through `audit.record`, which records that an admin opened a session's answers (`view_response`, `0020`). The reporting repository's only audit function, `recordResponseView` in `db/reporting/audit.ts`, names that one action, so no code path in the module can record another; the database does not enforce it, since `audit.record` takes any action on the closed list from any role that can execute it. The published-versions view follows `0010`'s precedent (the one relation that exposes published snapshots without the base table), and `questionnaire` is granted by column — `id` alone — because the existence check reads nothing else. It was first shipped borrowing `qp_execution`'s pool for those two reads; review reversed that, since the borrowed credentials could write to `session` and `response`.
 
-No function in `definition`, `execution` or `audit` keeps the default `EXECUTE` for `PUBLIC`: `promote_draft` is executable only by `qp_definition`, `audit.record` by `qp_definition` and `qp_reporting`, and the trigger functions by no application role (a
-trigger fires without its caller holding `EXECUTE`). A catalog test asserts it, so a new function that forgets
+No function in `definition`, `execution`, `audit` or `monitor` keeps the default `EXECUTE` for `PUBLIC`: `promote_draft` is executable only by `qp_definition`, `audit.record` by `qp_definition` and `qp_reporting`, the `monitor` functions by `qp_monitor`, and the trigger functions by no application role (a
+trigger fires without its caller holding `EXECUTE`). A catalog test asserts it for the first three schemas and another for `monitor`, so a new function that forgets
 the revoke fails the suite.
 
 **Publishing columns are not `qp_definition`'s to write.** Status, version, snapshot, `format_version`, `published_at` and the current-version pointer change only inside `promote_draft` (§4.3). A `FOR UPDATE` row lock needs `UPDATE` on just one column, so the §5 locks still work.
@@ -749,6 +756,22 @@ Keeping `qp_owner` a plain role rather than the cluster superuser (§11.3) is wh
 growing to cover the whole cluster.
 
 Roles are created outside migrations — see §11.
+
+### 10.1 `qp_monitor` and the `monitor` schema
+
+Telemetry needs to read the database's own health without being able to read a respondent's answer ([[6-observability#14. Database telemetry]], layer 4). `qp_monitor` is the one identity it uses. It is a login role, created by `db/init/01-roles.sh` with the password in `QP_MONITOR_PASSWORD`, and a member of `pg_monitor`, which is `pg_read_all_settings`, `pg_read_all_stats` and `pg_stat_scan_tables`. It is not a member of `pg_read_all_data`, which would read every table.
+
+What `pg_monitor` gives it is the statistics views, read directly and not through a function. `pg_read_all_stats` lets `qp_monitor` read every role's statement text and counters instead of `<insufficient privilege>`: `pg_stat_statements` (loaded by the `db` service) stores each statement with its constants replaced by placeholders, and `pg_stat_activity.query` holds every session's running and last statement exactly as sent. Both are safe only because the backend always binds values through Parse and Bind, so the text carries `$n` and never a value. The residual exposure is any future statement built with inline literals instead of bound parameters: its values would show in `pg_stat_activity.query` while it runs and after, in the `STATEMENT:` line of the Postgres log when it errors, and, for a utility statement, in `pg_stat_statements`. The extension and its grants live in `db/init/pg-stat-statements.sql`, which `01-roles.sh` runs with `\i` and the test harness runs against the template database when it is given `TEST_DATABASE_URL`, so there is one copy: it creates the extension, revokes the two views and the two functions behind them (`pg_stat_statements(boolean)`, `pg_stat_statements_info()`) from `PUBLIC`, and grants `SELECT` on the views and `EXECUTE` on the two functions to `qp_monitor`, so no application role reads or calls them. Both grants are needed: Postgres checks the privileges on a view's underlying relations as the view's owner, but checks `EXECUTE` on a function the view calls as the calling user. The `monitor` functions below are the only thing `qp_monitor` reads that is computed rather than observed.
+
+Migration `0021` creates the `monitor` schema, owned by `qp_owner` like every other schema but `audit`, and grants `USAGE` on it to `qp_monitor`. Each object in it is a `SECURITY DEFINER` function owned by `qp_owner`, so it can read what `qp_monitor` cannot, with `search_path` pinned to `pg_catalog, pg_temp`, `EXECUTE` revoked from `PUBLIC` and granted to `qp_monitor`, and a return type that is an aggregate: a count or a number, never a row of an answer table. The schema holds no table or view, so there is no relation for a `SELECT` grant to widen onto.
+
+| Function | Returns | Reads |
+| --- | --- | --- |
+| `monitor.response_partition_months_ahead(as_of timestamptz DEFAULT now())` | `integer`: the months after the one containing `as_of` that a `response` partition covers, counted without a gap. `0` when only that month is covered and also `0` when that month has no partition, so the alert fires on `< 1` and does not tell the two apart | the catalog's partition bounds of `execution.response` (§6.4); no row of any table |
+
+That is the signal behind the sixth alert of [[6-observability#8.1 The six alerts]]: a missing partition fails every submit while every process is up, so it must read below one before the current month runs out (§11.4). A count of in-progress sessions was left out: it scans `execution.session` on every scrape, no alert reads it, and it would need an index first.
+
+A database test asserts the absence, as it does for `qp_definition` and `qp_reporting`: `qp_monitor` holds none of `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES` or `TRIGGER` on any relation in `definition`, `execution` or `audit`, at table or column level, has no `USAGE` on those schemas and no `EXECUTE` on their functions, is a member of no role but `pg_monitor`, and cannot create anything in `monitor`. Another checks that `monitor` holds only the functions above, each `SECURITY DEFINER`, owned by `qp_owner`, with a pinned search path and no `PUBLIC` `EXECUTE`. A later function is a new migration that adds the function, revokes `PUBLIC` and grants `qp_monitor`; the role never gains a grant on a table.
 
 ## 11. Migrations
 
@@ -814,8 +837,7 @@ inside a per-database migration is the wrong layer even without the secret.
 
 They go in a shell script instead, `db/init/01-roles.sh`, run by the one-shot `roles` compose
 service — not by the postgres entrypoint's `docker-entrypoint-initdb.d`, which the `db` service does not
-mount. Six identities, four connection strings (`qp_reporting` and `DATABASE_URL_REPORTING` joined the
-other five in Wave 3a, gh#18, Decisions Log #89):
+mount. Seven identities, four connection strings (`qp_reporting` and `DATABASE_URL_REPORTING` joined in Wave 3a, gh#18, Decisions Log #89; `qp_monitor` joined with the telemetry work and has no connection string of the backend's, §10.1):
 
 | Identity | Created by | Connects? |
 | --- | --- | --- |
@@ -824,6 +846,7 @@ other five in Wave 3a, gh#18, Decisions Log #89):
 | `qp_definition` | the `roles` service | Yes — backend authoring pool, `DATABASE_URL_DEFINITION` |
 | `qp_execution` | the `roles` service | Yes — backend execution pool, `DATABASE_URL_EXECUTION` |
 | `qp_reporting` | the `roles` service | Yes — backend reporting pool, `DATABASE_URL_REPORTING` |
+| `qp_monitor` | the `roles` service, a member of `pg_monitor` | Yes — the observability Collector, with `QP_MONITOR_PASSWORD`; not the backend |
 | `audit_owner` | the `roles` service, **`NOLOGIN`** | **No.** No password, no connection string |
 
 **The bootstrap superuser and `qp_owner` are different roles, deliberately.** `initdb` creates
@@ -856,7 +879,10 @@ written to be re-run: each `CREATE ROLE` is guarded by `NOT EXISTS`, and each lo
 set by an unconditional `ALTER ROLE ... PASSWORD`, so the environment is always the source of truth.
 Adding a role means adding it to the script (plus its password variable in compose and `.env.example`)
 and granting it privileges in a normal migration; the `roles` service guarantees it exists before that
-migration runs.
+migration runs. The script also runs `db/init/pg-stat-statements.sql` (`CREATE EXTENSION IF NOT EXISTS pg_stat_statements` and its grants) in the application database, as the
+bootstrap superuser: extensions are per database and need a superuser, the `roles` service is the one path that runs as one
+on every `up` (so an existing volume gets the extension too), and `CREATE EXTENSION` succeeds whether or not the server has
+preloaded the library, which the `db` service does through its `command` (§10.1). The SQL is a plain file with no password in it and no `psql` command, so the test harness can run it over an ordinary connection as well; the `db` service does not mount `db/init`, so nothing runs it at `initdb`.
 
 **`ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner` has a hidden dependency.** It applies only to objects
 created *by* `qp_owner`. If migrations ever run as some other identity — easy to do by pointing the
@@ -886,7 +912,9 @@ So the migration pre-creates 24–36 monthly partitions and rollover becomes a s
 something someone has to remember. The tempting insurance is a `DEFAULT` partition to catch strays,
 and §6.4 is the argument against it: it disables `DETACH ... CONCURRENTLY`, which is the archival
 operation the partitioning exists for. A missed rollover should fail loudly and be fixable, not
-silently accumulate rows that later block the fix.
+silently accumulate rows that later block the fix. It is also watched:
+`monitor.response_partition_months_ahead()` (§10.1) reads `0`, so below one, when the next month has no partition (or the current one has none either), which is the
+sixth alert of [[6-observability#8.1 The six alerts]].
 
 ### 11.5 The circular foreign key needs an `ALTER TABLE`
 

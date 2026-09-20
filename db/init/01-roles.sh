@@ -6,8 +6,11 @@
 : "${QP_DEFINITION_PASSWORD:?QP_DEFINITION_PASSWORD must be set}"
 : "${QP_EXECUTION_PASSWORD:?QP_EXECUTION_PASSWORD must be set}"
 : "${QP_REPORTING_PASSWORD:?QP_REPORTING_PASSWORD must be set}"
+: "${QP_MONITOR_PASSWORD:?QP_MONITOR_PASSWORD must be set}"
 
-for password in "$QP_OWNER_PASSWORD" "$QP_DEFINITION_PASSWORD" "$QP_EXECUTION_PASSWORD" "$QP_REPORTING_PASSWORD"; do
+INIT_DIR=$(dirname "$0")
+
+for password in "$QP_OWNER_PASSWORD" "$QP_DEFINITION_PASSWORD" "$QP_EXECUTION_PASSWORD" "$QP_REPORTING_PASSWORD" "$QP_MONITOR_PASSWORD"; do
   case "$password" in
     *[!A-Za-z0-9._~-]*)
       echo "01-roles.sh: role passwords are interpolated into connection URLs and may contain only A-Z a-z 0-9 . _ ~ -" >&2
@@ -23,7 +26,9 @@ psql -v ON_ERROR_STOP=1 \
   --set qp_owner_password="$QP_OWNER_PASSWORD" \
   --set qp_definition_password="$QP_DEFINITION_PASSWORD" \
   --set qp_execution_password="$QP_EXECUTION_PASSWORD" \
-  --set qp_reporting_password="$QP_REPORTING_PASSWORD" <<'SQL'
+  --set qp_reporting_password="$QP_REPORTING_PASSWORD" \
+  --set qp_monitor_password="$QP_MONITOR_PASSWORD" \
+  --set pg_stat_statements_sql="$INIT_DIR/pg-stat-statements.sql" <<'SQL'
 SELECT 'CREATE ROLE qp_owner LOGIN'
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'qp_owner') \gexec
 SELECT format('ALTER ROLE qp_owner PASSWORD %L', :'qp_owner_password') \gexec
@@ -39,6 +44,20 @@ SELECT format('ALTER ROLE qp_execution PASSWORD %L', :'qp_execution_password') \
 SELECT 'CREATE ROLE qp_reporting LOGIN'
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'qp_reporting') \gexec
 SELECT format('ALTER ROLE qp_reporting PASSWORD %L', :'qp_reporting_password') \gexec
+
+SELECT 'CREATE ROLE qp_monitor LOGIN'
+ WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'qp_monitor') \gexec
+SELECT format('ALTER ROLE qp_monitor PASSWORD %L', :'qp_monitor_password') \gexec
+
+SELECT 'GRANT pg_monitor TO qp_monitor'
+ WHERE NOT EXISTS (
+   SELECT FROM pg_auth_members m
+     JOIN pg_roles granted ON granted.oid = m.roleid
+     JOIN pg_roles member ON member.oid = m.member
+    WHERE granted.rolname = 'pg_monitor' AND member.rolname = 'qp_monitor'
+ ) \gexec
+
+\i :pg_stat_statements_sql
 
 SELECT 'CREATE ROLE audit_owner NOLOGIN'
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'audit_owner') \gexec

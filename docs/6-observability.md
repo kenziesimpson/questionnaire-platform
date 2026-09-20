@@ -242,7 +242,7 @@ Planned, P2. Each pages or tickets on a symptom a respondent or an operator woul
 | p95 latency of the questionnaire definition fetch rises | The same histogram for that route | Unassigned |
 | Event-loop lag stays high | `nodejs.eventloop.delay.p99` (seconds; the other delay statistics and `nodejs.eventloop.utilization` sit beside it) | D1 |
 | Requests stay queued for a pool connection | `db.pool.connections.waiting`, one point per `db.pool` | D1 |
-| Fewer than one month of future `response` partitions remain | A `monitor.*` gauge read as `qp_monitor` (§14) | D2 |
+| Fewer than one month of future `response` partitions remain | `monitor.response_partition_months_ahead()`, read as `qp_monitor`; the alert fires on a value below `1` (§14, [[9-database-schema#10.1 `qp_monitor` and the `monitor` schema]]) | D2 |
 
 The last row is the one nothing else would catch: a missing partition fails every submit while every process is up ([[9-database-schema]]).
 
@@ -335,29 +335,32 @@ The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the ob
 
 ## 14. Database telemetry
 
-**Planned: D1 and D2 own it.** Postgres holds the answers, so it is both the most useful thing to observe and the place a value is most likely to slip out. Four layers, each with its own owner and its own way to leak.
+**Shipped in D1 and D2.** Postgres holds the answers, so it is both the most useful thing to observe and the place a value is most likely to slip out. Four layers, each with its own owner and its own way to leak.
 
 | Layer | What it answers | State | PR |
 | --- | --- | --- | --- |
 | 1. App to database: `pg` spans and pool metrics | Which query in which request was slow, and is a pool the bottleneck | Shipped: `pg` client spans (T0a), `db.client.operation.duration` and the `db.pool.connections.*` gauges | D1 |
 | 2. SQL-comment trace ids and `application_name` | Which trace issued a query that Postgres shows me, and which pool ran it | Shipped | D1 |
-| 3. Postgres's own stats: `pg_stat_statements` | Which statement shapes cost the most, across all traces | Planned | D2 |
-| 4. Domain gauges: the `monitor.*` schema read as `qp_monitor` | Is the data still healthy: partitions remaining, and the invariants of §9 when they are built | Planned | D2 |
+| 3. Postgres's own stats: `pg_stat_statements` | Which statement shapes cost the most, across all traces | Shipped: loaded and created by default, reviewed with the queries of §14.2 | D2 |
+| 4. Domain gauges: the `monitor.*` schema read as `qp_monitor` | Is the data still healthy: partitions remaining, and the invariants of §9 when they are built | Shipped: `monitor.response_partition_months_ahead()`; the invariant gauges stay deferred | D2 |
 
 **1. Spans and pool metrics.** The `pg` instrumentation is started by `startTelemetry` (T0a), and its span names, `pg.query:<verb>`, `pg.connect` and `pg-pool.connect`, are on the exporter's closed list. A span exports `db.system.name`, `db.namespace`, `server.address` and `server.port`. The statement text is on the span as `db.query.text`, which is not on the attribute allowlist, so no SQL text exports; the scrub drops that one attribute from a span without counting it, since every query span carries it. D1 adds the pool gauges of §2.2, `db.pool.connections.total`, `.idle` and `.waiting`, labelled by the bounded `pool` field, which the health probes already use, and registers `instrumentation-runtime-node` for the event-loop metrics. `db.pool.connections.waiting` is the signal behind the pool alert (§8.1). The exporter keeps only `db.client.operation.duration` from the `pg` instrumentation and only the event-loop metrics from runtime-node, because their other metrics carry labels that are not on the allowlist.
 
 **2. Trace ids in SQL, and `application_name`.** D1 turns on the instrumentation's `addSqlCommenterCommentToQueries`, so each statement carries a trailing comment `/*traceparent='00-<trace id>-<span id>-01'*/` naming its own span. A statement seen in `pg_stat_activity` or the Postgres log maps back to its trace. `openDatabase` sets `application_name` to `qp-backend:<pool>` for each of the three pools (`definition`, `execution`, `reporting`), so the same views show which role's pool ran it; the owner's migration and seed connections carry none. The comment carries `traceparent` and nothing else, and the barrier is on the extract side. The instrumentation builds the comment from the span's own context with a private W3C propagator that writes `tracestate` too, and that propagator is not the global one, so nothing we register on inject reaches the comment. What keeps a caller's `tracestate` (up to about 512 bytes, caller-controlled) out is that no span in the process ever carries one: the pipeline registers `TraceparentOnlyPropagator`, whose extract discards `tracestate`, and `@fastify/otel` extracts an inbound request through the global propagator, so the request span's parent, and every span under it, has none. Its inject is defensive only, for anything that propagates outward. It also drops `baggage`, which nothing here uses. A test builds a span from a hostile inbound context and asserts on the instrumentation's own comment output, with a stock W3C extract as the control that does carry `tracestate`, and a test on the real client reads the comment back from `pg_stat_activity`. A future span created under a context that did not come through the global propagator's extract would bypass the barrier. Postgres normalises a statement without its comments, so the comment does not split one statement into many in layer 3. A statement that already contains `--` or `/*` gets no comment (a limit of the instrumentation); the backend's SQL has none.
 
-**3. `pg_stat_statements`.** On in the `db` service by default (O16): it needs `shared_preload_libraries`, so turning it on later means a restart. It stores each statement with its constants replaced by placeholders, so it holds no value. `listSessions` joins the review of the slowest statements (O20): it is the one paged read over `execution.session`, and a regression shows there first.
+**3. `pg_stat_statements`.** On in the `db` service by default (O16): the service starts `postgres` with `shared_preload_libraries=pg_stat_statements`, so turning it on later would have meant a restart, and `db/init/01-roles.sh` runs `db/init/pg-stat-statements.sql` (`CREATE EXTENSION IF NOT EXISTS pg_stat_statements` and its grants) in the application database on every `up`, as the bootstrap superuser, so an existing volume gets it too. It stores each statement with its constants replaced by placeholders, so it holds no bound value. `qp_monitor` reads it through `pg_monitor` and an explicit `SELECT`; the script revokes the view from `PUBLIC`, so an application role cannot. `listSessions` joins the review of the slowest statements (O20): it is the one paged read over `execution.session`, and a regression shows there first. §14.2 has the queries.
 
-**4. `monitor.*` and `qp_monitor`.** D2 adds a `qp_monitor` login role and a `monitor` schema of views and functions that return aggregates only. The first gauge is the count of future `response` partitions, which the sixth alert reads. `qp_monitor` is the one identity telemetry uses to read the database, and it must hold no grant on the tables that carry answers. D2 writes the grants, and a database test asserts the absence, as it does for `qp_definition` ([[9-database-schema]]). The §9 invariant gauges stay deferred.
+**4. `monitor.*` and `qp_monitor`.** D2 adds a `qp_monitor` login role (password `QP_MONITOR_PASSWORD`, default `qp_monitor`, a member of `pg_monitor`) and a `monitor` schema of `SECURITY DEFINER` functions that return aggregates only, created by migration `0021`. The first is `monitor.response_partition_months_ahead(as_of timestamptz DEFAULT now())`: the months after the current one that a `response` partition covers without a gap, `0` when only the current month is covered and also `0` when the current month has no partition at all, so the sixth alert fires on `< 1` and cannot tell the two apart (a missing current month is the worse case, and already fails every submit). `qp_monitor` is the one identity telemetry uses to read the database, and it holds no grant on the tables that carry answers, no `USAGE` on their schemas and no `EXECUTE` on their functions. A database test asserts the absence, as it does for `qp_definition` and `qp_reporting` ([[9-database-schema#10.1 `qp_monitor` and the `monitor` schema]]). The §9 invariant gauges stay deferred. A count of in-progress sessions was left out: it scans `execution.session` on every scrape and no alert reads it. The Collector reads the function through the `sqlquery` receiver (P2).
 
 ### 14.1 Where a database can leak, and the fix
 
 | Leak | Where a value would appear | Fix | PR |
 | --- | --- | --- | --- |
-| Parameter logging | A statement logged by duration or error with its `parameters:` line, in the Postgres log | `log_parameter_max_length=0`. The on-error variant defaults to `0` and stays there | D2 |
-| Error `DETAIL` lines | A constraint failure quotes the value or the whole row (`Key (…)=(…) already exists`, `Failing row contains (…)`), which for a `response` check names the answer | `log_error_verbosity=terse`, which drops `DETAIL`, `HINT`, `QUERY` and `CONTEXT` from the log | D2 |
+| Parameter logging | A statement logged by duration or error with its `parameters:` line, in the Postgres log | Shipped: the `db` service starts with `log_parameter_max_length=0`. The on-error variant defaults to `0` and stays there. `auto_explain` is not loaded; if it ever is, its `auto_explain.log_parameter_max_length` is set to `0` in the same change, because its plan log carries a parameterised statement's parameters | D2 |
+| Error `DETAIL` lines | A constraint failure quotes the value or the whole row (`Key (…)=(…) already exists`, `Failing row contains (…)`), which for a `response` check names the answer | Shipped: `log_error_verbosity=terse`, which drops `DETAIL`, `HINT`, `QUERY` and `CONTEXT` from the log | D2 |
+| Statement text in `pg_stat_statements` | The extension keeps each statement's text | It normalises constants in a statement it can parse into a query tree, so a bound parameter never appears. The text of a utility statement (DDL, `SET`) may be kept as written on PostgreSQL 16. No statement the backend issues while serving carries an answer in a utility statement, since answers travel as bound parameters of `INSERT` and `SELECT`; the only literals the backend's DDL carries are partition bounds. A test plants a value as a parameter and finds it nowhere in the view | D2 |
+| A role reading the stats | `pg_read_all_stats`, which `pg_monitor` includes, shows every role's statement text and counters: the `pg_stat_statements` views, and `pg_stat_activity.query`, which holds the statement as sent, unnormalised, for every session's running and last statement. The extension grants its views and their functions to `PUBLIC`, where each role sees its own text | `qp_monitor` is the only role granted `pg_read_all_stats`. The roles script (through `db/init/pg-stat-statements.sql`) revokes the two views and the functions behind them, `pg_stat_statements(boolean)` and `pg_stat_statements_info()`, from `PUBLIC` and grants the views and those two functions to `qp_monitor` alone (a view's function is checked as the calling user, so the views alone would not be enough). `qp_monitor` holds no grant on an answer table. What it can read is safe only because the backend always binds values through Parse and Bind, so the text it sees carries `$n`, never a value; a test holds a bound sentinel open in a running statement and reads `pg_stat_activity` as `qp_monitor`. The residual exposure is any future statement built with inline literals instead of bound parameters: its values would show in `pg_stat_activity.query` while it runs and after, in the `STATEMENT:` line of the Postgres log when it errors, and, for a utility statement, in `pg_stat_statements`. | D2 |
+| The `STATEMENT:` line of the Postgres log | On an error the server writes the failing statement (`log_min_error_statement` defaults to `error`), and `log_error_verbosity=terse` does not drop it | Not removed by configuration. For a statement with bound parameters the line is the `$n` text, so it carries no value; it would carry one only for a statement built with inline literals. Request validation and bound parameters are what keep values out. V1 owns the test that the Postgres log holds no sentinel | V1 |
 | Bound parameters on a span | The `pg` instrumentation's `enhancedDatabaseReporting` option records the parameter values on the span | Shipped: it stays off (`DATABASE_INSTRUMENTATION_CONFIG`, asserted by a test). The export scrub drops any attribute outside the registry as a second guard | D1 |
 | Error message, in the application | A `pg` error's message can carry a value (`invalid input syntax for type uuid: "…"`) | Already shipped: an error is recorded as its class name and stack frames, never its message (O8) | T0a |
 | Error message, in the Postgres log | The same primary message is written to the server log, and `terse` does not remove it | Not removed by configuration. Request validation runs before a value is bound, which keeps most malformed input from reaching a cast. V1 plants a value and searches the Postgres log for it | V1 |
@@ -366,3 +369,35 @@ The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the ob
 | The leak test cannot see `pg` | `pg` spans did not appear under test, because the driver loads before the instrumentation | Shipped: the leak harness hands the driver the app loaded to the pipeline, which patches it (`patchLoaded`), so every flow runs with the `pg` instrumentation on. The sentinel is a SQL parameter in the definition flows (a questionnaire title) and the submit flows (an answer), and a `database:` flow binds it in statements that succeed and in statements the driver rejects with the value in its message, which the span's status message carries before the exporter drops it. A mutation test removes the export scrub and shows the gate then fails on a `pg` span | D1 |
 
 The Postgres-log rows are outside the application's pipeline, so the scrub cannot help there: only the configuration, and V1's test of Postgres's own log, stand between a value and that file.
+
+### 14.2 Reviewing slow statements
+
+Run as `qp_monitor` (`psql "postgres://qp_monitor:$QP_MONITOR_PASSWORD@localhost:${POSTGRES_PORT:-5432}/$POSTGRES_DB"`), against the `db` service. `pg_stat_statements` counts since the server started or the last reset, so read the ratio of `mean_ms` to `max_ms` before the total. The first query is the twenty statements that have cost the most in total; the second is the paged read `listSessions` issues over `execution.session` (O20), the one to watch for a regression in the admin responses list.
+
+```sql
+SELECT calls,
+       round(total_exec_time::numeric, 1) AS total_ms,
+       round(mean_exec_time::numeric, 2) AS mean_ms,
+       round(max_exec_time::numeric, 1) AS max_ms,
+       rows,
+       left(query, 240) AS statement
+  FROM pg_stat_statements
+ WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+ ORDER BY total_exec_time DESC
+ LIMIT 20;
+```
+
+```sql
+SELECT calls,
+       round(mean_exec_time::numeric, 2) AS mean_ms,
+       round(max_exec_time::numeric, 1) AS max_ms,
+       shared_blks_hit,
+       shared_blks_read,
+       left(query, 240) AS statement
+  FROM pg_stat_statements
+ WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+   AND query LIKE '%"execution"."session"%order by%limit%'
+ ORDER BY mean_exec_time DESC;
+```
+
+The second query matches `listSessions` by the table it reads and its `order by` and `limit`: one row per shape of the keyset segments (`db/reporting/keyset.ts`), so a filtered page and an unfiltered one are separate rows. A `mean_ms` that grows while `calls` does, or `shared_blks_read` that climbs, is the regression the `EXPLAIN` checks in `_tests/db/reporting/sessions.test.ts` are there to prevent, seen in production. A database test runs both queries as `qp_monitor` after a `listSessions` read and fails if the second finds nothing, so a rename of the table or a change to how the read is written cannot leave the documented query silently empty. To read a statement in a trace, find its trace id in the `traceparent` comment (layer 2) in `pg_stat_activity`.
