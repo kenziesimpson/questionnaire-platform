@@ -223,7 +223,7 @@ The rule: **high-cardinality identifiers live in traces and logs; metrics carry 
 
 ## 8. SLOs and alerting
 
-**SLOs and error budgets are deferred.** Six alerts are pulled forward from this section (O10); they are planned, owned by P2, and listed below. Direction for the SLOs, for when we do them:
+**SLOs and error budgets are deferred.** Six alerts are pulled forward from this section (O10); they ship as Grafana alert rules, with thresholds and routing in §8.3, and are listed below. Direction for the SLOs, for when we do them:
 
 - Candidate SLIs: availability and p95 latency of questionnaire delivery; submission success rate; publish success rate.
 - Alert on **symptoms and error-budget burn**, not causes. Nobody should be paged for CPU; they should be paged because respondents can't submit.
@@ -233,16 +233,16 @@ The rule: **high-cardinality identifiers live in traces and logs; metrics carry 
 
 ### 8.1 The six alerts
 
-Planned, P2. Each pages or tickets on a symptom a respondent or an operator would feel, and each reads a signal that a lane must build. The registered instrumentations are Fastify's, `pg`'s and runtime-node's (`packages/telemetry/src/pipeline.ts`), so the rows still marked unassigned need an owner before P2. Thresholds and routing are P2's to set; O10 fixes the list.
+Shipped in P2 (thresholds, routing and where the rules live are in §8.3). Each pages or tickets on a symptom a respondent or an operator would feel, and each reads a signal another lane built: the submit counters (B1), the request metrics derived from spans (P1, §8.2), the event-loop and pool metrics (D1) and the partition function (D2). P2 wrote the six rules and the one Collector receiver the partition alert needed.
 
 | Alert | Signal it reads | Built by |
 | --- | --- | --- |
-| Submit success rate drops | The submit outcome counters | B1 |
-| 5xx rate rises | `traces.span.metrics.calls`, filtered to `http.response.status_code` 500 to 599 (§8.2) | P1 |
-| p95 latency of the questionnaire definition fetch rises | `traces.span.metrics.duration` for that route's `http.route` (§8.2) | P1 |
-| Event-loop lag stays high | `nodejs.eventloop.delay.p99` (seconds; the other delay statistics and `nodejs.eventloop.utilization` sit beside it) | D1 |
-| Requests stay queued for a pool connection | `db.pool.connections.waiting`, one point per `db.pool` | D1 |
-| Fewer than one month of future `response` partitions remain | `monitor.response_partition_months_ahead()`, read as `qp_monitor`; the alert fires on a value below `1` (§14, [[9-database-schema#10.1 `qp_monitor` and the `monitor` schema]]) | D2 |
+| Submit success rate drops | The submit outcome counters (`questionnaire.submissions`, by outcome) | B1 (counters), P2 (rule) |
+| 5xx rate rises | `traces.span.metrics.calls`, filtered to `http.response.status_code` 500 to 599 (§8.2) | P1 (signal), P2 (rule) |
+| p95 latency of the questionnaire definition fetch rises | `traces.span.metrics.duration` for `POST /api/run/sessions` and `GET /api/run/sessions/:sessionId`, the two requests that return a definition (§8.2, §8.3) | P1 (signal), P2 (rule) |
+| Event-loop lag stays high | `nodejs.eventloop.delay.p99` (seconds; the other delay statistics and `nodejs.eventloop.utilization` sit beside it) | D1 (signal), P2 (rule) |
+| Requests stay queued for a pool connection | `db.pool.connections.waiting`, one point per `db.pool` | D1 (signal), P2 (rule) |
+| Fewer than one month of future `response` partitions remain | `monitor.response_partition_months_ahead()`, read as `qp_monitor` by the Collector's `sql_query` receiver as `qp.monitor.response_partition_months_ahead`; the alert fires on a value below `1` (§14, [[9-database-schema#10.1 `qp_monitor` and the `monitor` schema]]) | D2 (function), P2 (receiver and rule) |
 
 The last row is the one nothing else would catch: a missing partition fails every submit while every process is up ([[9-database-schema]]).
 
@@ -256,6 +256,32 @@ The SDK's Fastify instrumentation emits spans and no HTTP metrics, so `http.serv
 | `traces.span.metrics.duration` | histogram in milliseconds; buckets 5, 10, 25, 50, 100, 250, 500 ms, 1, 2.5, 5, 10 s | the same |
 
 A span reports `status.code` `STATUS_CODE_ERROR` on a 5xx and when an error reaches Fastify's `onError` hook, which a thrown error does and a failed schema validation may; a problem response a handler returns, such as a `404` or a `409`, is not an error. A request that matches no route has no `http.route`. The Collector drops the server spans of `/health/live` and `/health/ready` before the connector, so the probe the backend's healthcheck sends every five seconds is not counted (the sampler keeps a probe trace only if it failed or was slow, §10). LGTM's Prometheus receives these through OTLP and may rename them (`traces_span_metrics_calls_total`, `traces_span_metrics_duration_milliseconds_bucket` is the usual translation); P2 confirms the names in Explore before it writes a rule. The Collector config is `observability/collector.yaml`.
+
+### 8.3 Thresholds, routing and where the rules live
+
+The six alerts of O10 are Grafana alert rules in `observability/grafana/alert-rules.yaml`, one group, evaluated every minute against the Prometheus that `grafana/otel-lgtm` runs. The rules are Grafana-managed rather than Prometheus rules because the image's Prometheus has no Alertmanager and its configuration file belongs to the image, while Grafana loads a rule file dropped into its provisioning directory without replacing anything (§11.2). Every rule reads only aggregate series whose labels are on the registry's allowlist (§8.2, §11.2), carries a `severity` label and three annotations, `summary`, `description` and `first_look`, the last naming the dashboard and panel to open first.
+
+| Alert | Fires when | For | Severity | No data |
+| --- | --- | --- | --- | --- |
+| Submit success rate drops | (`accepted` + `replayed`) / all outcomes of `questionnaire.submissions` is below 85% over 15 minutes, with at least 10 submissions | 15 min | page | healthy |
+| 5xx rate rises | `traces.span.metrics.calls` with a 5xx status is above 2% of all requests over 10 minutes, with at least 20 requests | 10 min | page | healthy |
+| p95 of the questionnaire definition fetch rises | p95 of `POST /api/run/sessions` and `GET /api/run/sessions/:sessionId` is above 1000 ms over 10 minutes, with at least 20 requests | 10 min | ticket | healthy |
+| Event-loop lag stays high | `nodejs.eventloop.delay.p99` is above 0.2 s | 10 min | ticket | healthy |
+| Requests stay queued for a pool connection | `db.pool.connections.waiting` is above 0 for a pool | 5 min | ticket | healthy |
+| Fewer than one month of future `response` partitions remain | `monitor.response_partition_months_ahead()` is below 1 | 15 min | page | fires |
+
+**Why these numbers.** They are first guesses for a prototype with little traffic, and each is one line in the rule file to change.
+
+- *Success rate.* A rejected submit counts against success even though most are the respondent's own mistake (`rejected_validation`), because a client or definition change that rejects everyone looks the same and is exactly what a respondent feels. A replay counts as success: it means the first attempt landed. 85% leaves room for ordinary validation errors, and the 10-submission floor stops one failed submit from paging on a quiet hour.
+- *5xx rate.* Two percent for ten minutes is well above the noise a healthy backend produces and well below an outage. The 20-request floor is the same guard. Health probes are removed before the count (§8.2), or the healthcheck's own five-second request would dilute the ratio.
+- *Definition fetch.* The respondent never calls a definition endpoint: the definition arrives inside `POST /api/run/sessions` and `GET /api/run/sessions/:sessionId` ([[3-scaling#Levers, in order]]). Those two routes are the fetch, and the p95 of both together is the signal. A second is the tail sampler's slow threshold (§10) and a bucket boundary of the duration histogram. The `POST` also writes the session row, so a slow insert shows here too.
+- *Event loop.* The metric is the 99th percentile of the delay within each export window. Two hundred milliseconds sustained for ten minutes means the process is blocked often enough that requests wait; a single spike would not hold it that long.
+- *Pool queue.* The gauge is sampled once per export interval (60 seconds), so "above zero at every sample for five minutes" is a sustained queue, and one transient wait is not. Each pool alerts on its own.
+- *Partitions.* The function counts the months after the current one that a partition covers without a gap, so the alert is the value 0. It cannot tell a current-month-only runway (up to a month left) from no partition at all (submits failing now), because it returns 0 for both; the rule is a page for that reason. A silent monitor also fires: if the Collector cannot read the function, the alert that nothing else would catch is blind. It waits 15 minutes so a Collector restart does not page.
+
+**Page or ticket.** §8 says to page on what a respondent feels and ticket what is a cause. The submit rate, the 5xx rate and a missing partition are what a respondent feels (a partition failure is every submit). The definition fetch's latency, event-loop lag and the pool queue are early signals that a page would follow, so they ticket. The `severity` label is the only routing the files carry: contact points and notification policies name people and endpoints, so they are set up in Grafana per environment (Alerting, Notification policies), routing `severity=page` to the on-call contact and `severity=ticket` to the tracker. Until then a firing rule shows in the Alerting page and goes to Grafana's default contact point, which sends nothing.
+
+**What none of them can see.** All six read aggregates. A rule cannot show a session, an answer or an id, and the series they read carry only the bounded labels of §7.
 
 ## 9. Correctness and invariant monitoring
 
@@ -301,6 +327,7 @@ The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the ob
   - **Turning export on**: the backend's `OTEL_EXPORTER_OTLP_ENDPOINT` is empty by default. Set it to `http://collector:4318` in `.env`, and start with `--profile observability`. Compose passes `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` and `LOG_LEVEL` through, and `.env.example` has an Observability block.
   - **A backend healthcheck** on `/health/ready`, run with `node` (the image has no `curl`). The frontend does not wait for it (`depends_on` stays as it was), because nginx resolves `backend` when it starts and the healthcheck would add a start condition to the default stack.
   - **The nginx access log** (`deploy/frontend/nginx.conf`, §11.1).
+  - **Dashboards and the six alerts** (P2): four Grafana dashboards, Service health, Respondent funnel, Admin and authoring and Database, and the six O10 alert rules, provisioned from `observability/grafana/` into the `lgtm` service (§11.2, §8.3). The Collector also reads `monitor.response_partition_months_ahead()` with a `sql_query` receiver as `qp_monitor`, which the partition alert needs.
 - **Logs reach the Collector as OpenTelemetry log records the backend emits.** The logger's sink already runs the registry scrub before it writes a pino line; when an endpoint is configured it also emits an OTel log record from the same scrubbed record: the level as severity, the literal message as the body, the registered fields as attributes, and the active span's context as the record's trace context, so a log line and its trace join on `trace_id`. pino's stdout output is unchanged. The record leaves through `scrubbingLogExporter`, which mirrors the span and metric exporters: attributes through the registry scrub again, a severity text only from the four level names, and a body kept only if it has the literal-message shape (`LOG_MESSAGE_SHAPE`, `^[A-Za-z][A-Za-z0-9 ._:,/-]{0,127}$`) and replaced by `unnamed` otherwise, counted as an `invalid` drop. The Collector adds redaction, a filter that drops any record whose body fails the same shape (a test compares the two), the stamp, and the export. The browser's events reach the same path, because `/api/telemetry` relays them through the logger. Because the leak test's exporter sees these records, a sentinel in one fails it (`docs/8-testing.md` §7). The shape is a shape check: a one-word answer passes it, as a one-word span name does; the guard is that no code builds a message from a value.
 - **Rejected: the Collector reading Docker's JSON log files** (`file_log`). An earlier version did. It needed the Collector to run as root with every container's log files mounted, a label and an explicit log driver on the app services, and a parser chain that re-derived what the SDK knows; the leak test could not see any of it, and the `db` container's file was read even though it was discarded. It was first rejected in favour of that design because an SDK logs bridge would duplicate the scrub; it does not, because the sink runs after the call-time scrub and the exporter runs the export-time scrub, the pattern spans and metrics already follow. The fallback if the in-process emit ever proves unworkable is `pino-opentelemetry-transport`, which sends from a worker thread and gives up the leak test's view.
 - Database settings that need a restart are not in the profile: `pg_stat_statements` is on in the `db` service always (O16, §14).
@@ -324,6 +351,39 @@ The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the ob
 A safe segment is `[A-Za-z0-9_-]` characters, optionally with dot-separated parts of the same characters, and optionally led by a colon; a path is safe when it is `/` or a run of `/` and safe segments. A percent sign, a doubled slash, a `.` or `..` segment, a non-ASCII byte, an absolute-form request target (`GET http://host/…`) and an empty target are not safe, so the masks above cannot be bypassed by writing the same path another way: the log says `:unmatched` instead of the path. The status is logged as a JSON number, and nginx's `000` (a client that closed the connection) as `0`.
 
 The slot is masked whatever it holds, not only a UUID. The `cursor` parameter (O19) is masked by omission: the query string is never logged, so `cursor` cannot be, and neither can any other parameter. A regular expression over one named parameter misses a repeated or percent-encoded name; leaving the query out cannot. The trace and span id are read out of `traceparent` by a `map` that accepts only a version `00` header of lower-case hex with non-zero ids, so a client cannot put text of its choosing into the log through that header. `tests/nginx-access-log.test.ts` runs the masking rules on the path of every shared route that carries `:sessionId`, built with `routePath` under its API prefix, so a renamed or added session route fails it, and on each bypass listed above; it also asserts the variables the log format may read.
+
+### 11.2 Dashboards and alerts as files
+
+`grafana/otel-lgtm` provisions from files at startup: its Grafana reads `/otel-lgtm/grafana/conf/provisioning/dashboards/*.yaml` (providers that name a dashboard directory) and `.../alerting/*.yaml` (alert rules, contact points, policies), and its Prometheus receives OTLP metrics on the same container. The `lgtm` service mounts three read-only files from `observability/grafana/`, each beside what the image ships, so none of the image's own dashboards or data sources is replaced:
+
+| File | Mounted at | Holds |
+| --- | --- | --- |
+| `dashboards.yaml` | `.../provisioning/dashboards/qp-dashboards.yaml` | A file provider for the folder "Questionnaire platform", reading `/otel-lgtm/qp-dashboards` |
+| `dashboards/*.json` | `/otel-lgtm/qp-dashboards` | Service health, Respondent funnel, Admin and authoring, Database |
+| `alert-rules.yaml` | `.../provisioning/alerting/qp-alert-rules.yaml` | The six alerts (§8.3) |
+
+A dashboard is edited in the file and reloaded within 30 seconds; the provider does not allow saving from the UI, so a change made there is not kept. The panels read the Prometheus (uid `prometheus`) and, for one logs panel, the Loki (uid `loki`) data sources the image provisions.
+
+**Series names.** The image's Prometheus turns an OTLP name into its own: dots become underscores, a unit adds a suffix (`ms` `_milliseconds`, `s` `_seconds`, `By` `_bytes`, and `1` on a gauge `_ratio`; a unit in braces adds none), a counter adds `_total` unless the name already ends in it, a histogram adds `_bucket`, `_sum` and `_count`, and an attribute becomes a label the same way. These are the series the dashboards and alerts read:
+
+| Series | Comes from | Labels used |
+| --- | --- | --- |
+| `traces_span_metrics_calls_total`, `traces_span_metrics_duration_milliseconds_bucket` and `_count` | the Collector's `span_metrics` connector (§8.2) | `http_route`, `http_request_method`, `http_response_status_code` |
+| `questionnaire_sessions_started_total`, `_resumed_total`, `_completed_total`, `_abandoned_total`, `_rejected_past_cutoff_total`; `questionnaire_items_skipped_total` | domain counters (§2.2) | none |
+| `questionnaire_submissions_total`, `questionnaire_publish_total` | domain counters | `questionnaire_outcome` |
+| `questionnaire_answers_accepted_total`, `questionnaire_answers_rejected_total`, `questionnaire_publish_rejections_total` | domain counters | `questionnaire_question_type`, `questionnaire_reason`, `problem_code` |
+| `questionnaire_created_total`, `_published_total`, `_retired_total`, `_draft_conflicts_total`, `_responses_listed_total`, `_responses_viewed_total` | domain counters | none |
+| `questionnaire_session_duration_milliseconds_bucket` | the session duration histogram | none |
+| `telemetry_scrub_dropped_total`, `telemetry_ingest_dropped_total` | the scrub and the ingest | `telemetry_signal`, `telemetry_reason`, `telemetry_ingest_reason` |
+| `db_pool_connections_total`, `_idle`, `_waiting` | D1 pool gauges | `db_pool` |
+| `nodejs_eventloop_delay_p99_seconds` (and `_max_`, `_p50_` and the others), `nodejs_eventloop_utilization_ratio` | D1 runtime instrumentation | none |
+| `db_client_operation_duration_seconds_bucket`, `_count` | D1 `pg` histogram | `db_operation_name` |
+| `qp_monitor_response_partition_months_ahead` | the Collector's `sql_query` receiver, reading `monitor.response_partition_months_ahead()` as `qp_monitor` every minute | none |
+| `postgresql_backends`, `_connection_max`, `_db_size_bytes`, `_commits_total`, `_rollbacks_total` | the Collector's `postgresql` receiver | none |
+
+`tests/observability-dashboards.test.ts` derives this list from the Collector config, `packages/telemetry/src/events.ts` and `instruments.ts`, and a list of D1's and the `postgresql` receiver's names, and fails when a dashboard or alert query reads a series or label outside it, so a rename fails CI. It does not run a query. **Only a person running the profile can confirm the exact names**, and the units of the runtime and pool gauges in particular: after `docker compose -f docker-compose.yml --profile observability up`, open Grafana, Explore, choose Prometheus, and look each name up in the metric browser.
+
+The `sql_query` receiver connects as `qp_monitor` to host `db`, as the `postgresql` receiver does, and its one metric has no attribute. It runs through the redaction processor like the other pipelines that carry application-side data.
 
 ## 12. Change correlation and synthetics
 
