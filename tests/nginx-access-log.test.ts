@@ -1,20 +1,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { definitionApi, executionApi, reportingApi, routePath, telemetryApi } from "@qp/shared";
 import { describe, expect, it } from "vitest";
+import { MASKING_CASES, SECRETS, SESSION_ROUTE_PATHS, type MaskingCase } from "../e2e/fixtures/nginx/masking-cases";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 const nginxConfig = readFileSync(resolve(repoRoot, "deploy/frontend/nginx.conf"), "utf8");
 
 const LOGGED_VARIABLES = ["request_method", "logged_route", "logged_status", "logged_trace_id", "logged_span_id"];
-
-const UNMATCHED = ":unmatched";
-
-const SESSION_ID = "7f3c2a10-5b1e-4c7d-9a2e-0d6b8e4f1a35";
-const QUESTIONNAIRE_ID = "0b9e4c21-3d5a-4f6b-8c7d-1e2f3a4b5c6d";
-const CURSOR = "Zm9yd2FyZHwyMDI2LTA5LTE5fDdmM2MyYTEwLTViMWUtNGM3ZC05YTJlLTBkNmI4ZTRmMWEzNQ";
 
 const TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
 const SPAN_ID = "00f067aa0ba902b7";
@@ -76,23 +70,11 @@ function loggedRoute(requestUri: string): string {
   return applyMap(routeRules, maskedRoute, { masked_route: maskedRoute });
 }
 
-interface SharedRoute {
-  readonly url: string;
-}
+const ABSOLUTE_FORM_AUTHORITY = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?]*/;
 
-const SHARED_ROUTES: readonly { readonly prefix: string; readonly routes: readonly SharedRoute[] }[] = [
-  { prefix: definitionApi.DEFINITION_PREFIX, routes: definitionApi.definitionRoutes },
-  { prefix: executionApi.EXECUTION_PREFIX, routes: executionApi.executionRoutes },
-  { prefix: reportingApi.REPORTING_PREFIX, routes: reportingApi.reportingRoutes },
-  { prefix: telemetryApi.TELEMETRY_PREFIX, routes: telemetryApi.telemetryRoutes },
-];
-
-function sessionRoutePaths(): string[] {
-  return SHARED_ROUTES.flatMap(({ prefix, routes }) =>
-    routes
-      .filter((route) => route.url.includes(":sessionId"))
-      .map((route) => routePath(`${prefix}${route.url}`, { id: QUESTIONNAIRE_ID, sessionId: SESSION_ID })),
-  );
+function requestUriOf(target: string): string {
+  const authority = ABSOLUTE_FORM_AUTHORITY.exec(target);
+  return authority === null ? target : target.slice(authority[0].length) || "/";
 }
 
 describe("the nginx access log names only what it may carry", () => {
@@ -115,93 +97,14 @@ describe("the nginx access log names only what it may carry", () => {
 });
 
 describe("the route the nginx access log carries", () => {
-  const sessionPaths = sessionRoutePaths();
-
   it("finds the routes that carry a session id", () => {
-    expect(sessionPaths.length).toBeGreaterThanOrEqual(3);
+    expect(SESSION_ROUTE_PATHS.length).toBeGreaterThanOrEqual(3);
   });
 
-  it.each(sessionPaths)("masks the session id in the shared route %s", (path) => {
-    for (const requestUri of [path, `${path}/`, `${path}?cursor=${CURSOR}`]) {
-      const route = loggedRoute(requestUri);
-      expect(route).toContain(":sessionId");
-      expect(route).not.toContain(SESSION_ID);
-      expect(route).not.toContain(CURSOR);
-    }
-  });
-
-  it("masks the session id in the admin's response detail path", () => {
-    expect(loggedRoute(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}`)).toBe(
-      `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/:sessionId`,
-    );
-    expect(loggedRoute(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}?cursor=${CURSOR}`)).toBe(
-      `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/:sessionId`,
-    );
-  });
-
-  it("drops the query string, so the cursor cannot be logged", () => {
-    expect(loggedRoute(`/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses?cursor=${CURSOR}&order=asc`)).toBe(
-      `/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses`,
-    );
-    expect(loggedRoute(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses?cursor=${CURSOR}`)).toBe(`/admin/questionnaires/${QUESTIONNAIRE_ID}/responses`);
-  });
-
-  it.each([
-    ["a percent-encoded prefix", `/api/%72un/sessions/${SESSION_ID}`],
-    ["a doubled leading slash", `//api/run/sessions/${SESSION_ID}`],
-    ["a doubled slash inside", `/api/run//sessions/${SESSION_ID}`],
-    ["a dot segment", `/api/./run/sessions/${SESSION_ID}`],
-    ["a dot-dot segment", `/api/x/../run/sessions/${SESSION_ID}`],
-    ["a doubled slash in the admin path", `/admin//questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}`],
-    ["an absolute-form request target", `http://example.test/api/run/sessions/${SESSION_ID}`],
-    ["an absolute-form request target with a port", `http://example.test:8080/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}`],
-    ["a dot segment in the session slot", `/api/run/sessions/./${SESSION_ID}`],
-    ["a longer path under a session", `/api/run/sessions/${SESSION_ID}/anything/else`],
-    ["a longer path under a response", `/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}/extra`],
-    ["a longer admin path under a response", `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}/extra`],
-    ["a non-ASCII path", `/api/run/sessions/${SESSION_ID}/\u00e9`],
-    ["an empty target", ""],
-    ["a path with a space", `/api/run/sessions /${SESSION_ID}`],
-  ])("never logs a session id for %s", (_name, requestUri) => {
-    const route = loggedRoute(requestUri);
-    expect(route).not.toContain(SESSION_ID);
-    expect(route.toLowerCase()).not.toContain(SESSION_ID.slice(0, 8));
-    expect(route).not.toContain(CURSOR);
-  });
-
-  it.each([
-    `/api/%72un/sessions/${SESSION_ID}`,
-    `//api/run/sessions/${SESSION_ID}`,
-    `/api/./run/sessions/${SESSION_ID}`,
-    `/admin//questionnaires/${QUESTIONNAIRE_ID}/responses/${SESSION_ID}`,
-    `http://example.test/api/run/sessions/${SESSION_ID}`,
-    `/api/run/sessions/${SESSION_ID}/anything/else`,
-    "",
-  ])("logs the fixed marker for the path %s", (requestUri) => {
-    expect(loggedRoute(requestUri)).toBe(UNMATCHED);
-  });
-
-  it.each([
-    `/api/run/sessions/${SESSION_ID.toUpperCase()}`,
-    "/api/run/sessions/not-a-uuid",
-    `/api/run/sessions/${SESSION_ID.replace("-", "%2D")}`,
-  ])("masks whatever occupies a session slot, in %s", (requestUri) => {
-    expect(loggedRoute(requestUri)).toBe("/api/run/sessions/:sessionId");
-  });
-
-  it.each([
-    "/",
-    "/admin/",
-    "/admin/questionnaires",
-    "/api/run/sessions",
-    "/assets/index-abc123.js",
-    "/assets/chunk.min.js",
-    `/q/${QUESTIONNAIRE_ID}`,
-    `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses`,
-    `/api/definition/questionnaires/${QUESTIONNAIRE_ID}/draft`,
-    `/api/definition/questionnaires/${QUESTIONNAIRE_ID}/draft/`,
-  ])("leaves the safe path %s as it is", (requestUri) => {
-    expect(loggedRoute(requestUri)).toBe(requestUri);
+  it.each(MASKING_CASES.map((testCase): [string, MaskingCase] => [testCase.name, testCase]))("logs the tabled route for %s", (_name, testCase) => {
+    const route = loggedRoute(requestUriOf(testCase.target));
+    expect(route).toBe(testCase.route);
+    for (const secret of SECRETS) expect(route.toLowerCase()).not.toContain(secret.toLowerCase());
   });
 
   it.each([
