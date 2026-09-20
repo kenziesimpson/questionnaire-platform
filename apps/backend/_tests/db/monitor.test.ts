@@ -244,6 +244,22 @@ describe("pg_stat_statements as qp_monitor", () => {
     await expectSqlState(client.query(`SELECT 1 FROM pg_stat_statements_info`), SQLSTATE.insufficientPrivilege);
   });
 
+  it("can execute the two functions behind the views itself, since a view's function is checked as the calling user", async () => {
+    const owner = await testDatabase.connect("owner");
+
+    const executable = await owner.query<{ name: string; execute: boolean }>(
+      `SELECT p.oid::regprocedure::text AS name, has_function_privilege('qp_monitor', p.oid, 'EXECUTE') AS execute
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE p.proname IN ('pg_stat_statements', 'pg_stat_statements_info') AND p.prokind = 'f' AND n.nspname = 'public'
+        ORDER BY 1`,
+    );
+
+    expect(executable.rows).toEqual([
+      { name: "pg_stat_statements(boolean)", execute: true },
+      { name: "pg_stat_statements_info()", execute: true },
+    ]);
+  });
+
   it.each(["definition", "execution", "reporting"] as const)("is closed to qp_%s through the functions behind the views too", async (role) => {
     const client = await testDatabase.connect(role);
     const owner = await testDatabase.connect("owner");
