@@ -12,6 +12,7 @@ import {
   type SortOrder,
 } from "@qp/shared";
 import { and, eq, type SQL } from "drizzle-orm";
+import type { AuditTraceId } from "../audit.js";
 import type { Database, Executor } from "../client.js";
 import { PublishedDefinitions } from "../execution/published-definitions.js";
 import { questionnaire, session } from "../schema.js";
@@ -192,7 +193,7 @@ export type SessionDetailOutcome = { readonly outcome: "found"; readonly detail:
 
 interface DetailReader {
   readonly actorId: string;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 async function readSessionDetail(

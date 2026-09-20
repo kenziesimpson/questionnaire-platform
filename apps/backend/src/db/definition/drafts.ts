@@ -9,7 +9,7 @@ import {
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import { desc, eq, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
-import { recordAudit } from "../audit.js";
+import { recordAudit, type AuditTraceId } from "../audit.js";
 import type { Database, Executor, Transaction } from "../client.js";
 import { mustExist } from "../errors.js";
 import { questionnaireItem, questionnaireVersion } from "../schema.js";
@@ -66,7 +66,7 @@ export interface ReplaceDraftCommand {
   readonly title: string;
   readonly items: readonly DraftItem[];
   readonly actorId: string | null;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 export type ReplaceDraftOutcome =
@@ -152,7 +152,7 @@ export async function replaceDraft(executor: Executor, command: ReplaceDraftComm
 export interface CreateNextDraftCommand {
   readonly questionnaireId: string;
   readonly createdBy: string | null;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 export type CreateNextDraftOutcome =

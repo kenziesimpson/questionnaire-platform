@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { InvariantViolation } from "../../invariant.js";
+import type { AuditTraceId } from "../audit.js";
 import type { Transaction } from "../client.js";
 
 interface ResponseView {
@@ -8,7 +9,7 @@ interface ResponseView {
   readonly version: number;
   readonly sessionId: string;
   readonly actorId: string;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 export async function recordResponseView(tx: Transaction, view: ResponseView): Promise<string> {
@@ -21,7 +22,7 @@ export async function recordResponseView(tx: Transaction, view: ResponseView): P
           ${view.version}::int,
           ${view.actorId}::text,
           jsonb_build_object('sessionId', ${view.sessionId}::uuid),
-          ${view.traceId}::text
+          ${view.traceId ?? null}::text
         ) AS id`,
   );
   const row = result.rows[0];

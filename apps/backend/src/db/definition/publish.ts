@@ -8,7 +8,7 @@ import {
 } from "@qp/shared";
 import { eq, max, sql } from "drizzle-orm";
 import { Value } from "typebox/value";
-import { recordAudit } from "../audit.js";
+import { recordAudit, type AuditTraceId } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
 import { mustExist } from "../errors.js";
 import { InvariantViolation } from "../../invariant.js";
@@ -22,7 +22,7 @@ export interface PublishDraftCommand {
   readonly questionnaireId: string;
   readonly precondition: DraftPrecondition;
   readonly actorId: string | null;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 export type PublishDraftOutcome =

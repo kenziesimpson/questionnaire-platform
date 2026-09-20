@@ -1,5 +1,5 @@
 import { reportingApi } from "@qp/shared";
-import { emitDomainEvent, withSpan } from "@qp/telemetry";
+import { activeTraceId, emitDomainEvent, withSpan } from "@qp/telemetry";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "../../db/client.js";
 import { PublishedDefinitions } from "../../db/execution/published-definitions.js";
@@ -7,7 +7,6 @@ import { getSessionDetail, listSessionSummaries, questionnaireExistsForReporting
 import { PLACEHOLDER_ACTOR } from "../../http/placeholder-actor.js";
 import { applyHttpDefaults, notFoundProblem, replyWithProblem } from "../../http/problems.js";
 import { registerRoute } from "../../http/routes.js";
-import { auditTraceId } from "../../http/trace.js";
 
 export interface ReportingModuleOptions {
   readonly reporting: Database;
@@ -49,7 +48,7 @@ export async function reportingModule(scope: FastifyInstance, { reporting }: Rep
     const outcome = await withSpan("reporting.session_detail", { questionnaireId, sessionId }, async () => {
       const read = await getSessionDetail(reporting, definitions, questionnaireId, sessionId, {
         actorId: PLACEHOLDER_ACTOR,
-        traceId: auditTraceId(),
+        traceId: activeTraceId(),
       });
       if (read.outcome === "found") {
         emitDomainEvent({ name: "reporting.response_viewed", questionnaireId, sessionId });

@@ -50,10 +50,13 @@ describe("recordResponseView", () => {
     expect((await testDatabase.readAuditEvents()).filter((event) => event.action === "view_response")).toEqual([]);
   });
 
-  it("records a missing trace id as null", async () => {
+  it.each([
+    ["null", null],
+    ["undefined, as activeTraceId() is with no active span", undefined],
+  ])("records a missing trace id as null: %s", async (_label, traceId) => {
     const view = await aView();
 
-    await testDatabase.database("reporting").transaction((tx) => recordResponseView(tx, { ...view, traceId: null }));
+    await testDatabase.database("reporting").transaction((tx) => recordResponseView(tx, { ...view, traceId }));
 
     expect((await testDatabase.readAuditTraceIds()).filter((row) => row.action === "view_response")).toEqual([
       { action: "view_response", trace_id: null },
