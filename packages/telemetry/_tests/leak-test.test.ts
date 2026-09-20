@@ -197,7 +197,10 @@ describe("leak-test runner: runLeakFlow", () => {
 
     const run = await runLeakFlow(leaky, {});
 
-    expect(run.exposures).toEqual([{ signal: "log", name: LEAK_SENTINEL }]);
+    expect(run.exposures).toEqual([
+      { signal: "log", name: LEAK_SENTINEL },
+      { signal: "log", name: `${LEAK_SENTINEL} (exported)` },
+    ]);
   });
 
   it("tears the pipeline down after a flow, so nothing is recording afterwards", async () => {
