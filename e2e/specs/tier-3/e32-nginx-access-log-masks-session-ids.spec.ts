@@ -40,7 +40,9 @@ async function send(baseUrl: string, testCase: MaskingCase): Promise<SentRequest
 }
 
 function isRejectedBeforeItsHeaders(line: AccessLine): boolean {
-  return line.trace_id === "" && line["http.response.status_code"] === REJECTED_REQUEST_LINE_STATUS;
+  return (
+    line["http.request.method"] === "" && line.trace_id === "" && line["http.response.status_code"] === REJECTED_REQUEST_LINE_STATUS
+  );
 }
 
 function linesFor(sent: SentRequest, lines: readonly AccessLine[]): AccessLine[] {
@@ -71,9 +73,13 @@ function loggedRoute(sent: SentRequest, lines: readonly AccessLine[]): string {
 }
 
 function disagreements(sent: SentRequest, lines: readonly AccessLine[]): string[] {
-  const [line] = linesFor(sent, lines);
-  if (!sent.testCase.headersRead || line === undefined) return [];
   const found: string[] = [];
+  if (!sent.testCase.headersRead) {
+    if (sent.status !== REJECTED_REQUEST_LINE_STATUS) found.push(`${sent.testCase.name}: the client saw ${sent.status}, not ${REJECTED_REQUEST_LINE_STATUS}`);
+    return found;
+  }
+  const [line] = linesFor(sent, lines);
+  if (line === undefined) return found;
   if (line["http.response.status_code"] !== sent.status) {
     found.push(`${sent.testCase.name}: the client saw ${sent.status}, the log says ${line["http.response.status_code"]}`);
   }

@@ -1,13 +1,13 @@
 import { definitionApi, executionApi, reportingApi, routePath, telemetryApi } from "@qp/shared";
 
-const SESSION_ID ="7f3c2a10-5b1e-4c7d-9a2e-0d6b8e4f1a35";
+const SESSION_ID = "7f3c2a10-5b1e-4c7d-9a2e-0d6b8e4f1a35";
 const QUESTIONNAIRE_ID = "0b9e4c21-3d5a-4f6b-8c7d-1e2f3a4b5c6d";
 const CURSOR = "Zm9yd2FyZHwyMDI2LTA5LTE5fDdmM2MyYTEwLTViMWUtNGM3ZC05YTJlLTBkNmI4ZTRmMWEzNQ";
 const QUERY_VALUE = "qp-nginx-anchor-query-value";
 
-export const SECRETS: readonly string[] = [SESSION_ID, CURSOR, QUERY_VALUE];
+export const SECRETS: readonly string[] = [SESSION_ID, SESSION_ID.slice(0, 8), SESSION_ID.replace("-", "%2D"), CURSOR, QUERY_VALUE];
 
-const UNMATCHED =":unmatched";
+const UNMATCHED = ":unmatched";
 const SESSION_SLOT = ":sessionId";
 
 const LONG_SEGMENT = "a".repeat(6000);
@@ -36,13 +36,13 @@ const SHARED_ROUTES: readonly { readonly prefix: string; readonly routes: readon
 
 export const SESSION_ROUTE_PATHS: readonly string[] = SHARED_ROUTES.flatMap(({ prefix, routes }) =>
   routes
-    .filter((route) => route.url.includes(":sessionId"))
+    .filter((route) => route.url.includes(SESSION_SLOT))
     .map((route) => routePath(`${prefix}${route.url}`, { id: QUESTIONNAIRE_ID, sessionId: SESSION_ID })),
 );
 
 const ADMIN_RESPONSES = `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses`;
-const REPORTING_RESPONSES = `/api/reporting/questionnaires/${QUESTIONNAIRE_ID}/responses`;
-const RUN_SESSIONS = "/api/run/sessions";
+const REPORTING_RESPONSES = `${reportingApi.REPORTING_PREFIX}/questionnaires/${QUESTIONNAIRE_ID}/responses`;
+const RUN_SESSIONS = `${executionApi.EXECUTION_PREFIX}/sessions`;
 
 const CURSOR_QUERY = `cursor=${CURSOR}&note=${QUERY_VALUE}`;
 
@@ -119,8 +119,8 @@ const safeCases: MaskingCase[] = [
   "/assets/chunk.min.js",
   `/q/${QUESTIONNAIRE_ID}`,
   ADMIN_RESPONSES,
-  `/api/definition/questionnaires/${QUESTIONNAIRE_ID}/draft`,
-  `/api/definition/questionnaires/${QUESTIONNAIRE_ID}/draft/`,
+  `${definitionApi.DEFINITION_PREFIX}/questionnaires/${QUESTIONNAIRE_ID}/draft`,
+  `${definitionApi.DEFINITION_PREFIX}/questionnaires/${QUESTIONNAIRE_ID}/draft/`,
 ].map((path) => maskingCase(`the safe path ${path}`, path, path));
 
 export const MASKING_CASES: readonly MaskingCase[] = [
