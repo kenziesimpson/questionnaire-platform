@@ -28,7 +28,7 @@ function fakeDriver() {
   }
 
   class FakePoolBase extends EventEmitter {
-    readonly options = { connectionString: "postgresql://qp:secret@db:5432/qp_fake" };
+    readonly options = { connectionString: "postgresql://qp:pool-password-1a2b@db:5432/qp_fake" };
 
     connect(): Promise<FakeClient> {
       return Promise.resolve(new FakeClient());
@@ -88,6 +88,7 @@ describe("patching a driver that was loaded before the instrumentation started",
     await new FakePool().connect();
 
     expect(telemetry.spans().map((span) => span.name)).toContain("pg-pool.connect");
+    expect(JSON.stringify(telemetry.spans())).not.toContain("pool-password-1a2b");
     expect(telemetry.spans().find((span) => span.name === "pg-pool.connect")?.attributes).toEqual({
       "db.system.name": "postgresql",
       "db.namespace": "qp_fake",
