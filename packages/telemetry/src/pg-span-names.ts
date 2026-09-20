@@ -1,8 +1,8 @@
-export const PG_QUERY_SPAN = "pg.query";
+const PG_QUERY_SPAN = "pg.query";
 
 export const PG_QUERY_SPAN_PREFIX = `${PG_QUERY_SPAN}:`;
 
-export const PG_CONNECT_SPANS = ["pg.connect", "pg-pool.connect"] as const;
+const PG_CONNECT_SPANS = ["pg.connect", "pg-pool.connect"] as const;
 
 export const PG_SPANS_EXPORTED_AS_WRITTEN: readonly string[] = [PG_QUERY_SPAN, ...PG_CONNECT_SPANS];
 
