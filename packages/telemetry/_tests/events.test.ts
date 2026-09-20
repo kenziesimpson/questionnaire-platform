@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { emitDomainEvent, type DomainEvent } from "../src/index.js";
 import { configureLogging, resetLogging, type LogRecord } from "../src/logger.js";
-import { installFaultyMeter, internalDropsOf, restoreFaults } from "./faults.js";
+import { DROPPED_COUNTER, installFaultyMeter, internalDropsOf, restoreFaults, type RecordedMeasurement } from "./faults.js";
 import { QUESTION_ID, QUESTIONNAIRE_ID, SESSION_ID } from "./fixtures.js";
 
 function forgedEvent(event: DomainEvent, fields: Record<string, unknown>): DomainEvent {
   return Object.assign<DomainEvent, Record<string, unknown>>(event, fields);
+}
+
+function metricDropsOf(recorded: readonly RecordedMeasurement[]) {
+  return recorded
+    .filter((entry) => entry.name === DROPPED_COUNTER && entry.attributes?.["telemetry.signal"] === "metric")
+    .map((entry) => entry.attributes);
 }
 
 const written: LogRecord[] = [];
@@ -119,15 +125,28 @@ describe("emitDomainEvent never throws into the caller", () => {
 
 describe("an event that counts by a payload field", () => {
   const rejected = { name: "session.answers_rejected", sessionId: SESSION_ID, reason: "answer/required" } as const;
-  const hostileCounts = [1.5, -1, Number.NaN, Number.POSITIVE_INFINITY, 1_000_001, "35", null, [35], { count: 35 }].map((hostile) => [hostile] as const);
+  const hostileCounts = [
+    1.5,
+    -1,
+    -0,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    1_000_001,
+    BigInt(35),
+    "35",
+    null,
+    [35],
+    { count: 35 },
+    { valueOf: () => 35 },
+  ].map((hostile) => [hostile] as const);
 
   it("adds the field's value to its counter, labelled by the event's labels", () => {
     const recorded = installFaultyMeter();
     recordingSink();
-    emitDomainEvent({ ...rejected, findingCount: 35 });
+    emitDomainEvent({ ...rejected, codeFindingCount: 35 });
     expect(recorded).toEqual([{ name: "questionnaire.answers.rejected", value: 35, attributes: { "questionnaire.reason": "answer/required" } }]);
     expect(written).toHaveLength(1);
-    expect(written[0]?.attributes).toMatchObject({ "questionnaire.finding_count": 35 });
+    expect(written[0]?.attributes).toMatchObject({ "questionnaire.code_finding_count": 35 });
   });
 
   it("adds one to the counter of an event that names no field to count by, and logs the totals it carries", () => {
@@ -158,21 +177,21 @@ describe("an event that counts by a payload field", () => {
     expect(recorded).toEqual([]);
   });
 
-  it.each(hostileCounts)("drops a count of %j without throwing, adds nothing to the counter and counts one internal metric drop", (hostile) => {
+  it.each(hostileCounts)("drops hostile count case %# without throwing, adds nothing to the counter and counts exactly one internal metric drop", (hostile) => {
     const recorded = installFaultyMeter();
     recordingSink();
     expect(() => {
-      emitDomainEvent(forgedEvent({ ...rejected, findingCount: 1 }, { findingCount: hostile }));
+      emitDomainEvent(forgedEvent({ ...rejected, codeFindingCount: 1 }, { codeFindingCount: hostile }));
     }).not.toThrow();
     expect(recorded.filter((entry) => entry.name === "questionnaire.answers.rejected")).toEqual([]);
-    expect(internalDropsOf(recorded)).toEqual(["metric"]);
+    expect(metricDropsOf(recorded)).toEqual([{ "telemetry.signal": "metric", "telemetry.reason": "internal" }]);
   });
 
   it("drops a missing count the same way", () => {
     const recorded = installFaultyMeter();
     recordingSink();
     expect(() => {
-      emitDomainEvent(forgedEvent({ ...rejected, findingCount: 1 }, { findingCount: undefined }));
+      emitDomainEvent(forgedEvent({ ...rejected, codeFindingCount: 1 }, { codeFindingCount: undefined }));
     }).not.toThrow();
     expect(recorded.filter((entry) => entry.name === "questionnaire.answers.rejected")).toEqual([]);
     expect(internalDropsOf(recorded)).toEqual(["metric"]);
@@ -182,7 +201,7 @@ describe("an event that counts by a payload field", () => {
     const recorded = installFaultyMeter({ failing: ["questionnaire.answers.rejected"] });
     recordingSink();
     expect(() => {
-      emitDomainEvent({ ...rejected, findingCount: 35 });
+      emitDomainEvent({ ...rejected, codeFindingCount: 35 });
     }).not.toThrow();
     expect(written).toHaveLength(1);
     expect(internalDropsOf(recorded)).toEqual(["metric"]);

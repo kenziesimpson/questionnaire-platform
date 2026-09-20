@@ -82,7 +82,7 @@ Every log line carries `trace_id` and `span_id` (pino + OTel log correlation) pl
 
 ### 2.4 Domain events
 
-See §4. These are `info` logs *and* counters, emitted through one call so the two can never drift.
+See §4. These are `info` logs, and counters where an event has one, emitted through one call so the two can never drift; an event may be log-only (a capped per-item line, §4).
 
 ## 3. Respondent answers must never enter telemetry
 
@@ -137,22 +137,22 @@ One test, and it covers every code path the integration suite already exercises 
 
 ## 4. Domain events
 
-Request telemetry tells us the API returned 200. It does not tell us that 40% of respondents abandon at the medical-condition branch. Domain events are a first-class stream, emitted through one helper so the log line and the counter can't drift apart:
+Request telemetry tells us the API returned 200. It does not tell us that 40% of respondents abandon at the medical-condition branch. Domain events are a first-class stream, emitted through one helper so the log line and its counter, when it has one, can't drift apart:
 
 | Event | Emitted when | Key attributes |
 | --- | --- | --- |
 | `questionnaire.created` | A questionnaire created, with its first draft; opening the next draft of an existing questionnaire (`open_draft`) creates a draft too and emits nothing | questionnaire id |
 | `questionnaire.published` | Version published; emitted after the publish transaction commits, so a rolled-back publish emits nothing | questionnaire id, version |
 | `questionnaire.retired` | A close time set or moved: every `PUT` of a non-null `closesAt` (`retire` in the audit trail), including one that only changes the date; clearing it is `reopen` and emits nothing | questionnaire id |
-| `questionnaire.publish_finished` | A publish decided: accepted, rejected for validation, rejected as stale, or failed | questionnaire id, outcome; for a validation refusal also `findingCount` (every item the refusal names) and `omittedCount` (how many were not logged one by one; 0 up to 20) |
-| `questionnaire.publish_rejected` | One per item a refused publish names, at most 20 per publish; a log line only, it moves no counter | questionnaire id, item id, draft item code |
-| `questionnaire.publish_items_rejected` | One per distinct draft item code a refused publish names, whatever the number of items; drives `questionnaire.publish.rejections` | questionnaire id, draft item code, `findingCount` (items with that code) |
+| `questionnaire.publish_finished` | A publish decided: accepted, rejected for validation, rejected as stale, or failed | questionnaire id, outcome; for a validation refusal also `findingCount` (every item the refusal names) and `omittedCount` (how many were not logged one by one; 0 up to `MAX_FINDINGS`) |
+| `questionnaire.publish_rejected` | One per item a refused publish names, at most `MAX_FINDINGS` per publish; a log line only, it moves no counter | questionnaire id, item id, draft item code |
+| `questionnaire.publish_items_rejected` | One per distinct draft item code a refused publish names, whatever the number of items; drives `questionnaire.publish.rejections` | questionnaire id, draft item code, `codeFindingCount` (items with that code) |
 | `questionnaire.draft_conflict` | A draft save or publish refused because the draft had changed | questionnaire id |
 | `session.started` | Respondent begins | session id, questionnaire id, version |
 | `session.resumed` | Incomplete session reopened | + elapsed since the session started (the server keeps no last-activity time) |
 | `session.question_answered` | Answer accepted | + question id, question type |
-| `session.answer_rejected` | Validation failure; one per rejection, at most 20 per submit; a log line only, it moves no counter; item and question id are absent for an unknown item key, which the respondent chose | + question id, reason (never the value) |
-| `session.answers_rejected` | One per distinct rejection reason in a refused submit, whatever the number of rejections; drives `questionnaire.answers.rejected` | session id, reason, `findingCount` (rejections with that reason) |
+| `session.answer_rejected` | Validation failure; one per rejection, at most `MAX_FINDINGS` per submit; a log line only, it moves no counter; item and question id are absent for an unknown item key, which the respondent chose | + question id, reason (never the value) |
+| `session.answers_rejected` | One per distinct rejection reason in a refused submit, whatever the number of rejections; drives `questionnaire.answers.rejected` | session id, reason, `codeFindingCount` (rejections with that reason) |
 | `session.item_skipped` | A visibility predicate evaluated false and hid an item | + item id, question id |
 | `session.rejected_past_cutoff` | A submit refused because the questionnaire had closed | session id, questionnaire id, version |
 | `session.submit_finished` | A submit decided: accepted, replayed, rejected for validation, rejected for a conflict, or failed | + outcome; for a validation refusal also `findingCount` and `omittedCount` |
@@ -161,7 +161,7 @@ Request telemetry tells us the API returned 200. It does not tell us that 40% of
 | `session.abandoned` | Inactivity threshold passed, or tab closed | + last question id |
 | `session.completed` | Submitted | + duration, question count |
 
-A request that fails many items would otherwise emit one line per item, so per-item lines are capped at `MAX_FINDINGS` (20, one constant in `@qp/telemetry`) and the counters never read them. The indicator for a capped request is the pair of numbers on the outcome event, `findingCount` (the real total) and `omittedCount` (findings past the cap, 0 when there are 20 or fewer), and the per-code events carry each code's real count, which is what the two rejection counters add. Both numbers are registry fields that accept only whole numbers, so they cannot carry text, and they are never metric labels (O6).
+A request that fails many items would otherwise emit one line per item, so per-item lines are capped at `MAX_FINDINGS` (20, one constant in `@qp/telemetry`) and the counters never read them. The indicator for a capped request is the pair of numbers on the outcome event, `findingCount` (the real total) and `omittedCount` (findings past the cap, 0 when there are `MAX_FINDINGS` or fewer), and the per-code events carry each code's real count as `codeFindingCount`, which is what the two rejection counters add. `codeFindingCount` is one code's share and `findingCount` the request's total, two fields so that a query never sums one across the other. All three are registry fields that accept only whole numbers, so they cannot carry text, and they are never metric labels (O6).
 
 `session.abandoned` and `session.item_skipped` are the two that make the drop-off question answerable — the reason the design keeps a server-side session record at all ([[2-design-doc#8. Sessions & Responses]]). `session.item_skipped` carries no separate predicate id: predicates have no identity of their own, so the item they hid is what names which predicate fired ([[2-design-doc#17. Decisions Log]] #41).
 
@@ -298,7 +298,7 @@ The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the ob
 | --- | --- |
 | O1 | OpenTelemetry as the single instrumentation standard; Collector as the vendor seam; `@fastify/otel` on the backend |
 | O2 | Respondent answer values never enter telemetry, enforced by the ladder in §3 — `Sensitive<T>` type, single telemetry boundary + lint rule, exporter scrub, sentinel leak test, CI gate, advisory agent review, `telemetry-safety` skill |
-| O3 | Domain events (§4) as a first-class stream, emitted as paired log + counter |
+| O3 | Domain events (§4) as a first-class stream, emitted as a log, and a counter unless the event is log-only or counted by a payload field |
 | O4 | Audit trail lives in the database, append-only, in an `audit` schema owned by a `NOLOGIN` role and reachable only through a `SECURITY DEFINER` function, so immutability is enforced by Postgres and the write shares the publish transaction; separate database + outbox, and eventually a standalone audit service, are the documented future extraction |
 | O5 | Client-side traces and logs, batched to a backend `/telemetry` endpoint, flushed with `sendBeacon` |
 | O6 | High-cardinality ids in traces/logs only, never in metric labels; Node saturation metrics (event loop lag, GC, pool waits) included from the start |

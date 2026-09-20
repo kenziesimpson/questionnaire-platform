@@ -15,6 +15,10 @@ const executionApp = useExecutionApp(testDatabase);
 
 const SESSION = "questionnaire.session_id";
 
+const OMITTED = 15;
+
+const OVER_CAP = MAX_FINDINGS + OMITTED;
+
 let telemetry: TestTelemetry;
 let extraApp: FastifyInstance | undefined;
 
@@ -258,24 +262,25 @@ describe("a submit that is refused", () => {
     await seedIntakeV1(testDatabase);
     const app = executionApp();
     const sessionId = await startedSessionId(app);
-    const unknownKeys = Object.fromEntries(Array.from({ length: 35 }, (_unused, index) => [`itm_x${index}`, { type: "text", text: "x" } as const]));
+    const unknownKeys = Object.fromEntries(Array.from({ length: OVER_CAP }, (_unused, index) => [`itm_x${index}`, { type: "text", text: "x" } as const]));
 
     const response = await submit(app, sessionId, answersNo(unknownKeys));
 
     expect(response.statusCode).toBe(422);
-    expect(response.json<{ items: unknown[] }>().items).toHaveLength(35);
+    expect(response.json<{ items: unknown[] }>().items).toHaveLength(OVER_CAP);
     expect(eventLines("session.answer_rejected")).toHaveLength(MAX_FINDINGS);
     expect(eventLines("session.answers_rejected")).toMatchObject([
-      { [SESSION]: sessionId, "questionnaire.reason": "answer/unknown-item", "questionnaire.finding_count": 35 },
+      { [SESSION]: sessionId, "questionnaire.reason": "answer/unknown-item", "questionnaire.code_finding_count": OVER_CAP },
     ]);
+    expect(eventLines("session.answers_rejected")[0]).not.toHaveProperty("questionnaire.finding_count");
     expect(await metricPoints("questionnaire.answers.rejected")).toEqual([
-      { value: 35, attributes: { "questionnaire.reason": "answer/unknown-item" } },
+      { value: OVER_CAP, attributes: { "questionnaire.reason": "answer/unknown-item" } },
     ]);
     expect(await metricPoints("questionnaire.submissions")).toEqual([
       { value: 1, attributes: { "questionnaire.outcome": "rejected_validation" } },
     ]);
     expect(eventLines("session.submit_finished")).toMatchObject([
-      { [SESSION]: sessionId, "questionnaire.outcome": "rejected_validation", "questionnaire.finding_count": 35, "questionnaire.omitted_count": 35 - MAX_FINDINGS },
+      { [SESSION]: sessionId, "questionnaire.outcome": "rejected_validation", "questionnaire.finding_count": OVER_CAP, "questionnaire.omitted_count": OMITTED },
     ]);
   });
 
@@ -283,7 +288,7 @@ describe("a submit that is refused", () => {
     await seedIntakeV1(testDatabase);
     const app = executionApp();
     const sessionId = await startedSessionId(app);
-    const unknownKeys = Object.fromEntries(Array.from({ length: 33 }, (_unused, index) => [`itm_x${index}`, { type: "text", text: "x" } as const]));
+    const unknownKeys = Object.fromEntries(Array.from({ length: OVER_CAP - 1 }, (_unused, index) => [`itm_x${index}`, { type: "text", text: "x" } as const]));
 
     const response = await submit(app, sessionId, answersNo({ ...unknownKeys, [INTAKE_ITEM_IDS.whichCondition]: { type: "text", text: "x" } }));
 
@@ -291,9 +296,9 @@ describe("a submit that is refused", () => {
     expect(eventLines("session.answer_rejected")).toHaveLength(MAX_FINDINGS);
     const points = (await metricPoints("questionnaire.answers.rejected")) ?? [];
     expect(points).toHaveLength(2);
-    expect(points).toContainEqual({ value: 33, attributes: { "questionnaire.reason": "answer/unknown-item" } });
+    expect(points).toContainEqual({ value: OVER_CAP - 1, attributes: { "questionnaire.reason": "answer/unknown-item" } });
     expect(points).toContainEqual({ value: 1, attributes: { "questionnaire.reason": "answer/not-visible" } });
-    expect(eventLines("session.submit_finished")).toMatchObject([{ "questionnaire.finding_count": 34, "questionnaire.omitted_count": 34 - MAX_FINDINGS }]);
+    expect(eventLines("session.submit_finished")).toMatchObject([{ "questionnaire.finding_count": OVER_CAP, "questionnaire.omitted_count": OMITTED }]);
   });
 
   it("reports no omitted findings when exactly the findings cap is refused, and logs every one", async () => {

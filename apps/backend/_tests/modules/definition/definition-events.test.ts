@@ -14,6 +14,10 @@ const testDatabase = useTestDatabase();
 
 const QUESTIONNAIRE = "questionnaire.id";
 
+const OMITTED = 15;
+
+const OVER_CAP = MAX_FINDINGS + OMITTED;
+
 const yesNo: QuestionInput = {
   type: "single_choice",
   prompt: "Do you have a medical condition?",
@@ -250,7 +254,7 @@ describe("questionnaire.published", () => {
       { value: 1, attributes: { "questionnaire.outcome": "rejected_validation" } },
     ]);
     expect(eventLines("questionnaire.publish_items_rejected")).toMatchObject([
-      { [QUESTIONNAIRE]: created.questionnaireId, "problem.code": "predicate/forward-reference", "questionnaire.finding_count": 1 },
+      { [QUESTIONNAIRE]: created.questionnaireId, "problem.code": "predicate/forward-reference", "questionnaire.code_finding_count": 1 },
     ]);
     expect(eventLines("questionnaire.publish_finished")).toMatchObject([
       { [QUESTIONNAIRE]: created.questionnaireId, "questionnaire.outcome": "rejected_validation", "questionnaire.finding_count": 1, "questionnaire.omitted_count": 0 },
@@ -291,18 +295,18 @@ describe("a publish refused for more items than the findings cap", () => {
   }
 
   it("emits at most MAX_FINDINGS publish_rejected events but counts every item, and reports the total and the omitted count on the outcome", async () => {
-    const { questionnaireId, draft } = await draftOfUnresolvedItems(MAX_FINDINGS + 15);
+    const { questionnaireId, draft } = await draftOfUnresolvedItems(OVER_CAP);
     const instance = await buildApp();
 
     const response = await publish(instance, questionnaireId, draft);
 
     expect(response.statusCode).toBe(422);
-    expect(response.json<{ items: unknown[] }>().items).toHaveLength(MAX_FINDINGS + 15);
+    expect(response.json<{ items: unknown[] }>().items).toHaveLength(OVER_CAP);
     expect(eventLines("questionnaire.publish_rejected")).toHaveLength(MAX_FINDINGS);
     const points = (await metricPoints("questionnaire.publish.rejections")) ?? [];
-    expect(points.reduce((total, point) => total + Number(point.value), 0)).toBe(MAX_FINDINGS + 15);
+    expect(points.reduce((total, point) => total + Number(point.value), 0)).toBe(OVER_CAP);
     const codes = eventLines("questionnaire.publish_items_rejected");
-    expect(codes.map((line) => Number(line["questionnaire.finding_count"]))).toEqual(points.map((point) => Number(point.value)));
+    expect(codes.map((line) => Number(line["questionnaire.code_finding_count"]))).toEqual(points.map((point) => Number(point.value)));
     expect(await metricPoints("questionnaire.publish.total")).toEqual([
       { value: 1, attributes: { "questionnaire.outcome": "rejected_validation" } },
     ]);
@@ -310,8 +314,8 @@ describe("a publish refused for more items than the findings cap", () => {
       {
         [QUESTIONNAIRE]: questionnaireId,
         "questionnaire.outcome": "rejected_validation",
-        "questionnaire.finding_count": MAX_FINDINGS + 15,
-        "questionnaire.omitted_count": 15,
+        "questionnaire.finding_count": OVER_CAP,
+        "questionnaire.omitted_count": OMITTED,
       },
     ]);
   });

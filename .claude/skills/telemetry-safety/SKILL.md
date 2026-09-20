@@ -173,12 +173,15 @@ await withSpan("session.submit", { sessionId, questionnaireVersion }, async () =
 ```
 
 **Domain event.** One entry in `DOMAIN_EVENTS` in `packages/telemetry/src/events.ts` carrying the
-event's name, its payload type and its counter name; `DomainEvent` and the counter lookup derive
-from it. The payload's fields should all be registry fields, but nothing enforces it: the entry's payload type is not checked against `FIELDS`, and a key outside the registry is dropped at runtime, so a misspelt key vanishes from the log line and the counter instead of failing the build. See the `DOMAIN_EVENTS` example in
+event's name, its payload type and its counter name, or `logOnly<P>()` for an event that has no
+counter; `DomainEvent` and the counter lookup derive from it. The payload's fields should all be registry fields, but nothing enforces it: the entry's payload type is not checked against `FIELDS`, and a key outside the registry is dropped at runtime, so a misspelt key vanishes from the log line and the counter instead of failing the build. See the `DOMAIN_EVENTS` example in
 `.claude/skills/constants/SKILL.md` rather than restating the shape here. `emitDomainEvent` writes
-the log line and increments the counter in one call so the two cannot drift.
+the log line and, when the event has a counter, increments it in one call so the two cannot drift.
+`countBy` makes the counter add a payload field instead of 1; it accepts only a member of `COUNT_FIELDS`
+(`findingCount`, `omittedCount`, `codeFindingCount`), and a value that is not a whole number from 0 to a million
+adds nothing and counts one internal drop.
 
-Per-request emission is capped at `MAX_FINDINGS` (20). A request with more findings than that emits one log-only line per finding up to the cap; the real total travels as `findingCount` and `omittedCount` (whole-number registry fields, log line only, never labels) on the outcome event, and a counter that must be exact is driven by one per-code event carrying `findingCount` through `countBy`, never by the capped per-item lines.
+Per-request emission is capped at `MAX_FINDINGS` (20). A request with more findings than that emits one `logOnly` line per finding up to the cap; the request's real total travels as `findingCount` and `omittedCount` (whole-number registry fields, log line only, never labels) on the outcome event, and a counter that must be exact is driven by one per-code event carrying `codeFindingCount` through `countBy`, never by the capped per-item lines. `capFindings` in `@qp/telemetry` derives the logged findings, the per-code tallies and the totals from one place; use it, do not slice and count by hand.
 
 **Metric.** Counter and histogram instruments live in `packages/telemetry/src/instruments.ts` and
 are deliberately not exported from `@qp/telemetry`; application code reaches metrics through
@@ -307,7 +310,8 @@ Flows built so far, in `flows.ts`:
 - The `/api/telemetry` ingest: a batch with the sentinel in a field, a nested object, an event name, a timestamp and a
   traceparent, and batches refused as not an envelope.
 - The definition routes: the sentinel in a title, a prompt and an option label, through a stale save, a refused publish, a
-  publish and a retirement.
+  publish and a retirement; and a publish refused for more items than `MAX_FINDINGS`, where the per-item lines are capped and
+  the per-code events and outcome carry the totals.
 - The reporting reads: a stored sentinel answer read back through the list, with a real and a forged cursor, and the detail,
   then the `view_response` audit row: one for the detail read, none for the list, no sentinel in it (O14, O20).
 

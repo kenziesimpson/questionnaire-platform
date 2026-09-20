@@ -63,12 +63,12 @@ function quantity(attribute: string): FieldDefinition<number> {
   return { attribute, bounded: false, accepts: (value): value is number => typeof value === "number" && Number.isFinite(value) };
 }
 
+export function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_COUNT && !Object.is(value, -0);
+}
+
 function count(attribute: string): FieldDefinition<number> {
-  return {
-    attribute,
-    bounded: false,
-    accepts: (value): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_COUNT,
-  };
+  return { attribute, bounded: false, accepts: isCount };
 }
 
 function statusCode(attribute: string): FieldDefinition<number> {
@@ -113,6 +113,7 @@ export const FIELDS = {
   questionCount: quantity("questionnaire.question_count"),
   findingCount: count("questionnaire.finding_count"),
   omittedCount: count("questionnaire.omitted_count"),
+  codeFindingCount: count("questionnaire.code_finding_count"),
   requestId: matching("http.request.id", UUID, false),
   method: oneOf("http.request.method", HTTP_METHODS),
   route: matching("http.route", ROUTE, true),
@@ -132,6 +133,9 @@ export const FIELDS = {
 } as const satisfies Record<string, FieldDefinition<unknown>>;
 
 export type FieldName = keyof typeof FIELDS;
+
+export const COUNT_FIELDS = ["findingCount", "omittedCount", "codeFindingCount"] as const satisfies readonly FieldName[];
+export type CountField = (typeof COUNT_FIELDS)[number];
 
 export type FieldValue<K extends FieldName> = (typeof FIELDS)[K] extends FieldDefinition<infer V> ? V : never;
 

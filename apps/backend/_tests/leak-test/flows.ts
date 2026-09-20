@@ -17,6 +17,8 @@ export type BackendLeakFlow = LeakFlow<LeakWorld>;
 
 export const leakLog = logger("execution");
 
+const OVER_CAP = MAX_FINDINGS + 15;
+
 function forgedContext(fields: Record<string, unknown>): TelemetryContext {
   return Object.assign<TelemetryContext, Record<string, unknown>>({}, fields);
 }
@@ -183,9 +185,9 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
       emitDomainEvent(
         forgedEvent({ name: "session.answer_rejected", sessionId: ids.sessionId, itemId: null, questionId: null, reason: sentinel, answer: sentinel }),
       );
-      emitDomainEvent(forgedEvent({ name: "session.answers_rejected", sessionId: ids.sessionId, reason: sentinel, findingCount: 35, answer: sentinel }));
+      emitDomainEvent(forgedEvent({ name: "session.answers_rejected", sessionId: ids.sessionId, reason: sentinel, codeFindingCount: 35, answer: sentinel }));
       emitDomainEvent(
-        forgedEvent({ name: "questionnaire.publish_items_rejected", questionnaireId: sentinel, problemCode: sentinel, findingCount: 35, answer: sentinel }),
+        forgedEvent({ name: "questionnaire.publish_items_rejected", questionnaireId: sentinel, problemCode: sentinel, codeFindingCount: 35, answer: sentinel }),
       );
       emitDomainEvent(forgedEvent({ name: "questionnaire.publish_rejected", questionnaireId: sentinel, itemId: ids.itemId, problemCode: sentinel, answer: sentinel }));
       emitDomainEvent(forgedEvent({ name: "session.item_skipped", ...ids, answer: sentinel }));
@@ -374,7 +376,7 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
       expect(created.statusCode, "the planted questionnaire must be stored").toBe(201);
       const questionnaireId: string = created.json().questionnaireId;
       const items: object[] = [];
-      for (let index = 0; index < MAX_FINDINGS + 15; index += 1) {
+      for (let index = 0; index < OVER_CAP; index += 1) {
         const question = await post("/questions", { question: { type: "text", prompt: `${sentinel} ${index}` } });
         expect(question.statusCode, "the planted question must be stored").toBe(201);
         items.push({
@@ -399,7 +401,7 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
         headers: { "if-match": String(saved.headers.etag) },
       });
       expect(refused.statusCode, "the planted publish must be refused for the flow to prove anything").toBe(422);
-      expect(refused.json<{ items: unknown[] }>().items, "the refusal must name every item, past the findings cap").toHaveLength(MAX_FINDINGS + 15);
+      expect(refused.json<{ items: unknown[] }>().items, "the refusal must name every item, past the findings cap").toHaveLength(OVER_CAP);
     },
   },
   {

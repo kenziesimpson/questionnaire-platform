@@ -1,7 +1,7 @@
 import { DRAFT_ITEM_CODES, problem, QUESTION_RULE_CODES, SUBMISSION_ITEM_CODES, type Problem } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import { problemTelemetry, scrubContext } from "../src/index.js";
-import { findingTotals, MAX_FINDINGS, PROBLEM_CODES, SCHEMA_CODES, tallyCodes } from "../src/problems.js";
+import { capFindings, MAX_FINDINGS, PROBLEM_CODES, SCHEMA_CODES } from "../src/problems.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
 
@@ -118,31 +118,53 @@ describe("problemTelemetry", () => {
   });
 });
 
-describe("findingTotals", () => {
-  it("reports every finding and none omitted up to the cap", () => {
-    expect(findingTotals(0)).toEqual({ findingCount: 0, omittedCount: 0 });
-    expect(findingTotals(1)).toEqual({ findingCount: 1, omittedCount: 0 });
-    expect(findingTotals(MAX_FINDINGS)).toEqual({ findingCount: MAX_FINDINGS, omittedCount: 0 });
-  });
+describe("capFindings", () => {
+  const rejection = (code: "answer/required" | "answer/unknown-item") => ({ code });
 
-  it("reports the findings past the cap as omitted", () => {
-    expect(findingTotals(MAX_FINDINGS + 1)).toEqual({ findingCount: MAX_FINDINGS + 1, omittedCount: 1 });
-    expect(findingTotals(35)).toEqual({ findingCount: 35, omittedCount: 35 - MAX_FINDINGS });
-  });
-});
+  it("logs every finding, omits none and counts each code, up to the cap", () => {
+    const findings = [rejection("answer/required"), rejection("answer/unknown-item"), rejection("answer/required")];
 
-describe("tallyCodes", () => {
-  it("counts each distinct code across every finding, in order of first appearance", () => {
-    const codes = ["answer/required", "answer/unknown-item", "answer/required", "answer/required", "answer/unknown-item"] as const;
-    expect([...tallyCodes(codes)]).toEqual([
-      ["answer/required", 3],
-      ["answer/unknown-item", 2],
+    const capped = capFindings(findings, (finding) => finding.code);
+
+    expect(capped.logged).toEqual(findings);
+    expect(capped.totals).toEqual({ findingCount: 3, omittedCount: 0 });
+    expect([...capped.perCode]).toEqual([
+      ["answer/required", 2],
+      ["answer/unknown-item", 1],
     ]);
   });
 
-  it("counts past the cap and returns nothing for no findings", () => {
-    expect([...tallyCodes(Array.from({ length: 120 }, () => "answer/unknown-item" as const))]).toEqual([["answer/unknown-item", 120]]);
-    expect(tallyCodes([]).size).toBe(0);
+  it("reports exactly the cap as none omitted", () => {
+    const findings = Array.from({ length: MAX_FINDINGS }, () => rejection("answer/required"));
+
+    const capped = capFindings(findings, (finding) => finding.code);
+
+    expect(capped.logged).toHaveLength(MAX_FINDINGS);
+    expect(capped.totals).toEqual({ findingCount: MAX_FINDINGS, omittedCount: 0 });
+  });
+
+  it("logs the first findings up to the cap but counts every finding, per code, in order of first appearance", () => {
+    const findings = [
+      ...Array.from({ length: MAX_FINDINGS + 5 }, () => rejection("answer/unknown-item")),
+      ...Array.from({ length: 10 }, () => rejection("answer/required")),
+    ];
+
+    const capped = capFindings(findings, (finding) => finding.code);
+
+    expect(capped.logged).toEqual(findings.slice(0, MAX_FINDINGS));
+    expect(capped.totals).toEqual({ findingCount: MAX_FINDINGS + 15, omittedCount: 15 });
+    expect([...capped.perCode]).toEqual([
+      ["answer/unknown-item", MAX_FINDINGS + 5],
+      ["answer/required", 10],
+    ]);
+  });
+
+  it("reports nothing for no findings", () => {
+    const capped = capFindings([], () => "answer/required" as const);
+
+    expect(capped.logged).toEqual([]);
+    expect(capped.totals).toEqual({ findingCount: 0, omittedCount: 0 });
+    expect(capped.perCode.size).toBe(0);
   });
 });
 

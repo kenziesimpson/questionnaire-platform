@@ -36,14 +36,20 @@ export interface FindingTotals {
   readonly omittedCount: number;
 }
 
-export function findingTotals(findingCount: number): FindingTotals {
-  return { findingCount, omittedCount: Math.max(0, findingCount - MAX_FINDINGS) };
+export interface CappedFindings<T, C extends string> {
+  readonly logged: readonly T[];
+  readonly totals: FindingTotals;
+  readonly perCode: ReadonlyMap<C, number>;
 }
 
-export function tallyCodes<C extends string>(codes: readonly C[]): ReadonlyMap<C, number> {
-  const tally = new Map<C, number>();
-  for (const code of codes) tally.set(code, (tally.get(code) ?? 0) + 1);
-  return tally;
+export function capFindings<T, C extends string>(findings: readonly T[], codeOf: (finding: T) => C): CappedFindings<T, C> {
+  const logged = findings.slice(0, MAX_FINDINGS);
+  const perCode = new Map<C, number>();
+  for (const finding of findings) {
+    const code = codeOf(finding);
+    perCode.set(code, (perCode.get(code) ?? 0) + 1);
+  }
+  return { logged, totals: { findingCount: findings.length, omittedCount: findings.length - logged.length }, perCode };
 }
 
 function knownCode(code: string): ProblemCode | undefined {

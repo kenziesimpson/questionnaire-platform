@@ -229,7 +229,7 @@ describe("emitDomainEvent against the real SDK", () => {
 
   it("labels a counter with bounded dimensions only", async () => {
     const installed = install();
-    emitDomainEvent({ name: "session.answers_rejected", sessionId: SESSION_ID, reason: "answer/required", findingCount: 1 });
+    emitDomainEvent({ name: "session.answers_rejected", sessionId: SESSION_ID, reason: "answer/required", codeFindingCount: 1 });
     emitDomainEvent({ name: "session.question_answered", sessionId: SESSION_ID, itemId: "itm_1", questionId: QUESTION_ID, questionType: "date" });
     const rejected = await metricNamed(installed, "questionnaire.answers.rejected");
     const accepted = await metricNamed(installed, "questionnaire.answers.accepted");
@@ -264,14 +264,14 @@ describe("emitDomainEvent against the real SDK", () => {
     const installed = install();
     emitDomainEvent({ name: "session.answer_rejected", sessionId: SESSION_ID, itemId: "itm_1", questionId: QUESTION_ID, reason: "answer/required" });
     expect(await metricNamed(installed, "questionnaire.answers.rejected")).toBeUndefined();
-    emitDomainEvent({ name: "session.answers_rejected", sessionId: SESSION_ID, reason: "answer/required", findingCount: 35 });
-    emitDomainEvent({ name: "session.answers_rejected", sessionId: SESSION_ID, reason: "answer/unknown-item", findingCount: 85 });
+    emitDomainEvent({ name: "session.answers_rejected", sessionId: SESSION_ID, reason: "answer/required", codeFindingCount: 35 });
+    emitDomainEvent({ name: "session.answers_rejected", sessionId: SESSION_ID, reason: "answer/unknown-item", codeFindingCount: 85 });
     const rejected = await metricNamed(installed, "questionnaire.answers.rejected");
     expect(rejected?.dataPoints.map((point) => [point.attributes, point.value])).toEqual([
       [{ "questionnaire.reason": "answer/required" }, 35],
       [{ "questionnaire.reason": "answer/unknown-item" }, 85],
     ]);
-    expect(installed.logs()[1]).toMatchObject({ msg: "session.answers_rejected", "questionnaire.finding_count": 35 });
+    expect(installed.logs()[1]).toMatchObject({ msg: "session.answers_rejected", "questionnaire.code_finding_count": 35 });
   });
 
   it("logs a failed submit with no questionnaire, and counts it apart from a replay", async () => {
@@ -289,7 +289,7 @@ describe("emitDomainEvent against the real SDK", () => {
   it("labels the publish counters by outcome and by draft item code, and the conflict counter by nothing", async () => {
     const installed = install();
     emitDomainEvent({ name: "questionnaire.publish_finished", questionnaireId: QUESTIONNAIRE_ID, outcome: "rejected_validation" });
-    emitDomainEvent({ name: "questionnaire.publish_items_rejected", questionnaireId: QUESTIONNAIRE_ID, problemCode: "predicate/forward-reference", findingCount: 3 });
+    emitDomainEvent({ name: "questionnaire.publish_items_rejected", questionnaireId: QUESTIONNAIRE_ID, problemCode: "predicate/forward-reference", codeFindingCount: 3 });
     emitDomainEvent({ name: "questionnaire.draft_conflict", questionnaireId: QUESTIONNAIRE_ID });
     const total = await metricNamed(installed, "questionnaire.publish.total");
     const rejections = await metricNamed(installed, "questionnaire.publish.rejections");

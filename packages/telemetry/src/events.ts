@@ -1,23 +1,23 @@
 import type { DraftItemCode, ResponseType, SubmissionItemCode } from "@qp/shared";
-import { FIELDS, type FieldName, type Outcome, type TelemetryContext } from "./fields.js";
+import { FIELDS, isCount, type CountField, type FieldName, type Outcome, type TelemetryContext } from "./fields.js";
 import { guarded } from "./guard.js";
 import { incrementCounter, recordSessionDuration, reportDropped } from "./instruments.js";
 import { logDomainEvent, relayLog } from "./logger.js";
 import { oneDropped, scrubContext, type ScrubbedAttributes } from "./scrub.js";
 import { EVENTS_LOG_MODULE } from "./vocabulary.js";
 
-type NumericPayloadField<P> = { [K in keyof P]-?: NonNullable<P[K]> extends number ? K : never }[keyof P] & FieldName;
+type NumericPayloadField<P> = { [K in keyof P]-?: NonNullable<P[K]> extends number ? K : never }[keyof P];
 
 interface EventDefinition<P> {
   readonly counter: string | null;
   readonly labels: readonly FieldName[];
-  readonly countBy: FieldName | undefined;
+  readonly countBy: CountField | undefined;
   readonly payload?: P;
 }
 
 interface EventOptions<P> {
   readonly labels?: readonly FieldName[];
-  readonly countBy?: NumericPayloadField<P>;
+  readonly countBy?: CountField & NumericPayloadField<P>;
 }
 
 function event<P>(counter: string, options: EventOptions<P> = {}): EventDefinition<P> {
@@ -37,9 +37,9 @@ const DOMAIN_EVENTS = {
     { labels: ["outcome"] },
   ),
   "questionnaire.publish_rejected": logOnly<{ questionnaireId: string; itemId: string; problemCode: DraftItemCode }>(),
-  "questionnaire.publish_items_rejected": event<{ questionnaireId: string; problemCode: DraftItemCode; findingCount: number }>(
+  "questionnaire.publish_items_rejected": event<{ questionnaireId: string; problemCode: DraftItemCode; codeFindingCount: number }>(
     "questionnaire.publish.rejections",
-    { labels: ["problemCode"], countBy: "findingCount" },
+    { labels: ["problemCode"], countBy: "codeFindingCount" },
   ),
   "questionnaire.draft_conflict": event<{ questionnaireId: string }>("questionnaire.draft.conflicts"),
   "reporting.responses_listed": event<{ questionnaireId: string }>("questionnaire.responses.listed"),
@@ -55,9 +55,9 @@ const DOMAIN_EVENTS = {
     { labels: ["questionType"] },
   ),
   "session.answer_rejected": logOnly<{ sessionId: string; itemId: string | null; questionId: string | null; reason: SubmissionItemCode }>(),
-  "session.answers_rejected": event<{ sessionId: string; reason: SubmissionItemCode; findingCount: number }>(
+  "session.answers_rejected": event<{ sessionId: string; reason: SubmissionItemCode; codeFindingCount: number }>(
     "questionnaire.answers.rejected",
-    { labels: ["reason"], countBy: "findingCount" },
+    { labels: ["reason"], countBy: "codeFindingCount" },
   ),
   "session.item_skipped": event<{ sessionId: string; itemId: string; questionId: string }>("questionnaire.items.skipped"),
   "session.abandoned": event<{ sessionId: string; lastItemId: string | null }>("questionnaire.sessions.abandoned"),
@@ -89,10 +89,10 @@ function labelsOf(name: DomainEventName, fields: Readonly<Record<string, unknown
   return scrubbed.attributes;
 }
 
-function amountOf(countBy: FieldName | undefined, fields: Readonly<Record<string, unknown>>): number | undefined {
+function amountOf(countBy: CountField | undefined, fields: Readonly<Record<string, unknown>>): number | undefined {
   if (countBy === undefined) return 1;
   const amount = fields[countBy];
-  if (typeof amount === "number" && FIELDS[countBy].accepts(amount)) return amount;
+  if (isCount(amount) && FIELDS[countBy].accepts(amount)) return amount;
   reportDropped("metric", oneDropped("internal"));
   return undefined;
 }
