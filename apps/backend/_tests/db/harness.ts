@@ -7,6 +7,7 @@ import { ROLE_NAMES, TEMPLATE_DATABASE, withDatabase, withRole, type Application
 export interface TestDatabase {
   url(role: ApplicationRole): string;
   connect(role: ApplicationRole): Promise<pg.Client>;
+  connectAsAdmin(): Promise<pg.Client>;
   database(role: ApplicationRole): Database;
   pool(role: ApplicationRole): pg.Pool;
   readAuditEvents(): Promise<AuditEventRow[]>;
@@ -56,6 +57,13 @@ export function useTestDatabase(): TestDatabase {
 
   const connect = async (role: ApplicationRole) => {
     const client = new pg.Client({ connectionString: url(role) });
+    await client.connect();
+    clientsOpenedByTheCurrentTest.push(client);
+    return client;
+  };
+
+  const connectAsAdmin = async () => {
+    const client = new pg.Client({ connectionString: withDatabase(server.adminUrl, databaseName) });
     await client.connect();
     clientsOpenedByTheCurrentTest.push(client);
     return client;
@@ -126,6 +134,7 @@ export function useTestDatabase(): TestDatabase {
   return {
     url,
     connect,
+    connectAsAdmin,
     database: (role) => handleFor(role).db,
     pool: (role) => handleFor(role).pool,
     readAuditEvents: () =>

@@ -612,7 +612,7 @@ CREATE INDEX audit_by_questionnaire ON audit.event (questionnaire_id, occurred_a
 
 **No foreign keys, deliberately.** The deferred move in [[6-observability#5.1 Isolation — separate schema with a restricted role]] is to lift this table into its own database behind a transactional outbox, and foreign keys into `definition` would have to be dropped to do it. The same section's requirement that audit rows carry their own id and timestamp rather than borrowing the domain row's is the other half of the same argument.
 
-`trace_id` correlates an audit row to the OpenTelemetry trace that produced it without putting anything about a respondent's answers into either. Audit covers authoring actions and, since `0020`, one read: `view_response`, written when an admin opens a session's raw answers. Its row names the questionnaire, the session's pinned version and, in `summary`, the session id (`{ "sessionId": … }`, cast to `uuid` by the function call, so nothing else can be stored there). It never holds an answer. No column was added for the session id: `summary` already exists for this, and a column would widen the table for one action.
+`trace_id` correlates an audit row to the OpenTelemetry trace that produced it without putting anything about a respondent's answers into either. Audit covers authoring actions and, since `0020`, one read: `view_response`, written when an admin opens a session's raw answers. Its row names the questionnaire, the session's pinned version and, in `summary`, the session id (`{ "sessionId": … }`). It never holds an answer. Two things keep it so: `recordResponseView` casts the id to `uuid` before building the object, and, since `0022`, `audit.record` itself refuses a `qp_reporting` call whose `summary` is anything else (§9.1). The database does not constrain `actor_id`, which the caller supplies (the placeholder author until authentication lands), and it does not check that the ids on the row exist or belong together. No column was added for the session id: `summary` already exists for this, and a column would widen the table for one action.
 
 The action list is wider than [[6-observability#5. Audit trail]] enumerates. `create_draft` and `reopen` (clearing `closes_at`) are real state changes an auditor would ask about, and `create_question_version` covers the fact that a new question version changes what patients are asked — `question_version.created_by` records who, and the audit row records when and in what context.
 
@@ -645,20 +645,12 @@ GRANT  USAGE   ON SCHEMA audit TO qp_definition;
 GRANT  EXECUTE ON FUNCTION audit.record(text,uuid,uuid,int,text,jsonb,text) TO qp_definition;
 ```
 
+That is the `0006` definition. `0022` replaced the function body (see "One action, one shape, for `qp_reporting`" below); the signature, owner, `search_path` and grants are as shown.
+
 **`EXECUTE` on a new function is granted to `PUBLIC` by default**, so without the third `REVOKE` every role
 could call `audit.record` — held back only by lacking `USAGE` on the schema, and a privilege check would
 report that it can. The revoke landed in a later migration (`0014`) with the same sweep for every function in
-the three schemas, so `qp_definition`'s explicit grant was the only one. `0020` adds a second, for `qp_reporting`, whose responses browser records a `view_response` row in the transaction that reads the answers (Decisions Log #89, [[6-observability#13. Decisions and open questions]] O14, O18); it also gains `USAGE` on the schema and nothing on the table.
-
-**`qp_reporting` may record `view_response` and nothing else (`0022`).** `EXECUTE` alone would let it record any action on the closed list, so `0022` replaces the `0006` function body shown above (`CREATE OR REPLACE` as `audit_owner`, so the signature, owner, `search_path` and grants are unchanged; the language becomes `plpgsql` to hold the check) with one guard ahead of the `INSERT`:
-
-```sql
-IF session_user = 'qp_reporting' AND p_action IS DISTINCT FROM 'view_response' THEN
-  RAISE EXCEPTION 'qp_reporting may record view_response only' USING ERRCODE = '42501';
-END IF;
-```
-
-The test is on `session_user`, the login role of the connection. Inside a `SECURITY DEFINER` function `current_user` is the owner (`audit_owner`), so it cannot tell callers apart, while `session_user` is unaffected by `SET ROLE` and cannot be changed without superuser (`SET SESSION AUTHORIZATION`). `qp_reporting` is a member of no role, so it cannot `SET ROLE` to one that holds `EXECUTE` without the check; the test suite asserts the membership catalogue is empty. Every other caller is untouched: `qp_definition` still records any action, and the harness's `SET ROLE audit_owner` from a `qp_owner` session has `session_user = 'qp_owner'`. A refusal is `42501` with a fixed message that names no caller-supplied text, raised before the `INSERT`, so it leaves no row. The guard compares with `=` and not `pg_has_role(session_user, 'qp_reporting', 'MEMBER')`, because `pg_has_role` is true for a superuser for every role and would refuse the bootstrap superuser.
+the three schemas, so `qp_definition`'s explicit grant was the only one. `0020` adds a second, for `qp_reporting`, whose responses browser records a `view_response` row in the transaction that reads the answers (Decisions Log #89, [[6-observability#13. Decisions and open questions]] O14, O18); it also gains `USAGE` on the schema and nothing on the table. `0022` then limits that role to one action and one payload shape, in the function ("One action, one shape, for `qp_reporting`" at the end of this section).
 
 Verified end to end:
 
@@ -679,6 +671,42 @@ should be "simplified" later.
 **One trap, hit while building this.** The function owner needs `USAGE` on the schema. If `audit_owner` owns the function but the schema is still owned by the migration role and `PUBLIC` has been revoked, every call fails at runtime with `permission denied for schema audit` — after the migration has apparently succeeded. `ALTER SCHEMA audit OWNER TO audit_owner` is the line that prevents it.
 
 **A second trap, in the migration itself, reproduced against a live database.** The two `OWNER TO` statements fail in either order, and — confusingly — with the identical error. Table before schema: `audit_owner` does not yet have `CREATE` on `audit`, which is still `qp_owner`'s, so the table's `OWNER TO` is rejected. Schema before table: that succeeds, but it strips `qp_owner`, the migration connection, of `USAGE` on `audit`, so the table's `OWNER TO` — now next — fails instead, and so does anything after it that still runs as `qp_owner` and still names `audit.*`. Both failures print `permission denied for schema audit`, which is exactly why this is worth spelling out rather than leaving to be rediscovered: the message does not distinguish the missing-`CREATE` case from the lost-`USAGE` case, and neither points at the fix. The fix is the explicit `GRANT CREATE` before either transfer, table before schema once it is in place, and running everything from `CREATE FUNCTION` on as `audit_owner` via `SET LOCAL ROLE` rather than `qp_owner` — which is also why the separate `ALTER FUNCTION ... OWNER TO audit_owner` is gone: creating the function while `audit_owner` is the active role already makes it the owner.
+
+#### One action, one shape, for `qp_reporting` (`0022`)
+
+`0020` gave `qp_reporting` `EXECUTE` on `audit.record` so the responses browser could record `view_response`. `EXECUTE` alone would let a caller with that credential record any action and any payload, so `0022` (`CREATE OR REPLACE` as `audit_owner`; the language becomes `plpgsql` to hold the checks) adds a guard ahead of the unchanged `INSERT`. It applies only when `session_user = 'qp_reporting'`, and raises `42501` with a fixed message that names no caller-supplied text, before anything is written:
+
+```sql
+IF session_user = 'qp_reporting' THEN
+  IF p_action IS DISTINCT FROM 'view_response' THEN
+    RAISE EXCEPTION 'qp_reporting may record view_response only' USING ERRCODE = '42501';
+  END IF;
+  IF NOT coalesce(<qid, qvid and version are not NULL
+                   AND trace id is NULL or 32 lower-case hex digits
+                   AND summary is exactly {"sessionId": "<canonical lower-case uuid>"}>, false) THEN
+    RAISE EXCEPTION 'qp_reporting may record only the view_response row that names a session' USING ERRCODE = '42501';
+  END IF;
+END IF;
+```
+
+What that fixes on the reporting caller, each read off `recordResponseView` (`db/reporting/audit.ts`) and its one call site, `getSessionDetail`:
+
+| Argument | Enforced for `qp_reporting` | Why that is what the caller passes |
+| --- | --- | --- |
+| action | `view_response` | The function names it as a literal |
+| `p_summary` | a JSON object whose only key is `sessionId`, whose value is a JSON string in canonical lower-case hyphenated uuid form; `NULL`, other keys, non-strings, nested values and non-objects are refused | `jsonb_build_object('sessionId', <uuid>)`: Postgres renders a `uuid` in that form |
+| questionnaire id, version id, version | not `NULL` | Read from the session row, so always present |
+| `p_trace_id` | `NULL` or exactly 32 lower-case hex digits | `activeTraceId()` is an OpenTelemetry trace id or `undefined` (stored as `NULL`) |
+
+What it does not, and cannot, enforce: `actor_id` is free text from the caller (the placeholder author until authentication lands, O14), so a compromised `qp_reporting` credential could put text there; and the ids are not checked to exist or to belong together (the audit table has no foreign keys by design, and `audit_owner` reads nothing in `execution`), so such a credential could record a false `view_response` naming any session id. The credential can already read answers through its `SELECT` grants, so neither adds a read, but `actor_id` is not guaranteed free of text a hostile credential chose to put there; closing that needs authentication, not a database check. `qp_definition` and every other caller keep the unrestricted function.
+
+**Why `session_user`.** Inside a `SECURITY DEFINER` function `current_user` is the owner (`audit_owner`), so it cannot tell callers apart. `session_user` is the role the connection logged in as: `SET ROLE` does not change it, entering a `SECURITY DEFINER` function does not change it, and only a session that started as a superuser can change it (`SET SESSION AUTHORIZATION`). Role memberships therefore do not matter: even a `qp_reporting` session that `SET ROLE`s to `qp_definition` (which holds `EXECUTE`) is still refused, and the test suite shows exactly that by granting the membership, switching role and calling the function. The harness's own `SET ROLE audit_owner` runs in a `qp_owner` session, where `session_user` is `qp_owner`, so it is not affected. The guard compares with `=` and not `pg_has_role(session_user, 'qp_reporting', 'MEMBER')`, because `pg_has_role` is true for a superuser for every role and would refuse the bootstrap superuser.
+
+**Limits of a name match.**
+
+- The guard fails open by name. It matches the string `'qp_reporting'`, so a deployment that renames the role or prefixes role names, and so logs the reporting pool in as something else, gets an unguarded function until a migration is written for that name.
+- Every other caller is unrestricted by default. The guard is an allow-list for one role, not a deny-list for the rest: a role granted `EXECUTE` later can record any action. A catalog test (`_tests/db/grants.test.ts`) fails if a role other than `qp_definition`, `qp_reporting`, `audit_owner` and superusers holds `EXECUTE` on the function, so a future grantee is noticed and has to be decided on.
+- It is correct only while `session_user` on the server connection is the role that logged in: one pool per role, each with its own credentials, and no pooler configured to connect to Postgres as a fixed server user or to `SET ROLE` on a shared connection. A pooler that did would make every caller look like the same `session_user`. The transaction-mode pooler of Decisions Log #78 is compatible for the same reason it already needs distinct users ([[3-scaling]]).
 
 ## 10. Grants
 
@@ -728,7 +756,7 @@ GRANT EXECUTE ON FUNCTION monitor.response_partition_months_ahead(timestamptz) T
 | --- | --- | --- | --- |
 | `qp_definition` | `SELECT, INSERT` on every table; `UPDATE` on every table except `questionnaire_version` and `questionnaire`, which get only the columns above; `DELETE` on `questionnaire_item` only; `EXECUTE` on `promote_draft` | none | `EXECUTE` on `audit.record` only (§9.1) |
 | `qp_execution` | `SELECT` on `questionnaire`, `version_question_index` and the `published_questionnaire_version` view — not the base `questionnaire_version` table | `SELECT, INSERT, UPDATE` on `session`; `SELECT, INSERT` on `response` | none |
-| `qp_reporting` | `SELECT` on the `published_questionnaire_version` view and on `questionnaire (id)` only — not the base `questionnaire_version` table | `SELECT` on `session` and `response` only | `EXECUTE` on `audit.record`, which refuses it every action but `view_response` (`0022`), and `USAGE` on the schema, nothing on `audit.event` (§9.1) |
+| `qp_reporting` | `SELECT` on the `published_questionnaire_version` view and on `questionnaire (id)` only — not the base `questionnaire_version` table | `SELECT` on `session` and `response` only | `EXECUTE` on `audit.record`, which refuses it every action but `view_response`, and any payload but the one `recordResponseView` writes (`0022`), and `USAGE` on the schema, nothing on `audit.event` (§9.1) |
 | `qp_monitor` | none — no privilege on any relation, no `USAGE` on the schema | none | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` |
 | `qp_owner` | owns every object | owns every object | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` (§9.1) |
 

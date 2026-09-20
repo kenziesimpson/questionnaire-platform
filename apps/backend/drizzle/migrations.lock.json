@@ -21,5 +21,5 @@
   "0019_add_session_submitted_indexes.sql": "f88042ab022fd4d8307ea0274d960e61e8588044fcba919e99657dc4184631f1",
   "0020_reporting_records_view_response.sql": "64669a0c0bf438be2e0f7d3b6ff2f3b3ffad73253ef787af9a2ebd82b229e2ee",
   "0021_monitor_schema.sql": "4b0b3f67b91e5c0ac25167efd111446c1211073dee7df44c7c0877be649025c0",
-  "0022_reporting_records_view_response_only.sql": "ec04fda4d0d7fb77a832b8454a761f3b1af6dfd33951665df289fda66baf0b34"
+  "0022_reporting_records_view_response_only.sql": "cff6c7a09046d5baeb4bc203e6415512830061eb232076db394ba182b1dd4e1f"
 }

@@ -200,7 +200,9 @@ schema, and each one fails *silently* in the naive version.
   Do not add one that looks like a cross-partition guarantee.
 - **Inside a `SECURITY DEFINER` function, tell callers apart by `session_user`, never `current_user`.** `current_user` is the function
   owner there. `session_user` is the login role, and `SET ROLE` does not change it. `audit.record` refuses `qp_reporting` any action but
-  `view_response` this way (`0022`). Compare with `=`: `pg_has_role(session_user, ..., 'MEMBER')` is true for a superuser for every role.
+  `view_response`, and any summary but `{"sessionId": <uuid>}`, this way (`0022`). It is a name match: it fails open if the role is renamed, every other
+  caller is unrestricted, and it needs one pool per role with no pooler forcing a server user. Compare with `=`: `pg_has_role(session_user, ..., 'MEMBER')` is
+  true for a superuser for every role.
 - **A `SECURITY DEFINER` function's owner needs `USAGE` on its schema.** If the function is owned by
   `audit_owner` but the schema is not, every call fails at runtime with `permission denied for schema
   audit` — long after the migration reported success. `ALTER SCHEMA audit OWNER TO audit_owner`.
