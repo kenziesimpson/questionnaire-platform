@@ -6,6 +6,7 @@ import { DrizzleQueryError } from "drizzle-orm";
 import { expect } from "vitest";
 import { buildApp } from "../../src/app.js";
 import { SQLSTATE } from "../../src/db/errors.js";
+import { requestLogger } from "../../src/http/request-logger.js";
 import { encodeCursor } from "../../src/db/reporting/cursor.js";
 import { InvariantViolation } from "../../src/invariant.js";
 import { SESSION_ID } from "../http/fixtures.js";
@@ -517,6 +518,7 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
     emits: ["client.error", "session.abandoned"],
     run: async ({ testDatabase }, sentinel) => {
       const limited = await buildApp({
+        logger: requestLogger("debug"),
         definition: { database: testDatabase.database("definition") },
         execution: { database: testDatabase.database("execution") },
         reporting: { reporting: testDatabase.database("reporting") },

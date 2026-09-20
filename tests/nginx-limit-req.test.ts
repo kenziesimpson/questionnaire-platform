@@ -29,11 +29,13 @@ function directive(body: string, name: string): string | undefined {
   return new RegExp(`^\\s*${name}\\s+(.+);$`, "m").exec(body)?.[1];
 }
 
-function proxyDirectives(body: string): string[] {
+const INGEST_ONLY = [/^limit_req\s/, /^limit_req_status\s/, /^limit_req_log_level\s/];
+
+function sharedDirectives(body: string): string[] {
   return body
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.startsWith("proxy_"))
+    .filter((line) => line !== "" && !INGEST_ONLY.some((pattern) => pattern.test(line)))
     .sort();
 }
 
@@ -90,11 +92,11 @@ describe("nginx limits POST /api/telemetry per address and nothing else", () => 
     expect(perMinute + burst).toBeLessThanOrEqual(2 * telemetryApi.MAX_TELEMETRY_REQUESTS_PER_MINUTE);
   });
 
-  it("proxies exactly as the rest of /api/ does, so the backend sees the same Host and forwarded address", () => {
+  it("carries every other directive of /api/, so the backend sees the same request as from the rest of /api/", () => {
     const api = locations(nginxConfig).find((location) => location.matcher === "/api/");
 
     expect(api).toBeDefined();
-    expect(proxyDirectives(limited[0]?.body ?? "")).toEqual(proxyDirectives(api?.body ?? ""));
-    expect(proxyDirectives(api?.body ?? "")).toContain("proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;");
+    expect(sharedDirectives(limited[0]?.body ?? "")).toEqual(sharedDirectives(api?.body ?? ""));
+    expect(sharedDirectives(api?.body ?? "")).toContain("proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;");
   });
 });

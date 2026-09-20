@@ -117,7 +117,7 @@ OpenTelemetry export is off unless you point the backend at an OTLP/HTTP receive
 | --- | --- | --- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL of the receiver. Traces go to `<endpoint>/v1/traces`, metrics to `<endpoint>/v1/metrics` and logs to `<endpoint>/v1/logs`, all through the scrub. Unset or empty: nothing is exported | unset |
 | `OTEL_SERVICE_NAME` | The `service.name` on exported telemetry | `qp-backend` |
-| `TELEMETRY_INGEST_EVENTS_PER_SECOND` | The cap on browser events the `/api/telemetry` ingest accepts each second, across every address, in one backend process. A quarter of it is kept for `session.abandoned` and `page.loaded`; events over it are answered `202` and shed, counted as `telemetry.ingest.dropped{reason=over_capacity}`. Compose passes it. Empty keeps the default | `200` |
+| `TELEMETRY_INGEST_EVENTS_PER_SECOND` | The cap on browser events the `/api/telemetry` ingest accepts each second, across every address, in one backend process. A quarter of it is kept for `session.abandoned` and `page.loaded`; events over it are answered `202` and shed, counted as `telemetry.ingest.dropped{reason=over_capacity}`. Compose passes it. A whole number of at least 2. Empty keeps the default | `200` |
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 npm run dev:backend

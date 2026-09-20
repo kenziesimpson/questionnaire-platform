@@ -46,6 +46,8 @@ function wholeNumberFrom(name: string, value: string | undefined, fallback: numb
   return parsed;
 }
 
+const MIN_INGEST_EVENTS_PER_SECOND = 2;
+
 const nodeEnv = process.env.NODE_ENV ?? "development";
 
 export const config = {
@@ -57,7 +59,7 @@ export const config = {
     "TELEMETRY_INGEST_EVENTS_PER_SECOND",
     process.env.TELEMETRY_INGEST_EVENTS_PER_SECOND,
     DEFAULT_INGEST_EVENTS_PER_SECOND,
-    1,
+    MIN_INGEST_EVENTS_PER_SECOND,
   ),
   telemetry: {
     serviceName: presentOrUndefined(process.env.OTEL_SERVICE_NAME) ?? "qp-backend",

@@ -206,6 +206,18 @@ describe("POST /api/telemetry", () => {
     expect(statuses).toEqual([202, 202, 429, 429]);
   });
 
+  it("tracks 10,000 addresses before it forgets the oldest, so a flood of new ones does not free an address that is limited", async () => {
+    const instance = await build({ rateLimit: { max: 1, windowMs: 60_000 } });
+    const batch = { events: [] };
+    const from = async (index: number) =>
+      (await instance.inject({ method: "POST", url: INGEST_URL, remoteAddress: `10.${(index >> 16) & 255}.${(index >> 8) & 255}.${index & 255}`, payload: batch })).statusCode;
+
+    expect(await from(0)).toBe(202);
+    for (let index = 1; index < 10_000; index += 1) await from(index);
+
+    expect(await from(0)).toBe(429);
+  }, 60_000);
+
   it("shares one bucket across an IPv6 /64, separates other prefixes, and counts an IPv4-mapped address as the IPv4 one", async () => {
     const instance = await build({ rateLimit: { max: 1, windowMs: 60_000 } });
     const batch = { events: [{ name: "client.info", at: AT }] };

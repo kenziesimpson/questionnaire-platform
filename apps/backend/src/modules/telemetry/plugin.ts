@@ -42,7 +42,7 @@ export async function telemetryModule(
 
   applyHttpDefaults(scope, replyWithTelemetryProblem);
   await scope.register(rateLimit, {
-    hook: "onRequest",
+    global: false,
     max: perAddress.max,
     timeWindow: perAddress.windowMs,
     ipv6Subnet: IPV6_SUBNET_BITS,
@@ -51,7 +51,12 @@ export async function telemetryModule(
     addHeadersOnExceeding: NO_HEADERS,
     errorResponseBuilder: (_request, context) => new RateLimited(context.ttl),
   });
-  scope.addHook("onSend", async (_request, reply) => {
+  const limitAddress = scope.rateLimit();
+  async function limitRate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    await limitAddress.call(scope, request, reply);
+  }
+  scope.addHook("onRequest", limitRate);
+  scope.addHook("onSend", async function noStore(_request, reply) {
     reply.header("cache-control", "no-store");
   });
 
