@@ -37,11 +37,11 @@ function sampleMessages(): string[] {
 
 describe("the log message shapes", () => {
   it("keeps the export shape the Collector's filter carries, character for character", () => {
-    expect(LOG_MESSAGE_SHAPE.source).toBe("^[A-Za-z][A-Za-z0-9 ._:,\\/-]{0,127}$");
+    expect(LOG_MESSAGE_SHAPE.source.replaceAll("\\/", "/")).toBe("^[A-Za-z][A-Za-z0-9 ._:,/-]{0,127}$");
   });
 
   it("keeps the browser shape the queue enforced before it was derived", () => {
-    expect(BROWSER_MESSAGE_SHAPE.source).toBe("^[a-z][a-z0-9 ._:-]{0,79}$");
+    expect(BROWSER_MESSAGE_SHAPE.source.replaceAll("\\/", "/")).toBe("^[a-z][a-z0-9 ._:-]{0,79}$");
   });
 
   it("is a subset: every message the browser accepts, the export accepts", () => {

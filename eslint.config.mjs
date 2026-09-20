@@ -394,7 +394,7 @@ const theBrowserTransport = "packages/telemetry/src/browser/transport.ts";
 const fetchOwners = [...apiClients, theBrowserTransport, "e2e/fixtures/**", "e2e/stack/**"];
 
 const transportSeamMessage =
-  "fetch belongs to an app's API client (apps/*/src/api/**), to the telemetry SDK's browser transport (packages/telemetry/src/browser/transport.ts) or to the e2e fixtures and stack, so one module per app owns the transport that trace headers and client spans will attach to.";
+  "fetch belongs to an app's API client (apps/*/src/api/**), to the telemetry SDK's browser transport (packages/telemetry/src/browser/transport.ts) or to the e2e fixtures and stack, so the transport that trace headers attach to has one owner per app, and the SDK's one file binds the page's global `fetch` for telemetry only.";
 
 const fetchAwayFromTheTransport = { name: "fetch", message: transportSeamMessage };
 
