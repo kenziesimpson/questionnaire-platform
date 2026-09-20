@@ -43,6 +43,7 @@ export function createSession(questionnaireId: string): Promise<CreateSessionOut
   const body: BodyOf<typeof createRoute> = { questionnaireId };
   return sendExecutionRequest({
     method: createRoute.method,
+    route: createRoute.url,
     path: createRoute.url,
     body: JSON.stringify(body),
     success: { status: 201, schema: createRoute.schema.response[201] },
@@ -54,6 +55,7 @@ export function getSession(sessionId: string): Promise<GetSessionOutcome> {
   const params: ParamsOf<typeof getRoute> = { sessionId };
   return sendExecutionRequest({
     method: getRoute.method,
+    route: getRoute.url,
     path: routePath(getRoute.url, params),
     success: { status: 200, schema: getRoute.schema.response[200] },
     problems: GET_SESSION_PROBLEMS,
@@ -65,6 +67,7 @@ export function submitSession(sessionId: string, answers: Sensitive<ClientAnswer
   const body: BodyOf<typeof submitRoute> = { answers: answers.unwrap() };
   return sendExecutionRequest({
     method: submitRoute.method,
+    route: submitRoute.url,
     path: routePath(submitRoute.url, params),
     body: JSON.stringify(body),
     success: { status: 200, schema: submitRoute.schema.response[200] },

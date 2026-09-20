@@ -4,6 +4,7 @@ FROM node:24-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json tsconfig.node.json tsconfig.react.json ./
 COPY packages/shared/package.json packages/shared/package.json
+COPY packages/telemetry/package.json packages/telemetry/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY apps/respondent/package.json apps/respondent/package.json
 COPY apps/admin/package.json apps/admin/package.json
@@ -11,10 +12,13 @@ RUN npm ci
 
 FROM deps AS build
 COPY packages/shared packages/shared
+COPY packages/telemetry packages/telemetry
 COPY packages/ui packages/ui
 COPY apps/respondent apps/respondent
 COPY apps/admin apps/admin
-RUN npm run build -w packages/shared && npm run build -w apps/respondent && npm run build -w apps/admin
+ARG VITE_TELEMETRY_TRACING=""
+ENV VITE_TELEMETRY_TRACING=$VITE_TELEMETRY_TRACING
+RUN npm run build -w packages/shared && npm run build -w packages/telemetry && npm run build -w apps/respondent && npm run build -w apps/admin
 
 FROM nginx:1.27-alpine AS runtime
 COPY deploy/frontend/nginx.conf /etc/nginx/conf.d/default.conf

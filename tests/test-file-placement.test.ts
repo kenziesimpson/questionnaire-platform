@@ -31,6 +31,7 @@ const ALLOWED_INTEGRATION_TESTS = [
   "apps/backend/_tests/modules/execution/submit.test.ts",
   "apps/backend/_tests/modules/execution/version-pinning.test.ts",
   "apps/backend/_tests/telemetry-shapes.test.ts",
+  "apps/respondent/_tests/telemetry/leak-test.respondent.test.tsx",
   "packages/shared/_tests/api/api.test.ts",
   "packages/shared/_tests/domain/schemas.test.ts",
   "packages/telemetry/_tests/browser/leak-test.browser.test.ts",

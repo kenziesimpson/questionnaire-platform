@@ -1,5 +1,7 @@
 import { PROBLEM_CONTENT_TYPE, problem, sensitive, type ClientAnswers } from "@qp/shared";
 import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
+import { createEventQueue, routeLogsToQueue, type QueuedEvent } from "@qp/telemetry/browser";
+import { startBrowserTracing, stopBrowserTracing } from "@qp/telemetry/browser-tracing";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { createSession, getSession, submitSession } from "../../src/api/execution-client";
 import { ANSWER_SENTINEL, inProgressSession, intakeV1, receipt, SESSION_ID, submittedSession } from "../fixtures";
@@ -263,5 +265,78 @@ describe("unexpected responses", () => {
     respondWithProblem(body);
 
     expect(await submitSession(SESSION_ID, sensitive(answers))).toEqual({ kind: "unexpected-response", status: body.status });
+  });
+});
+
+describe("trace context and client warnings", () => {
+  afterEach(async () => {
+    await stopBrowserTracing();
+  });
+
+  function headersSent(): Headers {
+    return new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+  }
+
+  it("sends no traceparent while tracing has not been started", async () => {
+    respondWith(200, { session: inProgressSession, definition: intakeV1 });
+
+    await getSession(SESSION_ID);
+
+    expect(headersSent().get("traceparent")).toBeNull();
+    expect(headersSent().get("accept")).toContain("application/json");
+  });
+
+  it.each([
+    ["createSession", () => createSession(INTAKE_QUESTIONNAIRE_ID), 201, ["accept", "content-type", "traceparent"]],
+    ["getSession", () => getSession(SESSION_ID), 200, ["accept", "traceparent"]],
+    ["submitSession", () => submitSession(SESSION_ID, sensitive(answers)), 200, ["accept", "content-type", "traceparent"]],
+  ] as const)("sends one traceparent and no other new header on %s once tracing is started", async (_name, call, status, names) => {
+    startBrowserTracing();
+    respondWith(status, {});
+
+    await call();
+
+    const headers = headersSent();
+    expect(headers.get("traceparent")).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/);
+    expect([...headers.keys()].sort()).toEqual([...names]);
+    expect(JSON.stringify([...headers.entries()])).not.toContain(ANSWER_SENTINEL);
+  });
+
+  it("puts a traceparent naming no route, session id or answer, only ids and flags", async () => {
+    startBrowserTracing();
+    respondWith(200, { session: inProgressSession, definition: intakeV1 });
+
+    await getSession(SESSION_ID);
+
+    const traceparent = headersSent().get("traceparent") ?? "";
+    expect(traceparent).not.toContain(SESSION_ID);
+    expect(traceparent.split("-")).toHaveLength(4);
+  });
+
+  it("queues one client warning naming the method and the route template, never the url, when the request fails", async () => {
+    const sent: QueuedEvent[] = [];
+    const queue = createEventQueue({
+      send: (events) => {
+        sent.push(...events);
+      },
+      beacon: () => true,
+    });
+    const stopRouting = routeLogsToQueue(queue);
+    failNetwork();
+
+    await getSession(SESSION_ID);
+    stopRouting();
+    queue.flush();
+    queue.close();
+
+    expect(sent).toEqual([
+      {
+        level: "warn",
+        at: expect.any(String),
+        message: "request failed",
+        attributes: { "http.request.method": "GET", "http.route": "/api/run/sessions/:sessionId", module: "browser" },
+      },
+    ]);
+    expect(JSON.stringify(sent)).not.toContain(SESSION_ID);
   });
 });

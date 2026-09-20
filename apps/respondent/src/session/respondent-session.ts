@@ -3,6 +3,7 @@ import { submissionRejectionOf } from "../answers/submission-rejection";
 import { createSession, getSession, submitSession } from "../api/execution-client";
 import type { ExecutionOutcome } from "../api/request";
 import type { ExecutionProblemSlug } from "../api/problems";
+import type { SessionProgress } from "../telemetry/abandonment";
 import { clearPartialAnswers, readPartials, removePartials, writePartials, type StoredPartials } from "../storage/partials";
 import { formContextOf, INITIAL_STATE, transition, type FailureReason, type RespondentEvent, type RespondentState } from "./respondent-state";
 
@@ -32,6 +33,7 @@ export interface RespondentSession {
   readonly submit: (answers: ClientAnswers) => Promise<void>;
   readonly retry: () => Promise<void>;
   readonly startNewSession: () => Promise<void>;
+  readonly progress: () => SessionProgress | undefined;
 }
 
 type FailedOutcome = Exclude<ExecutionOutcome<unknown, ExecutionProblemSlug>, { kind: "ok" }>;
@@ -61,6 +63,7 @@ export function createRespondentSession(
   storage: PartialsStorage = localPartialsStorage,
 ): RespondentSession {
   let state = INITIAL_STATE;
+  let lastItemId: string | null = null;
   const listeners = new Set<() => void>();
 
   function dispatch(event: RespondentEvent) {
@@ -153,6 +156,7 @@ export function createRespondentSession(
 
   function changeAnswers(itemId: string) {
     if (formContextOf(state) === null) return;
+    lastItemId = itemId;
     dispatch({ type: "answerChanged", itemId });
   }
 
@@ -238,6 +242,13 @@ export function createRespondentSession(
     await start(failed.stored.answers);
   }
 
+  function progress(): SessionProgress | undefined {
+    if (state.name === "ready" || (state.name === "failed" && state.step === "submitting")) {
+      return { sessionId: state.session.sessionId, lastItemId };
+    }
+    return undefined;
+  }
+
   return {
     getState: () => state,
     subscribe(listener) {
@@ -250,5 +261,6 @@ export function createRespondentSession(
     submit,
     retry,
     startNewSession,
+    progress,
   };
 }
