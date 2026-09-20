@@ -115,7 +115,7 @@ describe("startBrowserTelemetry", () => {
     expect(sent).toEqual([]);
   });
 
-  it("runs beforeExit before it hands what is queued to the beacon, so the abandonment it emits is beaconed with the rest", () => {
+  it("runs beforeExit before it hands what is queued to the beacon, so the abandonment it emits is beaconed, ahead of the rest", () => {
     const { page, beaconed } = started({
       beforeExit: () => {
         emitDomainEvent({ name: "session.abandoned", sessionId: SESSION_ID, lastItemId: "itm_03" });
@@ -125,8 +125,8 @@ describe("startBrowserTelemetry", () => {
 
     page.dispatch("pagehide");
 
-    expect(beaconed.map((event) => event.message)).toEqual(["session submitted", "session.abandoned"]);
-    expect(beaconed.map((event) => event.event)).toEqual([undefined, "session.abandoned"]);
+    expect(beaconed.map((event) => event.message)).toEqual(["session.abandoned", "session submitted"]);
+    expect(beaconed.map((event) => event.event)).toEqual(["session.abandoned", undefined]);
   });
 
   it("stops everything it started, handing what is queued to the beacon", () => {

@@ -1,3 +1,4 @@
+import { guarded } from "../guard.js";
 import type { PageWindow } from "./page.js";
 
 const IDLE_TIMEOUT_MS = 2000;
@@ -13,7 +14,7 @@ export function afterFirstPaint(start: () => void, page: PageWindow): () => void
   const run = (): void => {
     if (finished) return;
     finished = true;
-    start();
+    guarded("log", start);
   };
 
   const schedule = (): void => {

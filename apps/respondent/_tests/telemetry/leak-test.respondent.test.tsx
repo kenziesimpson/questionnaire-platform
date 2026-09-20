@@ -94,6 +94,7 @@ describe("the respondent's telemetry never carries an answer", () => {
       );
     }
     window.dispatchEvent(Object.assign(new Event("unhandledrejection"), { reason: new Error(ANSWER_SENTINEL) }));
+    window.dispatchEvent(Object.assign(new Event("unhandledrejection"), { reason: ANSWER_SENTINEL }));
     window.dispatchEvent(new ErrorEvent("error", { error: new RangeError(ANSWER_SENTINEL) }));
     window.dispatchEvent(new Event("pagehide"));
 
@@ -122,6 +123,10 @@ describe("the respondent's telemetry never carries an answer", () => {
     expect(joined).toContain(SESSION_ID);
     expect(joined).toContain("session.abandoned");
     expect(joined).toContain("itm_04");
+    const abandonment = bodies
+      .flatMap((body) => (JSON.parse(body) as { events: { name: string; fields?: object }[] }).events)
+      .find((event) => event.name === "session.abandoned");
+    expect(Object.keys(abandonment?.fields ?? {}).sort()).toEqual(["lastItemId", "sessionId"]);
     expect(carries(bodies)).toBe(false);
   });
 });

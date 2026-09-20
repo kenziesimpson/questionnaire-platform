@@ -10,8 +10,7 @@ import { startTracingWhenEnabled } from "./telemetry/tracing";
 const root = document.getElementById("root");
 if (!root) throw new Error("index.html is missing #root");
 
-const tracingRequested: unknown = import.meta.env.VITE_TELEMETRY_TRACING;
-await startTracingWhenEnabled(tracingRequested === "true");
+await startTracingWhenEnabled();
 startRespondentTelemetry({ page: window, performance, pathname: window.location.pathname });
 
 createRoot(root).render(

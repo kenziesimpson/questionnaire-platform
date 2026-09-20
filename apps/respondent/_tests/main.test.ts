@@ -3,7 +3,7 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const APP_ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
+const APP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const TELEMETRY_ROOT = resolve(APP_ROOT, "../../packages/telemetry/src/");
 

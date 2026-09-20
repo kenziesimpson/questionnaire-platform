@@ -8,7 +8,7 @@ import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/app";
 import { startRespondentTelemetry } from "../../src/telemetry/start";
-import { inProgressSession, intakeV1, receipt, SESSION_ID } from "../fixtures";
+import { inProgressSession, intakeV1, receipt, SESSION_ID, STALE_SESSION_ID } from "../fixtures";
 
 const intakePath = `/q/${INTAKE_QUESTIONNAIRE_ID}`;
 const sessionsUrl = urlOf(executionApi.EXECUTION_PREFIX, executionApi.createSession);
@@ -108,6 +108,32 @@ describe("startRespondentTelemetry: page speed", () => {
     expect(beaconed).toEqual([]);
   });
 
+  it("does not let a performance entry that cannot be read surface, and still reports what the page hands over afterwards", () => {
+    const { transport, beaconed } = transportWith();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    stops.push(
+      startRespondentTelemetry({
+        page: window,
+        performance: {
+          getEntriesByType: () => {
+            throw new Error("performance unavailable");
+          },
+        },
+        pathname: intakePath,
+        transport,
+      }),
+    );
+    window.dispatchEvent(new Event("load"));
+
+    expect(() => {
+      vi.advanceTimersByTime(2000);
+    }).not.toThrow();
+    vi.useRealTimers();
+    window.dispatchEvent(new Event("pagehide"));
+
+    expect(beaconed).toEqual([]);
+  });
+
   it("starts nothing before the first paint has settled", () => {
     const { transport, beaconed } = transportWith();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -148,14 +174,14 @@ describe("startRespondentTelemetry: the abandonment beacon", () => {
         at: expect.any(String),
         event: "session.abandoned",
         message: "session.abandoned",
-        attributes: { "questionnaire.session_id": SESSION_ID, "questionnaire.last_item_id": "itm_04", module: "events" },
+        attributes: { "questionnaire.session_id": SESSION_ID, "questionnaire.last_item_id": "itm_04", "http.route": "/q/:questionnaireId", module: "events" },
       },
     ]);
     expect(JSON.stringify(beaconed)).not.toContain("Corner pharmacy");
   });
 
   it("beacons it on pagehide as well, and once however many times the page is hidden", async () => {
-    server.on("POST", sessionsUrl, jsonReply(201, { session: inProgressSession, definition: intakeV1 }));
+    server.on("POST", sessionsUrl, jsonReply(201, { session: { ...inProgressSession, sessionId: STALE_SESSION_ID }, definition: intakeV1 }));
     const { beaconed } = startedTelemetry(intakePath);
     renderApp();
     await screen.findByRole("heading", { level: 1, name: "Patient Intake" });

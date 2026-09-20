@@ -14,7 +14,7 @@ const TRACING_ENTRY = resolve(SOURCE_ROOT, "browser-tracing.ts");
 
 const ALLOWED_PACKAGES = ["@opentelemetry/api", "@qp/shared"];
 
-const TRACING_PACKAGES = ["@opentelemetry/api", "@opentelemetry/sdk-trace-web"];
+const TRACING_PACKAGES = ["@opentelemetry/api", "@opentelemetry/sdk-trace-web", "@qp/shared"];
 
 const NODE_ONLY_SOURCES = ["node.ts", "testing.ts", "leak-test.ts", "pipeline.ts", "exporters.ts", "log-records.ts"];
 
@@ -109,7 +109,7 @@ describe("the browser entry point", () => {
 describe("the browser tracing entry point", () => {
   const graph = graphFrom(TRACING_ENTRY);
 
-  it("imports the web tracer provider and nothing beyond the API, and no Node built-in", () => {
+  it("imports the web tracer provider and nothing beyond the API and @qp/shared, which its guard reaches through the scrub, and no Node built-in", () => {
     const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`)]);
 
     expect([...graph.packages].sort()).toEqual([...TRACING_PACKAGES].sort());

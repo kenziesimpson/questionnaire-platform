@@ -46,7 +46,7 @@ Both apps build into one tree — respondent at the root, admin under `/admin/` 
 
 Two details that are cheap up front and annoying to discover later. The admin app needs `base: '/admin/'` in its Vite config or its asset URLs resolve against the root and the page loads blank. And the nginx config uses a single `root` with two `location` blocks rather than `alias` — `alias` combined with `try_files` is a long-standing footgun that silently resolves to the wrong path.
 
-Single origin is preserved, so the trace-context propagation in [[6-observability#6. Client-side telemetry]] still needs no CORS allowances, and neither app needs a build-time API URL. The image also builds `packages/telemetry`, which both apps import.
+Single origin is preserved, so the trace-context propagation in [[6-observability#6. Client-side telemetry]] still needs no CORS allowances, and neither app needs a build-time API URL. The image also builds `packages/telemetry`, which the respondent imports (the admin joins it in the next change).
 
 ### 2.3 The dev loop
 
@@ -140,7 +140,7 @@ A `422` names item ids and rule codes and never carries values ([[7-application-
 
 The respondent reports through `@qp/telemetry/browser`, wired in `src/telemetry/` and its one API client ([[6-observability#6. Client-side telemetry]]). `main.tsx` starts telemetry after the first paint has settled, so the SDK never delays the first render, and wraps the app in a `TelemetryErrorBoundary` whose fallback is the existing entry-failed screen; the boundary reports a component error's class and stack frames, never its message (O8). `src/api/request.ts` runs each request inside a `browser.request` span and adds `traceparent` with `injectTraceHeaders` (O12); `src/api/telemetry-transport.ts` is the one place the app names `fetch` and `navigator.sendBeacon` for telemetry. The session exposes `progress()`, which is the session id and the last item changed while the form is ready or a failed submit can be retried and nothing otherwise; the hook registers it with `watchAbandonment`, and the page-hide hook emits `session.abandoned` for it once per session (O11). `page.loaded` reports the load duration against the route template `/q/:questionnaireId`, never the URL.
 
-Tracing is off unless the build sets `VITE_TELEMETRY_TRACING=true` (the frontend image takes it as a build argument); the web tracer is then loaded with a dynamic `import()` before the first request, and a build without the switch does not contain it. To measure what a tracing build costs, build the respondent twice and compare the size of the emitted chunks under `apps/respondent/dist/assets`; with the switch off the tracer sits in no chunk that the entry loads.
+Tracing is off unless the build sets `VITE_TELEMETRY_TRACING=true` (the frontend image takes it as a build argument). `src/telemetry/tracing.ts` compares it inline at the dynamic `import()`, so that Vite can drop the branch and, with the switch off, the tracer's chunk. With it on, the web tracer loads before the first request, and the top-level `await` in `main.tsx` makes first paint wait for that chunk, deliberately, so the first request is traced. To measure what a tracing build costs, build the respondent twice and compare the chunks under `apps/respondent/dist/assets`; with the switch off the tracer should sit in no chunk.
 
 ## 5. Admin app
 

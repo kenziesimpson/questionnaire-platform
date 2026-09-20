@@ -23,6 +23,8 @@ const SESSION_DURATION_BUCKETS_MS = [
 
 const PAGE_LOAD_DURATION_BUCKETS_MS = [100, 250, 500, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 60_000];
 
+const MAX_PAGE_LOAD_DURATION_MS = 3_600_000;
+
 const counters = new Map<string, Counter>();
 
 const histograms = new Map<string, Histogram>();
@@ -81,6 +83,7 @@ export function recordSessionDuration(milliseconds: number): void {
 }
 
 export function recordPageLoadDuration(milliseconds: number): void {
+  if (!(milliseconds >= 0 && milliseconds <= MAX_PAGE_LOAD_DURATION_MS)) return;
   recordDuration(PAGE_LOAD_DURATION, PAGE_LOAD_DURATION_BUCKETS_MS, milliseconds);
 }
 

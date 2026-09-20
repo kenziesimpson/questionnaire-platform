@@ -7,20 +7,32 @@ export interface SessionProgress {
 
 type ProgressProbe = () => SessionProgress | undefined;
 
-const watched = new Map<ProgressProbe, Set<string>>();
+const MAX_REMEMBERED_SESSIONS = 100;
+
+const probes = new Set<ProgressProbe>();
+
+const reported = new Set<string>();
+
+function remember(sessionId: string): void {
+  reported.add(sessionId);
+  if (reported.size > MAX_REMEMBERED_SESSIONS) {
+    const oldest = reported.values().next();
+    if (!oldest.done) reported.delete(oldest.value);
+  }
+}
 
 export function watchAbandonment(probe: ProgressProbe): () => void {
-  watched.set(probe, new Set());
+  probes.add(probe);
   return () => {
-    watched.delete(probe);
+    probes.delete(probe);
   };
 }
 
 export function reportAbandonment(): void {
-  for (const [probe, reported] of watched) {
+  for (const probe of probes) {
     const progress = probe();
     if (progress === undefined || reported.has(progress.sessionId)) continue;
-    reported.add(progress.sessionId);
+    remember(progress.sessionId);
     emitDomainEvent({ name: "session.abandoned", sessionId: progress.sessionId, lastItemId: progress.lastItemId });
   }
 }
