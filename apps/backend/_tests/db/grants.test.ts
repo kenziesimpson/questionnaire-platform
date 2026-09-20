@@ -514,16 +514,29 @@ describe("audit.record", () => {
 
   it("is executable by no role but qp_definition, qp_reporting, audit_owner and superusers, so a new grantee is noticed", async () => {
     const owner = await testDatabase.connect("owner");
-    const grantees = await owner.query(
+    const byPrivilege = await owner.query(
       `SELECT r.rolname
-         FROM pg_roles r
-        WHERE has_function_privilege(r.oid, 'audit.record(text,uuid,uuid,int,text,jsonb,text)'::regprocedure, 'EXECUTE')
+         FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+        CROSS JOIN pg_roles r
+        WHERE n.nspname = 'audit' AND p.proname = 'record'
+          AND has_function_privilege(r.oid, p.oid, 'EXECUTE')
           AND NOT r.rolsuper
           AND r.rolname NOT IN ('qp_definition', 'qp_reporting', 'audit_owner')
         ORDER BY 1`,
     );
+    const byAcl = await owner.query(
+      `SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee
+         FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+        CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+        WHERE n.nspname = 'audit' AND p.proname = 'record' AND a.privilege_type = 'EXECUTE'
+          AND (a.grantee = 0 OR pg_get_userbyid(a.grantee) NOT IN ('qp_definition', 'qp_reporting', 'audit_owner'))
+        ORDER BY 1`,
+    );
 
-    expect(grantees.rows).toEqual([]);
+    expect(byPrivilege.rows).toEqual([]);
+    expect(byAcl.rows).toEqual([]);
   });
 
   it("only appends actions from the closed list", async () => {
