@@ -55,6 +55,8 @@ SELECT 'GRANT pg_monitor TO qp_monitor'
  ) \gexec
 
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+REVOKE ALL ON pg_stat_statements, pg_stat_statements_info FROM PUBLIC;
+GRANT SELECT ON pg_stat_statements, pg_stat_statements_info TO qp_monitor;
 
 SELECT 'CREATE ROLE audit_owner NOLOGIN'
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'audit_owner') \gexec

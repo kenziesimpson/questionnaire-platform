@@ -233,6 +233,13 @@ describe("pg_stat_statements as qp_monitor", () => {
     expect(leaked.rows[0]?.n).toBe(0);
   });
 
+  it.each(["definition", "execution", "reporting"] as const)("is closed to qp_%s, which would otherwise read its own statements", async (role) => {
+    const client = await testDatabase.connect(role);
+
+    await expectSqlState(client.query(`SELECT 1 FROM pg_stat_statements LIMIT 1`), SQLSTATE.insufficientPrivilege);
+    await expectSqlState(client.query(`SELECT 1 FROM pg_stat_statements_info`), SQLSTATE.insufficientPrivilege);
+  });
+
   it("shows another role's statement text, not the insufficient-privilege placeholder", async () => {
     const execution = await testDatabase.connect("execution");
     const monitor = await testDatabase.connect("monitor");
