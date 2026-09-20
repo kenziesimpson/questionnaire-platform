@@ -328,13 +328,21 @@ Flows built so far, in `flows.ts`:
   the per-code events and outcome carry the totals.
 - The database: the sentinel bound as a parameter on a client and on a pool, in statements that succeed and in statements the driver rejects with the value in its message, under the `pg` instrumentation.
 - The reporting reads: a stored sentinel answer read back through the list, with a real and a forged cursor, and the detail,
-  then the `view_response` audit row: one for the detail read, none for the list, no sentinel in it (O14, O20).
+  then the `view_response` audit row: one for the detail read, none for the list, no sentinel in it (O14, O20). Reads refused at
+  the edge with the sentinel in a path, a query or a cursor built around it, and reads of a session that does not exist; and a
+  read carrying a `traceparent` whose `tracestate` and `baggage` hold the sentinel, followed by the admin's failure report through
+  the ingest under that trace.
 
 - The respondent's browser paths: a typed answer, an error and a rejection carrying the sentinel, and a resumed session's stored
   answers, checked in the sent batches and the beacon bodies; the abandonment beacon; the SDK's own flow (`packages/telemetry/_tests/browser/`)
   now covers the encoded wire bytes, a forged `page.loaded` and the trace headers built from every input shape.
 
 - The admin response-detail screen (O20): a stored sentinel answer rendered by the real screen, with the wrapper's inputs (the queue's `enqueueRecord` and `enqueue`), the sent batches and the beacon bodies checked across a failed refetch that still holds the answer in the cache, a window error and a rejection; and a component error whose message carries the answer, which the router's fallback does not show and telemetry does not carry. Focus and reconnect do not refetch the detail, since each read writes an audit row.
+
+Not in the leak test, and tested apart: Postgres's own server log, which the pipeline cannot see. `apps/backend/_tests/db/postgres-log*.test.ts`
+read it and record what configuration cannot remove, the primary error message and the `STATEMENT:` line, so a new route that takes a typed value from a path, a query or a body
+must be checked against the schema that guards it, because a value that passes validation and fails a cast is written to that log
+([[6-observability#14.1 Where a database can leak, and the fix]]). Trace continuity is `apps/backend/_tests/trace-continuity.test.ts`.
 
 Still owed, by the lane that builds each path: any new reporting read. A new reporting read gets a span, an event and a flow of
 its own, and its cursor and any session id inside it stay out of every signal (O19).
