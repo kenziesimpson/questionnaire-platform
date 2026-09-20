@@ -100,7 +100,7 @@ and the build status by pull request in the [implementation plan](docs/4-impleme
 
 What runs today:
 
-- **Structured JSON logs** on the backend's stdout, one line per event, with the trace and span id inside a span. `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`) sets the threshold. Logs are pretty-printed when `NODE_ENV=development`.
+- **Structured JSON logs** on the backend's stdout, one line per event, with the trace and span id inside a span; with export on, the same lines also leave as OpenTelemetry log records. `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`) sets the threshold. Logs are pretty-printed when `NODE_ENV=development`.
 - **Health probes:** `/health/live` (the process is up) and `/health/ready` (each database pool answers).
 - **A closed field registry.** A log line or span carries only registered fields, whose types cannot hold free text; anything else is dropped and counted. `.claude/skills/telemetry-safety/SKILL.md` says how to add a field or a signal.
 - **The sentinel leak test**, which plants a value where an answer would be and fails if it reaches any log, span or metric. Run it with `npm run test:leak-test`; CI runs it as its own job, "Response telemetry leak test".
@@ -109,7 +109,7 @@ OpenTelemetry export is off unless you point the backend at an OTLP/HTTP receive
 
 | Variable | Effect | Default |
 | --- | --- | --- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL of the receiver. Traces go to `<endpoint>/v1/traces` and metrics to `<endpoint>/v1/metrics`, both through the scrub. Unset or empty: nothing is exported | unset |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL of the receiver. Traces go to `<endpoint>/v1/traces`, metrics to `<endpoint>/v1/metrics` and logs to `<endpoint>/v1/logs`, all through the scrub. Unset or empty: nothing is exported | unset |
 | `OTEL_SERVICE_NAME` | The `service.name` on exported telemetry | `qp-backend` |
 
 ```bash
@@ -126,13 +126,19 @@ cp .env.example .env
 docker compose -f docker-compose.yml --profile observability up --build
 ```
 
-- **Grafana:** http://localhost:3001 (user `admin`, password `admin`; the port is `GRAFANA_PORT`). Explore has the traces, the request and database metrics, and the logs of the backend and nginx.
-- **Turning on export:** the backend sends nothing until `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Inside Compose it is `http://collector:4318`; for a backend on the host it is `http://localhost:4318` (the Collector publishes `OTLP_PORT` on `127.0.0.1`). Compose passes `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` and `LOG_LEVEL` to the backend. Set `QP_SERVICE_VERSION` to a commit SHA to stamp each signal with the build; it defaults to `dev`.
-- **Use `-f docker-compose.yml`.** The override in the plain command runs the backend with `NODE_ENV=development`, whose pretty-printed logs the Collector does not read, and serves the apps from Vite instead of nginx, so there is no access log. Traces and metrics flow either way.
-- **What the Collector keeps.** It removes every attribute that is not in the telemetry field registry before anything reaches the store. It keeps every error trace, every trace of a second or more and 10% of the rest, and derives the request-rate and latency metrics from all spans before it samples. Sampling, the redaction and the log path are in [`docs/6-observability.md`](docs/6-observability.md) §8.2, §10 and §11.
-- **Logs** come from Docker's JSON log files (`/var/lib/docker/containers`, mounted read-only), for the backend and the frontend only. On Docker Desktop that path is inside its Linux VM. On Kubernetes the same `file_log` receiver runs as a DaemonSet.
-- **nginx's access log** is JSON and carries the method, the status, the trace context and the route with session ids masked as `:sessionId`; a path that is not a plain route is logged as `:unmatched`. It has no query string, so a pagination `cursor` cannot appear in it. The masked paths are listed in [`docs/6-observability.md`](docs/6-observability.md) §11.1.
+- **Grafana:** http://localhost:3001 (the port is `GRAFANA_PORT`). It asks for no login. Explore has the traces, the request and database metrics, and the backend's logs.
+- **Turning on export:** the backend sends nothing until `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Inside Compose it is `http://collector:4318`; for a backend on the host it is `http://localhost:4318` (the Collector publishes `OTLP_PORT` on `127.0.0.1`). Compose passes `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` and `LOG_LEVEL` to the backend. Set `QP_SERVICE_VERSION` to a commit SHA to stamp each signal with the build; it defaults to `dev`. The plain `docker compose --profile observability up` (with the dev override) works too.
+- **What the Collector keeps.** Every pipeline that exports has a redaction stage that removes every attribute not on its allowlist; the backend's signals use the telemetry field registry as the allowlist. The request-rate and latency metrics are derived from every span before sampling. Sampling, redaction and the log path are in [`docs/6-observability.md`](docs/6-observability.md) §8.2, §10 and §11.
+- **Logs** are emitted by the backend as OpenTelemetry log records, from the same place that writes its stdout lines and after the same scrub, and they carry the trace id of the request they belong to. The Collector reads no file and no container. **nginx's access log** is JSON on the frontend container's stdout (`docker compose logs frontend`): the method, the status, the trace context and the route with session ids masked as `:sessionId`, with a path that is not a plain route logged as `:unmatched` and no query string, so a pagination `cursor` cannot appear. It is not sent to Grafana ([`docs/6-observability.md`](docs/6-observability.md) §11.1, L5).
 - **Postgres metrics** are read as `qp_monitor`, a role that can read statistics and no answer table. The `roles` service creates it from `db/init/01-roles.sh` on every `up`.
+
+#### Sampling
+
+The Collector keeps every trace that has an error, every trace longer than `QP_TRACE_SLOW_MS` (default 1000 ms), and `QP_TRACE_SAMPLE_PERCENT` percent of the rest (default 100). It ships at 100 because the prototype's volume is small; lower the percentage as volume grows, and errors and slow traces are still all kept. A health probe that succeeds quickly is never kept; one that fails or is slow is. Set both in `.env` (see `.env.example`); the design is in [`docs/6-observability.md`](docs/6-observability.md) §10.
+
+#### Security
+
+This profile is a single-machine local stack. Grafana runs with anonymous Admin access and the Collector's OTLP port has no authentication. Both are published on `127.0.0.1` only, which is the whole protection (O22). Do not bind either to another address, and do not use this configuration to host anything: a hosted stack needs authentication, TLS and a bind decided by the platform.
 
 CI builds the default stack but not this profile; a person running the command above is the check for the profile itself.
 
