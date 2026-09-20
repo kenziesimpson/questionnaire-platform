@@ -87,10 +87,10 @@ describe("toWireEvent: the registry names", () => {
   });
 
   it("holds an errorStack to the strict browser frame shape, not the lax one the server captures", () => {
-    const strict = "    at render (index-a1b2.js:10:20)";
+    const browserFrame = "    at render (index-a1b2.js:10:20)";
     const lax = "    at render (/srv/app/index.js:10:20)";
 
-    expect(toWireEvent(queued({ attributes: { [FIELDS.errorStack.attribute]: strict } })).fields).toEqual({ errorStack: strict });
+    expect(toWireEvent(queued({ attributes: { [FIELDS.errorStack.attribute]: browserFrame } })).fields).toEqual({ errorStack: browserFrame });
     expect(toWireEvent(queued({ attributes: { [FIELDS.errorStack.attribute]: lax } })).fields).toBeUndefined();
   });
 

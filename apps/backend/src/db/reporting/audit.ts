@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
 import { InvariantViolation } from "../../invariant.js";
-import type { AuditTraceId } from "../audit.js";
 import type { Transaction } from "../client.js";
+
+export type ResponseViewTraceId = string | null | undefined;
 
 interface ResponseView {
   readonly questionnaireId: string;
@@ -9,7 +10,7 @@ interface ResponseView {
   readonly version: number;
   readonly sessionId: string;
   readonly actorId: string;
-  readonly traceId: AuditTraceId;
+  readonly traceId: ResponseViewTraceId;
 }
 
 export async function recordResponseView(tx: Transaction, view: ResponseView): Promise<string> {

@@ -12,11 +12,10 @@ import {
   type SortOrder,
 } from "@qp/shared";
 import { and, eq, type SQL } from "drizzle-orm";
-import type { AuditTraceId } from "../audit.js";
 import type { Database, Executor } from "../client.js";
 import { PublishedDefinitions } from "../execution/published-definitions.js";
 import { questionnaire, session } from "../schema.js";
-import { recordResponseView } from "./audit.js";
+import { recordResponseView, type ResponseViewTraceId } from "./audit.js";
 import { decodeCursor, encodeCursor, type CursorDirection, type SessionCursor, type SessionOrdering } from "./cursor.js";
 import { keysetSegments, orderByFor } from "./keyset.js";
 import { answersFromResponseRows, responseRowsBySession, type SubmittedSessionRef } from "./responses.js";
@@ -193,7 +192,7 @@ export type SessionDetailOutcome = { readonly outcome: "found"; readonly detail:
 
 interface DetailReader {
   readonly actorId: string;
-  readonly traceId: AuditTraceId;
+  readonly traceId: ResponseViewTraceId;
 }
 
 async function readSessionDetail(
