@@ -148,13 +148,31 @@ describe("the request metrics", () => {
 });
 
 describe("the build stamp", () => {
-  it("is on every pipeline that exports to the store, after any redaction", () => {
+  const feeders = (connector: string) => pipelines.filter(({ exporters }) => exporters.includes(connector));
+
+  function stamped(pipeline: (typeof pipelines)[number]): boolean {
+    if (pipeline.processors.includes("resource/build")) return true;
+    const connectors = pipeline.receivers.filter((receiver) => receiver.startsWith("forward/"));
+    const fedOnlyByConnectors = connectors.length > 0 && connectors.length === pipeline.receivers.length;
+    return fedOnlyByConnectors && connectors.every((connector) => feeders(connector).length > 0 && feeders(connector).every(stamped));
+  }
+
+  it("is on every pipeline that exports to the store, itself or in every pipeline that feeds it through a forward connector", () => {
     const exporting = pipelines.filter(({ exporters }) => exporters.includes("otlp_http/lgtm"));
     expect(exporting.length).toBeGreaterThan(0);
-    for (const { name, processors: steps } of exporting) {
-      expect(steps, name).toContain("resource/build");
+    for (const pipeline of exporting) expect(stamped(pipeline), pipeline.name).toBe(true);
+  });
+
+  it("comes after the redaction in the pipeline that sets it", () => {
+    for (const { name, processors: steps } of pipelines.filter(({ processors: chain }) => chain.includes("resource/build"))) {
       if (steps.includes("redaction")) expect(steps.indexOf("resource/build"), name).toBeGreaterThan(steps.indexOf("redaction"));
     }
+  });
+
+  it("is set before the sampler receives a trace", () => {
+    const sampled = pipelines.find(({ processors: steps }) => steps.includes("tail_sampling"));
+    expect(sampled).toBeDefined();
+    expect(sampled === undefined ? false : stamped(sampled)).toBe(true);
   });
 });
 
