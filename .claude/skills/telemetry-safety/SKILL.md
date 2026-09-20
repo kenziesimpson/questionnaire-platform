@@ -341,7 +341,7 @@ Flows built so far, in `flows.ts`:
 
 Not in the leak test, and tested apart: Postgres's own server log, which the pipeline cannot see. `apps/backend/_tests/db/postgres-log*.test.ts`
 read it and record what configuration cannot remove, the primary error message and the `STATEMENT:` line, so a new route that takes a typed value from a path, a query or a body
-must be checked against the schema that guards it, because a value that passes validation and fails a cast is written to that log
+must be bound to its column by its schema (`PositiveInt` and `NonNegativeInt` stop at the `integer` maximum, `IsoDate` and `IsoDateTime` take years 1 to 9999 and real days, `DecimalString` is at most 64 characters, and the validator refuses a null character), because a value that passes validation and fails a cast is written to that log
 ([[6-observability#14.1 Where a database can leak, and the fix]]). Trace continuity is `apps/backend/_tests/trace-continuity.test.ts`.
 
 Still owed, by the lane that builds each path: any new reporting read. A new reporting read gets a span, an event and a flow of

@@ -1,7 +1,7 @@
 import pg from "pg";
 import { describe, expect, it } from "vitest";
 import { useTestDatabase } from "./harness.js";
-import { linesMentioning, postgresServerLogPath, readPostgresLogAfterBarrier, uniqueToken } from "./postgres-log.js";
+import { failureOf, linesMentioning, postgresServerLogPath, readPostgresLogAfterBarrier, uniqueToken } from "./postgres-log.js";
 import { POSTGRES_SERVER_SETTINGS } from "./server.js";
 
 const testDatabase = useTestDatabase();
@@ -20,17 +20,6 @@ const LOG_SETTINGS_THE_DOCS_RELY_ON = {
   log_min_duration_statement: "-1",
   log_duration: "off",
 } as const;
-
-async function failureOf(client: pg.Client, text: string, values: unknown[]): Promise<pg.DatabaseError> {
-  const failure = await client.query(text, values).then(
-    () => undefined,
-    (error: unknown) => error,
-  );
-  if (!(failure instanceof pg.DatabaseError)) {
-    throw new Error(`expected ${text} to fail with a database error, and it did not`);
-  }
-  return failure;
-}
 
 async function sessionWith(settings: Record<string, string>): Promise<pg.Client> {
   const client = await testDatabase.connectAsAdmin();

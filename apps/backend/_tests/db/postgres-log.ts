@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { inject } from "vitest";
+import pg from "pg";
+import { expect, inject } from "vitest";
 import type { TestDatabase } from "./harness.js";
 
 const BARRIER_TIMEOUT_MS = 20_000;
@@ -45,4 +46,16 @@ export async function readPostgresLogAfterBarrier(testDatabase: TestDatabase): P
 
 export function linesMentioning(log: string, needle: string): string[] {
   return log.split("\n").filter((line) => line.includes(needle));
+}
+
+export async function failureOf(client: pg.Client, text: string, values: unknown[]): Promise<pg.DatabaseError> {
+  const failure = await client.query(text, values).then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  expect(failure, `expected ${text} to fail with a database error, and it did not`).toBeInstanceOf(pg.DatabaseError);
+  if (!(failure instanceof pg.DatabaseError)) {
+    throw new Error(`expected ${text} to fail with a database error`);
+  }
+  return failure;
 }

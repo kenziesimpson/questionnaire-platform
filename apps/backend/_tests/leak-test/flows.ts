@@ -316,6 +316,31 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
     },
   },
   {
+    name: "execution: answers refused at the edge by their type, a bound and a null character, with the sentinel as the value or beside it, and nothing stored",
+    run: async (world, sentinel) => {
+      await seedIntakeV1(world.testDatabase);
+      const sessionId = await startedSessionId(world.app);
+      const nul = String.fromCharCode(0);
+      const refused = [
+        { [INTAKE_ITEM_IDS.diagnosedOn]: { type: "date", date: sentinel } },
+        { [INTAKE_ITEM_IDS.diagnosedOn]: { type: "date", date: "0000-01-01" } },
+        { [INTAKE_ITEM_IDS.pharmacy]: { type: "number", value: sentinel } },
+        { [INTAKE_ITEM_IDS.pharmacy]: { type: "number", value: `${"9".repeat(64)}${sentinel}` } },
+        { [INTAKE_ITEM_IDS.pharmacy]: { type: "text", text: `${sentinel}${nul}${sentinel}` } },
+        { [INTAKE_ITEM_IDS.whichCondition]: { type: "single_choice", optionId: INTAKE_OPTION_IDS.other, otherText: `${sentinel}${nul}` } },
+        { [`${sentinel.toLowerCase()}${nul}`]: { type: "text", text: sentinel } },
+      ];
+      const statuses = [];
+      for (const answers of refused) {
+        statuses.push((await submit(world.app, sessionId, answers)).statusCode);
+      }
+      expect(statuses, "each planted answer must be refused as a bad request for the flow to prove anything").toEqual(refused.map(() => 400));
+      const execution = await world.testDatabase.connect("execution");
+      const stored = await execution.query("SELECT 1 FROM execution.response WHERE session_id = $1", [sessionId]);
+      expect(stored.rowCount, "a refused submit stores nothing").toBe(0);
+    },
+  },
+  {
     name: "definition: a draft saved, a stale save refused with 409, a publish refused with 422, then published and retired, with the sentinel in every title, prompt and option label",
     emits: [
       "questionnaire.created",

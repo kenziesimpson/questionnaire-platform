@@ -10,10 +10,41 @@ function ajvSchemaCompiler(coerceTypes: boolean): FastifySchemaCompiler<unknown>
   return buildAjvCompiler({}, { customOptions: { coerceTypes, removeAdditional: false } }) as unknown as FastifySchemaCompiler<unknown>;
 }
 
+const NUL = "\u0000";
+
+function pointerToNulIn(root: unknown): string | undefined {
+  const pending: { readonly value: unknown; readonly path: string }[] = [{ value: root, path: "" }];
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    const { value, path } = next;
+    if (typeof value === "string" && value.includes(NUL)) return path;
+    if (Array.isArray(value)) {
+      value.forEach((item: unknown, index) => pending.push({ value: item, path: `${path}/${index}` }));
+    } else if (typeof value === "object" && value !== null) {
+      for (const [key, item] of Object.entries(value)) {
+        if (key.includes(NUL)) return path;
+        pending.push({ value: item, path: `${path}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}` });
+      }
+    }
+  }
+  return undefined;
+}
+
+function refusingNul(compiler: FastifySchemaCompiler<unknown>): FastifySchemaCompiler<unknown> {
+  return (route) => {
+    const validate = compiler(route);
+    return (data) => {
+      const at = pointerToNulIn(data);
+      if (at === undefined) return validate(data);
+      const error: FastifySchemaValidationError = { keyword: "pattern", instancePath: at, schemaPath: "#/nul", params: {}, message: "must not contain a null character" };
+      return { error: [error] };
+    };
+  };
+}
+
 export function requestValidatorCompiler(): FastifySchemaCompiler<unknown> {
   const exact = ajvSchemaCompiler(false);
   const coercingUrlStrings = ajvSchemaCompiler(true);
-  return (route) => (URL_PARTS.has(route.httpPart ?? "") ? coercingUrlStrings(route) : exact(route));
+  return refusingNul((route) => (URL_PARTS.has(route.httpPart ?? "") ? coercingUrlStrings(route) : exact(route)));
 }
 
 function pointerOf(part: string, error: FastifySchemaValidationError): string {

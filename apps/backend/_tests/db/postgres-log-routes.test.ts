@@ -10,7 +10,7 @@ import { definitionUrl } from "../modules/definition/fixtures.js";
 import { answersYes, executionUrl, seedIntakeV1, startedSessionId, submit } from "../modules/execution/fixtures.js";
 import { listSessionsUrl, sessionDetailUrl } from "../modules/reporting/fixtures.js";
 import { useTestDatabase } from "./harness.js";
-import { linesMentioning, postgresServerLogPath, readPostgresLogAfterBarrier, uniqueToken } from "./postgres-log.js";
+import { failureOf, linesMentioning, postgresServerLogPath, readPostgresLogAfterBarrier, uniqueToken } from "./postgres-log.js";
 
 const testDatabase = useTestDatabase();
 
@@ -63,9 +63,15 @@ function attempt(
   label: string,
   build: (token: string) => Pick<Attempt, "method" | "url" | "payload" | "headers">,
   refused = true,
+  token = uniqueToken(),
 ): Attempt {
-  const token = uniqueToken();
   return { label, token, refused, ...build(token) };
+}
+
+const NUL = String.fromCharCode(0);
+
+function digits(count: number): string {
+  return Array.from({ length: count }, () => Math.floor(Math.random() * 10)).join("");
 }
 
 function encodedCursor(token: string): string {
@@ -74,6 +80,96 @@ function encodedCursor(token: string): string {
 
 function outOfRangeInteger(index: number): number {
   return INT4_LIMIT + index * 1_000_000 + Math.floor(Math.random() * 999_999);
+}
+
+function typedColumnAttempts(sessionId: string): Attempt[] {
+  const int4 = (index: number) => String(outOfRangeInteger(index));
+  const submitDate = (date: string) => ({
+    method: "POST" as const,
+    url: executionUrl(`/sessions/${sessionId}/submit`),
+    payload: { answers: { [INTAKE_ITEM_IDS.diagnosedOn]: { type: "date", date } } },
+  });
+  const closesAt = (value: string) => ({
+    method: "PUT" as const,
+    url: definitionUrl(`/questionnaires/${INTAKE_QUESTIONNAIRE_ID}/closes-at`),
+    payload: { closesAt: value },
+  });
+  const withNul = (token: string) => `${token}${NUL}`;
+  return [
+    attempt("a version filter above the int4 maximum", (token) => ({ method: "GET", url: listSessionsUrl(INTAKE_QUESTIONNAIRE_ID, { version: token }) }), true, int4(1)),
+    attempt(
+      "a published version above the int4 maximum",
+      (token) => ({ method: "GET", url: definitionUrl(`/questionnaires/${INTAKE_QUESTIONNAIRE_ID}/versions/${token}`) }),
+      true,
+      int4(2),
+    ),
+    attempt(
+      "a question version above the int4 maximum",
+      (token) => ({ method: "GET", url: definitionUrl(`/questions/${INTAKE_QUESTION_IDS.pharmacy}/versions/${token}`) }),
+      true,
+      int4(3),
+    ),
+    attempt(
+      "a draft item's question version above the int4 maximum",
+      (token) => ({
+        method: "PUT",
+        url: definitionUrl(`/questionnaires/${INTAKE_QUESTIONNAIRE_ID}/draft`),
+        headers: { "if-match": `W/"${randomUUID()}:0"` },
+        payload: {
+          title: "Fixture",
+          items: [{ itemId: "itm_01", required: false, visibleWhen: null, questionId: INTAKE_QUESTION_IDS.pharmacy, questionVersion: Number(token) }],
+        },
+      }),
+      true,
+      int4(4),
+    ),
+    attempt("a date answer in the year 0000", (token) => submitDate(token), true, "0000-03-04"),
+    attempt("a date answer that is not a calendar day", (token) => submitDate(token), true, "2031-02-30"),
+    attempt("a date answer with a month of 13", (token) => submitDate(token), true, "2032-13-14"),
+    attempt("a date answer in the year 10000", (token) => submitDate(token), true, "10000-01-02"),
+    attempt(
+      "a decimal answer longer than 64 characters",
+      (token) => ({
+        method: "POST",
+        url: executionUrl(`/sessions/${sessionId}/submit`),
+        payload: { answers: { [INTAKE_ITEM_IDS.pharmacy]: { type: "number", value: token } } },
+      }),
+      true,
+      `9${digits(64)}`,
+    ),
+    attempt("a close time in the year 0000", (token) => closesAt(token), true, "0000-07-08T00:00:00Z"),
+    attempt("a close time that is not a calendar day", (token) => closesAt(token), true, "2031-02-30T00:00:00Z"),
+    attempt("a close time with a leap second", (token) => closesAt(token), true, "2031-06-30T23:59:60Z"),
+    attempt("a text answer with a null character", (token) => ({
+      method: "POST",
+      url: executionUrl(`/sessions/${sessionId}/submit`),
+      payload: { answers: { [INTAKE_ITEM_IDS.pharmacy]: { type: "text", text: withNul(token) } } },
+    })),
+    attempt("an other text with a null character", (token) => ({
+      method: "POST",
+      url: executionUrl(`/sessions/${sessionId}/submit`),
+      payload: {
+        answers: {
+          [INTAKE_ITEM_IDS.whichCondition]: { type: "single_choice", optionId: INTAKE_OPTION_IDS.other, otherText: withNul(token) },
+        },
+      },
+    })),
+    attempt("a questionnaire title with a null character", (token) => ({
+      method: "POST",
+      url: definitionUrl("/questionnaires"),
+      payload: { name: "Fixture", title: withNul(token) },
+    })),
+    attempt("a question prompt with a null character", (token) => ({
+      method: "POST",
+      url: definitionUrl("/questions"),
+      payload: { question: { type: "text", prompt: withNul(token) } },
+    })),
+    attempt("an option label with a null character", (token) => ({
+      method: "POST",
+      url: definitionUrl("/questions"),
+      payload: { question: { type: "single_choice", prompt: "Which", options: [{ optionId: "yes", label: withNul(token) }] } },
+    })),
+  ];
 }
 
 async function plantedSession(): Promise<string> {
@@ -112,7 +208,7 @@ describe.skipIf(!serverLogCaptured)("the Postgres server log, and the values tha
     expect(linesMentioning(log, token)).toEqual([]);
   });
 
-  it("holds no malformed id, cursor, version, header or body field the routes refused, because request validation runs before a value is bound", async () => {
+  it("holds no malformed id, cursor, version, date, decimal, timestamp, header or body field the routes refused, because request validation runs before a value is bound", async () => {
     const sessionId = await plantedSession();
     const otherSession = randomUUID();
     const attempts: Attempt[] = [
@@ -199,6 +295,7 @@ describe.skipIf(!serverLogCaptured)("the Postgres server log, and the values tha
         url: definitionUrl("/questionnaires"),
         payload: { name: "Fixture", title: "Fixture", key: token },
       })),
+      ...typedColumnAttempts(sessionId),
     ];
 
     const statuses: { label: string; status: number }[] = [];
@@ -218,45 +315,34 @@ describe.skipIf(!serverLogCaptured)("the Postgres server log, and the values tha
     expect(attempts.filter((each) => log.includes(each.token)).map((each) => each.label)).toEqual([]);
   });
 
-  it("holds, as its primary error message, a positive integer above int4 that the schema admits for a version (V1 finding, open)", async () => {
-    await plantedSession();
-    const attempts = [
-      { label: "the responses list", value: outOfRangeInteger(1), url: (value: number) => listSessionsUrl(INTAKE_QUESTIONNAIRE_ID, { version: String(value) }) },
-      {
-        label: "a published version",
-        value: outOfRangeInteger(2),
-        url: (value: number) => definitionUrl(`/questionnaires/${INTAKE_QUESTIONNAIRE_ID}/versions/${value}`),
-      },
-      {
-        label: "a question version",
-        value: outOfRangeInteger(3),
-        url: (value: number) => definitionUrl(`/questions/${INTAKE_QUESTION_IDS.pharmacy}/versions/${value}`),
-      },
-    ];
+  it("control: an integer above int4 sent to Postgres over a pooled connection is in the ERROR line, so the routes above are refused before it can be", async () => {
+    const value = outOfRangeInteger(9);
+    const client = await testDatabase.connect("execution");
 
-    const statuses: number[] = [];
-    for (const each of attempts) {
-      statuses.push((await app.inject({ method: "GET", url: each.url(each.value) })).statusCode);
-    }
+    const failure = await failureOf(client, "SELECT id FROM execution.session WHERE version = $1", [String(value)]);
     const log = await readPostgresLogAfterBarrier(testDatabase);
 
-    expect(statuses, "each request reached the database and failed there").toEqual([500, 500, 500]);
-    for (const each of attempts) {
-      expect(
-        linesMentioning(log, String(each.value)).some((line) => line.includes("ERROR:") && line.includes("out of range for type integer")),
-        each.label,
-      ).toBe(true);
-    }
+    expect(failure.message).toContain(String(value));
+    expect(linesMentioning(log, String(value)).some((line) => line.includes("ERROR:") && line.includes("out of range for type integer"))).toBe(true);
   });
 
-  it("holds, as its primary error message, a date answer that the schema admits and Postgres cannot store (V1 finding, open)", async () => {
-    const sessionId = await plantedSession();
+  it("control: a date in the year 0000 sent to Postgres over a pooled connection is in the ERROR line, so the routes above are refused before it can be", async () => {
+    const value = "0000-05-06";
+    const client = await testDatabase.connect("execution");
 
-    const submitted = await submit(app, sessionId, answersYes({ [INTAKE_ITEM_IDS.diagnosedOn]: { type: "date", date: "0000-01-01" } }));
+    const failure = await failureOf(client, "SELECT $1::date", [value]);
     const log = await readPostgresLogAfterBarrier(testDatabase);
 
-    expect(submitted.statusCode, "the submit reached the database and failed there").toBe(500);
-    expect(linesMentioning(log, '"0000-01-01"').some((line) => line.includes("ERROR:") && line.includes("date/time field value out of range"))).toBe(true);
+    expect(failure.message).toContain(value);
+    expect(linesMentioning(log, `"${value}"`).some((line) => line.includes("ERROR:") && line.includes("date/time field value out of range"))).toBe(true);
+  });
+
+  it("control: a null character sent to Postgres over a pooled connection is an error, so validation is what keeps it from being a 500", async () => {
+    const client = await testDatabase.connect("execution");
+
+    const failure = await failureOf(client, "SELECT $1::text", [`before${NUL}after`]);
+
+    expect(failure.code).toBe("22021");
   });
 
   it("carries the trace context of the statement in the STATEMENT line, and no tracestate a caller sent", async () => {

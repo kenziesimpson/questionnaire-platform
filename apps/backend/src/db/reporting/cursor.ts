@@ -1,4 +1,4 @@
-import type { SessionSort, SortOrder } from "@qp/shared";
+import { ISO_YEAR_PATTERN, type SessionSort, type SortOrder } from "@qp/shared";
 
 export type CursorDirection = "forward" | "backward";
 
@@ -15,7 +15,7 @@ export interface SessionCursor extends SessionOrdering {
 
 const FIELD_SEPARATOR = "|";
 const NULL_SORT_VALUE = "null";
-const CANONICAL_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const CANONICAL_INSTANT = new RegExp(`^${ISO_YEAR_PATTERN}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$`);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function encodeCursor(cursor: SessionCursor): string {
