@@ -39,6 +39,7 @@ const PG_COMMANDS = [
   "SAVEPOINT",
   "RELEASE",
   "SET",
+  "RESET",
   "SHOW",
   "CALL",
   "EXPLAIN",

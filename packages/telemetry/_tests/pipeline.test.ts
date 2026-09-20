@@ -139,6 +139,7 @@ describe("the exporter allowlist", () => {
     "pg.query",
     "pg.query:SELECT",
     "pg.query:BEGIN",
+    "pg.query:RESET",
     "pg.connect",
     "pg-pool.connect",
   ])("exports the auto-instrumented span name %s unchanged", (name) => {
