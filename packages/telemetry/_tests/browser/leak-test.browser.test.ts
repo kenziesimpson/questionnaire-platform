@@ -149,9 +149,10 @@ describe("the browser telemetry never lets a planted answer reach the batch, the
   it("delivers the legitimate events beside the planted ones with their own fields intact", () => {
     const events = run(LEAK_SENTINEL, "send").sent;
 
-    expect(events).toContainEqual({ level: "warn", message: "unnamed", attributes: { "questionnaire.session_id": SESSION_ID } });
+    expect(events).toContainEqual({ level: "warn", at: expect.any(String), message: "unnamed", attributes: { "questionnaire.session_id": SESSION_ID } });
     expect(events).toContainEqual({
       level: "error",
+      at: expect.any(String),
       message: "unhandled error",
       attributes: { "error.type": "Error", "error.stack": "    at render (main.js:1:2)" },
     });
@@ -160,13 +161,14 @@ describe("the browser telemetry never lets a planted answer reach the batch, the
   it("cuts a caller-supplied error stack, a function name and a disguised message to their safe forms", () => {
     const events = run(LEAK_SENTINEL, "send").sent;
 
-    expect(events).toContainEqual({ level: "info", message: "answer received", attributes: { "error.stack": "    at render (anonymous.js:1:2)" } });
+    expect(events).toContainEqual({ level: "info", at: expect.any(String), message: "answer received", attributes: { "error.stack": "    at render (anonymous.js:1:2)" } });
     expect(events).toContainEqual({
       level: "error",
+      at: expect.any(String),
       message: "unhandled error",
       attributes: { "error.type": "Error", "error.stack": "    at anonymous (main.js:1:2)" },
     });
-    expect(events).toContainEqual({ level: "info", message: "unnamed", attributes: {} });
+    expect(events).toContainEqual({ level: "info", at: expect.any(String), message: "unnamed", attributes: {} });
   });
 
   it("keeps the sentinel out of the trace headers", async () => {
@@ -195,7 +197,7 @@ describe("the browser telemetry never lets a planted answer reach the batch, the
   });
 
   it("is checked by an assertion that can fail: a batch that does carry the sentinel is flagged", () => {
-    const leaked: QueuedEvent[] = [{ level: "info", message: "answer received", attributes: { "questionnaire.item_id": LEAK_SENTINEL.toLowerCase() } }];
+    const leaked: QueuedEvent[] = [{ level: "info", at: "2026-01-01T00:00:00.000Z", message: "answer received", attributes: { "questionnaire.item_id": LEAK_SENTINEL.toLowerCase() } }];
 
     expect(carries(leaked, LEAK_SENTINEL)).toBe(true);
   });

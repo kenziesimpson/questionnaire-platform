@@ -32,6 +32,7 @@ const ALLOWED_INTEGRATION_TESTS = [
   "packages/shared/_tests/api/api.test.ts",
   "packages/shared/_tests/domain/schemas.test.ts",
   "packages/telemetry/_tests/browser/leak-test.browser.test.ts",
+  "packages/telemetry/_tests/browser/wire-contract.leak-test.test.ts",
   "packages/ui/_tests/questionnaire/accessibility.test.tsx",
 ];
 

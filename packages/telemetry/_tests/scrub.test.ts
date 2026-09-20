@@ -149,6 +149,11 @@ const SHAPES: readonly {
     rejects: ["Diabetes", "type-2", "2026-01-01", "12345", "1st_item", LEAK, SESSION_ID, "two words", "a".repeat(65), "item\n"],
   })),
   {
+    field: "source",
+    accepts: ["browser"],
+    rejects: ["diabetes", "server", "Browser", "browser ", "browser\n", LEAK, LEAK.toLowerCase(), ""],
+  },
+  {
     field: "route",
     accepts: ["/", "/health", "/health/live", "/api/run/sessions/:sessionId", "/api/run/sessions/:sessionId/", "/questionnaires/$questionnaireId/responses", "/a/{id}/b", "/files/*", "/v1.2/items"],
     rejects: ["", "sessions", "//", "/x?answer=1", "/x#y", "/Diabetes", `/${LEAK}`, "/a b", "/a//b", "/:", "/a/:1", "/a/:b-c", `/${LONG}`, "/x\n"],
@@ -192,7 +197,7 @@ describe("scrubContext: every token-shaped field rejects what an answer looks li
 });
 
 describe("scrubAttributes: the logger's module name is one of a closed list", () => {
-  it.each(["backend", "definition", "events", "execution", "http"])("keeps module %s", (module) => {
+  it.each(["backend", "browser", "definition", "events", "execution", "http"])("keeps module %s", (module) => {
     expect(scrubAttributes({ module }, "log").attributes).toEqual({ module });
   });
 

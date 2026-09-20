@@ -123,6 +123,27 @@ describe("telemetry text: a cast into a log message, logger module or span name 
   });
 });
 
+describe("module boundary: the telemetry ingest touches no database and no other module", () => {
+  const INGEST = "apps/backend/src/modules/telemetry/plugin.ts";
+
+  it.each([
+    ["the db layer", `import { selectOne } from "../../db/client.js";`],
+    ["a db subpath", `import { x } from "../../db/execution/sessions.js";`],
+    ["drizzle", `import { eq } from "drizzle-orm";`],
+    ["a drizzle subpath", `import { text } from "drizzle-orm/pg-core";`],
+    ["pg", `import pg from "pg";`],
+    ["the execution module", `import { x } from "../execution/plugin.js";`],
+    ["the reporting module", `import { x } from "../reporting/plugin.js";`],
+  ])("rejects %s", async (_, code) => {
+    expect(await restrictedImports(INGEST, code)).toHaveLength(1);
+  });
+
+  it("allows @qp/shared, @qp/telemetry and the http helpers", async () => {
+    const code = `import { telemetryApi } from "@qp/shared";\nimport { ingestBatch } from "@qp/telemetry";\nimport { sendProblem } from "../../http/problems.js";`;
+    expect(await restrictedImports(INGEST, code)).toEqual([]);
+  });
+});
+
 describe("module boundary: definition and execution never import each other", () => {
   it.each([
     ["a sibling relative import", `import { x } from "../execution/repository.js";`],

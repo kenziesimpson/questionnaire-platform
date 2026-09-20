@@ -27,11 +27,21 @@ function isSuccess<R extends RouteDefinition>(response: RouteResponse<R>): respo
   return "body" in response;
 }
 
-export function registerRoute<R extends RouteDefinition>(scope: FastifyInstance, route: R, handler: RouteHandler<R>): void {
+interface RouteLimits {
+  readonly bodyLimit?: number;
+}
+
+export function registerRoute<R extends RouteDefinition>(
+  scope: FastifyInstance,
+  route: R,
+  handler: RouteHandler<R>,
+  limits: RouteLimits = {},
+): void {
   scope.route({
     method: route.method,
     url: route.url,
     schema: route.schema,
+    ...(limits.bodyLimit === undefined ? {} : { bodyLimit: limits.bodyLimit }),
     handler: async (request, reply) => {
       const response = await handler(request as RouteRequest<R>);
       if (!isSuccess(response)) {

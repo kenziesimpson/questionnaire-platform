@@ -138,6 +138,17 @@ const reportingDbLayerFromItsSibling = {
   message: reportingDbLayerMessage,
 };
 
+const noDatabaseAccess = [
+  {
+    regex: `(^|/)db${pathGap}`,
+    message: "The telemetry ingest touches no database: it keeps or drops what it is sent and holds no connection, so a hostile batch reaches nothing that stores answers.",
+  },
+  {
+    group: ["drizzle-orm", "drizzle-orm/*", "pg", "pg/*"],
+    message: "The telemetry ingest touches no database: it keeps or drops what it is sent and holds no connection, so a hostile batch reaches nothing that stores answers.",
+  },
+];
+
 const anyModuleBelow = (side) => ({
   regex: "(^|/)modules(/|$)",
   message: `db/${side} sits below the backend modules and imports none of them.`,
@@ -631,6 +642,13 @@ export default tseslint.config(
     name: "module boundary: reporting",
     files: ["apps/backend/src/modules/reporting/**"],
     rules: { "no-restricted-imports": restrict(otherModule("definition"), definitionDbLayer) },
+  },
+  {
+    name: "module boundary: telemetry ingest",
+    files: ["apps/backend/src/modules/telemetry/**"],
+    rules: {
+      "no-restricted-imports": restrict(otherModule("definition"), otherModule("execution"), otherModule("reporting"), ...noDatabaseAccess),
+    },
   },
   {
     name: "module boundary: the definition side of the db layer",

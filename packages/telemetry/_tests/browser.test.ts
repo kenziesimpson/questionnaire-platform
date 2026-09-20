@@ -44,7 +44,19 @@ describe("the browser entry point", () => {
   it("reads the whole import graph, including the core it builds on", () => {
     const names = [...graph.files].map((file) => file.slice(SOURCE_ROOT.length));
 
-    expect(names).toEqual(expect.arrayContaining(["browser.ts", "browser/queue.ts", "browser/tracing.ts", "fields.ts", "scrub.ts", "logger.ts"]));
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "browser.ts",
+        "browser/queue.ts",
+        "browser/tracing.ts",
+        "browser/wire.ts",
+        "fields.ts",
+        "scrub.ts",
+        "logger.ts",
+        "trace-context.ts",
+        "wire-contract.ts",
+      ]),
+    );
   });
 
   it("imports only the browser-safe packages", () => {
@@ -63,7 +75,8 @@ describe("the browser entry point", () => {
 
   it("exports the browser SDK and nothing from the Node side", () => {
     expect(Object.keys(browser).sort()).toEqual([
-      "QUEUED_LEVELS",
+      "BEACON_BODY_BUDGET_BYTES",
+      "CLIENT_LOG_LEVELS",
       "afterFirstPaint",
       "captureError",
       "createEventQueue",
@@ -74,6 +87,10 @@ describe("the browser entry point", () => {
       "startBrowserTelemetry",
       "startBrowserTracing",
       "stopBrowserTracing",
+      "toBeaconBlob",
+      "toEnvelopes",
+      "toFetchInit",
+      "toWireEvent",
     ]);
   });
 });

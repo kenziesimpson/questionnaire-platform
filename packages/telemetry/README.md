@@ -62,7 +62,7 @@ fetch(url, { headers: injectTraceHeaders({ accept: "application/json" }) });
 
 | Export | What it does |
 | --- | --- |
-| `createEventQueue({ send, beacon, screen?, maxPending?, batchSize?, flushIntervalMs? })` | A bounded queue of `{ level, message, attributes }` events. `enqueue({ level, message, attributes })` is the form for app code: the message is a literal (`LiteralMessage`, as in `logger`), the level is not `debug`, and the attributes cannot name `error.stack`. `enqueueRecord` takes a plain record and is for `routeLogsToQueue` and `captureError`. Both scrub before they queue and never throw; `flush()` sends through `send`; `flushOnExit()` hands everything left to `beacon`; `close()` stops the timer and every later send, and ignores later events; `stats()` reports pending, sent and every drop |
+| `createEventQueue({ send, beacon, screen?, maxPending?, batchSize?, flushIntervalMs? })` | A bounded queue of `{ level, message, attributes }` events. `enqueue({ level, message, attributes })` is the form for app code: the message is a literal (`LiteralMessage`, as in `logger`), the level is not `debug`, and the attributes cannot name `error.stack` or `module`, and a `module` an app passes anyway is discarded. `enqueueRecord` takes a plain record and is for `routeLogsToQueue` and `captureError`. Both scrub before they queue and never throw; `flush()` sends through `send`; `flushOnExit()` hands everything left to `beacon`; `close()` stops the timer and every later send, and ignores later events; `stats()` reports pending, sent and every drop |
 | `routeLogsToQueue(queue, { debug? })` | Points `logger(...)` and `emitDomainEvent` at the queue. `debug` never reaches it: it goes to the optional `debug` function, which an app passes only in a development build |
 | `flushOnPageHide(queue, window)` | `flushOnExit()` on `pagehide` and when `visibilitychange` finds the page hidden |
 | `installErrorCapture(queue, window)`, `captureError(queue, kind, error)` | An `error` and an `unhandledrejection` listener, and the same capture for an error boundary. Records the error's class name and its stack frames only. Installing twice on one page adds no second listener |
@@ -74,7 +74,7 @@ Rules the code holds:
 
 - **The browser scrubs before anything is queued.** An event keeps only registry attributes, through the same `scrubAttributes(…, "log")` the pino formatter and exporters run. An unknown or ill-shaped field is dropped and counted in `stats().droppedFields`; the event stays (O17). A message that is not a lower-case literal shape (`^[a-z][a-z0-9 ._:-]{0,79}$`) is replaced by `unnamed`. That is a shape check: a lower-case token passes it, as it does the server's message.
 - **A screen is a route template**, supplied by the caller and accepted only if the `route` field accepts it (O19). A URL, a query string, a cursor or free text is dropped.
-- **An error is its class name and its frames, never its message.** `stackFramesOf` still decides whether the stack lines up with the message and keeps only frame-shaped lines; the queue then rewrites every frame of any `error.stack` it is given, from `captureError`, the logger or a caller alike. The location becomes the last path segment's script file name, `index-3f9a.js:10:20`, or `anonymous.js` for anything else, so no page URL, session id or query string survives. The function name is kept only if it is an identifier path (`Object.<anonymous>`, `async Promise.all`, `new Screen`, no interior underscore or space) and is otherwise `anonymous`. That is a shape check, so a one-word lower-case function name derived from an answer would pass; never build one from an answer. Stack frames in another browser's format (`fn@url:1:2`) do not line up, so those errors carry a type and no frames. The capture never reads an error event's `message`, `filename` or position.
+- **An error is its class name and its frames, never its message.** `stackFramesOf` still decides whether the stack lines up with the message and keeps only frame-shaped lines; the queue then rewrites every frame of any `error.stack` it is given, from `captureError`, the logger or a caller alike. The location becomes the last path segment's script file name, `index-3f9a.js:10:20`, or `anonymous.js` for anything else, so no page URL, session id or query string survives. The function name is kept only if it is an identifier path (`Object.<anonymous>`, `async Promise.all`, `new Screen`, no interior underscore or space) of at most 100 characters and is otherwise `anonymous`. What counts as a safe frame is defined once, in `src/frame-shape.ts`, and the rewriter and the ingest's validator both use it: a file name past 80 characters becomes `anonymous.js`, a position past seven digits or a line past 200 characters becomes a fixed placeholder frame, and a stack is cut to 40 frames, so a stack the SDK produces is always one the ingest accepts. That is a shape check, so a one-word lower-case function name derived from an answer would pass; never build one from an answer. Stack frames in another browser's format (`fn@url:1:2`) do not line up, so those errors carry a type and no frames. The capture never reads an error event's `message`, `filename` or position.
 - **The queue never blocks and never throws.** It holds at most `maxPending` events and drops the oldest, counting `overflow`; one `send` is in flight at a time; a batch whose `send` rejects or throws, or a beacon that returns `false`, is dropped and counted `undelivered`; anything the queue cannot handle is counted `internal`.
 - **Never captured:** session replay, DOM or element text (a clicked option's label is an answer), URLs, query strings, cursors, request or response bodies.
 - **Browser-safe by construction.** `_tests/browser.test.ts` reads the entry point's import graph and fails on a Node built-in, `pino`, `./node`, `./testing`, `./leak-test` or any package beyond `@opentelemetry/api`, `@opentelemetry/sdk-trace-web` and `@qp/shared`.
@@ -92,7 +92,7 @@ log.info("session submitted", { sessionId, questionnaireVersion: 2, outcome: "ac
 log.error("submit failed", { status: 500 }, error);
 ```
 
-- `logger("<module>")` takes one of `LOG_MODULES` (`backend`, `definition`, `events`, `execution`,
+- `logger("<module>")` takes one of `LOG_MODULES` (`backend`, `browser`, `definition`, `events`, `execution`,
   `http`) and tags every line with it. A new module is one more member of that array. Methods are `debug`, `info`,
   `warn` and `error`. There is no `fatal`.
 - The message must be a literal. `` `rejected ${value}` `` and a `string` variable are compile errors,
@@ -125,6 +125,8 @@ context key with an attribute name, a runtime check and a `bounded` flag.
 | `constraint` | `db.constraint` | a lower-case snake-case Postgres constraint name with at least one underscore | yes |
 | `problem`, `problemCode` | `problem.slug`, `problem.code` | a problem slug; a question rule, draft item, submission item or known schema code | yes |
 | `pool` | `db.pool` | `definition`, `execution` or `reporting` | yes |
+| `source` | `telemetry.source` | `browser`; the ingest stamps it on what a browser sent, a server-native line carries none, and a browser cannot set it | yes |
+| `eventAgeMs` | `telemetry.event_age_ms` | a finite number; the ingest stamps the time between an event's own timestamp and its receipt, and a browser cannot set it | no |
 | `errorStack` | `error.stack` | stack frames only; set from the `Error` argument, not by callers | no |
 
 An id field takes a UUID or a slug, not "any token", because a one-word answer, a hyphenated phrase
@@ -210,7 +212,7 @@ find is counted too, through `reportDropped`.
 await withSpan("session.submit", { sessionId }, async () => submit());
 ```
 
-- `SpanName` is derived from `SPAN_NAMES` (`questionnaire.publish`, `rule.evaluate`, `session.submit`); a
+- `SpanName` is derived from `SPAN_NAMES` (`questionnaire.publish`, `rule.evaluate`, `session.submit`, `telemetry.ingest`); a
   new span is one more member of that array. The backend wraps a submit in `session.submit` and its answer
   evaluation in `rule.evaluate`, and adds `outcome` to the first once it is known.
 - A name outside `SPAN_NAMES`, which only a cast or an untyped caller can pass, does not throw: `withSpan`
@@ -278,7 +280,100 @@ table, so adding an event is one entry.
 | `session.submit_finished` | `questionnaire.submissions`, labelled by `outcome` (`accepted`, `replayed`, `rejected_validation`, `rejected_conflict`, `failed`); `questionnaireId` and `questionnaireVersion` are `null` for `failed`, which is known only by the session id |
 
 `session.completed` also records `questionnaire.session.duration`, a histogram in milliseconds with explicit bucket boundaries from one second to a day.
-Counters carry bounded labels only.
+Counters carry bounded labels only, named per event in its `labels`. The ingest stamps `source: "browser"` on the ones a browser
+sends; `emitDomainEvent` stamps nothing, since the browser SDK routes it into its own queue too.
+
+## The ingest
+
+`ingestBatch(events, receivedAt)` is what `POST /api/telemetry` runs
+([`docs/6-observability.md`](../../docs/6-observability.md) O5, O17, L4). The backend plugin owns the wire contract, the rate
+limit and the body cap; this function owns what is kept. It takes each event as `unknown` and never rejects a batch:
+
+1. An event that is not an object, or has no string `name`, no parseable `at` timestamp or `fields` that are not an object, is dropped
+   as `malformed`.
+2. A name outside the allowlist is dropped as `unknown_event`. The allowlist is the client log events (`client.info`, `client.warn`,
+   `client.error`: `client.` and one of `CLIENT_LOG_LEVELS`, the levels O8 lets a browser send) plus `BROWSER_DOMAIN_EVENTS` (`wire-contract.ts`), which is
+   `session.abandoned` alone. The events the server emits, `session.item_skipped` among them (O11), are not on it, so a browser
+   cannot move `questionnaire.published` or the session-duration histogram. A client log line carries no message: its level is
+   its name and its meaning is its fields.
+3. Each event has its own closed list of browser-eligible fields (the `BROWSER_FIELDS` table in `wire-contract.ts`, typed against `FieldName` and read through `browserFieldsOf` and `judgeBrowserField`, which the SDK's wire mapping uses too): the
+   ids and counts a browser knows, `errorType`, `errorStack`, `route` and `method`. A field is kept only if it is on its event's
+   list and its value passes the field's check. Everything else, the server-owned fields (`constraint`, `invariant`, `errorCode`,
+   `requestId`, `problem`, `pool`, `signal`, `status`, `source`, `eventAgeMs` and the rest), is dropped, counted as
+   `unknown_field` or `invalid_field`, and the rest of the event is kept. `errorStack` is held to a stricter shape than the
+   registry's own (`fields.ts` keeps its lax `STACK_FRAME`, the shape of a stack the server captures from its own errors, where a frame's
+   location is an absolute path or a URL, and `frame-shape.ts` is the strict shape of a stack that arrives from a browser, where a
+   location is a bare script file. They differ because the two are captured differently: tightening the server's shape would refuse every
+   server stack, and loosening the browser's would admit any path a client chose to send): every line must be a frame with an identifier-path function name and a bare script file with line and column, or
+   an `<anonymous>` or `native` marker (`BROWSER_STACK_FRAME` and `isBrowserStack` in `frame-shape.ts`, at most 40 lines of 200
+   characters, function names of at most 100). The browser SDK's `frames.ts` builds what it emits from the same definition, so the
+   two cannot drift. The file-name slot still accepts any `name.js` of up to 80 characters, since hashed bundle names contain
+   underscores.
+4. An optional `traceparent` (`00-<32 hex>-<16 hex>-<2 hex>`, parsed by `parseTraceparent` in `trace-context.ts`, beside the `formatTraceparent` the SDK writes it with) puts the event's log line under the browser's trace and span. An
+   invalid one is dropped as `invalid_trace`. Without one, the line takes the trace of the request that carried it.
+5. The event is re-emitted with `source: "browser"` and `eventAgeMs`, through `relayLog` for a client log line (module `browser`)
+   or `relayBrowserEvent` for a domain event, which write the same log line and counter as `emitDomainEvent`, then pass the scrub
+   at call time and again at export.
+6. Events past `MAX_TELEMETRY_EVENTS` are dropped as `over_limit`.
+
+The ingest never throws into the handler. `ingestBatch` guards each event with `guardedOr`, and `relayLog`, `relayBrowserEvent` and
+`reportIngestDropped` swallow and count their own failures as `internal` drops of `telemetry.scrub.dropped`. A failing sink, meter or hostile
+value drops that event, which is counted in the receipt's `dropped` and never half-emitted, and the batch still answers `202`. An event is
+accepted once its log line is written; a counter that fails after that is an `internal` metric drop, not a dropped event.
+
+Every drop is one increment of `telemetry.ingest.dropped`, labelled `telemetry.ingest_reason` with a member of
+`INGEST_DROP_REASONS` (`malformed`, `unknown_event`, `unknown_field`, `invalid_field`, `invalid_trace`, `over_limit`). Field drops
+are not event drops: the receipt's `dropped` counts events only. An event's name, timestamp, traceparent and rejected values are
+counted and never logged.
+
+A new browser event is one more `BROWSER_DOMAIN_EVENTS` member, with its fields typed against that event's payload in `DOMAIN_EVENTS` (so the
+list cannot name a field `emitDomainEvent` does not carry), or one more level in `CLIENT_LOG_LEVELS`, all in `vocabulary.ts` and `wire-contract.ts`. A new field is one `FIELDS` entry, and one entry in the event's list if a browser may
+send it. Both go expand-then-contract (O17): the server accepts a name or field before any
+build sends it and stops accepting it only after no deployed build does.
+
+The plugin around it (`apps/backend/src/modules/telemetry`) answers a batch that is not an envelope, is not JSON or carries a
+`__proto__` or `constructor.prototype` key anywhere as a `400` `request/invalid` problem for the whole batch, since Fastify refuses
+the body before the ingest sees it. A body over 64 KiB is a `413` that the error handler answers as `request/invalid`. The
+per-address rate limit (300 a minute, one bucket per IPv4 address or IPv6 `/64`) is keyed on `request.ip`, and `buildApp` sets
+`trustProxy: 1` for the one nginx hop, so each browser has its own bucket ([`docs/6-observability.md`](../../docs/6-observability.md)
+O21). The browser must cap its batch bytes below the limit and send a beacon as a `Blob` typed `application/json`, because a plain
+string goes as `text/plain`, which is a `400`.
+
+## Sending to the ingest
+
+`src/browser/wire.ts` turns what the queue holds into what `POST /api/telemetry` reads, so the SDK and the ingest agree by construction
+and by test. It is the one home of that mapping; `_tests/browser/wire-contract.leak-test.test.ts` builds events with the real queue,
+`captureError` and `emitDomainEvent`, maps them with it and feeds them to the real `ingestBatch`, and fails on any event dropped or any
+`unknown_field`, `invalid_field`, `unknown_event`, `malformed` or `invalid_trace` count.
+
+- `toWireEvent(queuedEvent)` renames each attribute key to its registry field name through `FIELDS` (there is no second name table) and
+  drops every attribute with no registry entry and every field `keepsFromBrowser` refuses, the same gate the ingest applies through
+  `judgeBrowserField`: the field must be on the event's own list and its value must pass the field's check. A field the ingest would
+  count as dropped is never sent. A client log line's message is not sent: its level is its name, `clientLogEventOf(level)`.
+- A queued event is a browser domain event, and is named `session.abandoned`, only if the queue marked it, and only a record that
+  `emitDomainEvent` wrote can be marked. `logger.ts` keeps a `WeakSet` of the records `logDomainEvent` builds, which is what
+  `emitDomainEvent` calls and nothing else does, and `isDomainEventRecord` reads it; `scrubbedEvent` sets the `event` marker only for
+  such a record whose message is a `BROWSER_DOMAIN_EVENTS` member. The `module` attribute is never trusted: `logger("events")` from
+  app code, a caller's `module: "events"` and a message that spells `session.abandoned` all stay client log lines. `enqueue`, the
+  app-facing form, also discards a caller's `module` attribute, and `CallerAttributes` types it as `never`. `nameOf` checks the marker
+  against `BROWSER_DOMAIN_EVENTS` again, so a marker that is not on the list is ignored.
+- `at` is stamped when the event is queued, from the queue's `now` option (`Date.now` by default), so the server's `eventAgeMs` is the
+  age of the event and not of its batch. It is the client's clock: a clock that runs behind gives an age that is too large, and one
+  that runs ahead reads as 0, since the server never stamps a negative age. The age is a log field only and drives no counter or alert.
+  `traceparent` is the active span's, formatted by `formatTraceparent`, and is absent when no valid span is active.
+- `toEnvelopes(events, maxBytes?)` returns `{ events }` envelopes of at most `MAX_TELEMETRY_EVENTS` events and `maxBytes` bytes of UTF-8 JSON
+  (`MAX_TELEMETRY_BODY_BYTES` from `@qp/shared` by default), splitting into several when a batch is larger. `session.abandoned` events come
+  first. A beacon passes `BEACON_BODY_BUDGET_BYTES` (half of `MAX_TELEMETRY_BODY_BYTES`, 32 KiB) so that one envelope never uses the whole of `sendBeacon`'s roughly 64 KiB
+  quota. `flushOnExit` orders the whole pending queue with the abandonments first before it slices it into batches, so an abandonment
+  is in the first batch handed to the beacon and, mapped with the budget, in the first envelope. No single event can outgrow an
+  envelope: a stack is at most 40 frames of 200 characters, and every other field is short.
+- `toBeaconBlob(envelope)` is a `Blob` typed `application/json`, for `navigator.sendBeacon`; `toFetchInit(envelope)` is a `POST` with
+  `content-type: application/json`, for the app's one `fetch` call. Both send the same bytes.
+
+`trace-context.ts` has no imports and holds the `traceparent` version and field widths, `formatTraceparent` and `parseTraceparent`, so
+the header the SDK writes and the field the ingest reads cannot drift; `_tests/trace-context.test.ts` round-trips one through the other.
+`injectTraceHeaders`, `startBrowserTracing` and `stopBrowserTracing` run under `guarded`, `guardedOr` and `guardedAsync` (the two global disables each under their own guard), and a
+`startBrowserTracing` that fails to register its context manager unregisters the tracer provider it had registered.
 
 ## Sinks
 
@@ -382,17 +477,21 @@ The flows live with the code they exercise. The backend's registry is
 | File | Contents |
 | --- | --- |
 | `src/index.ts` | The core entry point's exports |
-| `src/browser.ts`, `src/browser/` | The browser entry point and its parts: `queue.ts`, `events.ts` (the queued event and its scrub), `errors.ts`, `frames.ts` (the stack-frame rewrite), `lifecycle.ts`, `logging.ts`, `idle.ts`, `tracing.ts`, `start.ts`, `page.ts` (the structural types for `window`) |
+| `src/browser.ts`, `src/browser/` | The browser entry point and its parts: `queue.ts`, `events.ts` (the queued event and its scrub), `errors.ts`, `frames.ts` (the stack-frame rewrite), `lifecycle.ts`, `logging.ts`, `idle.ts`, `tracing.ts`, `wire.ts` (the queue's events as ingest envelopes, and their encodings), `start.ts`, `page.ts` (the structural types for `window`) |
 | `src/fields.ts` | `FIELDS`, `TelemetryContext`, the infrastructure allowlist, `OUTCOMES` |
 | `src/vocabulary.ts` | Constants shared by more than one module: the instrumentation scope, signal kinds, drop reasons, log modules and the attribute names the pipeline writes about itself |
 | `src/scrub.ts` | `scrubContext`, `scrubAttributes` |
-| `src/guard.ts` | `guarded`, `guardedOr`: run a telemetry action, swallow a failure and count it as `internal` |
-| `src/logger.ts` | `logger`, `LOG_LEVELS`, `LiteralMessage`, the sink and threshold |
+| `src/guard.ts` | `guarded`, `guardedOr`, `guardedAsync`: run a telemetry action, swallow a failure and count it as `internal` |
+| `src/logger.ts` | `logger`, `LOG_LEVELS`, `LiteralMessage`, the sink and threshold, and `logDomainEvent` with `isDomainEventRecord`, which mark the records `emitDomainEvent` writes |
 | `src/spans.ts` | `withSpan`, `SPAN_NAMES`, `SpanName`, `activeTraceId`, `annotateActiveSpan` |
-| `src/problems.ts` | `projectProblem`, `PROBLEM_CODES`, `SCHEMA_CODES` |
+| `src/problems.ts` | `projectProblem`, `PROBLEM_CODES`, `SCHEMA_CODES`, `MAX_FINDINGS` |
 | `src/problem-telemetry.ts` | `problemTelemetry`: `projectProblem` behind the never-throw guard |
-| `src/events.ts` | `DOMAIN_EVENTS` (each event's name, payload and counter), `DomainEvent`, `emitDomainEvent` |
-| `src/instruments.ts` | The counter and histogram primitives, the session-duration histogram and the drop counter; each swallows and counts its own failure |
+| `src/events.ts` | `DOMAIN_EVENTS` (each event's name, payload, counter and counter labels), `DomainEvent`, `emitDomainEvent`, `relayBrowserEvent` |
+| `src/ingest.ts` | `ingestBatch`: the `/api/telemetry` ingest's event allowlist, field filter, trace context and drop counting, behind the never-throw guard |
+| `src/wire-contract.ts` | What a browser may send: `BROWSER_DOMAIN_EVENTS`, the closed field list of each event behind `browserFieldsOf`, `browserDomainEventOf`, `judgeBrowserField` and `keepsFromBrowser`. The ingest reads it and `browser/wire.ts` writes to it. Imports no Node module, so the browser entry can use it |
+| `src/trace-context.ts` | `formatTraceparent`, `parseTraceparent` and the `traceparent` field widths. No imports |
+| `src/frame-shape.ts` | The one definition of a safe stack frame: its pattern pieces, caps, placeholders, `isSafeFunctionName`, `isSafeScriptFile`, `isSafePosition`, `BROWSER_STACK_FRAME` and `isBrowserStack`. No imports, so the browser entry can use it |
+| `src/instruments.ts` | The counter and histogram primitives, the session-duration histogram, the scrub drop counter and the ingest drop counter; each swallows and counts its own failure |
 | `src/exporters.ts` | The scrubbing decorators for span and metric exporters |
 | `src/pipeline.ts` | Builds the SDK, the pino sink and the exporters |
 | `src/node.ts` | `startTelemetry`, `runningTelemetry` |

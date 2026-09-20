@@ -43,13 +43,26 @@ describe("startBrowserTelemetry", () => {
     telemetry.queue.flush();
 
     expect(sent).toEqual([
-      { level: "info", message: "session submitted", attributes: { "questionnaire.session_id": SESSION_ID, module: "execution" } },
+      { level: "info", at: expect.any(String), message: "session submitted", attributes: { "questionnaire.session_id": SESSION_ID, module: "execution" } },
       {
         level: "info",
+        at: expect.any(String),
+        event: "session.abandoned",
         message: "session.abandoned",
         attributes: { "questionnaire.session_id": SESSION_ID, "questionnaire.last_item_id": "itm_03", module: "events" },
       },
     ]);
+  });
+
+  it("does not mark a logger call from app code in the events module as a browser domain event", () => {
+    const { telemetry, sent } = started();
+
+    logger("events").info("session.abandoned", { sessionId: SESSION_ID, lastItemId: "itm_03" });
+    telemetry.queue.flush();
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ message: "session.abandoned", attributes: { module: "events" } });
+    expect(sent[0]).not.toHaveProperty("event");
   });
 
   it("never queues debug, and passes it to the debug sink only when one is given", () => {

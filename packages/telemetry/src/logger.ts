@@ -1,9 +1,9 @@
 import { trace } from "@opentelemetry/api";
 import { stackFramesOf, type TelemetryContext } from "./fields.js";
-import { guarded } from "./guard.js";
+import { guarded, guardedOr } from "./guard.js";
 import { reportDropped } from "./instruments.js";
 import { scrubAttributes, scrubContext, type ScrubbedAttributes } from "./scrub.js";
-import { LOG_ATTRIBUTES, type LogModule } from "./vocabulary.js";
+import { EVENTS_LOG_MODULE, LOG_ATTRIBUTES, type LogModule } from "./vocabulary.js";
 
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 
@@ -52,7 +52,20 @@ function correlation(): Record<string, string> {
   return context === undefined ? {} : { [LOG_ATTRIBUTES.traceId]: context.traceId, [LOG_ATTRIBUTES.spanId]: context.spanId };
 }
 
-function emit(level: LogLevel, module: string, message: string, context: unknown, error: Error | undefined): void {
+const domainEventRecords = new WeakSet<object>();
+
+export function isDomainEventRecord(record: object): boolean {
+  return domainEventRecords.has(record);
+}
+
+function emit(
+  level: LogLevel,
+  module: string,
+  message: string,
+  context: unknown,
+  error: Error | undefined,
+  isDomainEvent = false,
+): void {
   const sink = state.sink;
   if (sink === undefined || isBelowThreshold(level)) return;
   const fields = scrubContext({
@@ -62,7 +75,27 @@ function emit(level: LogLevel, module: string, message: string, context: unknown
   const record = scrubAttributes({ ...fields.attributes, [LOG_ATTRIBUTES.module]: module, ...correlation() }, "log");
   reportDropped("log", fields.dropped);
   reportDropped("log", record.dropped);
-  sink({ level, message, attributes: record.attributes });
+  const logRecord: LogRecord = { level, message, attributes: record.attributes };
+  if (isDomainEvent) domainEventRecords.add(logRecord);
+  sink(logRecord);
+}
+
+export function logDomainEvent<M extends string>(message: LiteralMessage<M>, context: TelemetryContext): void {
+  guarded("log", () => {
+    emit("info", EVENTS_LOG_MODULE, message, context, undefined, true);
+  });
+}
+
+export function relayLog<M extends string>(
+  level: LogLevel,
+  module: LogModule,
+  message: LiteralMessage<M>,
+  context: Readonly<Record<string, unknown>>,
+): boolean {
+  return guardedOr("log", false, () => {
+    emit(level, module, message, context, undefined);
+    return true;
+  });
 }
 
 export function logger(module: LogModule): Logger {

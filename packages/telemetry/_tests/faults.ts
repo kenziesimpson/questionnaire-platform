@@ -1,6 +1,7 @@
 import { createNoopMeter, metrics, type Attributes, type Counter, type Histogram } from "@opentelemetry/api";
 import { vi } from "vitest";
 import { DROPPED_COUNTER, resetInstruments } from "../src/instruments.js";
+import type { CallerAttributes } from "../src/browser/events.js";
 import type { TestTelemetry } from "../src/testing.js";
 
 export { DROPPED_COUNTER } from "../src/instruments.js";
@@ -60,4 +61,24 @@ export async function internalDropsIn(installed: TestTelemetry): Promise<Record<
   const dropped = all.find((metric) => metric.descriptor.name === DROPPED_COUNTER);
   const internal = (dropped?.dataPoints ?? []).filter((point) => point.attributes["telemetry.reason"] === "internal");
   return Object.fromEntries(internal.map((point) => [String(point.attributes["telemetry.signal"]), typeof point.value === "number" ? point.value : 0]));
+}
+
+export async function metricPointsIn(installed: TestTelemetry, name: string) {
+  const all = await installed.metrics();
+  return all.find((metric) => metric.descriptor.name === name)?.dataPoints ?? [];
+}
+
+export async function ingestDropsIn(installed: TestTelemetry): Promise<Record<string, unknown>> {
+  const points = await metricPointsIn(installed, "telemetry.ingest.dropped");
+  return Object.fromEntries(points.map((point) => [`${point.attributes["telemetry.ingest_reason"]}`, point.value]));
+}
+
+export async function counterValueIn(installed: TestTelemetry, name: string): Promise<number> {
+  const points = await metricPointsIn(installed, name);
+  return points.reduce((total, point) => total + (typeof point.value === "number" ? point.value : 0), 0);
+}
+
+export function forgedModuleAttributes(): CallerAttributes {
+  const attributes: CallerAttributes = JSON.parse('{"module":"events"}');
+  return attributes;
 }

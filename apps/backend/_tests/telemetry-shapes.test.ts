@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { definitionApi, executionApi, reportingApi } from "@qp/shared";
+import { definitionApi, executionApi, reportingApi, telemetryApi } from "@qp/shared";
 import { FIELDS } from "@qp/telemetry";
 import { describe, expect, it } from "vitest";
 import { QUESTION_VERSION_PRIMARY_KEY } from "../src/db/errors.js";
@@ -28,6 +28,7 @@ describe("the route templates the backend registers", () => {
     ["definition", definitionApi.DEFINITION_PREFIX, definitionApi.definitionRoutes],
     ["execution", executionApi.EXECUTION_PREFIX, executionApi.executionRoutes],
     ["reporting", reportingApi.REPORTING_PREFIX, reportingApi.reportingRoutes],
+    ["telemetry", telemetryApi.TELEMETRY_PREFIX, telemetryApi.telemetryRoutes],
   ])("are all accepted by the route field (%s)", (_module, prefix, routes) => {
     expect(routes.length).toBeGreaterThan(0);
     const rejected = routes.map((route) => `${prefix}${route.url}`).filter((url) => !FIELDS.route.accepts(url));

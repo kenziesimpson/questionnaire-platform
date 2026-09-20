@@ -47,6 +47,7 @@ describe("installErrorCapture", () => {
     expect(sent).toEqual([
       {
         level: "error",
+        at: expect.any(String),
         message: "unhandled error",
         attributes: { "error.type": "TypeError", "error.stack": "    at render (index-a1b2.js:10:20)\n    at anonymous.js:5:6" },
       },
@@ -61,7 +62,7 @@ describe("installErrorCapture", () => {
     page.dispatch("error", scriptError);
     queue.flush();
 
-    expect(sent).toEqual([{ level: "error", message: "unhandled error", attributes: {} }]);
+    expect(sent).toEqual([{ level: "error", at: expect.any(String), message: "unhandled error", attributes: {} }]);
   });
 
   it("records the type and frames of a rejection's reason, and nothing for a reason that is not an error", () => {
@@ -74,10 +75,10 @@ describe("installErrorCapture", () => {
     queue.flush();
 
     expect(sent).toEqual([
-      { level: "error", message: "unhandled rejection", attributes: { "error.type": "RangeError", "error.stack": "    at go (main.js:1:2)" } },
-      { level: "error", message: "unhandled rejection", attributes: {} },
-      { level: "error", message: "unhandled rejection", attributes: {} },
-      { level: "error", message: "unhandled rejection", attributes: {} },
+      { level: "error", at: expect.any(String), message: "unhandled rejection", attributes: { "error.type": "RangeError", "error.stack": "    at go (main.js:1:2)" } },
+      { level: "error", at: expect.any(String), message: "unhandled rejection", attributes: {} },
+      { level: "error", at: expect.any(String), message: "unhandled rejection", attributes: {} },
+      { level: "error", at: expect.any(String), message: "unhandled rejection", attributes: {} },
     ]);
   });
 

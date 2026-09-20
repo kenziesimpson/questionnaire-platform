@@ -222,6 +222,7 @@ describe("emitDomainEvent against the real SDK", () => {
       "questionnaire.id": QUESTIONNAIRE_ID,
       "questionnaire.version": 2,
     });
+    expect(installed.logs()[0]).not.toHaveProperty("telemetry.source");
     const started = await metricNamed(installed, "questionnaire.sessions.started");
     expect(started?.dataPoints.map((point) => point.value)).toEqual([1]);
   });

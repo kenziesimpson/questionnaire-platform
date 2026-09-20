@@ -23,6 +23,7 @@ describe("problem slugs", () => {
   it("is the closed set in [[7-application-boundary]] §6.1, with its statuses", () => {
     expect(Object.fromEntries(PROBLEM_SLUGS.map((s) => [s, PROBLEMS[s].status]))).toEqual({
       "request/invalid": 400,
+      "request/rate-limited": 429,
       "resource/not-found": 404,
       "questionnaire/draft-invalid": 422,
       "questionnaire/draft-stale": 409,

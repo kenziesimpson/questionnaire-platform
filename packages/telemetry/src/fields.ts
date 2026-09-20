@@ -1,6 +1,16 @@
 import { PROBLEM_SLUGS, RESPONSE_TYPES, SLUG_PATTERN, SUBMISSION_ITEM_CODES, UUID_PATTERN } from "@qp/shared";
 import { PROBLEM_CODES } from "./problems.js";
-import { DROP_REASONS, LOG_ATTRIBUTES, LOG_MODULES, SCRUB_ATTRIBUTES, SIGNAL_KINDS } from "./vocabulary.js";
+import { MAX_STACK_FRAMES } from "./frame-shape.js";
+import { SPAN_ID_LENGTH, TRACE_ID_LENGTH } from "./trace-context.js";
+import {
+  DROP_REASONS,
+  EVENT_SOURCES,
+  INGEST_DROP_REASONS,
+  LOG_ATTRIBUTES,
+  LOG_MODULES,
+  SCRUB_ATTRIBUTES,
+  SIGNAL_KINDS,
+} from "./vocabulary.js";
 
 export const OUTCOMES = ["accepted", "replayed", "rejected_validation", "rejected_conflict", "failed"] as const;
 export type Outcome = (typeof OUTCOMES)[number];
@@ -31,8 +41,9 @@ const CONSTRAINT_NAME = /^(?=.{1,63}$)[a-z][a-z0-9]*(?:_+[a-z0-9]+)+$/;
 const DB_SYSTEM = /^[a-z][a-z0-9_.]{0,31}$/;
 const DB_OPERATION = /^[A-Za-z_]{1,32}$/;
 const HOST_NAME = /^[A-Za-z0-9_.-]{1,255}$/;
+const HEX_TRACE_ID = new RegExp(`^[0-9a-f]{${TRACE_ID_LENGTH}}$`);
+const HEX_SPAN_ID = new RegExp(`^[0-9a-f]{${SPAN_ID_LENGTH}}$`);
 const STACK_FRAME = /^ {4}at (?:.+ \((?:[^\s()]+:\d+:\d+|<anonymous>|native)\)|[^\s()]+:\d+:\d+)$/;
-const MAX_STACK_FRAMES = 40;
 
 function matching(attribute: string, expression: RegExp, bounded: boolean): FieldDefinition<string> {
   return {
@@ -104,6 +115,8 @@ export const FIELDS = {
   pool: oneOf("db.pool", DATABASE_POOLS),
   errorStack: { attribute: "error.stack", bounded: false, accepts: isStackTrace },
   signal: oneOf("process.signal", SIGNALS),
+  source: oneOf("telemetry.source", EVENT_SOURCES),
+  eventAgeMs: quantity("telemetry.event_age_ms"),
 } as const satisfies Record<string, FieldDefinition<unknown>>;
 
 export type FieldName = keyof typeof FIELDS;
@@ -125,13 +138,14 @@ function indexedByAttribute(definitions: readonly FieldDefinition<unknown>[]): R
 const FIELD_ATTRIBUTES = indexedByAttribute(Object.values(FIELDS));
 
 const INFRASTRUCTURE = indexedByAttribute([
-  matching(LOG_ATTRIBUTES.traceId, /^[0-9a-f]{32}$/, false),
-  matching(LOG_ATTRIBUTES.spanId, /^[0-9a-f]{16}$/, false),
+  matching(LOG_ATTRIBUTES.traceId, HEX_TRACE_ID, false),
+  matching(LOG_ATTRIBUTES.spanId, HEX_SPAN_ID, false),
   oneOf(LOG_ATTRIBUTES.module, LOG_MODULES),
   matching("exception.type", EXCEPTION_TYPE, true),
   oneOf("otel.status_code", ["OK", "ERROR"]),
   oneOf(SCRUB_ATTRIBUTES.signal, SIGNAL_KINDS),
   oneOf(SCRUB_ATTRIBUTES.reason, DROP_REASONS),
+  oneOf(SCRUB_ATTRIBUTES.ingestReason, INGEST_DROP_REASONS),
   matching("db.system", DB_SYSTEM, true),
   matching("db.system.name", DB_SYSTEM, true),
   matching("db.operation", DB_OPERATION, true),
@@ -153,6 +167,16 @@ function portNumber(attribute: string): FieldDefinition<number> {
     bounded: true,
     accepts: (value): value is number => typeof value === "number" && Number.isInteger(value) && value > 0 && value < 65536,
   };
+}
+
+const FIELD_NAMES_BY_ATTRIBUTE: ReadonlyMap<string, FieldName> = new Map(
+  Object.keys(FIELDS)
+    .filter(isFieldName)
+    .map((name) => [FIELDS[name].attribute, name]),
+);
+
+export function fieldNameOfAttribute(attribute: string): FieldName | undefined {
+  return FIELD_NAMES_BY_ATTRIBUTE.get(attribute);
 }
 
 export function definitionOfAttribute(attribute: string): FieldDefinition<unknown> | undefined {

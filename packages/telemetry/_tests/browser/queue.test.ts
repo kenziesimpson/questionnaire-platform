@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { QueuedEvent } from "../../src/browser/events.js";
+import type { CallerAttributes, QueuedEvent } from "../../src/browser/events.js";
+import { routeLogsToQueue } from "../../src/browser/logging.js";
 import { createEventQueue, type EventQueueOptions } from "../../src/browser/queue.js";
+import { startBrowserTracing, stopBrowserTracing } from "../../src/browser/tracing.js";
+import { toWireEvent } from "../../src/browser/wire.js";
+import { emitDomainEvent, logger, withSpan } from "../../src/index.js";
+import { configureLogging, resetLogging, type LogRecord } from "../../src/logger.js";
+import { forgedModuleAttributes } from "../faults.js";
 import { SESSION_ID } from "../fixtures.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
@@ -50,6 +56,7 @@ describe("createEventQueue: what is queued", () => {
       [
         {
           level: "info",
+          at: expect.any(String),
           message: "session abandoned",
           attributes: { "questionnaire.session_id": SESSION_ID, "questionnaire.last_item_id": "itm_03", module: "events" },
         },
@@ -179,6 +186,43 @@ describe("createEventQueue: what is queued", () => {
 });
 
 describe("createEventQueue: enqueue, the form for app code", () => {
+  it("never throws into the caller, even when the attributes throw when read, and counts each as internal", () => {
+    const { queue } = queueWith();
+    const hostile: CallerAttributes = {
+      get boom(): string {
+        throw new Error(LEAK);
+      },
+    };
+    const proxied = new Proxy<CallerAttributes>(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error(LEAK);
+        },
+        get: () => {
+          throw new Error(LEAK);
+        },
+      },
+    );
+
+    expect(() => {
+      queue.enqueue({ level: "info", message: "session abandoned", attributes: hostile });
+      queue.enqueue({ level: "info", message: "session abandoned", attributes: proxied });
+    }).not.toThrow();
+    expect(queue.stats().droppedEvents.internal).toBe(2);
+    expect(queue.stats().pending).toBe(0);
+  });
+
+  it("does nothing once the queue is closed, without counting a drop", () => {
+    const { queue } = queueWith();
+    queue.close();
+
+    queue.enqueue({ level: "info", message: "session abandoned" });
+
+    expect(queue.stats().droppedEvents).toEqual({ overflow: 0, undelivered: 0, internal: 0, level: 0 });
+    expect(queue.stats().pending).toBe(0);
+  });
+
   it("takes a literal message and attributes that do not name the error stack", () => {
     const { queue, batches } = queueWith();
 
@@ -186,7 +230,7 @@ describe("createEventQueue: enqueue, the form for app code", () => {
     queue.flush();
 
     expect(batches[0]).toEqual([
-      { level: "info", message: "session abandoned", attributes: { "questionnaire.session_id": SESSION_ID } },
+      { level: "info", at: expect.any(String), message: "session abandoned", attributes: { "questionnaire.session_id": SESSION_ID } },
     ]);
   });
 
@@ -465,5 +509,137 @@ describe("createEventQueue: flushOnExit", () => {
     }).not.toThrow();
     expect(refusing.queue.stats().droppedEvents.undelivered).toBe(1);
     expect(throwing.queue.stats().droppedEvents.undelivered).toBe(1);
+  });
+});
+
+describe("createEventQueue: what each event is stamped with when it is queued", () => {
+  afterEach(async () => {
+    await stopBrowserTracing();
+  });
+
+  it("stamps the time of the enqueue, read from the injected clock, not the time of the flush", () => {
+    const times = [Date.parse("2026-09-19T10:00:00.000Z"), Date.parse("2026-09-19T10:00:07.500Z")];
+    const { queue, batches } = queueWith({ now: () => times.shift() ?? 0 });
+
+    queue.enqueueRecord(info("first"));
+    queue.enqueueRecord(info("second"));
+    vi.setSystemTime(Date.parse("2030-01-01T00:00:00.000Z"));
+    queue.flush();
+
+    expect(batches.flat().map((event) => event.at)).toEqual(["2026-09-19T10:00:00.000Z", "2026-09-19T10:00:07.500Z"]);
+  });
+
+  it("reads the clock once per event, and reads it for an event it then drops", () => {
+    const now = vi.fn(() => 0);
+    const { queue } = queueWith({ now });
+
+    queue.enqueueRecord(info("kept"));
+    queue.enqueueRecord({ level: "debug", message: "dropped", attributes: {} });
+
+    expect(now).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the wall clock when no clock is injected", () => {
+    vi.setSystemTime(Date.parse("2026-09-19T12:34:56.789Z"));
+    const { queue, batches } = queueWith();
+
+    queue.enqueueRecord(info("now"));
+    queue.flush();
+
+    expect(batches[0]?.[0]?.at).toBe("2026-09-19T12:34:56.789Z");
+  });
+
+  it("stamps the traceparent of the active span, and no traceparent when there is none", async () => {
+    startBrowserTracing();
+    const { queue, batches } = queueWith();
+
+    await withSpan("session.submit", { sessionId: SESSION_ID }, async () => {
+      queue.enqueueRecord(info("inside"));
+    });
+    queue.enqueueRecord(info("outside"));
+    queue.flush();
+
+    const [inside, outside] = batches.flat();
+    expect(inside?.traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/);
+    expect(outside).not.toHaveProperty("traceparent");
+  });
+
+  it("marks a record as a browser domain event only when emitDomainEvent wrote it, never by its module attribute or its message", () => {
+    const { queue, batches } = queueWith();
+
+    queue.enqueueRecord(info("session.abandoned", { module: "events" }));
+    queue.enqueue({ level: "info", message: "session.abandoned", attributes: forgedModuleAttributes() });
+    queue.enqueueRecord(info("session.abandoned"));
+    queue.flush();
+
+    expect(batches.flat().map((event) => event.event)).toEqual([undefined, undefined, undefined]);
+  });
+
+  it("marks the record emitDomainEvent writes for a browser event, and not a logger call from app code or an event a browser may not send", () => {
+    const { queue, batches } = queueWith();
+    const stopRouting = routeLogsToQueue(queue);
+
+    emitDomainEvent({ name: "session.abandoned", sessionId: SESSION_ID, lastItemId: "itm_03" });
+    emitDomainEvent({ name: "session.completed", sessionId: SESSION_ID, durationMs: 1000, questionCount: 2 });
+    logger("events").info("session.abandoned", { sessionId: SESSION_ID });
+    stopRouting();
+    queue.flush();
+
+    expect(batches.flat().map((event) => [event.message, event.event])).toEqual([
+      ["session.abandoned", "session.abandoned"],
+      ["session.completed", undefined],
+      ["session.abandoned", undefined],
+    ]);
+  });
+
+  it("loses the marker on a spread copy or a structured clone of a domain-event record, and keeps it on the original", () => {
+    const captured: LogRecord[] = [];
+    configureLogging({
+      level: "info",
+      sink: (record) => {
+        captured.push(record);
+      },
+    });
+    emitDomainEvent({ name: "session.abandoned", sessionId: SESSION_ID, lastItemId: "itm_03" });
+    resetLogging();
+    const [original] = captured;
+    const { queue, batches } = queueWith();
+
+    if (original === undefined) throw new Error("no record was captured");
+    queue.enqueueRecord(original);
+    queue.enqueueRecord({ ...original });
+    queue.enqueueRecord(structuredClone(original));
+    queue.flush();
+
+    const queued = batches.flat();
+    expect(queued.map((event) => event.event)).toEqual(["session.abandoned", undefined, undefined]);
+    expect(queued.map((event) => toWireEvent(event).name)).toEqual(["session.abandoned", "client.info", "client.info"]);
+  });
+
+  it("ignores a module attribute an app passes to enqueue and keeps its other attributes", () => {
+    const { queue, batches } = queueWith();
+
+    queue.enqueue({ level: "info", message: "screen shown", attributes: { ...forgedModuleAttributes(), "questionnaire.session_id": SESSION_ID } });
+    queue.flush();
+
+    expect(batches[0]?.[0]?.attributes).toEqual({ "questionnaire.session_id": SESSION_ID });
+  });
+});
+
+describe("createEventQueue: flushOnExit puts the abandonments first across the whole queue", () => {
+  it("hands a session.abandoned queued behind a full batch to the first beacon, not a later one", () => {
+    const { queue, beacons } = queueWith({ batchSize: 2, send: () => new Promise<void>(() => undefined) });
+    const stopRouting = routeLogsToQueue(queue);
+    queue.enqueueRecord(info("one"));
+    queue.enqueueRecord(info("two"));
+    queue.enqueueRecord(info("three"));
+    queue.enqueueRecord(info("four"));
+    queue.enqueueRecord(info("five"));
+    emitDomainEvent({ name: "session.abandoned", sessionId: SESSION_ID, lastItemId: null });
+
+    queue.flushOnExit();
+    stopRouting();
+
+    expect(beacons.map((batch) => batch.map((event) => event.message))).toEqual([["session.abandoned", "three"], ["four", "five"]]);
   });
 });
