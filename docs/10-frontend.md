@@ -211,6 +211,12 @@ Each row is three controls: **which earlier question**, **which operator**, **wh
 
 That is the same move the format model makes, one layer up: the invalid states are removed from the interface instead of detected in it. It is also why this screen is cheap despite sounding expensive — the format decision paid for it in advance.
 
+### 5.5 Telemetry
+
+The admin reports through `@qp/telemetry/browser`, wired in `src/telemetry/` and its one API client ([[6-observability#6. Client-side telemetry]]). `src/api/client.ts` runs each call in a `browser.request` span named by method and route template and adds `traceparent` with `injectTraceHeaders` (O12); `src/api/telemetry-transport.ts` names `fetch` and `sendBeacon` for telemetry. `main.tsx` starts the SDK after first paint with the router's matched route id as the screen, so a screen is `/questionnaires/$questionnaireId/responses/$sessionId`, never the URL or its search (O19). Failures report through two hooks that take an error and nothing else: the query and mutation caches (`src/telemetry/report.ts`, skipping a 4xx problem and a cancellation) and the router's `defaultOnCatch` with a `TelemetryErrorBoundary` behind it, both recording a class name and stack frames, never a message (O8, O19). The response-detail screen renders raw answers, so its component errors take that path and its fallback (`components/error-fallback.tsx`) shows no message.
+
+`GET /sessions/:sessionId` writes a `view_response` audit row on every read (O14, O18), so the response-detail query is read when the screen opens and not again on a window refocus or a reconnect: `refetchOnWindowFocus` and `refetchOnReconnect` are off and `staleTime` is 0, so opening the screen again is a new read and a refocus is not. Tracing is off unless the build sets `VITE_TELEMETRY_TRACING=true`, as in §4.5.
+
 ## 6. Authoring concurrency
 
 Three races exist between two authors. The brief asks for concurrency control to be defensible, and two of these are resolved by contract shape rather than by locking.
