@@ -170,6 +170,13 @@ attaches on its own (`db.system`, `server.port`, `fastify.type`, …). `url.path
 span carries it and a count would put a constant floor under `telemetry.scrub.dropped`; it is still
 counted `unknown` on a log line or a metric.
 
+`ALLOWED_ATTRIBUTES` (exported from `@qp/telemetry`) is every attribute name the scrub can keep: the registry's
+and the infrastructure allowlist's, sorted. The Collector's redaction processor in `observability/collector.yaml`
+keeps exactly these keys, and `_tests/collector-allowlist.test.ts` fails when the two lists differ. A field is added to both in one
+change. To follow O17's expand-then-contract order instead, add the key to the Collector and to
+`ATTRIBUTES_ALLOWED_AHEAD_OF_THE_REGISTRY` in that test first, and move it out of the list when the registry gains it; to retire a
+field, remove it from the registry and list it there until the Collector drops it.
+
 ### Where it runs
 
 | When | Where | What is scrubbed |

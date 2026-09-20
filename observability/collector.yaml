@@ -1,0 +1,232 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+  file_log/containers:
+    include:
+      - /var/lib/docker/containers/*/*-json.log
+    start_at: end
+    include_file_name: false
+    operators:
+      - type: json_parser
+        id: docker_line
+        parse_ints: true
+        on_error: drop
+        timestamp:
+          parse_from: attributes.time
+          layout_type: gotime
+          layout: 2006-01-02T15:04:05.999999999Z07:00
+      - type: filter
+        id: only_labelled_containers
+        expr: 'not (attributes.attrs != nil and attributes.attrs.qp_log_service != nil)'
+      - type: move
+        id: service_name_from_label
+        from: attributes.attrs.qp_log_service
+        to: resource["service.name"]
+      - type: move
+        id: line_from_docker
+        from: attributes.log
+        to: body
+      - type: remove
+        id: drop_docker_fields
+        field: attributes
+      - type: filter
+        id: only_json_lines
+        expr: 'not (body matches "^\\{")'
+      - type: json_parser
+        id: application_line
+        parse_ints: true
+        on_error: drop
+        severity:
+          parse_from: attributes.level
+      - type: filter
+        id: only_literal_messages
+        expr: 'not (attributes.msg matches "^[A-Za-z][A-Za-z0-9 ._:,/-]{0,127}$")'
+      - type: move
+        id: message_to_body
+        from: attributes.msg
+        to: body
+      - type: trace_parser
+        id: trace_context
+        if: 'attributes.trace_id != nil and attributes.trace_id != "" and attributes.span_id != nil and attributes.span_id != ""'
+        trace_id:
+          parse_from: attributes.trace_id
+        span_id:
+          parse_from: attributes.span_id
+      - type: remove
+        id: drop_empty_trace_id
+        field: attributes.trace_id
+        if: 'attributes.trace_id == ""'
+      - type: remove
+        id: drop_empty_span_id
+        field: attributes.span_id
+        if: 'attributes.span_id == ""'
+
+  postgresql:
+    endpoint: db:5432
+    transport: tcp
+    username: qp_monitor
+    password: ${env:QP_MONITOR_PASSWORD}
+    databases:
+      - ${env:POSTGRES_DB}
+    collection_interval: 30s
+    tls:
+      insecure: true
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  redaction:
+    allow_all_keys: false
+    allowed_keys:
+      - db.constraint
+      - db.name
+      - db.namespace
+      - db.operation
+      - db.operation.name
+      - db.pool
+      - db.sql.table
+      - db.system
+      - db.system.name
+      - error.code
+      - error.invariant
+      - error.stack
+      - error.type
+      - exception.type
+      - fastify.root
+      - fastify.type
+      - http.request.id
+      - http.request.method
+      - http.response.status_code
+      - http.route
+      - http.server.request.duration_ms
+      - module
+      - net.peer.name
+      - net.peer.port
+      - otel.status_code
+      - problem.code
+      - problem.slug
+      - process.signal
+      - questionnaire.code_finding_count
+      - questionnaire.duration_ms
+      - questionnaire.elapsed_seconds
+      - questionnaire.finding_count
+      - questionnaire.id
+      - questionnaire.item_id
+      - questionnaire.last_item_id
+      - questionnaire.omitted_count
+      - questionnaire.outcome
+      - questionnaire.question_count
+      - questionnaire.question_id
+      - questionnaire.question_type
+      - questionnaire.reason
+      - questionnaire.session_id
+      - questionnaire.version
+      - questionnaire.version_id
+      - server.address
+      - server.port
+      - span_id
+      - telemetry.event_age_ms
+      - telemetry.ingest_reason
+      - telemetry.reason
+      - telemetry.signal
+      - telemetry.source
+      - trace_id
+    ignored_keys:
+      - service.name
+    summary: silent
+
+  resource/build:
+    attributes:
+      - key: service.version
+        value: ${env:QP_SERVICE_VERSION}
+        action: insert
+
+  resource/postgresql:
+    attributes:
+      - key: service.name
+        value: postgresql
+        action: insert
+
+  filter/non_server_spans:
+    error_mode: ignore
+    trace_conditions:
+      - span.kind != SPAN_KIND_SERVER
+
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 20000
+    expected_new_traces_per_sec: 50
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: 1000
+      - name: baseline
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+
+  batch:
+    timeout: 5s
+
+connectors:
+  forward/spanmetrics: {}
+  forward/sampling: {}
+  span_metrics:
+    namespace: traces.span.metrics
+    histogram:
+      unit: ms
+      explicit:
+        buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2500ms, 5s, 10s]
+    dimensions:
+      - name: http.route
+      - name: http.request.method
+      - name: http.response.status_code
+    exclude_dimensions:
+      - collector.instance.id
+    metrics_flush_interval: 15s
+
+exporters:
+  otlp_http/lgtm:
+    endpoint: http://lgtm:4318
+
+service:
+  pipelines:
+    traces/ingest:
+      receivers: [otlp]
+      processors: [memory_limiter, redaction, resource/build]
+      exporters: [forward/spanmetrics, forward/sampling]
+    traces/spanmetrics:
+      receivers: [forward/spanmetrics]
+      processors: [filter/non_server_spans]
+      exporters: [span_metrics]
+    traces/sampled:
+      receivers: [forward/sampling]
+      processors: [tail_sampling, batch]
+      exporters: [otlp_http/lgtm]
+    metrics/application:
+      receivers: [otlp]
+      processors: [memory_limiter, redaction, resource/build, batch]
+      exporters: [otlp_http/lgtm]
+    metrics/derived:
+      receivers: [span_metrics]
+      processors: [batch]
+      exporters: [otlp_http/lgtm]
+    metrics/postgresql:
+      receivers: [postgresql]
+      processors: [memory_limiter, resource/postgresql, batch]
+      exporters: [otlp_http/lgtm]
+    logs/containers:
+      receivers: [file_log/containers]
+      processors: [memory_limiter, redaction, resource/build, batch]
+      exporters: [otlp_http/lgtm]
