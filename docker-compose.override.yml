@@ -2,7 +2,7 @@ services:
   backend:
     build:
       target: deps
-    command: ["sh", "-c", "npm run dev -w packages/shared & npm run dev -w apps/backend"]
+    command: ["sh", "-c", "npm run dev -w packages/shared & npm run dev -w packages/telemetry & npm run dev -w apps/backend"]
     environment:
       NODE_ENV: development
     ports:
@@ -10,6 +10,7 @@ services:
     volumes:
       - ./apps/backend:/app/apps/backend
       - ./packages/shared:/app/packages/shared
+      - ./packages/telemetry:/app/packages/telemetry
     depends_on:
       migrate:
         condition: service_completed_successfully

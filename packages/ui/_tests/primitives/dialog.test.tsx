@@ -12,7 +12,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../../src/primitives/dialog";
-import { violationsInDocumentIncludingPortals } from "../axe";
+import { componentAxeViolations } from "../../src/testing";
 
 function EditQuestionDialog() {
   return (
@@ -70,10 +70,10 @@ describe("Dialog", () => {
 
   it("finds no axe violations closed or open", async () => {
     render(<EditQuestionDialog />);
-    expect(await violationsInDocumentIncludingPortals()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
 
     await userEvent.click(screen.getByRole("button", { name: "Edit question" }));
 
-    expect(await violationsInDocumentIncludingPortals()).toEqual([]);
+    expect(await componentAxeViolations()).toEqual([]);
   });
 });

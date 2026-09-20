@@ -1,23 +1,16 @@
-import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { axeViolations } from "@qp/ui/testing";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import axe from "axe-core";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { App } from "../src/app";
-import { createAppRouter } from "../src/router";
-import { fakeDefinitionApi } from "./fake-definition-api";
-import { testQueryClient } from "./fixtures";
-import { smoke } from "./screens/draft-editor/harness";
-import { aBankQuestion, fillJsdomLayoutGaps } from "./screens/question-editor/harness";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { aBankQuestion, smoke } from "./support/builders";
+import { fakeDefinitionApi } from "./support/http";
+import { renderAppAt } from "./support/render-app";
 
-beforeAll(fillJsdomLayoutGaps);
 afterEach(() => vi.restoreAllMocks());
 
 function renderApp() {
   const api = fakeDefinitionApi({ bank: [aBankQuestion(smoke)] });
-  const queryClient = testQueryClient();
-  const router = createAppRouter({ queryClient, history: createMemoryHistory({ initialEntries: ["/admin/questionnaires"] }) });
-  const { container } = render(<App queryClient={queryClient} router={router} />);
+  const { router, container } = renderAppAt("/questionnaires");
   return { ...api, router, container };
 }
 
@@ -26,8 +19,7 @@ async function landOn(heading: string) {
 }
 
 async function expectNoAxeViolations(container: HTMLElement) {
-  const results = await axe.run(container, { rules: { "color-contrast": { enabled: false } } });
-  expect(results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))).toEqual([]);
+  expect(await axeViolations(container)).toEqual([]);
 }
 
 function currentNav() {
@@ -41,6 +33,12 @@ function pageLinksMarkedCurrent() {
   return within(screen.getByRole("main"))
     .queryAllByRole("link")
     .filter((link) => link.hasAttribute("aria-current"));
+}
+
+function rowContaining(cell: HTMLElement) {
+  const row = cell.closest("tr");
+  if (row === null) throw new Error(`expected "${cell.textContent}" to sit inside a <tr>`);
+  return row;
 }
 
 async function waitForPublishable() {
@@ -109,9 +107,8 @@ describe("the authoring flow, across every screen", () => {
     await landOn("Version history");
     expect(path()).toBe(`/questionnaires/${questionnaireId}/versions`);
     expect(document.title).toBe("Version history · Questionnaire admin");
-    const version1 = (await screen.findByText("Version 1")).closest("tr");
-    expect(version1).not.toBeNull();
-    expect(within(version1!).getByText("2 questions")).toBeInTheDocument();
+    const version1 = rowContaining(await screen.findByText("Version 1"));
+    expect(within(version1).getByText("2 questions")).toBeInTheDocument();
     expect(currentNav()).toEqual(["Questionnaires"]);
     expect(pageLinksMarkedCurrent()).toEqual([]);
     await expectNoAxeViolations(container);
@@ -132,11 +129,10 @@ describe("the authoring flow, across every screen", () => {
 
     await userEvent.click(screen.getByRole("link", { name: "Back to questionnaires" }));
     await landOn("Questionnaires");
-    const row = (await screen.findByText("Smoking history")).closest("tr");
-    expect(row).not.toBeNull();
-    expect(within(row!).getByText("Published v1")).toBeInTheDocument();
-    expect(within(row!).getByText("Draft open")).toBeInTheDocument();
-    expect(within(row!).getByRole("link", { name: "History of Smoking history" })).toHaveAttribute(
+    const row = rowContaining(await screen.findByText("Smoking history"));
+    expect(within(row).getByText("Published v1")).toBeInTheDocument();
+    expect(within(row).getByText("Draft open")).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: "History of Smoking history" })).toHaveAttribute(
       "href",
       `/admin/questionnaires/${questionnaireId}/versions`,
     );

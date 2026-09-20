@@ -4,6 +4,7 @@ import { ClientAnswerValue, ResponseRow, type ClientAnswers } from "../../src/do
 import type { QuestionContent } from "../../src/domain/question.js";
 import { INTAKE_QUESTION_IDS, intakeDefinition } from "../../src/demo/intake.js";
 import { validateAnswer, validateSubmission } from "../../src/engine/answer-validation.js";
+import { evaluateVisibility } from "../../src/engine/visibility.js";
 import type { RelativeDateContext } from "../../src/engine/calendar.js";
 import { aDefinition, all, anItem, questions } from "./fixtures.js";
 
@@ -157,6 +158,21 @@ describe("validateSubmission — the server's authority over the reachable path"
     if (result.valid) for (const row of result.rows) expect(Value.Check(ResponseRow, row)).toBe(true);
   });
 
+  it("judges visibility by the set it is given instead of evaluating it again, so a caller that already holds the set evaluates once", () => {
+    const answers = { itm_01: yes, itm_02: { type: "single_choice", optionId: "other", otherText: "Asthma" } as const, itm_04: pharmacy };
+    const noneShown = new Set<string>();
+
+    expect(validateSubmission(v1, answers, DATES, noneShown)).toEqual({
+      valid: false,
+      items: [
+        { itemId: "itm_01", code: "answer/not-visible" },
+        { itemId: "itm_02", code: "answer/not-visible" },
+        { itemId: "itm_04", code: "answer/not-visible" },
+      ],
+    });
+    expect(validateSubmission(v1, answers, DATES, evaluateVisibility(v1, answers))).toEqual(validateSubmission(v1, answers, DATES));
+  });
+
   it("accepts the no path, where the branch items are not required", () => {
     expect(validateSubmission(v1, { itm_01: no, itm_02: null, itm_04: pharmacy }, DATES)).toMatchObject({ valid: true });
   });
@@ -259,7 +275,9 @@ describe("validateSubmission — the server's authority over the reachable path"
 
   describe("the predicate-change fixture: same answers, opposite outcomes, decided by the pinned version", () => {
     const tightened = intakeDefinition(2);
-    tightened.items[2]!.visibleWhen = all(
+    const diagnosisDateItem = tightened.items[2];
+    if (diagnosisDateItem === undefined) throw new Error("intake v2 is missing its third item");
+    diagnosisDateItem.visibleWhen = all(
       { type: "single_choice", itemId: "itm_01", op: "is", optionId: "yes" },
       { type: "single_choice", itemId: "itm_02", op: "isNot", optionId: "other" },
     );

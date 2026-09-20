@@ -1,7 +1,7 @@
 import { problem, type ClientAnswers } from "@qp/shared";
 import { describe, expect, it } from "vitest";
-import { submissionRejectionOf, withoutItemError } from "../../src/answers/submission-rejection.ts";
-import { intakeV1 } from "../fixtures.ts";
+import { submissionRejectionOf, withoutItemError } from "../../src/answers/submission-rejection";
+import { intakeV1 } from "../fixtures";
 
 const yesBranch: ClientAnswers = { itm_01: { type: "single_choice", optionId: "yes" } };
 const noBranch: ClientAnswers = { itm_01: { type: "single_choice", optionId: "no" } };

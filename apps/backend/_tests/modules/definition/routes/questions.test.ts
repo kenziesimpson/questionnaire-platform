@@ -11,7 +11,6 @@ import {
 import type { LightMyRequestResponse } from "fastify";
 import Type from "typebox";
 import { Value } from "typebox/value";
-import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../../../../src/db/client.js";
 import { publishDraft } from "../../../../src/db/definition/publish.js";
@@ -19,14 +18,12 @@ import { replaceDraft } from "../../../../src/db/definition/drafts.js";
 import { createQuestionnaire } from "../../../../src/db/definition/questionnaires.js";
 import { appendQuestionVersion, createQuestion } from "../../../../src/db/definition/questions.js";
 import { AUTHOR_PLACEHOLDER } from "../../../../src/modules/definition/author.js";
-import { aTextQuestion } from "../../../db/fixtures.js";
-import { useTestDatabase } from "../../../db/harness.js";
-import { definitionUrl, useDefinitionApp } from "../harness.js";
+import { actor, aTextQuestion, useTestDatabase } from "../../../db/fixtures.js";
+import { createNextDraftDirectly, definitionUrl, theOpenDraft, type OpenDraft } from "../fixtures.js";
+import { useDefinitionApp } from "../harness.js";
 
 const testDatabase = useTestDatabase();
 const app = useDefinitionApp(testDatabase);
-
-const actor = { createdBy: "test", traceId: null };
 
 const aChoiceQuestion: QuestionInput = {
   type: "single_choice",
@@ -55,11 +52,6 @@ function placement(itemId: string, questionId: string, questionVersion: number):
   return { itemId, required: false, visibleWhen: null, questionId, questionVersion };
 }
 
-interface OpenDraft {
-  readonly draftVersionId: string;
-  readonly draftRevision: number;
-}
-
 async function saveDraft(db: Database, questionnaireId: string, draft: OpenDraft, items: DraftItem[]) {
   const saved = await replaceDraft(db, {
     questionnaireId,
@@ -79,23 +71,13 @@ async function publish(db: Database, questionnaireId: string, draft: OpenDraft, 
   const saved = await saveDraft(db, questionnaireId, draft, items);
   const published = await publishDraft(db, {
     questionnaireId,
-    precondition: { versionId: saved.draftVersionId, draftRevision: saved.draftRevision },
+    precondition: { versionId: saved.draft.versionId, draftRevision: saved.draftRevision },
     actorId: "test",
     traceId: null,
   });
   if (published.outcome !== "published") {
     throw new Error(`draft was not published: ${published.outcome}`);
   }
-}
-
-async function createNextDraftDirectly(questionnaireId: string): Promise<OpenDraft> {
-  const draftVersionId = uuidv7();
-  const definition = await testDatabase.connect("definition");
-  await definition.query(
-    `INSERT INTO definition.questionnaire_version (id, questionnaire_id, status, title) VALUES ($1, $2, 'draft', 'Next')`,
-    [draftVersionId, questionnaireId],
-  );
-  return { draftVersionId, draftRevision: 0 };
 }
 
 describe("POST /questions", () => {
@@ -114,7 +96,7 @@ describe("POST /questions", () => {
         type: "single_choice",
         prompt: "Which condition?",
         createdBy: AUTHOR_PLACEHOLDER,
-        options: aChoiceQuestion.type === "single_choice" ? aChoiceQuestion.options : [],
+        options: aChoiceQuestion.options,
       },
     });
     expect(await testDatabase.readAuditEvents()).toEqual([
@@ -135,7 +117,29 @@ describe("POST /questions", () => {
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
     expect(response.json()).toMatchObject({
       type: problemType("request/invalid"),
+      instance: definitionUrl("/questions"),
       errors: [{ pointer: "/body/question/min", code: "question/min-exceeds-max" }],
+    });
+    expect((await get("/questions?includeArchived=true")).json()).toEqual([]);
+    expect(await testDatabase.readAuditEvents()).toEqual([]);
+  });
+
+  it("rejects an option with the other id that is not freeform as question/other-not-freeform, and writes nothing", async () => {
+    const response = await post("/questions", {
+      question: {
+        type: "multiple_choice",
+        prompt: "Which symptoms?",
+        options: [{ optionId: "opt_cough", label: "Cough" }, { optionId: "other", label: "None of these" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      type: problemType("request/invalid"),
+      title: expect.any(String),
+      status: 400,
+      instance: definitionUrl("/questions"),
+      errors: [{ pointer: "/body/question/options/1/optionId", code: "question/other-not-freeform" }],
     });
     expect((await get("/questions?includeArchived=true")).json()).toEqual([]);
     expect(await testDatabase.readAuditEvents()).toEqual([]);
@@ -240,6 +244,26 @@ describe("POST /questions/:questionId/versions", () => {
     expect((await get(`/questions/${questionId}/versions`)).json()).toHaveLength(1);
   });
 
+  it("rejects a version with an option that has the other id and is not freeform as question/other-not-freeform, and saves nothing", async () => {
+    const questionId = await aQuestion(aChoiceQuestion);
+    const auditBefore = await testDatabase.readAuditEvents();
+
+    const response = await post(`/questions/${questionId}/versions`, {
+      question: { ...aChoiceQuestion, options: [{ optionId: "opt_zeta", label: "Zeta" }, { optionId: "other", label: "None of these" }] },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      type: problemType("request/invalid"),
+      title: expect.any(String),
+      status: 400,
+      instance: definitionUrl(`/questions/${questionId}/versions`),
+      errors: [{ pointer: "/body/question/options/1/optionId", code: "question/other-not-freeform" }],
+    });
+    expect((await get(`/questions/${questionId}/versions`)).json()).toHaveLength(1);
+    expect(await testDatabase.readAuditEvents()).toEqual(auditBefore);
+  });
+
   it("rejects a version whose response type differs from the latest as request/invalid with question/type-changed, and saves nothing", async () => {
     const questionId = await aQuestion();
     const auditBefore = await testDatabase.readAuditEvents();
@@ -252,6 +276,7 @@ describe("POST /questions/:questionId/versions", () => {
       type: problemType("request/invalid"),
       title: expect.any(String),
       status: 400,
+      instance: definitionUrl(`/questions/${questionId}/versions`),
       errors: [{ pointer: "/body/question/type", code: "question/type-changed" }],
     });
     expect((await get(`/questions/${questionId}/versions`)).json()).toMatchObject([{ questionVersion: 1, type: "text" }]);
@@ -293,9 +318,9 @@ describe("POST /questions/:questionId/versions", () => {
       post(`/questions/${questionId}/versions`, { question: aChoiceQuestion }),
     ]);
 
-    expect(sameType?.statusCode).toBe(201);
-    expect(changedType?.statusCode).toBe(400);
-    expect(changedType?.json().errors).toEqual([{ pointer: "/body/question/type", code: "question/type-changed" }]);
+    expect(sameType.statusCode).toBe(201);
+    expect(changedType.statusCode).toBe(400);
+    expect(changedType.json().errors).toEqual([{ pointer: "/body/question/type", code: "question/type-changed" }]);
     expect((await get(`/questions/${questionId}/versions`)).json()).toMatchObject([
       { questionVersion: 2, type: "text" },
       { questionVersion: 1, type: "text" },
@@ -355,7 +380,9 @@ describe("POST /questions/:questionId/archive", () => {
     const db = testDatabase.database("definition");
     const questionId = await aQuestion();
     const questionnaire = await createQuestionnaire(db, { key: null, name: "Placed", title: "Placed", ...actor });
-    await publish(db, questionnaire.questionnaireId, questionnaire, [placement("itm_01", questionId, 1)]);
+    await publish(db, questionnaire.questionnaireId, await theOpenDraft(db, questionnaire.questionnaireId), [
+      placement("itm_01", questionId, 1),
+    ]);
 
     await post(`/questions/${questionId}/archive`);
 
@@ -373,17 +400,22 @@ describe("GET /questions/:questionId/usage", () => {
     const unrelated = await aQuestion();
 
     const early = await createQuestionnaire(db, { key: null, name: "Early", title: "Early", ...actor });
-    await publish(db, early.questionnaireId, early, [placement("itm_01", questionId, 1), placement("itm_02", unrelated, 1)]);
-    const earlyNext = await createNextDraftDirectly(early.questionnaireId);
+    await publish(db, early.questionnaireId, await theOpenDraft(db, early.questionnaireId), [
+      placement("itm_01", questionId, 1),
+      placement("itm_02", unrelated, 1),
+    ]);
+    const earlyNext = await createNextDraftDirectly(testDatabase, early.questionnaireId);
     await publish(db, early.questionnaireId, earlyNext, [placement("itm_01", questionId, 2)]);
 
     const late = await createQuestionnaire(db, { key: null, name: "Late", title: "Late", ...actor });
-    await publish(db, late.questionnaireId, late, [placement("itm_01", questionId, 2)]);
-    const lateNext = await createNextDraftDirectly(late.questionnaireId);
+    await publish(db, late.questionnaireId, await theOpenDraft(db, late.questionnaireId), [placement("itm_01", questionId, 2)]);
+    const lateNext = await createNextDraftDirectly(testDatabase, late.questionnaireId);
     await saveDraft(db, late.questionnaireId, lateNext, [placement("itm_01", questionId, 1)]);
 
     const draftOnly = await createQuestionnaire(db, { key: null, name: "Draft only", title: "Draft only", ...actor });
-    await saveDraft(db, draftOnly.questionnaireId, draftOnly, [placement("itm_01", questionId, 2)]);
+    await saveDraft(db, draftOnly.questionnaireId, await theOpenDraft(db, draftOnly.questionnaireId), [
+      placement("itm_01", questionId, 2),
+    ]);
 
     const response = await get(`/questions/${questionId}/usage`);
 

@@ -1,12 +1,10 @@
-import type { Option, QuestionInput } from "../domain/question.js";
+import { OTHER_OPTION_ID, type Option, type QuestionInput } from "../domain/question.js";
 import type { QuestionRuleCode } from "../problems.js";
 
 export interface QuestionRuleError {
   pointer: string;
   code: QuestionRuleCode;
 }
-
-const OTHER_OPTION_ID = "other";
 
 function exceeds<T extends number | string>(low: T | undefined, high: T | undefined): boolean {
   return low !== undefined && high !== undefined && low > high;
@@ -20,6 +18,9 @@ function optionErrors(options: readonly Option[]): QuestionRuleError[] {
     seen.add(option.optionId);
     if (option.freeform === true && option.optionId !== OTHER_OPTION_ID) {
       errors.push({ pointer: `/options/${index}/freeform`, code: "question/freeform-not-other" });
+    }
+    if (option.optionId === OTHER_OPTION_ID && option.freeform !== true) {
+      errors.push({ pointer: `/options/${index}/optionId`, code: "question/other-not-freeform" });
     }
   });
   return errors;

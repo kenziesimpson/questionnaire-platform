@@ -1,36 +1,28 @@
 import type { VersionSummary } from "@qp/shared";
+import { axeViolations, jsonResponse, problemResponse } from "@qp/ui/testing";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { QUESTIONNAIRE_ID, deferred, draftResponse, etagAt, jsonResponse, problemResponse } from "../fixtures";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { QUESTIONNAIRE_ID, aBankQuestion, aQuestionVersion, etagAt, smoke, uuid } from "../support/builders";
+import { deferred, draftResponse } from "../support/http";
+import { DRAFT_URL, LIST_URL, PUBLISH_URL, QUESTIONS_URL, VALIDATE_URL, VERSIONS_URL, questionUrl, questionVersionsUrl } from "../support/routes";
 import {
-  DEFINITION,
-  DRAFT_URL,
-  VALIDATE_URL,
-  LIST_URL,
-  PUBLISH_URL,
   aDraftOf,
   alcohol,
-  isYes,
   itemList,
   lastPutItems,
   notes,
-  optionLabels,
   perDay,
   placed,
   promptsInOrder,
   puts,
   renderEditor,
   rowOf,
-  smoke,
   standardDraft,
   started,
   summary,
-  uuid,
 } from "./draft-editor/harness";
-import { aBankQuestion, aQuestionVersion, axeViolations, fillJsdomLayoutGaps } from "./question-editor/harness";
 
-beforeAll(fillJsdomLayoutGaps);
 afterEach(() => vi.restoreAllMocks());
 
 describe("the draft editor", () => {
@@ -95,7 +87,7 @@ describe("the draft editor", () => {
   it("creates a question from inside the picker, adds it pinned to the version just written, and closes the picker", async () => {
     const created = aQuestionVersion({ type: "text", questionId: uuid(106), questionVersion: 1, prompt: "Any allergies?" });
     const { requests } = renderEditor({
-      overrides: { [`POST ${DEFINITION}/questions`]: () => jsonResponse(201, aBankQuestion(created)) },
+      overrides: { [`POST ${QUESTIONS_URL}`]: () => jsonResponse(201, aBankQuestion(created)) },
     });
     await itemList();
 
@@ -116,7 +108,7 @@ describe("the draft editor", () => {
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(await promptsInOrder()).toHaveLength(5);
-    expect(requests.filter(({ method, url }) => method === "POST" && url === `${DEFINITION}/questions`)).toHaveLength(1);
+    expect(requests.filter(({ method, url }) => method === "POST" && url === QUESTIONS_URL)).toHaveLength(1);
   });
 
   it("offers New question in the picker's empty state", async () => {
@@ -180,110 +172,13 @@ describe("the draft editor", () => {
     expect(await lastPutItems(requests)).toEqual([placed("itm_per_day", perDay), placed("itm_started", started)]);
   });
 
-  it("lets a condition pick only earlier questions and only the operators the referenced type allows", async () => {
-    const { requests } = renderEditor({
-      draft: aDraftOf([
-        placed("itm_smoke", smoke),
-        placed("itm_per_day", perDay, { all: [isYes] }),
-        placed("itm_started", started, { all: [isYes, { type: "number", itemId: "itm_per_day", op: "gte", value: 10 }] }),
-        placed("itm_notes", notes),
-      ]),
-    });
-    await itemList();
-
-    await userEvent.click(screen.getByRole("button", { name: "Rules for question 1" }));
-    const firstRules = within(rowOf("itm_smoke"));
-    expect(firstRules.getByRole("button", { name: "Add condition" })).toBeDisabled();
-    expect(firstRules.getByText("The first question has no earlier answers to depend on.")).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "Rules for question 3" }));
-    const rules = within(rowOf("itm_started"));
-    expect(optionLabels(rules.getByRole("combobox", { name: "Condition 2: question" }))).toEqual([
-      "1. Do you smoke?",
-      "2. How many a day?",
-    ]);
-    expect(optionLabels(rules.getByRole("combobox", { name: "Condition 1: operator" }))).toEqual([
-      "is",
-      "is not",
-      "is any of",
-      "is none of",
-    ]);
-    expect(optionLabels(rules.getByRole("combobox", { name: "Condition 2: operator" }))).toEqual([
-      "equals",
-      "does not equal",
-      "is less than",
-      "is at most",
-      "is more than",
-      "is at least",
-      "is between",
-    ]);
-    expect(rules.getByText("cigarettes")).toBeInTheDocument();
-
-    await userEvent.selectOptions(rules.getByRole("combobox", { name: "Condition 2: operator" }), "is between");
-    await waitFor(() =>
-      expect(puts(requests).at(-1)?.body).toMatchObject({
-        items: expect.arrayContaining([
-          expect.objectContaining({
-            itemId: "itm_started",
-            visibleWhen: { all: [isYes, { type: "number", itemId: "itm_per_day", op: "between", min: 10, max: 10 }] },
-          }),
-        ]),
-      }),
-    );
-
-    const highest = rules.getByRole("textbox", { name: "Condition 2: value, highest" });
-    await userEvent.clear(highest);
-    await userEvent.type(highest, "25{Enter}");
-    await waitFor(() => expect(puts(requests)).toHaveLength(2));
-    expect((await lastPutItems(requests))[2]?.visibleWhen).toEqual({
-      all: [isYes, { type: "number", itemId: "itm_per_day", op: "between", min: 10, max: 25 }],
-    });
-  });
-
-  it("adds a condition on the nearest earlier question and switches to a many-option operator without losing the option", async () => {
-    const { requests } = renderEditor({ draft: aDraftOf([placed("itm_smoke", smoke), placed("itm_notes", notes)]) });
-    await itemList();
-
-    await userEvent.click(screen.getByRole("button", { name: "Rules for question 2" }));
-    const rules = within(rowOf("itm_notes"));
-    await userEvent.click(rules.getByRole("button", { name: "Add condition" }));
-    expect((await lastPutItems(requests))[1]?.visibleWhen).toEqual({ all: [isYes] });
-
-    await userEvent.selectOptions(rules.getByRole("combobox", { name: "Condition 1: operator" }), "is any of");
-    await waitFor(() => expect(puts(requests)).toHaveLength(2));
-    expect((await lastPutItems(requests))[1]?.visibleWhen).toEqual({
-      all: [{ type: "single_choice", itemId: "itm_smoke", op: "isAnyOf", optionIds: ["yes"] }],
-    });
-    expect(rules.getByRole("checkbox", { name: "Yes" })).toBeDisabled();
-
-    await userEvent.selectOptions(rules.getByRole("combobox", { name: "Which conditions must be true" }), "any");
-    await waitFor(() => expect(puts(requests)).toHaveLength(3));
-    expect((await lastPutItems(requests))[1]?.visibleWhen).toEqual({
-      any: [{ type: "single_choice", itemId: "itm_smoke", op: "isAnyOf", optionIds: ["yes"] }],
-    });
-  });
-
-  it("flags a condition that a reorder left pointing at a later question, in the row and in the picker", async () => {
-    renderEditor({ draft: aDraftOf([placed("itm_per_day", perDay, { all: [isYes] }), placed("itm_smoke", smoke)]) });
-    await itemList();
-
-    expect(within(rowOf("itm_per_day")).getByText("A condition uses question 2, which is now below this question.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Rules for question 1" }));
-    const picker = within(rowOf("itm_per_day")).getByRole("combobox", { name: "Condition 1: question" });
-    expect(picker).toHaveAttribute("aria-invalid", "true");
-    expect(picker).toHaveAccessibleDescription(/Question 2 is now below this one/);
-    const laterOption = within(picker).getByRole("option", { name: "2. Do you smoke? (now below this question)" });
-    expect(laterOption).toBeDisabled();
-    expect(within(picker).getAllByRole("option")).toHaveLength(1);
-  });
-
   it("edits a placed question from the bank's latest version and re-pins the item to the version the save wrote", async () => {
     const latest = { ...notes, questionVersion: 3, prompt: "Anything else to add?" };
     const saved = { ...latest, questionVersion: 4, prompt: "Anything else to add today?" };
     const { requests } = renderEditor({
       bank: [aBankQuestion(smoke), aBankQuestion(perDay), aBankQuestion(started), aBankQuestion(latest)],
       overrides: {
-        [`POST ${DEFINITION}/questions/${notes.questionId}/versions`]: () => jsonResponse(201, saved),
+        [`POST ${questionVersionsUrl(notes.questionId)}`]: () => jsonResponse(201, saved),
       },
     });
     await itemList();
@@ -298,7 +193,7 @@ describe("the draft editor", () => {
     const items = await lastPutItems(requests);
     expect(items[3]).toEqual({ ...placed("itm_notes", notes), questionVersion: 4 });
     expect(items.slice(0, 3).map(({ questionVersion }) => questionVersion)).toEqual([1, 2, 1]);
-    expect(requests.some(({ method, url }) => method === "GET" && url === `${DEFINITION}/questions/${notes.questionId}`)).toBe(false);
+    expect(requests.some(({ method, url }) => method === "GET" && url === questionUrl(notes.questionId))).toBe(false);
   });
 
   it("marks a pin the bank has moved past as Newer version available in a right-aligned group, and re-pins on request", async () => {
@@ -331,43 +226,6 @@ describe("the draft editor", () => {
     expect(puts(requests)).toHaveLength(0);
   });
 
-  it("never writes a number condition the author did not enter: an unbounded question leaves the value empty until one is typed", async () => {
-    const { requests } = renderEditor({
-      draft: aDraftOf([placed("itm_smoke", smoke), placed("itm_per_day", perDay), placed("itm_started", started, { all: [isYes] })]),
-    });
-    await itemList();
-
-    await userEvent.click(screen.getByRole("button", { name: "Rules for question 3" }));
-    const rules = within(rowOf("itm_started"));
-    await userEvent.click(rules.getByRole("button", { name: "Add condition" }));
-
-    const value = rules.getByRole("textbox", { name: "Condition 2: value" });
-    expect(value).toHaveValue("");
-    expect(value).toHaveAttribute("aria-invalid", "true");
-    expect(value).toHaveAccessibleDescription(/Not saved yet. Enter a value to save this condition./);
-    expect(rules.getByRole("button", { name: "Add condition" })).toBeDisabled();
-    await userEvent.click(value);
-    await userEvent.tab();
-    expect(puts(requests)).toHaveLength(0);
-
-    await userEvent.type(value, "12{Enter}");
-    expect((await lastPutItems(requests))[2]?.visibleWhen).toEqual({
-      all: [isYes, { type: "number", itemId: "itm_per_day", op: "eq", value: 12 }],
-    });
-
-    await userEvent.selectOptions(rules.getByRole("combobox", { name: "Condition 1: question" }), "2. How many a day?");
-    expect(rules.getByRole("textbox", { name: "Condition 1: value" })).toHaveValue("");
-    expect(puts(requests)).toHaveLength(1);
-    await userEvent.type(rules.getByRole("textbox", { name: "Condition 1: value" }), "3{Enter}");
-    await waitFor(() => expect(puts(requests)).toHaveLength(2));
-    expect((await lastPutItems(requests))[2]?.visibleWhen).toEqual({
-      all: [
-        { type: "number", itemId: "itm_per_day", op: "eq", value: 3 },
-        { type: "number", itemId: "itm_per_day", op: "eq", value: 12 },
-      ],
-    });
-  });
-
   it("asks before removing an archived question, with an info note on hover and focus that it cannot be added back", async () => {
     const { requests } = renderEditor({
       bank: [aBankQuestion(smoke), aBankQuestion(perDay), aBankQuestion(started), { ...aBankQuestion(notes), archivedAt: "2026-09-14T11:00:00.000Z" }],
@@ -381,18 +239,21 @@ describe("the draft editor", () => {
     expect(puts(requests)).toHaveLength(0);
 
     const info = within(confirmation).getByRole("button", { name: "About removing an archived question" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    await userEvent.hover(info);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent("cannot be added back once removed");
     expect(info).toHaveAccessibleDescription(
       "This question is archived in the question bank, so it cannot be added back once removed. Writing it again makes a new question, and its answers are not tracked together with this one's.",
     );
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-    await userEvent.hover(info);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("cannot be added back once removed");
     await userEvent.unhover(info);
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+
     act(() => info.focus());
-    expect(screen.getByRole("tooltip")).toBeVisible();
+    await screen.findByRole("tooltip");
     await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
     expect(await axeViolations()).toEqual([]);
 
     await userEvent.click(within(confirmation).getByRole("button", { name: "Remove question" }));
@@ -471,7 +332,7 @@ describe("the draft editor", () => {
     const { requests, router } = renderEditor({
       overrides: {
         [`POST ${PUBLISH_URL}`]: () => jsonResponse(201, published),
-        [`GET ${DEFINITION}/questionnaires/${QUESTIONNAIRE_ID}/versions`]: () => jsonResponse(200, [published]),
+        [`GET ${VERSIONS_URL}`]: () => jsonResponse(200, [published]),
       },
     });
     await itemList();
@@ -562,33 +423,6 @@ describe("the draft editor", () => {
     expect(alert).toHaveTextContent("Publishing found 1 problem. It is listed under Publish checks.");
     await waitFor(() => expect(second.getByRole("checkbox", { name: "Required" })).toBeEnabled());
     expect(puts(requests)).toHaveLength(0);
-  });
-
-  it("with no open draft offers to open the next one, which loads the editor", async () => {
-    const opened = aDraftOf([placed("itm_smoke", smoke)]);
-    const { requests } = renderEditor({
-      overrides: {
-        [`GET ${DRAFT_URL}`]: () => problemResponse("resource/not-found"),
-        [`GET ${LIST_URL}`]: () => jsonResponse(200, [{ ...summary, hasDraft: false }]),
-        [`POST ${DRAFT_URL}`]: () => draftResponse(opened, 1, 201),
-      },
-    });
-
-    expect(await screen.findByText("Smoking history has no open draft.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Open the next draft" }));
-
-    expect(await promptsInOrder()).toEqual(["Do you smoke?"]);
-    expect(requests.some(({ method, url }) => method === "POST" && url === DRAFT_URL)).toBe(true);
-  });
-
-  it("says a questionnaire that is not listed does not exist", async () => {
-    renderEditor({
-      overrides: {
-        [`GET ${DRAFT_URL}`]: () => problemResponse("resource/not-found"),
-        [`GET ${LIST_URL}`]: () => jsonResponse(200, []),
-      },
-    });
-    expect(await screen.findByText("This questionnaire does not exist.")).toBeInTheDocument();
   });
 
   it("shows an alert on a failed load whose Try again loads the draft", async () => {

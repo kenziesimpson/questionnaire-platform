@@ -1,25 +1,13 @@
-import { intakeDefinition, type VersionSummary } from "@qp/shared";
-import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import type { VersionSummary } from "@qp/shared";
+import { intakeDefinition } from "@qp/shared/demo";
+import { axeViolations, jsonResponse, problemResponse, stubFetch, type Reply } from "@qp/ui/testing";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import axe from "axe-core";
 import { describe, expect, it } from "vitest";
-import { App } from "../../src/app";
-import { createAppRouter } from "../../src/router";
-import {
-  QUESTIONNAIRE_ID,
-  deferred,
-  jsonResponse,
-  problemResponse,
-  stubFetch,
-  testQueryClient,
-  type FetchHandler,
-} from "../fixtures";
-
-const JSDOM_CANNOT_EVALUATE = { "color-contrast": { enabled: false } };
-
-const VERSIONS_URL = `/api/definition/questionnaires/${QUESTIONNAIRE_ID}/versions`;
-const snapshotUrl = (version: number) => `${VERSIONS_URL}/${version}`;
+import { QUESTIONNAIRE_ID } from "../support/builders";
+import { deferred } from "../support/http";
+import { renderAppAt } from "../support/render-app";
+import { VERSIONS_URL, versionUrl } from "../support/routes";
 
 const intakeV2 = intakeDefinition(2);
 
@@ -32,20 +20,15 @@ const versionSummaries: VersionSummary[] = [2, 1].map((version) => ({
   formatVersion: 1,
 }));
 
-const serveIntake: FetchHandler = ({ url }) => {
+const serveIntake: Reply = ({ url }) => {
   if (url === VERSIONS_URL) return jsonResponse(200, versionSummaries);
-  if (url === snapshotUrl(2)) return jsonResponse(200, intakeV2);
+  if (url === versionUrl(2)) return jsonResponse(200, intakeV2);
   return problemResponse("resource/not-found");
 };
 
-function renderPreview(handler: FetchHandler, version = 2) {
+function renderPreview(handler: Reply, version = 2) {
   const requests = stubFetch(handler);
-  const queryClient = testQueryClient();
-  const router = createAppRouter({
-    queryClient,
-    history: createMemoryHistory({ initialEntries: [`/admin/questionnaires/${QUESTIONNAIRE_ID}/versions/${version}`] }),
-  });
-  const { container } = render(<App queryClient={queryClient} router={router} />);
+  const { container } = renderAppAt(`/questionnaires/${QUESTIONNAIRE_ID}/versions/${version}`);
   return { requests, container };
 }
 
@@ -69,9 +52,17 @@ function hiddenPrompts() {
     .map((item) => item.textContent);
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 async function chooseSample(group: string, option: string) {
-  const fieldset = within(samplePanel()).getByRole("group", { name: group });
+  const fieldset = within(samplePanel()).getByRole("radiogroup", { name: new RegExp(`^${escapeRegExp(group)}`) });
   await userEvent.click(within(fieldset).getByRole("radio", { name: option }));
+}
+
+function clearButton(label: string) {
+  return within(samplePanel()).getByRole("button", { name: `Clear ${label}` });
 }
 
 describe("the version preview screen", () => {
@@ -100,9 +91,41 @@ describe("the version preview screen", () => {
     await renderLoadedIntake();
 
     const panel = within(samplePanel());
-    expect(panel.getByRole("group", { name: "1. Do you have a medical condition?" })).toBeInTheDocument();
-    expect(panel.getByRole("radio", { name: "Unanswered" })).toBeChecked();
+    const hasConditionGroup = panel.getByRole("radiogroup", { name: /^1\. Do you have a medical condition\?/ });
+    for (const radio of within(hasConditionGroup).getAllByRole("radio")) expect(radio).not.toBeChecked();
+    expect(clearButton("1. Do you have a medical condition?")).toBeDisabled();
     expect(panel.getByRole("textbox", { name: "4. Preferred pharmacy" })).toBeInTheDocument();
+    expect(clearButton("4. Preferred pharmacy")).toBeDisabled();
+    expect(hiddenPrompts()).toEqual(["2. Which condition?", "3. When were you diagnosed?"]);
+  });
+
+  it("enters the free-text Other answer through the panel and shows it in the renderer", async () => {
+    await renderLoadedIntake();
+
+    await chooseSample("1. Do you have a medical condition?", "Yes");
+    const whichConditionPanel = within(samplePanel()).getByRole("radiogroup", { name: /^2\. Which condition\?/ });
+    await userEvent.click(within(whichConditionPanel).getByRole("radio", { name: "Other" }));
+    await userEvent.type(within(samplePanel()).getByRole("textbox", { name: "Other, please specify" }), "Asthma");
+
+    expect(clearButton("2. Which condition?")).toBeEnabled();
+    const whichConditionRespondent = within(respondentView()).getByRole("radiogroup", { name: /Which condition\?/ });
+    expect(within(whichConditionRespondent).getByRole("radio", { name: "Other" })).toBeChecked();
+    expect(within(respondentView()).getByRole("textbox", { name: "Other, please specify" })).toHaveValue("Asthma");
+  });
+
+  it("clears a single sample answer with its Clear button, closing a branch that depended on it", async () => {
+    await renderLoadedIntake();
+
+    await chooseSample("1. Do you have a medical condition?", "Yes");
+    expect(renderedItemIds()).toEqual(["itm_01", "itm_02", "itm_03", "itm_04"]);
+    expect(clearButton("1. Do you have a medical condition?")).toBeEnabled();
+
+    await userEvent.click(clearButton("1. Do you have a medical condition?"));
+
+    expect(renderedItemIds()).toEqual(["itm_01", "itm_04"]);
+    const hasConditionGroup = within(samplePanel()).getByRole("radiogroup", { name: /^1\. Do you have a medical condition\?/ });
+    for (const radio of within(hasConditionGroup).getAllByRole("radio")) expect(radio).not.toBeChecked();
+    expect(clearButton("1. Do you have a medical condition?")).toBeDisabled();
     expect(hiddenPrompts()).toEqual(["2. Which condition?", "3. When were you diagnosed?"]);
   });
 
@@ -113,8 +136,11 @@ describe("the version preview screen", () => {
 
     expect(renderedItemIds()).toEqual(["itm_01", "itm_02", "itm_03", "itm_04"]);
     expect(within(respondentView()).getByRole("radio", { name: "Yes" })).toBeChecked();
-    expect(within(samplePanel()).getByRole("group", { name: "2. Which condition?" })).toBeInTheDocument();
-    expect(within(samplePanel()).getByLabelText("3. When were you diagnosed?")).toHaveAttribute("type", "date");
+    expect(within(samplePanel()).getByRole("radiogroup", { name: /^2\. Which condition\?/ })).toBeInTheDocument();
+    expect(within(samplePanel()).getByLabelText("3. When were you diagnosed?", { exact: false, selector: "input" })).toHaveAttribute(
+      "type",
+      "date",
+    );
     expect(hiddenPrompts()).toEqual([]);
     expect(within(hiddenByRules()).getByText("The current sample answers hide no questions.")).toBeInTheDocument();
 
@@ -122,7 +148,7 @@ describe("the version preview screen", () => {
 
     expect(renderedItemIds()).toEqual(["itm_01", "itm_04"]);
     expect(within(respondentView()).getByRole("radio", { name: "No" })).toBeChecked();
-    expect(within(samplePanel()).queryByRole("group", { name: "2. Which condition?" })).not.toBeInTheDocument();
+    expect(within(samplePanel()).queryByRole("radiogroup", { name: /^2\. Which condition\?/ })).not.toBeInTheDocument();
     expect(hiddenPrompts()).toEqual(["2. Which condition?", "3. When were you diagnosed?"]);
   });
 
@@ -157,12 +183,23 @@ describe("the version preview screen", () => {
     await userEvent.click(reset);
 
     expect(renderedItemIds()).toEqual(["itm_01", "itm_04"]);
-    expect(within(samplePanel()).getByRole("radio", { name: "Unanswered" })).toBeChecked();
+    const hasConditionGroup = within(samplePanel()).getByRole("radiogroup", { name: /^1\. Do you have a medical condition\?/ });
+    for (const radio of within(hasConditionGroup).getAllByRole("radio")) expect(radio).not.toBeChecked();
+    expect(clearButton("1. Do you have a medical condition?")).toBeDisabled();
     expect(within(samplePanel()).getByRole("textbox", { name: "4. Preferred pharmacy" })).toHaveValue("");
     expect(within(respondentView()).getByRole("textbox", { name: /Preferred pharmacy/ })).toHaveValue("");
     for (const radio of within(respondentView()).getAllByRole("radio")) expect(radio).not.toBeChecked();
     expect(hiddenPrompts()).toEqual(["2. Which condition?", "3. When were you diagnosed?"]);
     expect(reset).toBeDisabled();
+  });
+
+  it("announces visibility changes exactly once, from the readonly snapshot, not the sample-answers panel", async () => {
+    await renderLoadedIntake();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+
+    await chooseSample("1. Do you have a medical condition?", "Yes");
+
+    expect(screen.getAllByRole("status")).toHaveLength(1);
   });
 
   it("never calls the execution API: every request goes to /api/definition and none to /api/run", async () => {
@@ -174,14 +211,14 @@ describe("the version preview screen", () => {
 
     expect(requests.map(({ method, url }) => `${method} ${url}`).sort()).toEqual([
       `GET ${VERSIONS_URL}`,
-      `GET ${snapshotUrl(2)}`,
+      `GET ${versionUrl(2)}`,
     ]);
     expect(requests.some(({ url }) => url.includes("/api/run"))).toBe(false);
   });
 
   it("shows a loading state until the snapshot arrives", async () => {
     const snapshot = deferred<Response>();
-    renderPreview(({ url }) => (url === snapshotUrl(2) ? snapshot.promise : jsonResponse(200, versionSummaries)));
+    renderPreview(({ url }) => (url === versionUrl(2) ? snapshot.promise : jsonResponse(200, versionSummaries)));
 
     expect(await screen.findByText("Loading version 2…")).toHaveAttribute("role", "status");
 
@@ -208,7 +245,7 @@ describe("the version preview screen", () => {
   it("shows an error state with a retry for any other failure, and recovers when the retry succeeds", async () => {
     const snapshots = [problemResponse("internal", { detail: "trace-1" }), jsonResponse(200, intakeV2)];
     const { requests } = renderPreview(({ url }) =>
-      url === snapshotUrl(2) ? (snapshots.shift() ?? problemResponse("internal", { detail: "extra" })) : jsonResponse(200, versionSummaries),
+      url === versionUrl(2) ? (snapshots.shift() ?? problemResponse("internal", { detail: "extra" })) : jsonResponse(200, versionSummaries),
     );
 
     const alert = await screen.findByRole("alert");
@@ -218,12 +255,12 @@ describe("the version preview screen", () => {
     await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
 
     expect(await screen.findByRole("heading", { level: 2, name: "Patient Intake" })).toBeInTheDocument();
-    expect(requests.filter(({ url }) => url === snapshotUrl(2))).toHaveLength(2);
+    expect(requests.filter(({ url }) => url === versionUrl(2))).toHaveLength(2);
   });
 
   it("treats a snapshot that fails the shared PublishedDefinition schema as an error, not a preview", async () => {
     renderPreview(({ url }) =>
-      url === snapshotUrl(2) ? jsonResponse(200, { ...intakeV2, formatVersion: 99 }) : jsonResponse(200, versionSummaries),
+      url === versionUrl(2) ? jsonResponse(200, { ...intakeV2, formatVersion: 99 }) : jsonResponse(200, versionSummaries),
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Version 2 could not be loaded");
@@ -237,9 +274,7 @@ describe("the version preview screen", () => {
     const { container } = await renderLoadedIntake();
     await act();
 
-    const results = await axe.run(container, { rules: JSDOM_CANNOT_EVALUATE });
-
-    expect(results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 
   it.each([
@@ -255,8 +290,6 @@ describe("the version preview screen", () => {
     await settled();
     await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
 
-    const results = await axe.run(container, { rules: JSDOM_CANNOT_EVALUATE });
-
-    expect(results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 });

@@ -1,4 +1,5 @@
-import { INTAKE_QUESTIONNAIRE_ID, type ClientAnswers } from "@qp/shared";
+import { type ClientAnswers } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearPartialAnswers,
@@ -7,8 +8,8 @@ import {
   readPartials,
   removePartials,
   writePartials,
-} from "../../src/storage/partials.ts";
-import { ANSWER_SENTINEL, OTHER_QUESTIONNAIRE_ID, SESSION_ID } from "../fixtures.ts";
+} from "../../src/storage/partials";
+import { ANSWER_SENTINEL, OTHER_QUESTIONNAIRE_ID, SESSION_ID } from "../fixtures";
 
 const session = { sessionId: SESSION_ID, questionnaireId: INTAKE_QUESTIONNAIRE_ID };
 const key = `qp:respondent:${INTAKE_QUESTIONNAIRE_ID}`;

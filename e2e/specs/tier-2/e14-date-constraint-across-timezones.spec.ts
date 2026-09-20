@@ -1,8 +1,8 @@
 import { addDays, calendarDateIn, dayNumber, SERVER_RELATIVE_DATE_TOLERANCE_DAYS } from "@qp/shared";
-import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, DEMO_V1, expect, test } from "../../fixtures/index.ts";
-import { answerYesPath } from "./support/demo-answers.ts";
-import { ITEM_ERROR_MESSAGES } from "./support/respondent-messages.ts";
-import { recordSubmitRequests, waitForSubmitResponse } from "./support/submit-traffic.ts";
+import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, DEMO_V1, expect, test } from "../../fixtures/index";
+import { answerYesPath } from "./support/demo-answers";
+import { ITEM_ERROR_MESSAGES } from "./support/respondent-messages";
+import { recordSubmitRequests, waitForSubmitResponse } from "./support/submit-traffic";
 
 const MILLISECONDS_PER_HOUR = 3_600_000;
 

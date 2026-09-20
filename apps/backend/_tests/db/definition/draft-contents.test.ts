@@ -9,11 +9,10 @@ import {
 import { replaceDraft } from "../../../src/db/definition/drafts.js";
 import { createQuestionnaire } from "../../../src/db/definition/questionnaires.js";
 import { createQuestion } from "../../../src/db/definition/questions.js";
-import { aTextQuestion } from "../fixtures.js";
+import { actor, aTextQuestion, theOpenDraftOf } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 
 const testDatabase = useTestDatabase();
-const actor = { createdBy: "test", traceId: null };
 
 const colours: QuestionInput = {
   type: "single_choice",
@@ -32,7 +31,7 @@ async function aDraftPlacing(db: Database, items: DraftItem[]): Promise<string> 
   const created = await createQuestionnaire(db, { key: null, name: "Loader", title: "Loader", ...actor });
   const saved = await replaceDraft(db, {
     questionnaireId: created.questionnaireId,
-    precondition: { versionId: created.draftVersionId, draftRevision: created.draftRevision },
+    precondition: await theOpenDraftOf(db, created.questionnaireId),
     title: "Loader",
     items,
     actorId: "test",
@@ -41,7 +40,7 @@ async function aDraftPlacing(db: Database, items: DraftItem[]): Promise<string> 
   if (saved.outcome !== "saved") {
     throw new Error(`draft was not saved: ${saved.outcome}`);
   }
-  return created.draftVersionId;
+  return saved.draft.versionId;
 }
 
 describe("readDraftContents", () => {

@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import { ADMIN_HEADINGS, AdminPage } from "../../../fixtures/index.ts";
+import { ADMIN_HEADINGS, AdminPage } from "../../../fixtures/index";
 
 export type NewQuestionSpec =
   | { readonly kind: "yesNo"; readonly prompt: string }
@@ -40,7 +40,7 @@ export class DraftAuthoring {
   }
 
   draftItems(): Locator {
-    return this.page.getByRole("list", { name: "Questions, in the order respondents see them" });
+    return this.admin.draftItemList();
   }
 
   draftItem(position: number): Locator {

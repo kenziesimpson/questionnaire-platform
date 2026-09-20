@@ -1,18 +1,11 @@
 import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
-import { createNextDraft } from "../../../src/db/definition/drafts.js";
 import { createQuestionnaire, setClosesAt } from "../../../src/db/definition/questionnaires.js";
-import {
-  lockOpenDraft,
-  questionnaireExists,
-  readOpenDraft,
-  withLockedQuestionnaire,
-} from "../../../src/db/definition/questionnaire-rows.js";
-import { aPublishedQuestionnaire, QUESTIONNAIRE_LOCK_STATEMENT, theStatementWaitingOnALock, whileHoldingALock } from "../fixtures.js";
+import { questionnaireExists, withLockedQuestionnaire } from "../../../src/db/definition/questionnaire-rows.js";
+import { actor, QUESTIONNAIRE_LOCK_STATEMENT, theStatementWaitingOnALock, whileHoldingALock } from "../fixtures.js";
 import { useTestDatabase } from "../harness.js";
 
 const testDatabase = useTestDatabase();
-const actor = { createdBy: "test", traceId: null };
 
 describe("withLockedQuestionnaire", () => {
   it("hands the work the locked row with its closing time and returns the work's result", async () => {
@@ -66,54 +59,5 @@ describe("questionnaireExists", () => {
 
     expect(await questionnaireExists(db, created.questionnaireId)).toBe(true);
     expect(await questionnaireExists(db, uuidv7())).toBe(false);
-  });
-});
-
-describe("lockOpenDraft and readOpenDraft", () => {
-  it("find nothing when only a published version exists, then both return the next draft's row", async () => {
-    const db = testDatabase.database("definition");
-    const published = await aPublishedQuestionnaire(db);
-
-    const lockedBeforeOpening = await db.transaction((tx) => lockOpenDraft(tx, published.questionnaireId));
-    const readBeforeOpening = await readOpenDraft(db, published.questionnaireId);
-    const opened = await createNextDraft(db, { questionnaireId: published.questionnaireId, ...actor });
-    if (opened.outcome !== "created") {
-      throw new Error(opened.outcome);
-    }
-    const read = await readOpenDraft(db, published.questionnaireId);
-    const locked = await db.transaction((tx) => lockOpenDraft(tx, published.questionnaireId));
-
-    expect(lockedBeforeOpening).toBeUndefined();
-    expect(readBeforeOpening).toBeUndefined();
-    expect(read).toEqual({
-      id: opened.draft.versionId,
-      title: "Fixture",
-      updatedAt: expect.any(Date),
-      draftRevision: 0,
-    });
-    expect(read?.id).not.toBe(published.draftVersionId);
-    expect(locked).toEqual(read);
-  });
-
-  it("while lockOpenDraft holds the draft row, readOpenDraft returns at once and a second lockOpenDraft waits until the first commits", async () => {
-    const db = testDatabase.database("definition");
-    const created = await createQuestionnaire(db, { key: null, name: "Draft lock", title: "Draft lock", ...actor });
-    const events: string[] = [];
-    let waiter: Promise<unknown> = Promise.resolve();
-
-    await whileHoldingALock(
-      db,
-      (tx) => lockOpenDraft(tx, created.questionnaireId),
-      async () => {
-        const read = await readOpenDraft(db, created.questionnaireId);
-        events.push(`read returned ${read?.id === created.draftVersionId}`);
-        waiter = db.transaction((tx) => lockOpenDraft(tx, created.questionnaireId)).then(() => events.push("second lock acquired"));
-        await theStatementWaitingOnALock(testDatabase);
-        events.push("first transaction commits");
-      },
-    );
-    await waiter;
-
-    expect(events).toEqual(["read returned true", "first transaction commits", "second lock acquired"]);
   });
 });

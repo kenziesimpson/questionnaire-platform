@@ -1,8 +1,11 @@
 import { sql } from "drizzle-orm";
+import { InvariantViolation } from "../invariant.js";
 import type { Transaction } from "./client.js";
 import type { AUDIT_ACTIONS } from "./schema.js";
 
-export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+export type AuditTraceId = string | null | undefined;
 
 export interface AuditEntry {
   readonly action: AuditAction;
@@ -11,7 +14,7 @@ export interface AuditEntry {
   readonly version: number | null;
   readonly actorId: string | null;
   readonly summary: Record<string, unknown> | null;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 export async function recordAudit(tx: Transaction, entry: AuditEntry): Promise<string> {
@@ -25,12 +28,15 @@ export async function recordAudit(tx: Transaction, entry: AuditEntry): Promise<s
           ${entry.version}::int,
           ${entry.actorId}::text,
           ${summary}::jsonb,
-          ${entry.traceId}::text
+          ${entry.traceId ?? null}::text
         ) AS id`,
   );
   const row = result.rows[0];
   if (row === undefined) {
-    throw new Error("audit.record returned no id");
+    throw InvariantViolation.of("audit.record-returned-no-id", {
+      questionnaireId: entry.questionnaireId,
+      questionnaireVersion: entry.version,
+    });
   }
   return row.id;
 }

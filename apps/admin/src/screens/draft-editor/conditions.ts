@@ -1,16 +1,6 @@
-import type { Condition, ConditionOf, DraftItem, QuestionVersion, QuestionnaireDraft, ResponseType } from "@qp/shared";
-import { conditionsOf, pinnedQuestionOf } from "./draft-changes";
+import { referencedOptionIds, type Condition, type QuestionVersion } from "@qp/shared";
 
 export type Operator = Condition["op"];
-type OperatorOf<T extends ResponseType> = ConditionOf<T>["op"];
-
-export const OPERATORS: { readonly [T in ResponseType]: readonly OperatorOf<T>[] } = {
-  text: ["answered"],
-  single_choice: ["is", "isNot", "isAnyOf", "isNoneOf"],
-  multiple_choice: ["includes", "excludes", "includesAnyOf", "includesAllOf"],
-  number: ["eq", "neq", "lt", "lte", "gt", "gte", "between"],
-  date: ["before", "onOrBefore", "after", "onOrAfter", "between"],
-};
 
 export const OPERATOR_LABELS: Record<Operator, string> = {
   answered: "is",
@@ -34,10 +24,6 @@ export const OPERATOR_LABELS: Record<Operator, string> = {
   after: "is after",
   onOrAfter: "is on or after",
 };
-
-export function operatorsFor(type: ResponseType): readonly Operator[] {
-  return OPERATORS[type];
-}
 
 export const UNSET_NUMBER = Number.NaN;
 export const UNSET_DATE = "";
@@ -84,23 +70,19 @@ const MANY_OPTION_MULTIPLE = ["includesAnyOf", "includesAllOf"] as const;
 const NUMBER_COMPARISONS = ["eq", "neq", "lt", "lte", "gt", "gte"] as const;
 const DATE_COMPARISONS = ["before", "onOrBefore", "after", "onOrAfter"] as const;
 
-function optionIdsIn(condition: { optionId: string } | { optionIds: string[] }): string[] {
-  return "optionIds" in condition ? condition.optionIds : [condition.optionId];
-}
-
 export function withOperator(condition: Condition, op: Operator): Condition {
   const { itemId } = condition;
   switch (condition.type) {
     case "text":
       return condition;
     case "single_choice": {
-      const ids = optionIdsIn(condition);
+      const ids = [...referencedOptionIds(condition)];
       if (isOneOf(op, SINGLE_OPTION_CHOICE)) return { type: "single_choice", itemId, op, optionId: ids[0] ?? "" };
       if (isOneOf(op, MANY_OPTION_CHOICE)) return { type: "single_choice", itemId, op, optionIds: ids };
       return condition;
     }
     case "multiple_choice": {
-      const ids = optionIdsIn(condition);
+      const ids = [...referencedOptionIds(condition)];
       if (isOneOf(op, SINGLE_OPTION_MULTIPLE)) return { type: "multiple_choice", itemId, op, optionId: ids[0] ?? "" };
       if (isOneOf(op, MANY_OPTION_MULTIPLE)) return { type: "multiple_choice", itemId, op, optionIds: ids };
       return condition;
@@ -120,47 +102,12 @@ export function withOperator(condition: Condition, op: Operator): Condition {
   }
 }
 
-export type Reference =
-  | { kind: "earlier"; item: DraftItem; position: number; question: QuestionVersion }
-  | { kind: "later"; item: DraftItem; position: number; question: QuestionVersion }
-  | { kind: "unusable"; reason: "missing" | "type-mismatch"; position: number | null };
-
-export function referenceOf(draft: QuestionnaireDraft, dependantId: string, condition: Condition): Reference {
-  const dependantIndex = draft.items.findIndex((item) => item.itemId === dependantId);
-  const index = draft.items.findIndex((item) => item.itemId === condition.itemId);
-  const item = draft.items[index];
-  if (item === undefined) return { kind: "unusable", reason: "missing", position: null };
-  const question = pinnedQuestionOf(draft, item);
-  const position = index + 1;
-  if (question === undefined || question.type !== condition.type) {
-    return { kind: "unusable", reason: "type-mismatch", position };
-  }
-  return { kind: index < dependantIndex ? "earlier" : "later", item, position, question };
+export function sameCondition(a: Condition, b: Condition): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
-export interface EarlierItem {
-  item: DraftItem;
-  position: number;
-  question: QuestionVersion;
-}
+export const upperOf = (low: number, high: number) => (Number.isFinite(high) ? Math.max(low, high) : high);
+export const lowerOf = (high: number, low: number) => (Number.isFinite(low) ? Math.min(high, low) : low);
 
-export function earlierItemsThan(draft: QuestionnaireDraft, itemId: string): EarlierItem[] {
-  const dependantIndex = draft.items.findIndex((item) => item.itemId === itemId);
-  return draft.items.slice(0, Math.max(dependantIndex, 0)).flatMap((item, index) => {
-    const question = pinnedQuestionOf(draft, item);
-    return question === undefined ? [] : [{ item, position: index + 1, question }];
-  });
-}
-
-export function listOfPositions(positions: readonly number[]) {
-  const unique = [...new Set(positions)];
-  if (unique.length === 1) return `question ${unique[0]}`;
-  return `questions ${unique.slice(0, -1).join(", ")} and ${unique.at(-1)}`;
-}
-
-export function laterReferencesIn(draft: QuestionnaireDraft, item: DraftItem): number[] {
-  return conditionsOf(item.visibleWhen).flatMap((condition) => {
-    const reference = referenceOf(draft, item.itemId, condition);
-    return reference.kind === "later" ? [reference.position] : [];
-  });
-}
+export const laterDate = (low: string, high: string) => (high !== UNSET_DATE && low > high ? low : high);
+export const earlierDate = (high: string, low: string) => (low !== UNSET_DATE && high < low ? high : low);

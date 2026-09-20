@@ -1,16 +1,17 @@
 import { definitionApi, type Question } from "@qp/shared";
-import { expect, test, uniqueName, type DefinitionApi, type Placement } from "../../fixtures/index.ts";
 import {
-  createTextQuestions,
-  draftItemRow,
   definitionUrlPattern,
+  expect,
+  problemOf,
   problemReplyOfResponse,
-  promptOf,
   recordDefinitionRequests,
+  test,
+  uniqueName,
   waitForDefinitionResponse,
-  YES_NO_OPTION_IDS,
-  yesNoQuestionInput,
-} from "./support/authoring.ts";
+  type DefinitionApi,
+  type Placement,
+} from "../../fixtures/index";
+import { createTextQuestions, promptOf, YES_NO_OPTION_IDS, yesNoQuestionInput } from "./support/question-input";
 
 const ITEM_IDS = { gate: "itm_gate", forwardReference: "itm_forward", unsatisfiable: "itm_never" } as const;
 
@@ -76,12 +77,12 @@ test.describe("E19 publish-time validation has a usable surface", () => {
     await expect(jumpToUnsatisfiable).toBeVisible();
 
     await jumpToUnsatisfiable.click();
-    const unsatisfiableRow = draftItemRow(page, 3, draft.unsatisfiablePrompt);
+    const unsatisfiableRow = admin.draftItemRow(3, draft.unsatisfiablePrompt);
     await expect(unsatisfiableRow.getByRole("button", { name: "Rules for question 3", exact: true })).toHaveAttribute("aria-expanded", "true");
     await expect(unsatisfiableRow.getByRole("group", { name: "Rules for question 3", exact: true })).toBeFocused();
 
     await jumpToForwardReference.click();
-    const forwardReferenceRow = draftItemRow(page, 2, draft.forwardReferencePrompt);
+    const forwardReferenceRow = admin.draftItemRow(2, draft.forwardReferencePrompt);
     await expect(forwardReferenceRow.getByRole("group", { name: "Rules for question 2", exact: true })).toBeFocused();
     await expect(forwardReferenceRow.getByText("A condition uses question 3, which is now below this question.")).toBeVisible();
 
@@ -111,7 +112,7 @@ test.describe("E19 publish-time validation has a usable surface", () => {
     const refusal = await problemReplyOfResponse(await publishReply);
     expect(refusal.status).toBe(422);
     expect(refusal.slug).toBe("questionnaire/draft-invalid");
-    expect(refusal.problem?.items).toEqual(EXPECTED_PROBLEMS);
+    expect(problemOf(refusal, "questionnaire/draft-invalid").items).toEqual(EXPECTED_PROBLEMS);
 
     const notice = page.getByRole("alert").filter({ hasText: "The draft was not published" });
     await expect(notice).toContainText("Publishing found 2 problems. They are listed under Publish checks.");

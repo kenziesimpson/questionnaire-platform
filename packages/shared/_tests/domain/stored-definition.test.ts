@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { intakeDefinition } from "../../src/demo/intake.js";
 import { FORMAT_VERSION, type PublishedDefinition } from "../../src/domain/definition.js";
-import { readStoredDefinition } from "../../src/domain/stored-definition.js";
+import { readStoredDefinition, UnsupportedSnapshotError } from "../../src/domain/stored-definition.js";
 import type { Equal } from "../type-equality.js";
 
 const UNSUPPORTED_SNAPSHOT = "stored snapshot is not a PublishedDefinition in a supported format";
@@ -24,7 +24,8 @@ describe("readStoredDefinition", () => {
     ["a JSON string", JSON.stringify(intakeDefinition(1))],
     ["null", null],
   ])("refuses %s stored as the current format", (_, stored) => {
-    expect(() => readStoredDefinition(stored, FORMAT_VERSION)).toThrow(new Error(UNSUPPORTED_SNAPSHOT));
+    expect(() => readStoredDefinition(stored, FORMAT_VERSION)).toThrow(UnsupportedSnapshotError);
+    expect(() => readStoredDefinition(stored, FORMAT_VERSION)).toThrow(UNSUPPORTED_SNAPSHOT);
   });
 
   it.each([
@@ -33,7 +34,7 @@ describe("readStoredDefinition", () => {
     ["a negative format", -1],
     ["a fractional format", FORMAT_VERSION + 0.5],
   ])("refuses a valid document stored under %s, which no upgrade reaches", (_, formatVersion) => {
-    expect(() => readStoredDefinition(storedCopyOf(intakeDefinition(1)), formatVersion)).toThrow(new Error(UNSUPPORTED_SNAPSHOT));
+    expect(() => readStoredDefinition(storedCopyOf(intakeDefinition(1)), formatVersion)).toThrow(UnsupportedSnapshotError);
   });
 
   it("types its result as exactly PublishedDefinition", () => {

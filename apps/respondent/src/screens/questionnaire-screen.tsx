@@ -1,46 +1,78 @@
-import type { ClientAnswers, ClientAnswerValue } from "@qp/shared";
-import { QuestionnaireForm, type RenderedItemErrors } from "@qp/ui/questionnaire";
+import {
+  answerFor,
+  respondentDateContext,
+  validateAnswer,
+  visibleItems,
+  type ClientAnswers,
+  type ClientAnswerValue,
+  type Item,
+  type PublishedDefinition,
+  type SubmissionItemCode,
+} from "@qp/shared";
+import { AlertCircleIcon, RotateCcwIcon } from "@qp/ui/icons";
+import { cn } from "@qp/ui/lib/utils";
+import { alertVariants, AlertDescription, AlertTitle } from "@qp/ui/primitives/alert";
 import { Button } from "@qp/ui/primitives/button";
-import { revalidateLogic, useForm, useStore } from "@tanstack/react-form";
-import { useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
-import { precheckAnswers } from "../answers/precheck.ts";
-import type { SubmissionRejection } from "../answers/submission-rejection.ts";
-import { isRetryable, type Failure, type FormContext } from "../session/respondent-state.ts";
-import { ErrorSummary, errorSummaryEntries, errorSummaryTitle } from "./error-summary.tsx";
-import { focusItem } from "./focus-item.ts";
-import { RetryButton, type RetryControl } from "./retry-button.tsx";
-import { Lead, ScreenHeading, ScreenLayout } from "./screen-layout.tsx";
-import { TRANSIENT_FAILURE_EXPLANATION } from "./terminal-screens.tsx";
+import { focusItem, QuestionnaireForm, type ItemErrors } from "@qp/ui/questionnaire";
+import { useForm, useStore } from "@tanstack/react-form";
+import { useEffect, useEffectEvent, useId, useMemo, useRef, useState, type FocusEvent } from "react";
+import { browserTimeZone } from "../answers/precheck";
+import type { SubmissionRejection } from "../answers/submission-rejection";
+import type { FormContext } from "../session/respondent-state";
+import type { SubmitFailureView } from "../session/respondent-view";
+import { ErrorSummary, errorSummaryEntries, errorSummaryTitle } from "./error-summary";
+import { RetryButton, type RetryControl } from "./retry-button";
+import { Lead, ScreenHeading, ScreenLayout } from "./screen-layout";
+import { TRANSIENT_FAILURE_EXPLANATION } from "./terminal-screens";
 
 export interface QuestionnaireScreenProps {
   readonly form: FormContext;
   readonly submitting: boolean;
-  readonly submitFailure: Failure | null;
+  readonly submitFailure: SubmitFailureView | null;
   readonly rejection: SubmissionRejection | null;
-  readonly onAnswerChange: (itemId: string, answers: ClientAnswers) => void;
+  readonly onAnswerChange: (itemId: string) => void;
+  readonly onPersist: (answers: ClientAnswers) => void;
   readonly onSubmit: (answers: ClientAnswers) => Promise<void>;
 }
 
-const NO_ERRORS: RenderedItemErrors = {};
+const NO_ERRORS: ItemErrors = {};
+const ITEM_ID_ATTRIBUTE = "data-item-id";
+
+type AnswerFieldName = `answers.${string}`;
+
+function answerFieldName(itemId: string): AnswerFieldName {
+  return `answers.${itemId}`;
+}
+
+function answerFieldValidator(item: Item, timeZone: string) {
+  return ({ value }: { value: ClientAnswerValue | null | undefined }): SubmissionItemCode[] | undefined => {
+    if (value === null || value === undefined) return undefined;
+    const codes = validateAnswer(item.question, value, respondentDateContext(new Date(), timeZone));
+    return codes.length > 0 ? codes : undefined;
+  };
+}
+
+function requiredAnswersValidator(definition: PublishedDefinition) {
+  return ({ value }: { value: { answers: ClientAnswers } }) => {
+    const fields: Partial<Record<string, SubmissionItemCode[]>> = {};
+    for (const item of visibleItems(definition, value.answers)) {
+      if (item.required && answerFor(value.answers, item.itemId) === undefined) {
+        fields[answerFieldName(item.itemId)] = ["answer/required"];
+      }
+    }
+    return Object.keys(fields).length > 0 ? { fields } : undefined;
+  };
+}
+
+function itemIdFromBlurTarget(target: EventTarget | null): string | undefined {
+  if (!(target instanceof HTMLElement)) return undefined;
+  return target.closest(`[${ITEM_ID_ATTRIBUTE}]`)?.getAttribute(ITEM_ID_ATTRIBUTE) ?? undefined;
+}
 
 function RestoreStrip() {
   return (
     <div className="flex items-center gap-3 rounded-lg border bg-muted px-4 py-3 text-sm">
-      <svg
-        aria-hidden="true"
-        className="shrink-0 text-muted-foreground"
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-        <path d="M3 3v5h5" />
-      </svg>
+      <RotateCcwIcon aria-hidden="true" className="shrink-0 text-muted-foreground" size={16} />
       <p>We restored the answers you started on this device.</p>
     </div>
   );
@@ -49,30 +81,15 @@ function RestoreStrip() {
 function SubmitFailedAlert({ retry }: { retry: RetryControl | null }) {
   const messageId = useId();
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-4 text-sm">
+    <div className={cn(alertVariants({ variant: "destructive" }), "flex-col items-stretch gap-4 py-4")}>
       <div id={messageId} role="alert" className="flex gap-2">
-        <svg
-          aria-hidden="true"
-          className="mt-0.5 shrink-0 text-destructive"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="12" cy="12" r="10" />
-          <path d="M12 8v5" />
-          <path d="M12 16h.01" />
-        </svg>
+        <AlertCircleIcon aria-hidden="true" className="mt-0.5 shrink-0 text-destructive" size={16} />
         <div className="flex flex-col gap-1 leading-relaxed">
-          <p className="font-semibold text-destructive">Your answers were not submitted.</p>
-          <p>
+          <AlertTitle className="text-destructive">Your answers were not submitted.</AlertTitle>
+          <AlertDescription className="text-sm leading-relaxed text-foreground">
             They are still saved on this device.
             {retry !== null && ` ${TRANSIENT_FAILURE_EXPLANATION}`}
-          </p>
+          </AlertDescription>
         </div>
       </div>
       {retry !== null && (
@@ -94,23 +111,49 @@ function useFocusRequests(submitting: boolean, rejection: SubmissionRejection | 
   return { requests, request: () => setRequests((count) => count + 1) };
 }
 
-export function QuestionnaireScreen({ form: context, submitting, submitFailure, rejection, onAnswerChange, onSubmit }: QuestionnaireScreenProps) {
+export function QuestionnaireScreen({
+  form: context,
+  submitting,
+  submitFailure,
+  rejection,
+  onAnswerChange,
+  onPersist,
+  onSubmit,
+}: QuestionnaireScreenProps) {
   const { definition, restoredAnswers, restored } = context;
   const formRef = useRef<HTMLFormElement>(null);
   const summaryRef = useRef<HTMLElement>(null);
   const announcerRef = useRef<HTMLParagraphElement>(null);
   const focusRequests = useFocusRequests(submitting, rejection);
+  const timeZone = useMemo(() => browserTimeZone(), []);
+
   const form = useForm({
     defaultValues: { answers: restoredAnswers },
-    validationLogic: revalidateLogic(),
-    validators: { onDynamic: ({ value }) => precheckAnswers(definition, value.answers) },
+    validators: { onChange: requiredAnswersValidator(definition) },
+    listeners: {
+      onChange: ({ formApi }) => onPersist(formApi.state.values.answers),
+    },
     onSubmit: ({ value }) => onSubmit(value.answers),
     onSubmitInvalid: focusRequests.request,
   });
+
   const answers = useStore(form.store, (state) => state.values.answers);
-  const precheckErrors = useStore(form.store, (state) => state.errorMap.onDynamic?.itemErrors ?? NO_ERRORS);
+  const fieldMetaBase = useStore(form.store, (state) => state.fieldMetaBase);
+  const shown = useMemo(() => visibleItems(definition, answers), [definition, answers]);
+
+  const clientErrors = useMemo(() => {
+    const result: Record<string, SubmissionItemCode[]> = {};
+    for (const item of shown) {
+      const meta = fieldMetaBase[answerFieldName(item.itemId)];
+      if (meta?.isTouched !== true) continue;
+      const codes = meta.errorMap.onChange as SubmissionItemCode[] | undefined;
+      if (codes !== undefined && codes.length > 0) result[item.itemId] = codes;
+    }
+    return result;
+  }, [shown, fieldMetaBase]);
+
   const serverErrors = rejection?.itemErrors ?? NO_ERRORS;
-  const errors = useMemo(() => ({ ...serverErrors, ...precheckErrors }), [serverErrors, precheckErrors]);
+  const errors = useMemo(() => ({ ...serverErrors, ...clientErrors }), [serverErrors, clientErrors]);
   const entries = useMemo(() => errorSummaryEntries(definition, answers, errors), [definition, answers, errors]);
   const unplacedErrors = rejection?.unplacedErrors ?? false;
   const showSummary = entries.length > 0 || unplacedErrors;
@@ -132,22 +175,34 @@ export function QuestionnaireScreen({ form: context, submitting, submitFailure, 
   }, [focusRequests.requests]);
 
   function changeAnswer(itemId: string, answer: ClientAnswerValue | null) {
-    form.setFieldValue("answers", (current) => ({ ...current, [itemId]: answer }));
-    onAnswerChange(itemId, form.state.values.answers);
+    const name = answerFieldName(itemId);
+    form.setFieldValue(name, answer, { dontUpdateMeta: true, dontValidate: true });
+    if (form.getFieldMeta(name)?.isTouched === true) void form.validateField(name, "change");
+    onAnswerChange(itemId);
   }
 
-  function submitRetry(failure: Failure): RetryControl | null {
-    if (!isRetryable(failure.reason)) return null;
-    return {
-      attempt: failure.attempt,
-      retrying: submitting,
-      onRetry: () => void form.handleSubmit(),
-    };
+  function handleFormBlur(event: FocusEvent<HTMLFormElement>) {
+    const itemId = itemIdFromBlurTarget(event.target);
+    if (itemId === undefined) return;
+    const stayedWithinItem = itemIdFromBlurTarget(event.relatedTarget) === itemId;
+    if (stayedWithinItem) return;
+    void form.validateField(answerFieldName(itemId), "change");
+  }
+
+  async function submitForm() {
+    await form.validateAllFields("submit");
+    await form.validate("submit");
+    await form.handleSubmit();
   }
 
   function jumpTo(itemId: string) {
     if (formRef.current !== null) focusItem(formRef.current, itemId);
   }
+
+  const retry: RetryControl | null =
+    submitFailure !== null && submitFailure.retryable
+      ? { attempt: submitFailure.attempt, retrying: submitting, onRetry: () => void submitForm() }
+      : null;
 
   return (
     <ScreenLayout>
@@ -160,18 +215,28 @@ export function QuestionnaireScreen({ form: context, submitting, submitFailure, 
         noValidate
         aria-label={definition.title}
         className="flex flex-col gap-8"
+        onBlur={handleFormBlur}
         onSubmit={(event) => {
           event.preventDefault();
-          void form.handleSubmit();
+          void submitForm();
         }}
       >
+        {shown.map((item) => (
+          <form.Field key={item.itemId} name={answerFieldName(item.itemId)} validators={{ onChange: answerFieldValidator(item, timeZone) }}>
+            {() => null}
+          </form.Field>
+        ))}
         {showSummary && <ErrorSummary ref={summaryRef} entries={entries} unplacedErrors={unplacedErrors} onJump={jumpTo} />}
         <QuestionnaireForm definition={definition} answers={answers} errors={errors} mode="interactive" onChange={changeAnswer} />
-        {submitFailure !== null && <SubmitFailedAlert key={submitFailure.attempt} retry={submitRetry(submitFailure)} />}
+        {submitFailure !== null && <SubmitFailedAlert key={submitFailure.attempt} retry={retry} />}
         <div className="flex flex-col sm:flex-row">
-          <Button type="submit" size="lg" disabled={submitting}>
-            {submitting ? "Submitting…" : "Submit answers"}
-          </Button>
+          <form.Subscribe selector={(state) => state.isSubmitting}>
+            {(formSubmitting) => (
+              <Button type="submit" size="lg" disabled={submitting || formSubmitting}>
+                {submitting ? "Submitting…" : "Submit answers"}
+              </Button>
+            )}
+          </form.Subscribe>
         </div>
       </form>
       <p ref={announcerRef} role="status" className="sr-only" />

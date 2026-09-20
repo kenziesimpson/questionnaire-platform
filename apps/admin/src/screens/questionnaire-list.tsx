@@ -1,21 +1,22 @@
 import type { QuestionnaireSummary } from "@qp/shared";
+import { ArchiveIcon, CheckIcon, LinkIcon } from "@qp/ui/icons";
 import { cn } from "@qp/ui/lib/utils";
+import { Alert } from "@qp/ui/primitives/alert";
 import { Button } from "@qp/ui/primitives/button";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@qp/ui/primitives/table";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
+import { useOpenDraft, type OpenDraft } from "../api/mutations/use-open-draft";
 import { questionnaireQueries } from "../api/queries";
-import { useOpenDraft, type OpenDraft } from "../api/use-open-draft";
-import { CheckIcon, LinkIcon } from "../components/icons";
 import { Panel } from "../components/panel";
 import { Pill } from "../components/pill";
+import { RetryNotice } from "../components/query-state";
+import { fullTimestamp, lastEditedLabel } from "../lib/dates";
 import { ClosesAtDialog } from "./questionnaire-list/closes-at-dialog";
 import { CreateQuestionnaireDialog } from "./questionnaire-list/create-questionnaire-dialog";
 import {
   closesLabel,
-  fullTimestamp,
-  lastEditedLabel,
   respondentLink,
   sortByMostRecentlyEdited,
   statusLabel,
@@ -42,6 +43,8 @@ function Muted({ children }: { children: ReactNode }) {
   return <span className="text-muted-foreground">{children}</span>;
 }
 
+const ROW_ICON_CLASS = "inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground";
+
 function CopyLinkButton({ questionnaireId, name }: { questionnaireId: string; name: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -55,11 +58,19 @@ function CopyLinkButton({ questionnaireId, name }: { questionnaireId: string; na
     <button
       type="button"
       aria-label={`Copy link to ${name}`}
-      className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+      className={cn(ROW_ICON_CLASS, "outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50")}
       onClick={() => void navigator.clipboard.writeText(respondentLink(questionnaireId)).then(() => setCopied(true))}
     >
-      {copied ? <CheckIcon size={13} /> : <LinkIcon size={13} />}
+      {copied ? <CheckIcon size={13} aria-hidden="true" /> : <LinkIcon size={13} aria-hidden="true" />}
     </button>
+  );
+}
+
+function ArchivedMark({ name }: { name: string }) {
+  return (
+    <span className={ROW_ICON_CLASS} role="img" aria-label={`${name} is archived`} title="Archived">
+      <ArchiveIcon size={13} aria-hidden="true" />
+    </span>
   );
 }
 
@@ -71,20 +82,28 @@ function QuestionnaireRow({ summary, now, drafts }: { summary: QuestionnaireSumm
   return (
     <TableRow>
       <TableCell className="py-3 pl-4 whitespace-normal">
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1.5">
-            <a
-              href={respondentLink(summary.questionnaireId)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:underline"
-            >
-              <span className={cn("font-medium", closed && "text-muted-foreground")}>{summary.name}</span>
-            </a>
-            <CopyLinkButton questionnaireId={summary.questionnaireId} name={summary.name} />
+        <div className="flex items-center gap-1.5">
+          <div className="flex flex-col gap-0.5">
+            {closed ? (
+              <span className="font-medium text-muted-foreground">{summary.name}</span>
+            ) : (
+              <a
+                href={respondentLink(summary.questionnaireId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-fit hover:underline"
+              >
+                <span className="font-medium">{summary.name}</span>
+              </a>
+            )}
+            {summary.key === null ? null : (
+              <span className="font-mono text-xs text-muted-foreground">{summary.key}</span>
+            )}
           </div>
-          {summary.key === null ? null : (
-            <span className="font-mono text-xs text-muted-foreground">{summary.key}</span>
+          {closed ? (
+            <ArchivedMark name={summary.name} />
+          ) : (
+            <CopyLinkButton questionnaireId={summary.questionnaireId} name={summary.name} />
           )}
         </div>
       </TableCell>
@@ -103,7 +122,7 @@ function QuestionnaireRow({ summary, now, drafts }: { summary: QuestionnaireSumm
         </Muted>
       </TableCell>
       <TableCell className="pr-4">
-        <div className="grid w-fit grid-cols-[6rem_4.5rem_6.5rem] items-center justify-items-start gap-1">
+        <div className="grid w-fit grid-cols-[6rem_4.5rem_6rem_6.5rem] items-center justify-items-start gap-1">
           <Button
             variant="outline"
             size="sm"
@@ -114,17 +133,31 @@ function QuestionnaireRow({ summary, now, drafts }: { summary: QuestionnaireSumm
             {opening ? "Opening…" : "Open draft"}
           </Button>
           {summary.currentVersion === null ? (
-            <span />
+            <>
+              <span />
+              <span />
+            </>
           ) : (
-            <Button asChild variant="ghost" size="sm">
-              <Link
-                to="/questionnaires/$questionnaireId/versions"
-                params={{ questionnaireId: summary.questionnaireId }}
-                aria-label={`History of ${summary.name}`}
-              >
-                History
-              </Link>
-            </Button>
+            <>
+              <Button asChild variant="ghost" size="sm">
+                <Link
+                  to="/questionnaires/$questionnaireId/versions"
+                  params={{ questionnaireId: summary.questionnaireId }}
+                  aria-label={`History of ${summary.name}`}
+                >
+                  History
+                </Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm">
+                <Link
+                  to="/questionnaires/$questionnaireId/responses"
+                  params={{ questionnaireId: summary.questionnaireId }}
+                  aria-label={`Responses of ${summary.name}`}
+                >
+                  Responses
+                </Link>
+              </Button>
+            </>
           )}
           <ClosesAtDialog summary={summary} closed={closed} />
         </div>
@@ -138,12 +171,12 @@ function OpenDraftFailureNotice({ drafts, summaries }: { drafts: OpenDraft; summ
   const { questionnaireId } = drafts.failure;
   const name = summaries.find((summary) => summary.questionnaireId === questionnaireId)?.name ?? "this questionnaire";
   return (
-    <div role="alert" className="flex items-center justify-between gap-4 rounded-lg border border-destructive/40 px-4 py-3 text-sm">
+    <Alert variant="destructive" className="items-center justify-between gap-4">
       <span>The draft of {name} could not be opened. Try again.</span>
       <Button variant="ghost" size="sm" onClick={drafts.dismissFailure}>
         Dismiss
       </Button>
-    </div>
+    </Alert>
   );
 }
 
@@ -197,10 +230,13 @@ export function QuestionnaireListScreen() {
 
       {summaries === undefined && list.isError ? (
         <Panel role="alert">
-          <p className="font-medium">The questionnaires could not be loaded.</p>
-          <Button variant="outline" onClick={() => void list.refetch()} disabled={list.isFetching}>
-            Try again
-          </Button>
+          <RetryNotice
+            message="The questionnaires could not be loaded."
+            onRetry={() => void list.refetch()}
+            retrying={list.isFetching}
+            retryingLabel="Try again"
+            size="default"
+          />
         </Panel>
       ) : summaries === undefined ? (
         <Panel role="status">

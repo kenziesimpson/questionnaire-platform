@@ -46,18 +46,25 @@ Each half is an encapsulated Fastify plugin with its own route tree, schemas and
 
 No cross-imports, enforced by ESLint `no-restricted-imports` with zone rules: `modules/execution/**` may not import `modules/definition/**` or vice versa. Everything either side needs from the other goes through `@qp/shared`. This is the same enforcement pattern already chosen for the telemetry boundary, so it is one rule family rather than a new idea.
 
+**A third plugin joined this pattern in Wave 3a**: `modules/reporting`, mounted at `/api/reporting`, backing the admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18), design doc Decisions Log #89). The same zone rules apply to it — it shares nothing with `modules/definition` — with one deliberate, narrow exception: `db/reporting` (never the module itself) may import `db/execution`'s `PublishedDefinitions` loader, so that a session's pinned snapshot is parsed and cached by the one loader that already knows how, and is read through the reporting module's own `qp_reporting` pool rather than `qp_execution`'s (§3.2). The list route takes `version`, `status`, `sort` (`started` or `submitted`, default `started`), `order` (`asc` or `desc`, default `desc`) and an opaque `cursor`, and answers `previousCursor` / `nextCursor` beside its items; `sort` and `order` are strict enums that select fixed columns, and a cursor issued under another ordering, or a forged one, is read as no cursor rather than rejected (Decisions Log #90). §10.2 below is this surface's own open question, not a resolved design.
+
+**A fourth plugin, `modules/telemetry`, is mounted at `/api/telemetry`** for the browsers' log lines and abandonment events ([[6-observability#6. Client-side telemetry]]). It has no database: ESLint rejects any import of the `db` layer, `drizzle-orm` or `pg` there, and of every other module, so a hostile batch reaches nothing that stores answers. It is unauthenticated and rate-limited per address, and its body is capped at 64 KiB.
+
 ### 3.2 Database grants
 
-The barrier that survives a refactor. Two roles, both distinct from the migration role that owns the schema:
+The barrier that survives a refactor. Three roles now, all distinct from the migration role that owns the schema:
 
 | Role | `SELECT` | `INSERT` / `UPDATE` |
 | --- | --- | --- |
 | `qp_definition` | question bank, question versions, questionnaires, draft items, published versions, `version_question_index` | all of the above, subject to the immutability triggers; on questionnaires and versions `UPDATE` is column-level and excludes status, snapshot and the current-version pointer, which change only through `definition.promote_draft`. `DELETE` on draft items only |
 | `qp_execution` | published versions through the `definition.published_questionnaire_version` view, `version_question_index`, questionnaires (for `closes_at`), sessions, responses | sessions, responses only |
+| `qp_reporting` | `execution.session`, `execution.response`, published versions through the same `definition.published_questionnaire_version` view `qp_execution` reads, and the `id` column of `definition.questionnaire` — nothing else | none |
 
 `qp_execution` has no grant on any authoring table, and no grant on the base `questionnaire_version` table either — a draft row is not visible to it at all. Column lists and the full matrix: [[9-database-schema#10. Grants]]. `qp_definition` has **no grant on `response`** — the authoring surface is not a back door into answer data, which in this domain is medical history. Aggregate visibility for admins ("where do respondents give up") is a third, later surface with its own role reading the session record and domain events, never raw answers; see §10.
 
-This is the same technique as the audit role ([[6-observability#5.1 Isolation — separate schema with a restricted role]]): make the guarantee something Postgres enforces rather than something the service layer promises. In one process that means two pools with two connection strings. When the halves split into two services, it is already the right shape and nothing changes.
+**`qp_reporting` is that third surface's first, narrow slice** — the admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18), design doc Decisions Log #89), not the aggregate-visibility surface described above. It is read-only in the strongest sense: it holds `SELECT` and no other privilege on any relation, and `modules/reporting` holds only this role's pool, so the module cannot write to the database except through `audit.record` (`EXECUTE` granted by `0020`), and only for `view_response` (`0022` makes the function refuse any other action from this role), which records that a session's answers were opened — by grant and by the function, not by convention. Its `SELECT` surface is the two `execution` tables the screen browses, the published-versions view (the same relation `0010` grants `qp_execution`, so a session's pinned snapshot can be resolved without touching a base authoring table) and the single `id` column of `definition.questionnaire` for the questionnaire-exists check; it has no grant on `questionnaire_version` or any authoring table, no domain events, and nothing in `audit` but that function. The wider aggregate-visibility surface, with its own role over sessions and domain events, is still open; §10.2.
+
+This is the same technique as the audit role ([[6-observability#5.1 Isolation — separate schema with a restricted role]]): make the guarantee something Postgres enforces rather than something the service layer promises. In one process that means three pools with three connection strings — `qp_definition`, `qp_execution`, `qp_reporting` — 30 connections per process at `pg`'s default ([[3-scaling]]). When the halves split into services, it is already the right shape and nothing changes.
 
 ### 3.3 What stays shared
 
@@ -121,6 +128,10 @@ No endpoint paginates. Definition tables run to dozens or hundreds of rows ([[9-
 **Draft items carry their pinned `questionVersion`,** and the server never resolves "the current version of this question" when writing a draft. An author therefore pins the version their screen was showing, which is what makes "items pin at add time" ([[5-questionnaire-format#6.2 Question identity and versioning]]) true under concurrent editing rather than approximately true — the authoring counterpart of §5.2's rule for the execution side. Two related refusals on this endpoint: a **newly placed** item naming an archived question is rejected, since archiving means "not for new placements", and an item naming a question version that does not exist is a `422` rather than a silent fallback to the latest. A placement is new when its `(questionId, questionVersion)` pair is not already in the stored draft; an archived question already placed is not refused, so archiving never freezes a draft, and validate and publish follow the same rule (Decisions Log #75). See [[10-frontend#6. Authoring concurrency]].
 
 `POST /draft/validate` exists so the authoring UI can show satisfiability and reachability problems ([[5-questionnaire-format#5. Publish-time validation]]) while editing, using exactly the code path publish uses. Not a second implementation of the rules — the publish handler calls the same function and refuses on the same result.
+
+`GET /questionnaires/:id/draft` returns `questions` as a flat array beside `items`, each pinned question version once, rather than embedding it inside every item that places it — the editor can then render every item's type and operators from the one response, with no request per item. Concurrency travels in the `ETag` header, never the body, as above.
+
+`GET /questionnaires` distinguishes `name`, the mutable admin-facing label an author can rename at any time, from `title`, which is versioned and travels inside the published snapshot: renaming a questionnaire does not touch what a past version says it was called.
 
 ### 4.2 Reading version history — this is a definition-side concern
 
@@ -260,13 +271,16 @@ A `422` says which item failed and which rule it failed, never what was entered:
 }
 ```
 
+Every problem body carries `instance`, set to the request's URL, path and query as sent, whichever route or handler produced it. The server sets it in one place, so no route can leave it out.
+
 A standard beats a bespoke envelope here for one reason worth more than familiarity: it already specifies how to add fields. Validation failures carry `errors: [{ pointer, code }]`, submit failures carry `items: [{ itemId, code }]`, and both are extension members rather than a second error shape.
 
-`type` slugs come from a closed union in `@qp/shared`, so they are exhaustive on the client and cannot be invented at a call site:
+`type` slugs come from a closed union in `@qp/shared`, so they are exhaustive on the client and cannot be invented at a call site. A schema failure's code in `errors: [{ pointer, code }]` is `schema/<keyword>`, the failing JSON Schema keyword (e.g. `schema/required`); `pointer` is an RFC 6901 JSON Pointer into the request body (e.g. `/body/question/max`).
 
 | Slug | Status | Meaning |
 | --- | --- | --- |
 | `request/invalid` | 400 | Failed schema validation |
+| `request/rate-limited` | 429 | The telemetry ingest's per-address rate limit; `Retry-After` names the seconds to wait |
 | `resource/not-found` | 404 | Unknown id, or a draft viewed from the public surface |
 | `questionnaire/draft-invalid` | 422 | Publish-time validation failed |
 | `questionnaire/draft-stale` | 409 | `If-Match` mismatch on a draft write |
@@ -276,7 +290,8 @@ A standard beats a bespoke envelope here for one reason worth more than familiar
 | `session/already-submitted` | 409 | Submit with a different digest |
 | `submission/invalid` | 422 | Required, unreachable or constraint-violating answers |
 | `question/version-conflict` | 409 | Two saves of one question raced past the row lock |
-| `internal` | 500 | Unhandled; `detail` is a correlation id, never a stack |
+| `internal` | 500 | Unhandled; `detail` is the trace id (the request id when no span is active), never a message or stack |
+| `service/unavailable` | 503 | Readiness failed; `detail` names the failing database pools by role |
 
 Five cases the union is easy to read as not covering, resolved rather than left to a handler:
 
@@ -296,7 +311,11 @@ The split that keeps `409` and `422` from becoming interchangeable: **`409` mean
 
 One TypeBox schema per route, registered with Fastify, which validates and coerces before the handler runs — one of the reasons Fastify was chosen (Decisions Log #2). The schema is the source of truth and the TypeScript type is inferred from it, so a route's declared contract and its handler's types cannot disagree. Shared request/response types live in `@qp/shared` and both halves import them; the frontend imports the same types, so the wire contract is checked at compile time on both ends without a codegen step.
 
+**Schemas are exact about the column a value reaches.** A value that passes a schema is bound to a typed Postgres column, and a value the column cannot hold fails there as a `500` whose message names the value and is written to the server log ([[6-observability#14.1 Where a database can leak, and the fix]]). So the primitives in `packages/shared/src/primitives.ts` are the column's own bounds, and a value outside them is a `400` `request/invalid` before any query: `PositiveInt` and `NonNegativeInt` stop at 2147483647, the `integer` maximum, and every integer column is `integer` (there is no `bigint` or `smallint`); `IsoDate` and `IsoDateTime` take a year of 0001 to 9999 and a real calendar day, and `IsoDateTime` only `YYYY-MM-DDThh:mm:ss[.fraction]` with `Z` or a `±hh:mm` offset and no leap second, because the handler builds a `Date` from it; `DecimalString` is at most 64 characters; and the validator refuses a null character in any string or key of a request. `Uuid`, `Slug` and the closed enums were already exact, and the text columns are `text`. A date that is a real date the question then refuses stays a `422` item rejection with the existing code. Two consequences: the JSON pointer of a `request/invalid` problem can echo an object key the client chose (`/body/<key>`), which is not telemetry, since a pointer is never logged; and an administrator who types a year-1 date into a `datetime-local` control can produce `0000-…Z` after the shift to UTC, and gets the generic request-invalid problem.
+
 Schema validation covers shape. Domain validation — satisfiability, reachability, `closesAt` — is the handler's, because it needs the database.
+
+`defineRoute` (`packages/shared/src/api/route.ts`) is the one place every route's schema gains `4xx` and `5xx` responses of `ProblemDetails`, so error serialization is contractual for every route rather than opted into per handler. A route's `headers` schema is deliberately not marked `strict`: only the header a route actually names (such as `If-Match`) is constrained, so headers Fastify itself attaches are never rejected.
 
 ### 6.4 Caching
 
@@ -329,8 +348,8 @@ Applying the hook to the whole plugin rather than per route is deliberate: a new
 
 **Session ids are bearer capabilities.** With no respondent accounts, holding a session id *is* authorization to read and submit that session. Three consequences, all cheap now and expensive to retrofit:
 
-- Session ids are cryptographically random (UUIDv4, or v7 where ordering helps indexing — never sequential), so they are not enumerable.
-- Session ids are never placed in a query string, where they would land in access logs and `Referer` headers, and the respondent app sets `Referrer-Policy: no-referrer` regardless. No route carries a session id in the URL today (§5.3), so this currently constrains what may be built rather than what exists — which is the cheap moment to fix it.
+- Session ids are cryptographically random (UUIDv4, or v7 where ordering helps indexing — never sequential), so they are not guessable. They are enumerable only through the unauthenticated `/api/reporting` list, which returns in-progress ids ([[#10. Open questions]] §2).
+- Session ids are never placed in a query string, where they would land in access logs and `Referer` headers, and the respondent app sets `Referrer-Policy: no-referrer` regardless. No route puts a session id in a query string today (§5.3). Session ids do appear as path segments: `/api/run/sessions/:sessionId`, and, since Wave 3a, the admin responses browser's `/api/reporting/questionnaires/:id/responses/:sessionId` and the admin screen's matching route. A path segment is not the leak this rule targets, so that is permitted, but it is the point at which "cheap to fix now" stopped being true for admin: the full id is now in admin URLs and browser history. The consequence that matters is not the URL but the enumeration in §10.2.
 - Session ids appear in traces and logs as ids (they already do — [[6-observability#2.1 Traces]]) but never in a metric label, and never in anything rendered to another respondent.
 
 With real auth, the respondent surface gains an owner check and the capability property becomes a fallback rather than the whole model.
@@ -339,9 +358,9 @@ With real auth, the respondent surface gains an owner check and the capability p
 
 ## 8. Deployment topology
 
-### 8.1 Now — two plugins, one process
+### 8.1 Now — three plugins, one process
 
-Both halves register as encapsulated Fastify plugins in a single backend container, mounted at `/api/definition` and `/api/run`, with two connection pools bound to the two roles in §3.2. The `frontend` nginx proxies `/api/*` to it as today ([[2-design-doc#13. Deployment]]); no compose change.
+All three halves register as encapsulated Fastify plugins in a single backend container, mounted at `/api/definition`, `/api/run` and `/api/reporting`, with three connection pools bound to the three roles in §3.2, one per module. The `frontend` nginx proxies `/api/*` to it as today ([[2-design-doc#13. Deployment]]); no compose change.
 
 One process is right for the prototype: one container to run, one process to debug, one log stream, and `docker compose up` stays one command. The boundary being enforced by module graph, types and grants rather than by a network hop means the split is a deployment decision, not an architectural one — and can be deferred without being compromised.
 
@@ -403,14 +422,14 @@ Rejected for prototype ergonomics — two containers, two log streams and a seco
 
 **Without auth, the server-side copy is unreachable.** The session id is the only thing that addresses a session, and with respondents anonymous (§7) it is a bearer capability the browser stores — in the same browser storage as the partial answers themselves. Every scenario that loses the answers loses the id along with them: a cleared profile, an incognito window closing, Safari evicting storage for a site unvisited for ~7 days ([[3-scaling#7. Known tradeoffs of browser-held partial answers]]). The one case it survives is a device swap where the respondent still has the resume link, which is to say cross-device resume works only when the respondent carries the URL across by hand. The headline benefit is therefore mostly unavailable until there is an identity to look a session up by — and at that point this is a different design, keyed on the respondent rather than on a capability id.
 
-What remains is the operational half: knowing *where* an abandoned session stopped rather than only that it stopped. That is real, and it is why this is deferred and not rejected. It is also substantially covered already — client-emitted domain events ([[6-observability#4. Domain events]]) carry `session.item_skipped` and `session.abandoned`, so the drop-off question has an answer that does not require storing anyone's medical answers on a second write path.
+What remains is the operational half: knowing *where* an abandoned session stopped rather than only that it stopped. That is real, and it is why this is deferred and not rejected. It is also substantially covered already — domain events ([[6-observability#4. Domain events]]) carry `session.item_skipped` (emitted by the server for submitted sessions) and `session.abandoned` (emitted by the browser), so the drop-off question has an answer that does not require storing anyone's medical answers on a second write path.
 
 Against that: a write on the hot side of the system, and a partial-answer store that becomes a second place raw answers live, with its own grant, its own redaction surface and its own retention question. The shape is recorded in [[9-database-schema#12. Open questions]] so that adding it later is additive — one table, one grant, one route, and nothing existing to migrate.
 
 ## 10. Open questions
 
 1. **Checkpoint endpoint — resolved: deferred** (Decisions Log #25). `PUT /sessions/:id/progress` does not ship in the prototype. Without auth the session id lives and dies in the same browser storage as the answers it would recover, so the cross-device-resume benefit is largely unavailable, and the operational half is already carried by domain events. Reasoning in §9.7; the table shape is recorded in [[9-database-schema#12. Open questions]] so adding it stays additive.
-2. **Admin reporting surface.** §3.2 denies the definition role any read on `response`, which is correct, and leaves "how do admins see aggregate results" unanswered. Expected shape is a third read-only surface with its own role over the session record and domain events, with raw answers behind an explicit, audited export. Not designed yet.
+2. **Admin reporting surface.** §3.2 denies the definition role any read on `response`, which is correct, and leaves "how do admins see aggregate results" unanswered. Expected shape is a third read-only surface with its own role over the session record and domain events, with raw answers behind an explicit, audited export. Not designed yet. **A narrower slice of the third-surface shape has shipped** — `qp_reporting` and the admin responses browser, [gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18), design doc Decisions Log #89 — but it does not answer this question: it has no domain-event access, no audited export, and no aggregation. It also opens its own smaller open questions, unresolved. Whether opening a session should be audited: it is, since the telemetry work (migration `0020`, observability O14 and O18): the detail read records a `view_response` row through `audit.record` in its own transaction, so `qp_reporting` can write nothing else. And who may read the screen at all — the sharper one, and it is about what the screen lists rather than about URL length. **`/api/reporting` is unauthenticated, and its list route returns the ids of `in_progress` sessions. Each of those ids is a live bearer capability (§7) for `GET /api/run/sessions/:id` and `POST /api/run/sessions/:id/submit`, so anyone who can reach the admin screen today can resume and submit a stranger's in-flight session.** That follows from the prototype's no-auth posture, which the admin app shares with every other route; it is not a defect in the screen and was not treated as a merge blocker. Truncating ids to 8 characters in the UI does not address it — the full id remains in the route, the API payload and the list-row tooltip — so the honest fixes are the ones that change who can call the reporting routes (real admin authentication) or what they return (listing only submitted sessions, or withholding in-progress ids until reads are audited). Neither is built. See the prototype canvas linked from gh#18.
 3. **Version diffing.** `GET /versions/:a/diff/:b` would make "what changed in v2" a first-class answer and is directly useful for the mandatory v2 demo. Deferred as additive — both snapshots are already retrievable and the admin app can diff client-side.
 4. **Rate limiting on the execution surface.** Unauthenticated `POST /sessions` is trivially abusable. `@fastify/rate-limit` is a small addition; whether it belongs in the prototype or is stated as an edge concern is open, and it interacts with where the split in §8.2 puts the public ingress.
 5. **A taken `key` on create — open, deferred 2026-09-13.** `POST /questions` and `POST /questionnaires` with a key already in use return `500 internal`, because no slug in §6.1 fits. Tracked in [issue #15](https://github.com/kenziesimpson/questionnaire-platform/issues/15); resolve before Track 6 ships key entry.

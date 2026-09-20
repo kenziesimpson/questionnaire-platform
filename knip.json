@@ -1,0 +1,29 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreIssues": {
+    "packages/ui/src/primitives/**": ["exports", "types"],
+    "apps/admin/src/**": ["exports", "types"],
+    "apps/backend/src/http/**": ["types"],
+    "apps/backend/src/config.ts": ["exports"],
+    "packages/shared/src/domain/condition.ts": ["exports"],
+    "packages/shared/src/problems.ts": ["exports", "types"],
+    "apps/respondent/src/api/execution-client.ts": ["exports"],
+    "apps/respondent/src/api/problems.ts": ["exports"],
+    "apps/respondent/src/screens/error-summary.tsx": ["exports"],
+    "e2e/fixtures/index.ts": ["exports", "types"],
+    "e2e/fixtures/api/api-exchange.ts": ["exports", "types"],
+    "e2e/fixtures/demo/demo-questionnaire.ts": ["exports", "types"],
+    "e2e/fixtures/pages/admin-page.ts": ["exports", "types"],
+    "e2e/stack/compose-stack.ts": ["exports"],
+    "e2e/stack/kept-stacks.ts": ["exports"],
+    "**/_tests/**": ["exports", "types"]
+  },
+  "workspaces": {
+    "packages/shared": {
+      "entry": ["src/index.ts", "src/demo/intake.ts"]
+    },
+    "packages/telemetry": {
+      "entry": ["src/index.ts", "src/browser.ts", "src/node.ts", "src/testing.ts", "src/leak-test.ts"]
+    }
+  }
+}

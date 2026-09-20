@@ -1,4 +1,5 @@
-import { INTAKE_QUESTION_IDS, intakeDefinition, problemType, type PublishedDefinition } from "@qp/shared";
+import { problemType, type PublishedDefinition } from "@qp/shared";
+import { INTAKE_QUESTION_IDS, intakeDefinition } from "@qp/shared/demo";
 import { describe, expect, it } from "vitest";
 import {
   answersYes,
@@ -11,9 +12,9 @@ import {
   startedSessionId,
   startSession,
   submit,
-  useExecutionApp,
-} from "../../db/execution/fixtures.js";
-import { useTestDatabase } from "../../db/harness.js";
+} from "./fixtures.js";
+import { useExecutionApp } from "./harness.js";
+import { useTestDatabase } from "../../db/fixtures.js";
 
 const testDatabase = useTestDatabase();
 const executionApp = useExecutionApp(testDatabase);

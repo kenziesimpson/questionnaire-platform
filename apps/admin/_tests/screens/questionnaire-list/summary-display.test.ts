@@ -1,8 +1,8 @@
 import type { QuestionnaireSummary } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { describe, expect, it } from "vitest";
 import {
   fromLocalDateTimeInput,
-  lastEditedLabel,
   statusLabel,
   statusOf,
   toLocalDateTimeInput,
@@ -11,7 +11,7 @@ import {
 const NOW = Date.parse("2026-09-14T12:00:00.000Z");
 
 const summary = (overrides: Partial<QuestionnaireSummary>): QuestionnaireSummary => ({
-  questionnaireId: "01a0950e-56a0-73d6-b936-4a1e10eff8c0",
+  questionnaireId: INTAKE_QUESTIONNAIRE_ID,
   key: null,
   name: "Patient Intake",
   currentVersion: 2,
@@ -31,22 +31,6 @@ describe("a questionnaire's status", () => {
     ["closed before it was ever published", { currentVersion: null, closesAt: "2026-01-01T00:00:00.000Z" }, "Closed"],
   ])("reads %s", (_, overrides, label) => {
     expect(statusLabel(statusOf(summary(overrides), NOW))).toBe(label);
-  });
-});
-
-describe("the last-edited label", () => {
-  it.each([
-    ["2026-09-14T11:59:30.000Z", "just now"],
-    ["2026-09-14T11:58:00.000Z", "2 minutes ago"],
-    ["2026-09-14T09:00:00.000Z", "3 hours ago"],
-    ["2026-09-13T11:00:00.000Z", "yesterday"],
-    ["2026-09-10T12:00:00.000Z", "4 days ago"],
-  ])("labels %s as %s", (updatedAt, label) => {
-    expect(lastEditedLabel(updatedAt, NOW)).toBe(label);
-  });
-
-  it("falls back to a calendar date after a week", () => {
-    expect(lastEditedLabel("2026-09-01T12:00:00.000Z", NOW)).toMatch(/^01 Sept? 2026$/);
   });
 });
 

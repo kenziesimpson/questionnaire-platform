@@ -1,6 +1,6 @@
-import { DEMO_OPTION_IDS, DEMO_QUESTIONNAIRE_ID, DEMO_V1, expect, RESPONDENT_HEADINGS, test } from "../../fixtures/index.ts";
-import { ERROR_SUMMARY_TITLES, ITEM_ERROR_MESSAGES } from "./support/respondent-messages.ts";
-import { recordSubmitRequests } from "./support/submit-traffic.ts";
+import { DEMO_OPTION_IDS, DEMO_QUESTIONNAIRE_ID, DEMO_V1, expect, RESPONDENT_HEADINGS, test } from "../../fixtures/index";
+import { ERROR_SUMMARY_TITLES, ITEM_ERROR_MESSAGES } from "./support/respondent-messages";
+import { recordSubmitRequests } from "./support/submit-traffic";
 
 test.describe("E7 — a required answer blocks submit, and focus lands on it", () => {
   test("unanswered required items stop the submit in the browser, are summarised with jump controls, and take focus", async ({
@@ -16,6 +16,20 @@ test.describe("E7 — a required answer blocks submit, and focus lands on it", (
     const conditionGroup = respondent.choiceGroup(hasCondition);
     const pharmacyBox = page.getByRole("textbox", { name: pharmacy });
     const summary = respondent.errorSummary();
+
+    await expect(pharmacyBox).not.toHaveAttribute("aria-invalid", "true");
+    await expect(conditionGroup).not.toHaveAttribute("aria-invalid", "true");
+    await expect(summary).toHaveCount(0);
+
+    await pharmacyBox.focus();
+    await pharmacyBox.blur();
+
+    await expect(summary).toBeVisible();
+    await expect(summary.getByRole("heading", { level: 2, name: ERROR_SUMMARY_TITLES.oneAnswer })).toBeVisible();
+    await expect(pharmacyBox).toHaveAttribute("aria-invalid", "true");
+    await expect(pharmacyBox).toHaveAccessibleDescription(ITEM_ERROR_MESSAGES.required);
+    await expect(conditionGroup).not.toHaveAttribute("aria-invalid", "true");
+    expect(submitRequests).toHaveLength(0);
 
     await respondent.submit();
 

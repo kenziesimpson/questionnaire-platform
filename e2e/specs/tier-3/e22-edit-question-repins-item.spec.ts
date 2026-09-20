@@ -1,6 +1,6 @@
 import { definitionApi } from "@qp/shared";
-import { expect, test, uniqueName } from "../../fixtures/index.ts";
-import { draftItemRow, promptOf, textQuestionInput, waitForDefinitionResponse } from "./support/authoring.ts";
+import { expect, test, uniqueName, waitForDefinitionResponse } from "../../fixtures/index";
+import { promptOf, textQuestionInput } from "./support/question-input";
 
 const SHARED_ITEM_ID = "itm_shared";
 
@@ -22,7 +22,7 @@ test.describe("E22 editing a question from the draft editor re-pins that item", 
     await api.openDraft(untouchedId);
 
     await admin.openDraftEditor(editedInId);
-    const originalRow = draftItemRow(page, 1, originalPrompt);
+    const originalRow = admin.draftItemRow(1, originalPrompt);
     await expect(originalRow.getByText("Text · pinned v1 · Always shown")).toBeVisible();
     const editButton = originalRow.getByRole("button", { name: "Edit question 1", exact: true });
     await expect(editButton).toBeEnabled();
@@ -40,7 +40,7 @@ test.describe("E22 editing a question from the draft editor re-pins that item", 
     expect((await draftSaved).status()).toBe(200);
     await expect(editor).toBeHidden();
 
-    const repinnedRow = draftItemRow(page, 1, editedPrompt);
+    const repinnedRow = admin.draftItemRow(1, editedPrompt);
     await expect(repinnedRow.getByText("Text · pinned v2 · Always shown")).toBeVisible();
     await expect(repinnedRow.getByText("Newer version available")).toHaveCount(0);
 
@@ -58,7 +58,7 @@ test.describe("E22 editing a question from the draft editor re-pins that item", 
     expect((await api.listQuestionVersions(shared.questionId)).map((version) => version.questionVersion)).toEqual([2, 1]);
 
     await admin.openDraftEditor(untouchedId);
-    const untouchedRow = draftItemRow(page, 1, originalPrompt);
+    const untouchedRow = admin.draftItemRow(1, originalPrompt);
     await expect(untouchedRow.getByText("Text · pinned v1 · Always shown")).toBeVisible();
     await expect(untouchedRow.getByText("Newer version available")).toBeVisible();
     await expect(untouchedRow.getByRole("button", { name: "Re-pin question 1 to version 2", exact: true })).toBeVisible();

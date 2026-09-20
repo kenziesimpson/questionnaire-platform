@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { describeVisibilityChange, QuestionnaireItems, type RendererProps } from "../../src/questionnaire";
+import { QuestionnaireItems } from "../../src/questionnaire";
+import { describeVisibilityChange } from "../../src/questionnaire/visibility-announcer";
+import type { RendererProps } from "../../src/questionnaire/types";
 import type { Item } from "@qp/shared";
 import { answeredNo, answeredYes, diagnosedOn, hasCondition, pharmacy, rendererProps, whichCondition } from "../fixtures";
 

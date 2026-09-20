@@ -1,14 +1,16 @@
+import { ArrowLeftIcon } from "@qp/ui/icons";
+import { Alert, AlertDescription } from "@qp/ui/primitives/alert";
 import { Button } from "@qp/ui/primitives/button";
 import { useQuery } from "@tanstack/react-query";
 import { Link, getRouteApi } from "@tanstack/react-router";
 import { isProblem } from "../api/problem-error";
 import { questionnaireQueries } from "../api/queries";
-import { ArrowLeftIcon } from "../components/icons";
-import { VersionPreview } from "./version-preview/version-preview";
+import { LoadingLine } from "../components/query-state";
+import { ScreenHeader } from "../components/screen-header";
+import { calendarDateLabel } from "../lib/dates";
+import { PreviewBody } from "./version-preview/preview-body";
 
 const route = getRouteApi("/questionnaires/$questionnaireId/versions/$version");
-
-const publishedDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
 interface VersionAddress {
   questionnaireId: string;
@@ -33,7 +35,7 @@ function BackToVersionHistory({ questionnaireId }: { questionnaireId: string }) 
         aria-label="Back to version history"
         title="Back to version history"
       >
-        <ArrowLeftIcon />
+        <ArrowLeftIcon size={18} aria-hidden="true" />
       </Link>
     </Button>
   );
@@ -41,15 +43,13 @@ function BackToVersionHistory({ questionnaireId }: { questionnaireId: string }) 
 
 function PreviewHeader({ questionnaireId, version, title }: VersionAddress & { title: string | undefined }) {
   const publishedAt = usePublishedAt({ questionnaireId, version });
-  const facts = [title, publishedAt && `published ${publishedDateFormat.format(new Date(publishedAt))}`].filter(Boolean);
+  const facts = [title, publishedAt && `published ${calendarDateLabel(publishedAt)}`].filter(Boolean);
   return (
-    <header className="flex flex-col gap-1">
-      <div className="flex items-center gap-2">
-        <BackToVersionHistory questionnaireId={questionnaireId} />
-        <h1 className="text-xl font-semibold tracking-tight">Preview of version {version}</h1>
-      </div>
-      {facts.length > 0 && <p className="pl-9 text-sm text-muted-foreground">{facts.join(" · ")}</p>}
-    </header>
+    <ScreenHeader
+      back={<BackToVersionHistory questionnaireId={questionnaireId} />}
+      title={`Preview of version ${version}`}
+      meta={facts.length > 0 ? facts.join(" · ") : undefined}
+    />
   );
 }
 
@@ -67,13 +67,13 @@ function VersionNotFound({ version }: { version: number }) {
 
 function LoadFailed({ version, retrying, onRetry }: { version: number; retrying: boolean; onRetry: () => void }) {
   return (
-    <div role="alert" className="flex flex-col items-start gap-3 rounded-xl border border-destructive/40 p-6">
+    <Alert variant="destructive" className="flex-col items-start gap-3 rounded-xl p-6">
       <h2 className="text-base font-semibold">Version {version} could not be loaded</h2>
-      <p className="text-sm text-muted-foreground">Something went wrong reaching the server. Try again.</p>
+      <AlertDescription className="text-sm">Something went wrong reaching the server. Try again.</AlertDescription>
       <Button variant="outline" onClick={onRetry} disabled={retrying}>
         {retrying ? "Retrying…" : "Retry"}
       </Button>
-    </div>
+    </Alert>
   );
 }
 
@@ -83,14 +83,10 @@ export function VersionPreviewScreen() {
 
   function body() {
     if (snapshot.isSuccess) {
-      return <VersionPreview key={`${questionnaireId}:${version}`} definition={snapshot.data} />;
+      return <PreviewBody key={`${questionnaireId}:${version}`} definition={snapshot.data} />;
     }
     if (snapshot.isPending) {
-      return (
-        <p role="status" className="text-sm text-muted-foreground">
-          Loading version {version}…
-        </p>
-      );
+      return <LoadingLine>Loading version {version}…</LoadingLine>;
     }
     if (isProblem(snapshot.error, "resource/not-found")) {
       return <VersionNotFound version={version} />;

@@ -1,4 +1,4 @@
-import { definitionApi, type QuestionnaireSummary } from "@qp/shared";
+import type { QuestionnaireSummary } from "@qp/shared";
 import { Button } from "@qp/ui/primitives/button";
 import {
   Dialog,
@@ -10,13 +10,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@qp/ui/primitives/dialog";
-import { Input } from "@qp/ui/primitives/input";
-import { Label } from "@qp/ui/primitives/label";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useId, useState, type FormEvent } from "react";
-import { callDefinition } from "../../api/client";
-import { questionnaireQueries } from "../../api/queries";
+import { useState, type FormEvent } from "react";
+import { useSetClosesAt } from "../../api/mutations/use-set-closes-at";
+import { InputField } from "../../components/field";
+import type { FieldErrors } from "../../features/question-editor/field-errors";
 import { fromLocalDateTimeInput, toLocalDateTimeInput } from "./summary-display";
+
+const NO_ERRORS: FieldErrors = {};
 
 type ClosingAction = "Retire" | "Reopen" | "Reschedule";
 
@@ -25,26 +25,15 @@ function closingActionOf(summary: QuestionnaireSummary, closed: boolean): Closin
   return closed ? "Reopen" : "Reschedule";
 }
 
-function replaceSummary(summaries: QuestionnaireSummary[] | undefined, updated: QuestionnaireSummary) {
-  return summaries?.map((summary) => (summary.questionnaireId === updated.questionnaireId ? updated : summary));
-}
-
 export function ClosesAtDialog({ summary, closed }: { summary: QuestionnaireSummary; closed: boolean }) {
-  const queryClient = useQueryClient();
-  const inputId = useId();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
   const [showMissing, setShowMissing] = useState(false);
   const action = closingActionOf(summary, closed);
 
-  const save = useMutation({
-    mutationFn: (closesAt: string | null) =>
-      callDefinition(definitionApi.setClosesAt, { params: { id: summary.questionnaireId }, body: { closesAt } }),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(questionnaireQueries.list().queryKey, (summaries) => replaceSummary(summaries, updated));
-      setOpen(false);
-    },
-  });
+  const save = useSetClosesAt(summary.questionnaireId);
+  const errors: FieldErrors =
+    showMissing && fromLocalDateTimeInput(value) === null ? { "/closesAt": ["Enter a date and time."] } : NO_ERRORS;
 
   const changeOpen = (next: boolean) => {
     setOpen(next);
@@ -60,10 +49,8 @@ export function ClosesAtDialog({ summary, closed }: { summary: QuestionnaireSumm
       setShowMissing(true);
       return;
     }
-    save.mutate(closesAt);
+    save.mutate(closesAt, { onSuccess: () => setOpen(false) });
   };
-
-  const missing = showMissing && fromLocalDateTimeInput(value) === null;
 
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
@@ -82,25 +69,16 @@ export function ClosesAtDialog({ summary, closed }: { summary: QuestionnaireSumm
               Respondents cannot start or submit it once the closing date passes. Clearing the date reopens it.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={inputId}>Closes at</Label>
-            <Input
-              id={inputId}
-              type="datetime-local"
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              aria-invalid={missing || undefined}
-              aria-describedby={missing ? `${inputId}-hint ${inputId}-error` : `${inputId}-hint`}
-            />
-            <p id={`${inputId}-hint`} className="text-xs text-muted-foreground">
-              Your local time. A time that has already passed closes it straight away.
-            </p>
-            {missing ? (
-              <p id={`${inputId}-error`} className="text-xs text-destructive">
-                Enter a date and time.
-              </p>
-            ) : null}
-          </div>
+          <InputField
+            label="Closes at"
+            pointer="/closesAt"
+            errors={errors}
+            width="w-full"
+            type="datetime-local"
+            hint="Your local time. A time that has already passed closes it straight away."
+            value={value}
+            onValue={setValue}
+          />
           {save.isError ? (
             <p role="alert" className="text-sm text-destructive">
               The closing date was not saved. Try again.
@@ -113,7 +91,7 @@ export function ClosesAtDialog({ summary, closed }: { summary: QuestionnaireSumm
                 variant={closed ? "default" : "outline"}
                 className="sm:mr-auto"
                 disabled={save.isPending}
-                onClick={() => save.mutate(null)}
+                onClick={() => save.mutate(null, { onSuccess: () => setOpen(false) })}
               >
                 Clear closing date
               </Button>

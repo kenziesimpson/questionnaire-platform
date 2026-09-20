@@ -1,0 +1,298 @@
+import { sensitive } from "@qp/shared";
+import { describe, expect, it } from "vitest";
+import { scrubAttributes, scrubContext } from "../src/index.js";
+import { SESSION_ID, QUESTIONNAIRE_ID } from "./fixtures.js";
+
+const LEAK = "LEAK_DIABETES_8F3A";
+
+describe("scrubContext: only registered fields survive", () => {
+  it("maps registered fields to their attribute names", () => {
+    const result = scrubContext({ sessionId: SESSION_ID, questionnaireVersion: 2, questionType: "date", outcome: "accepted" });
+    expect(result.attributes).toEqual({
+      "questionnaire.session_id": SESSION_ID,
+      "questionnaire.version": 2,
+      "questionnaire.question_type": "date",
+      "questionnaire.outcome": "accepted",
+    });
+    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0, internal: 0 });
+  });
+
+  it("drops an unknown field and counts it", () => {
+    const result = scrubContext({ sessionId: SESSION_ID, value: LEAK, answer: LEAK });
+    expect(result.attributes).toEqual({ "questionnaire.session_id": SESSION_ID });
+    expect(result.dropped.unknown).toBe(2);
+  });
+
+  it("drops a registered field whose value has the wrong shape and counts it", () => {
+    const result = scrubContext({
+      sessionId: `free text ${LEAK}`,
+      questionType: LEAK,
+      status: "500",
+      questionnaireVersion: Number.NaN,
+      itemId: { nested: LEAK },
+    });
+    expect(result.attributes).toEqual({});
+    expect(result.dropped.invalid).toBe(5);
+  });
+
+  it("drops a Sensitive value in a registered field", () => {
+    const result = scrubContext({ sessionId: sensitive(LEAK) });
+    expect(result.attributes).toEqual({});
+    expect(result.dropped.invalid).toBe(1);
+  });
+
+  it("skips null and undefined without counting them", () => {
+    const result = scrubContext({ lastItemId: null, sessionId: undefined });
+    expect(result.attributes).toEqual({});
+    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0, internal: 0 });
+  });
+
+  it("accepts nothing from a non-object", () => {
+    expect(scrubContext(LEAK).attributes).toEqual({});
+    expect(scrubContext(null).attributes).toEqual({});
+  });
+
+  it("does not treat inherited property names as fields", () => {
+    const result = scrubContext({ toString: LEAK, constructor: LEAK });
+    expect(result.attributes).toEqual({});
+    expect(result.dropped.unknown).toBe(2);
+  });
+});
+
+describe("scrubAttributes: the exporter allowlist", () => {
+  it("keeps registered attributes and known infrastructure attributes", () => {
+    const result = scrubAttributes(
+      {
+        "questionnaire.session_id": SESSION_ID,
+        "http.route": "/questionnaires/:questionnaireId",
+        "http.response.status_code": 200,
+        "db.system": "postgresql",
+        trace_id: "0123456789abcdef0123456789abcdef",
+      },
+      "span",
+    );
+    expect(Object.keys(result.attributes).sort()).toEqual([
+      "db.system",
+      "http.response.status_code",
+      "http.route",
+      "questionnaire.session_id",
+      "trace_id",
+    ]);
+    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0, internal: 0 });
+  });
+
+  it("drops attributes a third-party instrumentation attaches and counts them", () => {
+    const result = scrubAttributes(
+      {
+        "url.path": `/sessions/${LEAK}`,
+        "url.full": `http://x/sessions/${LEAK}`,
+        "http.request.body": LEAK,
+        "db.statement": `select ${LEAK}`,
+        "exception.message": LEAK,
+        "questionnaire.session_id": SESSION_ID,
+      },
+      "span",
+    );
+    expect(result.attributes).toEqual({ "questionnaire.session_id": SESSION_ID });
+    expect(result.dropped.unknown).toBe(5);
+  });
+
+  it("drops the statement text a database instrumentation puts on a span without counting it, and counts it anywhere else", () => {
+    const attributes = { "db.query.text": `SELECT '${LEAK}'`, "db.namespace": "questionnaire_platform" };
+
+    expect(scrubAttributes(attributes, "span")).toEqual({
+      attributes: { "db.namespace": "questionnaire_platform" },
+      dropped: { unknown: 0, invalid: 0, unbounded: 0, internal: 0 },
+    });
+    expect(scrubAttributes(attributes, "log").dropped.unknown).toBe(1);
+    expect(scrubAttributes(attributes, "metric").dropped.unknown).toBe(1);
+  });
+
+  it("drops a registered attribute whose value is free text or the wrong type", () => {
+    const result = scrubAttributes(
+      { "questionnaire.session_id": `two words ${LEAK}`, "http.route": "no-leading-slash", "db.system": 7 },
+      "span",
+    );
+    expect(result.attributes).toEqual({});
+    expect(result.dropped.invalid).toBe(3);
+  });
+
+  it("drops arrays, objects and Sensitive values even under a registered key", () => {
+    const result = scrubAttributes(
+      { "questionnaire.item_id": [LEAK], "questionnaire.question_id": { a: LEAK }, "questionnaire.id": sensitive(LEAK) },
+      "log",
+    );
+    expect(result.attributes).toEqual({});
+    expect(result.dropped.invalid).toBe(3);
+  });
+
+  it("keeps only bounded dimensions on a metric and counts the rest as unbounded", () => {
+    const result = scrubAttributes(
+      { "questionnaire.question_type": "text", "questionnaire.reason": "answer/required", "questionnaire.session_id": SESSION_ID, "questionnaire.id": QUESTIONNAIRE_ID },
+      "metric",
+    );
+    expect(result.attributes).toEqual({ "questionnaire.question_type": "text", "questionnaire.reason": "answer/required" });
+    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 2, internal: 0 });
+  });
+
+  it("never serializes a value it did not keep", () => {
+    const result = scrubAttributes({ secret: LEAK, "http.request.body": sensitive(LEAK), "questionnaire.id": QUESTIONNAIRE_ID }, "span");
+    expect(JSON.stringify(result.attributes)).toBe(JSON.stringify({ "questionnaire.id": QUESTIONNAIRE_ID }));
+    expect(result.dropped.unknown).toBe(2);
+  });
+});
+
+const LONG = "a".repeat(200);
+
+const SHAPES: readonly {
+  readonly field: string;
+  readonly accepts: readonly string[];
+  readonly rejects: readonly string[];
+}[] = [
+  ...["sessionId", "questionnaireId", "questionnaireVersionId", "questionId", "requestId"].map((field) => ({
+    field,
+    accepts: [SESSION_ID, SESSION_ID.toUpperCase(), "0195a3f2-7c1e-7b3a-9d4e-1f2a3b4c5d6e"],
+    rejects: ["diabetes", "s-1", "type-2-diabetes", "2026-01-01", "12345", LEAK, `${SESSION_ID} `, `${SESSION_ID}\n`, SESSION_ID.replaceAll("-", "")],
+  })),
+  ...["itemId", "lastItemId"].map((field) => ({
+    field,
+    accepts: ["diabetes", "itm_01", "q1"],
+    rejects: ["Diabetes", "type-2", "2026-01-01", "12345", "1st_item", LEAK, SESSION_ID, "two words", "a".repeat(65), "item\n"],
+  })),
+  {
+    field: "source",
+    accepts: ["browser"],
+    rejects: ["diabetes", "server", "Browser", "browser ", "browser\n", LEAK, LEAK.toLowerCase(), ""],
+  },
+  {
+    field: "route",
+    accepts: ["/", "/health", "/health/live", "/api/run/sessions/:sessionId", "/api/run/sessions/:sessionId/", "/questionnaires/$questionnaireId/responses", "/a/{id}/b", "/files/*", "/v1.2/items"],
+    rejects: ["", "sessions", "//", "/x?answer=1", "/x#y", "/Diabetes", `/${LEAK}`, "/a b", "/a//b", "/:", "/a/:1", "/a/:b-c", `/${LONG}`, "/x\n"],
+  },
+  {
+    field: "errorType",
+    accepts: ["Error", "TypeError", "InvariantViolation", "DrizzleQueryError", "AbortError"],
+    rejects: ["diabetes", "type-2", LEAK, "Error: x", "two words", "", "Error\n", `E${LONG}`],
+  },
+  {
+    field: "errorCode",
+    accepts: ["23505", "QP001", "42501", "23514"],
+    rejects: ["diabetes", "2301", "230505", "qp001", "FST_ERR_X", LEAK, "2350 ", "abcde"],
+  },
+  {
+    field: "constraint",
+    accepts: ["response_pkey", "qv_addressable", "session_state", "question_version_option_question_version_fk"],
+    rejects: ["diabetes", "type-2", "Response_pkey", "_pkey", "response_", LEAK, "a b_c", "a_b\n", `a_${"b".repeat(63)}`],
+  },
+  {
+    field: "invariant",
+    accepts: ["session.not-marked-submitted", "author.read-outside-author-hook", "audit.record-returned-no-id"],
+    rejects: ["diabetes", "type-2-diabetes", "2026-01-01", "a.", ".a", "Session.x", "a_b.c", LEAK, "a.b c", `a.${"b".repeat(64)}`],
+  },
+];
+
+describe("scrubContext: every token-shaped field rejects what an answer looks like", () => {
+  it.each(SHAPES.flatMap(({ field, accepts }) => accepts.map((value) => [field, value] as const)))("%s keeps %j", (field, value) => {
+    const result = scrubContext({ [field]: value });
+
+    expect(Object.values(result.attributes)).toEqual([value]);
+    expect(result.dropped).toEqual({ unknown: 0, invalid: 0, unbounded: 0, internal: 0 });
+  });
+
+  it.each(SHAPES.flatMap(({ field, rejects }) => rejects.map((value) => [field, value] as const)))("%s drops %j", (field, value) => {
+    const result = scrubContext({ [field]: value });
+
+    expect(result.attributes).toEqual({});
+    expect(result.dropped.invalid).toBe(1);
+  });
+});
+
+describe("scrubAttributes: the logger's module name is one of a closed list", () => {
+  it.each(["backend", "browser", "definition", "events", "execution", "http"])("keeps module %s", (module) => {
+    expect(scrubAttributes({ module }, "log").attributes).toEqual({ module });
+  });
+
+  it.each(["diabetes", "leak test", "Http", LEAK, "type-2", ""])("drops module %j", (module) => {
+    const result = scrubAttributes({ module }, "log");
+
+    expect(result.attributes).toEqual({});
+    expect(result.dropped.invalid).toBe(1);
+  });
+});
+
+describe("scrubAttributes: exception.type is a class name or an error code, whichever OpenTelemetry records", () => {
+  it.each(["Error", "TypeError", "InvariantViolation", "ECONNREFUSED", "23505", "QP001", "FST_ERR_VALIDATION", "ERR_INVALID_ARG_TYPE"])("keeps %s", (value) => {
+    expect(scrubAttributes({ "exception.type": value }, "span").attributes).toEqual({ "exception.type": value });
+  });
+
+  it.each(["error", "diabetes", LEAK, LEAK.toLowerCase(), "type-2", "2026-01-01", "two words", "12345678", ""])("drops %j", (value) => {
+    const result = scrubAttributes({ "exception.type": value }, "span");
+
+    expect(result.attributes).toEqual({});
+    expect(result.dropped.invalid).toBe(1);
+  });
+});
+
+describe("the scrub never throws and never emits a partly scrubbed result", () => {
+  const INTERNAL_DROP = { unknown: 0, invalid: 0, unbounded: 0, internal: 1 };
+
+  function hostileInputs(): [string, unknown][] {
+    return [
+      [
+        "a throwing getter after a valid field",
+        {
+          sessionId: SESSION_ID,
+          get itemId(): string {
+            throw new Error(`hostile ${LEAK}`);
+          },
+        },
+      ],
+      [
+        "a proxy whose ownKeys trap throws",
+        new Proxy(
+          {},
+          {
+            ownKeys: () => {
+              throw new Error("hostile");
+            },
+          },
+        ),
+      ],
+      [
+        "a proxy whose getOwnPropertyDescriptor trap throws",
+        new Proxy(
+          { sessionId: SESSION_ID },
+          {
+            getOwnPropertyDescriptor: () => {
+              throw new Error("hostile");
+            },
+          },
+        ),
+      ],
+    ];
+  }
+
+  it.each(hostileInputs())("scrubContext returns an empty result and one internal drop for %s", (_name, input) => {
+    expect(() => scrubContext(input)).not.toThrow();
+    expect(scrubContext(input)).toEqual({ attributes: {}, dropped: INTERNAL_DROP });
+  });
+
+  it.each(hostileInputs())("scrubAttributes returns an empty result and one internal drop for %s", (_name, input) => {
+    expect(() => scrubAttributes(input, "log")).not.toThrow();
+    expect(scrubAttributes(input, "log")).toEqual({ attributes: {}, dropped: INTERNAL_DROP });
+  });
+
+  it("never calls a throwing toString or toJSON on a value, and drops it as invalid", () => {
+    const hostile = {
+      toString: () => {
+        throw new Error("hostile");
+      },
+      toJSON: () => {
+        throw new Error("hostile");
+      },
+    };
+    const result = scrubContext({ sessionId: hostile, itemId: hostile });
+    expect(result).toEqual({ attributes: {}, dropped: { unknown: 0, invalid: 2, unbounded: 0, internal: 0 } });
+    expect(scrubAttributes({ "questionnaire.session_id": hostile }, "span").dropped.invalid).toBe(1);
+  });
+});

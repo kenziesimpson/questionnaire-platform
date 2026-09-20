@@ -1,11 +1,17 @@
-import { test as base, expect } from "@playwright/test";
-import { requireStackEndpoints, type StackEndpoints } from "../stack/stack-endpoints.ts";
-import { DefinitionApi } from "./api/definition-api.ts";
-import { ExecutionApi } from "./api/execution-api.ts";
-import { BrowserErrors } from "./browser-errors.ts";
-import { StackDatabase } from "./db/stack-database.ts";
-import { AdminPage } from "./pages/admin-page.ts";
-import { RespondentPage } from "./pages/respondent-page.ts";
+import { test as base, expect, type BrowserContext, type BrowserContextOptions } from "@playwright/test";
+import { requireStackEndpoints, type StackEndpoints } from "../stack/stack-endpoints";
+import { DefinitionApi } from "./api/definition-api";
+import { ExecutionApi } from "./api/execution-api";
+import { BrowserErrors } from "./browser-errors";
+import { StackDatabase } from "./db/stack-database";
+import { AdminPage } from "./pages/admin-page";
+import { RespondentPage } from "./pages/respondent-page";
+
+export interface SecondContextOptions {
+  readonly storageState?: BrowserContextOptions["storageState"];
+}
+
+export type OpenSecondContext = (options?: SecondContextOptions) => Promise<BrowserContext>;
 
 export interface StackWorkerFixtures {
   readonly stack: StackEndpoints;
@@ -18,6 +24,7 @@ export interface StackTestFixtures {
   readonly browserErrors: BrowserErrors;
   readonly respondent: RespondentPage;
   readonly admin: AdminPage;
+  readonly secondContext: OpenSecondContext;
 }
 
 export const test = base.extend<StackTestFixtures, StackWorkerFixtures>({
@@ -66,6 +73,16 @@ export const test = base.extend<StackTestFixtures, StackWorkerFixtures>({
 
   admin: async ({ page }, use) => {
     await use(new AdminPage(page));
+  },
+
+  secondContext: async ({ browser, stack }, use) => {
+    const opened: BrowserContext[] = [];
+    await use(async (options = {}) => {
+      const context = await browser.newContext({ baseURL: stack.baseUrl, reducedMotion: "reduce", ...options });
+      opened.push(context);
+      return context;
+    });
+    await Promise.all(opened.map((context) => context.close()));
   },
 });
 

@@ -2,11 +2,7 @@ import { definitionApi } from "@qp/shared";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, beforeAll } from "vitest";
 import { definitionModule } from "../../../src/modules/definition/plugin.js";
-import type { TestDatabase } from "../../db/harness.js";
-
-export function definitionUrl(path: string): string {
-  return `${definitionApi.DEFINITION_PREFIX}${path}`;
-}
+import type { TestDatabase } from "../../db/fixtures.js";
 
 export function useDefinitionApp(testDatabase: TestDatabase): () => FastifyInstance {
   let app: FastifyInstance | undefined;

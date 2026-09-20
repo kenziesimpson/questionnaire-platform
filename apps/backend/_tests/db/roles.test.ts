@@ -4,18 +4,20 @@ import { useTestDatabase } from "./harness.js";
 const testDatabase = useTestDatabase();
 
 describe("db/init/01-roles.sh", () => {
-  it("creates qp_owner, qp_definition and qp_execution as plain login roles and audit_owner without a login", async () => {
+  it("creates qp_owner, qp_definition, qp_execution, qp_reporting and qp_monitor as plain login roles and audit_owner without a login", async () => {
     const owner = await testDatabase.connect("owner");
     const roles = await owner.query(
       `SELECT rolname, rolsuper, rolcanlogin, rolcreaterole, rolbypassrls
-         FROM pg_roles WHERE rolname IN ('qp_owner', 'qp_definition', 'qp_execution', 'audit_owner')
+         FROM pg_roles WHERE rolname IN ('qp_owner', 'qp_definition', 'qp_execution', 'qp_reporting', 'qp_monitor', 'audit_owner')
         ORDER BY rolname`,
     );
     expect(roles.rows).toEqual([
       { rolname: "audit_owner", rolsuper: false, rolcanlogin: false, rolcreaterole: false, rolbypassrls: false },
       { rolname: "qp_definition", rolsuper: false, rolcanlogin: true, rolcreaterole: false, rolbypassrls: false },
       { rolname: "qp_execution", rolsuper: false, rolcanlogin: true, rolcreaterole: false, rolbypassrls: false },
+      { rolname: "qp_monitor", rolsuper: false, rolcanlogin: true, rolcreaterole: false, rolbypassrls: false },
       { rolname: "qp_owner", rolsuper: false, rolcanlogin: true, rolcreaterole: false, rolbypassrls: false },
+      { rolname: "qp_reporting", rolsuper: false, rolcanlogin: true, rolcreaterole: false, rolbypassrls: false },
     ]);
   });
 

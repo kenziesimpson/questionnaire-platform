@@ -1,5 +1,5 @@
-import { createDemoShapedQuestionnaire, expect, RESPONDENT_HEADINGS, test } from "../../fixtures/index.ts";
-import { isCreateSessionRequest, problemReplyOf } from "./support/submit-traffic.ts";
+import { createDemoShapedQuestionnaire, expect, RESPONDENT_HEADINGS, test } from "../../fixtures/index";
+import { isCreateSessionRequest, problemReplyOf } from "./support/submit-traffic";
 
 test.describe("E11 — a closed questionnaire refuses to start", () => {
   test("landing on a questionnaire past closes_at with empty storage shows the closed screen and creates no session", async ({

@@ -2,7 +2,7 @@ import { render } from "@testing-library/react";
 import type { ClientAnswers } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import { QuestionnaireItems } from "../../src/questionnaire";
-import { violationsIn } from "../axe";
+import { axeViolations } from "../../src/testing";
 import { answeredNo, answeredYes, aNumberItem, aSymptomsItem, aTextItem, everyType, rendererProps } from "../fixtures";
 
 const everyTypeAnswered: ClientAnswers = {
@@ -38,13 +38,25 @@ describe("axe on the renderer", () => {
     ["a single-line text question", [aTextItem({ required: true })], rendererProps()],
   ])("finds no violations for %s", async (_, visibleItems, props) => {
     const { container } = render(<QuestionnaireItems visibleItems={visibleItems} {...props} />);
-    expect(await violationsIn(container)).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 
   it("finds no violations once a reveal has been announced", async () => {
     const props = rendererProps();
     const { container, rerender } = render(<QuestionnaireItems visibleItems={answeredNo} {...props} />);
     rerender(<QuestionnaireItems visibleItems={answeredYes} {...props} />);
-    expect(await violationsIn(container)).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("finds no violations with a per-item label override and a Clear button on every item", async () => {
+    const { container } = render(
+      <QuestionnaireItems
+        visibleItems={everyType}
+        labelFor={(item, index) => `${index + 1}. ${item.question.prompt}`}
+        onClear={() => undefined}
+        {...rendererProps({ answers: everyTypeAnswered })}
+      />,
+    );
+    expect(await axeViolations(container)).toEqual([]);
   });
 });

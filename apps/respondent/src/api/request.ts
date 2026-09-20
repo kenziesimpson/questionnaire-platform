@@ -1,7 +1,9 @@
-import { executionApi, PROBLEM_CONTENT_TYPE, ProblemDetails, type HttpMethod } from "@qp/shared";
+import { executionApi, PROBLEM_CONTENT_TYPE, problemFromWire, type HttpMethod, type WireProblem } from "@qp/shared";
+import { logger } from "@qp/telemetry";
+import { injectTraceHeaders } from "@qp/telemetry/browser";
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
-import { executionProblemOf, type ExecutionProblem, type ExecutionProblemSlug } from "./problems.ts";
+import type { ExecutionProblem, ExecutionProblemSlug } from "./problems";
 
 export type ExecutionOutcome<Body, S extends ExecutionProblemSlug> =
   | { readonly kind: "ok"; readonly body: Body }
@@ -11,6 +13,7 @@ export type ExecutionOutcome<Body, S extends ExecutionProblemSlug> =
 
 export interface ExecutionRequest<Success extends TSchema, S extends ExecutionProblemSlug> {
   readonly method: HttpMethod;
+  readonly route: string;
   readonly path: string;
   readonly body?: string;
   readonly success: { readonly status: number; readonly schema: Success };
@@ -22,21 +25,21 @@ interface Exchange {
   readonly text: string;
 }
 
-export function pathOf(url: string, params: Readonly<Record<string, string>>): string {
-  return url.replace(/:(\w+)/g, (_segment, name: string) => {
-    const value = params[name];
-    if (value === undefined) throw new Error(`missing path parameter ${name}`);
-    return encodeURIComponent(value);
-  });
-}
+const log = logger("browser");
 
-async function exchange({ method, path, body }: ExecutionRequest<TSchema, ExecutionProblemSlug>): Promise<Exchange | undefined> {
+function requestHeaders(body: string | undefined): Record<string, string> {
   const headers: Record<string, string> = { accept: `application/json, ${PROBLEM_CONTENT_TYPE}` };
   if (body !== undefined) headers["content-type"] = "application/json";
+  return headers;
+}
+
+async function exchange({ method, route, path, body }: ExecutionRequest<TSchema, ExecutionProblemSlug>): Promise<Exchange | undefined> {
+  const headers = injectTraceHeaders(requestHeaders(body));
   try {
     const response = await fetch(executionApi.EXECUTION_PREFIX + path, { method, headers, body });
     return { status: response.status, text: await response.text() };
   } catch {
+    log.warn("request failed", { method, route: executionApi.EXECUTION_PREFIX + route });
     return undefined;
   }
 }
@@ -49,7 +52,7 @@ function parsedJson(text: string): unknown {
   }
 }
 
-function isRouteProblem<S extends ExecutionProblemSlug>(slugs: readonly S[], candidate: ExecutionProblem): candidate is ExecutionProblem<S> {
+function isRouteProblem<S extends ExecutionProblemSlug>(slugs: readonly S[], candidate: WireProblem): candidate is ExecutionProblem<S> {
   return slugs.some((slug) => slug === candidate.slug);
 }
 
@@ -65,9 +68,9 @@ export async function sendExecutionRequest<Success extends TSchema, S extends Ex
     return Value.Check(request.success.schema, body) ? { kind: "ok", body } : { kind: "unexpected-response", status };
   }
 
-  const executionProblem = Value.Check(ProblemDetails, body) ? executionProblemOf(body) : undefined;
-  if (executionProblem !== undefined && executionProblem.problem.status === status && isRouteProblem(request.problems, executionProblem)) {
-    return { kind: "problem", ...executionProblem };
+  const parsed = problemFromWire(body);
+  if (parsed !== undefined && parsed.problem.status === status && isRouteProblem(request.problems, parsed)) {
+    return { kind: "problem", ...parsed };
   }
   return { kind: "unexpected-response", status };
 }

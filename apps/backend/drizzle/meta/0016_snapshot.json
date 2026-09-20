@@ -1,0 +1,1195 @@
+{
+  "id": "13de27bf-8bfe-43e5-a6d4-b5878b68ddad",
+  "prevId": "fd6b03b6-6ab4-49eb-9c24-9923ad6eee3f",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "audit.event": {
+      "name": "event",
+      "schema": "audit",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "actor_type": {
+          "name": "actor_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'system'"
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "questionnaire_id": {
+          "name": "questionnaire_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "questionnaire_version_id": {
+          "name": "questionnaire_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "trace_id": {
+          "name": "trace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "audit_by_questionnaire": {
+          "name": "audit_by_questionnaire",
+          "columns": [
+            {
+              "expression": "questionnaire_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "event_action_check": {
+          "name": "event_action_check",
+          "value": "action IN ('create_draft', 'edit_draft', 'publish', 'retire', 'reopen', 'archive_question', 'create_question_version')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "definition.question": {
+      "name": "question",
+      "schema": "definition",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "question_key_key": {
+          "name": "question_key_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "definition.question_version": {
+      "name": "question_version",
+      "schema": "definition",
+      "columns": {
+        "question_id": {
+          "name": "question_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prompt": {
+          "name": "prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "constraints": {
+          "name": "constraints",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "question_version_question_fk": {
+          "name": "question_version_question_fk",
+          "tableFrom": "question_version",
+          "tableTo": "question",
+          "schemaTo": "definition",
+          "columnsFrom": [
+            "question_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "question_version_pkey": {
+          "name": "question_version_pkey",
+          "columns": [
+            "question_id",
+            "version"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "question_version_version_check": {
+          "name": "question_version_version_check",
+          "value": "version >= 1"
+        },
+        "question_version_type_check": {
+          "name": "question_version_type_check",
+          "value": "type IN ('text', 'single_choice', 'multiple_choice', 'number', 'date')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "definition.question_version_option": {
+      "name": "question_version_option",
+      "schema": "definition",
+      "columns": {
+        "question_id": {
+          "name": "question_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "option_id": {
+          "name": "option_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "freeform": {
+          "name": "freeform",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "question_version_option_question_version_fk": {
+          "name": "question_version_option_question_version_fk",
+          "tableFrom": "question_version_option",
+          "tableTo": "question_version",
+          "schemaTo": "definition",
+          "columnsFrom": [
+            "question_id",
+            "version"
+          ],
+          "columnsTo": [
+            "question_id",
+            "version"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "question_version_option_pkey": {
+          "name": "question_version_option_pkey",
+          "columns": [
+            "question_id",
+            "version",
+            "option_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "question_version_option_position_key": {
+          "name": "question_version_option_position_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "question_id",
+            "version",
+            "position"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "freeform_exactly_when_other": {
+          "name": "freeform_exactly_when_other",
+          "value": "freeform = (option_id = 'other')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "definition.questionnaire": {
+      "name": "questionnaire",
+      "schema": "definition",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "closes_at": {
+          "name": "closes_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_version_id": {
+          "name": "current_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_version": {
+          "name": "current_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "questionnaire_current_version_fk": {
+          "name": "questionnaire_current_version_fk",
+          "tableFrom": "questionnaire",
+          "tableTo": "questionnaire_version",
+          "schemaTo": "definition",
+          "columnsFrom": [
+            "id",
+            "current_version_id",
+            "current_version"
+          ],
+          "columnsTo": [
+            "questionnaire_id",
+            "id",
+            "version"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "questionnaire_key_key": {
+          "name": "questionnaire_key_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "current_version_pair": {
+          "name": "current_version_pair",
+          "value": "(current_version_id IS NULL) = (current_version IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "definition.questionnaire_item": {
+      "name": "questionnaire_item",
+      "schema": "definition",
+      "columns": {
+        "questionnaire_version_id": {
+          "name": "questionnaire_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "required": {
+          "name": "required",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "visible_when": {
+          "name": "visible_when",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "question_id": {
+          "name": "question_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "question_version": {
+          "name": "question_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "questionnaire_item_questionnaire_version_fk": {
+          "name": "questionnaire_item_questionnaire_version_fk",
+          "tableFrom": "questionnaire_item",
+          "tableTo": "questionnaire_version",
+          "schemaTo": "definition",
+          "columnsFrom": [
+            "questionnaire_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "questionnaire_item_question_version_fk": {
+          "name": "questionnaire_item_question_version_fk",
+          "tableFrom": "questionnaire_item",
+          "tableTo": "question_version",
+          "schemaTo": "definition",
+          "columnsFrom": [
+            "question_id",
+            "question_version"
+          ],
+          "columnsTo": [
+            "question_id",
+            "version"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "questionnaire_item_pkey": {
+          "name": "questionnaire_item_pkey",
+          "columns": [
+            "questionnaire_version_id",
+            "item_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "item_position_unique": {
+          "name": "item_position_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "questionnaire_version_id",
+            "position"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "definition.questionnaire_version": {
+      "name": "questionnaire_version",
+      "schema": "definition",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "questionnaire_id": {
+          "name": "questionnaire_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "snapshot": {
+          "name": "snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "format_version": {
+          "name": "format_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "draft_revision": {
+          "name": "draft_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "questionnaire_one_draft": {
+          "name": "questionnaire_one_draft",
+          "columns": [
+            {
+              "expression": "questionnaire_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "status = 'draft'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "questionnaire_version_number": {
+          "name": "questionnaire_version_number",
+          "columns": [
+            {
+              "expression": "questionnaire_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "questionnaire_version_questionnaire_fk": {
+          "name": "questionnaire_version_questionnaire_fk",
+          "tableFrom": "questionnaire_version",
+          "tableTo": "questionnaire",
+          "schemaTo": "definition",
+          "columnsFrom": [
+            "questionnaire_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "qv_addressable": {
+          "name": "qv_addressable",
+          "nullsNotDistinct": false,
+          "columns": [
+            "questionnaire_id",
+            "id",
+            "version"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "questionnaire_version_version_check": {
+          "name": "questionnaire_version_version_check",
+          "value": "version >= 1"
+        },
+        "questionnaire_version_status_check": {
+          "name": "questionnaire_version_status_check",
+          "value": "status IN ('draft', 'published')"
+        },
+        "version_state": {
+          "name": "version_state",
+          "value": "(status = 'draft' AND version IS NULL AND snapshot IS NULL AND format_version IS NULL AND published_at IS NULL) OR (status = 'published' AND version IS NOT NULL AND snapshot IS NOT NULL AND format_version IS NOT NULL AND published_at IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "execution.response": {
+      "name": "response",
+      "schema": "execution",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "questionnaire_version_id": {
+          "name": "questionnaire_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "question_id": {
+          "name": "question_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "question_version": {
+          "name": "question_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "question_type": {
+          "name": "question_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "text_value": {
+          "name": "text_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "number_value": {
+          "name": "number_value",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "number_unit": {
+          "name": "number_unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "date_value": {
+          "name": "date_value",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "option_ids": {
+          "name": "option_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "other_text": {
+          "name": "other_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "response_by_session": {
+          "name": "response_by_session",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "response_by_question": {
+          "name": "response_by_question",
+          "columns": [
+            {
+              "expression": "question_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "question_version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "response_by_option": {
+          "name": "response_by_option",
+          "columns": [
+            {
+              "expression": "option_ids",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "response_session_fk": {
+          "name": "response_session_fk",
+          "tableFrom": "response",
+          "tableTo": "session",
+          "schemaTo": "execution",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "response_questionnaire_version_fk": {
+          "name": "response_questionnaire_version_fk",
+          "tableFrom": "response",
+          "tableTo": "questionnaire_version",
+          "schemaTo": "definition",
+          "columnsFrom": [
+            "questionnaire_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "response_session_pinned_version_fk": {
+          "name": "response_session_pinned_version_fk",
+          "tableFrom": "response",
+          "tableTo": "session",
+          "schemaTo": "execution",
+          "columnsFrom": [
+            "session_id",
+            "questionnaire_version_id"
+          ],
+          "columnsTo": [
+            "id",
+            "questionnaire_version_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "response_pkey": {
+          "name": "response_pkey",
+          "columns": [
+            "id",
+            "created_at"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "other_text_needs_other": {
+          "name": "other_text_needs_other",
+          "value": "other_text IS NULL OR (option_ids IS NOT NULL AND 'other' = ANY(option_ids))"
+        },
+        "number_unit_needs_value": {
+          "name": "number_unit_needs_value",
+          "value": "number_unit IS NULL OR number_value IS NOT NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "execution.session": {
+      "name": "session",
+      "schema": "execution",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "questionnaire_id": {
+          "name": "questionnaire_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "questionnaire_version_id": {
+          "name": "questionnaire_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_activity_at": {
+          "name": "last_activity_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "submitted_at": {
+          "name": "submitted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "response_digest": {
+          "name": "response_digest",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "session_by_version": {
+          "name": "session_by_version",
+          "columns": [
+            {
+              "expression": "questionnaire_version_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "session_in_progress": {
+          "name": "session_in_progress",
+          "columns": [
+            {
+              "expression": "questionnaire_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "last_activity_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "status = 'in_progress'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "session_by_questionnaire": {
+          "name": "session_by_questionnaire",
+          "columns": [
+            {
+              "expression": "questionnaire_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "session_pinned_version_fk": {
+          "name": "session_pinned_version_fk",
+          "tableFrom": "session",
+          "tableTo": "questionnaire_version",
+          "schemaTo": "definition",
+          "columnsFrom": [
+            "questionnaire_id",
+            "questionnaire_version_id",
+            "version"
+          ],
+          "columnsTo": [
+            "questionnaire_id",
+            "id",
+            "version"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "session_pinned_version_key": {
+          "name": "session_pinned_version_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "questionnaire_version_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "session_status_check": {
+          "name": "session_status_check",
+          "value": "status IN ('in_progress', 'submitted')"
+        },
+        "session_state": {
+          "name": "session_state",
+          "value": "(status = 'in_progress' AND submitted_at IS NULL AND response_digest IS NULL) OR (status = 'submitted' AND submitted_at IS NOT NULL AND response_digest IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "definition.version_question_index": {
+      "name": "version_question_index",
+      "schema": "definition",
+      "columns": {
+        "questionnaire_version_id": {
+          "name": "questionnaire_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "question_id": {
+          "name": "question_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "question_version": {
+          "name": "question_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "vqi_reverse": {
+          "name": "vqi_reverse",
+          "columns": [
+            {
+              "expression": "question_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "question_version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "version_question_index_questionnaire_version_fk": {
+          "name": "version_question_index_questionnaire_version_fk",
+          "tableFrom": "version_question_index",
+          "tableTo": "questionnaire_version",
+          "schemaTo": "definition",
+          "columnsFrom": [
+            "questionnaire_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "version_question_index_question_version_fk": {
+          "name": "version_question_index_question_version_fk",
+          "tableFrom": "version_question_index",
+          "tableTo": "question_version",
+          "schemaTo": "definition",
+          "columnsFrom": [
+            "question_id",
+            "question_version"
+          ],
+          "columnsTo": [
+            "question_id",
+            "version"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "version_question_index_pkey": {
+          "name": "version_question_index_pkey",
+          "columns": [
+            "questionnaire_version_id",
+            "question_id",
+            "question_version"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {
+    "audit": "audit",
+    "definition": "definition",
+    "execution": "execution"
+  },
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { Condition, Predicate } from "../../src/domain/condition.js";
 import type { Item } from "../../src/domain/definition.js";
+import { draftForValidation } from "../../src/domain/draft.js";
 import type { QuestionInput } from "../../src/domain/question.js";
 import { intakeDefinition } from "../../src/demo/intake.js";
 import { validateDraft } from "../../src/engine/draft-validation.js";
 import { DRAFT_ITEM_CODES } from "../../src/problems.js";
-import { aDefinition, all, anItem, any, draftOf, questions } from "./fixtures.js";
+import { aDefinition, all, anItem, any, questions } from "./fixtures.js";
 
 function problemsOf(items: Item[]) {
-  return validateDraft(draftOf(aDefinition(items))).items;
+  return validateDraft(draftForValidation(items)).items;
 }
 
 function targetProblems(source: QuestionInput, visibleWhen: Predicate) {
@@ -19,7 +20,7 @@ const onSrc = <C extends Omit<Condition, "itemId">>(condition: C) => ({ ...condi
 
 describe("validateDraft — the demo", () => {
   it.each([1, 2] as const)("accepts version %s", (version) => {
-    expect(validateDraft(draftOf(intakeDefinition(version)))).toEqual({ valid: true, items: [] });
+    expect(validateDraft(draftForValidation(intakeDefinition(version).items))).toEqual({ valid: true, items: [] });
   });
 });
 
@@ -37,15 +38,9 @@ describe("validateDraft — placements (§5.5, #41)", () => {
   });
 
   it("rejects an item pinning a question version the caller could not resolve", () => {
-    const draft = draftOf(aDefinition([anItem("itm_01", questions.text()), anItem("itm_02", questions.text())]));
+    const draft = draftForValidation([anItem("itm_01", questions.text()), anItem("itm_02", questions.text())]);
     const unresolved = { ...draft, questions: draft.questions.slice(0, 1) };
     expect(validateDraft(unresolved)).toEqual({ valid: false, items: [{ itemId: "itm_02", code: "draft/question-version-unknown" }] });
-  });
-
-  it("rejects an item whose question the caller reports as archived", () => {
-    const definition = aDefinition([anItem("itm_01", questions.text()), anItem("itm_02", questions.text())]);
-    const draft = { ...draftOf(definition), archivedQuestionIds: new Set([definition.items[1]!.question.questionId]) };
-    expect(validateDraft(draft).items).toEqual([{ itemId: "itm_02", code: "draft/question-archived" }]);
   });
 });
 
@@ -102,12 +97,10 @@ describe("validateDraft — referential integrity and forward references (§5.2,
   });
 
   it("does not pile predicate codes onto an item that depends on an unresolved question version", () => {
-    const draft = draftOf(
-      aDefinition([
-        anItem("itm_01", questions.yesNo()),
-        anItem("itm_02", questions.text(), { visibleWhen: all({ type: "single_choice", itemId: "itm_01", op: "is", optionId: "yes" }) }),
-      ]),
-    );
+    const draft = draftForValidation([
+      anItem("itm_01", questions.yesNo()),
+      anItem("itm_02", questions.text(), { visibleWhen: all({ type: "single_choice", itemId: "itm_01", op: "is", optionId: "yes" }) }),
+    ]);
     expect(validateDraft({ ...draft, questions: draft.questions.slice(1) }).items).toEqual([
       { itemId: "itm_01", code: "draft/question-version-unknown" },
     ]);

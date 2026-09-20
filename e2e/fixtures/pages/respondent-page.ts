@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import { Value } from "typebox/value";
-import { respondentStorageKey, RespondentStorageEnvelope } from "./respondent-storage.ts";
+import { respondentStorageKey, RespondentStorageEnvelope } from "./respondent-storage";
 
 export const RESPONDENT_HEADINGS = {
   submitted: "Your answers were submitted",

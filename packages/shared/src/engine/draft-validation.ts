@@ -1,14 +1,8 @@
-import type { Condition, Predicate } from "../domain/condition.js";
-import type { DraftItem } from "../domain/draft.js";
-import type { QuestionContent } from "../domain/question.js";
+import { type Condition, type Predicate, conditionsOf, referencedOptionIds } from "../domain/condition.js";
+import type { DraftForValidation } from "../domain/draft.js";
+import { type QuestionContent, optionIdsOf } from "../domain/question.js";
 import { DRAFT_ITEM_CODES, type DraftItemCode, type ItemError } from "../problems.js";
 import { type ConstraintTerm, isTermSatisfiable, mergeTerms, termKey, termOf } from "./satisfiability.js";
-
-export interface DraftForValidation {
-  items: readonly DraftItem[];
-  questions: readonly QuestionContent[];
-  archivedQuestionIds?: ReadonlySet<string>;
-}
 
 export interface DraftValidation {
   valid: boolean;
@@ -29,21 +23,9 @@ function questionKey(questionId: string, questionVersion: number): string {
   return `${questionId}:${questionVersion}`;
 }
 
-function conditionsOf(predicate: Predicate | null): readonly Condition[] {
-  if (predicate === null) return [];
-  return "all" in predicate ? predicate.all : predicate.any;
-}
-
-function referencedOptionIds(condition: Condition): readonly string[] {
-  if ("optionId" in condition) return [condition.optionId];
-  if ("optionIds" in condition) return condition.optionIds;
-  return [];
-}
-
 class DraftValidator {
   readonly #slots: Slot[];
   readonly #firstIndexById = new Map<string, number>();
-  readonly #archivedQuestionIds: ReadonlySet<string>;
   readonly #errors = new Map<string, ItemError<DraftItemCode> & { index: number }>();
   readonly #reachability = new Map<number, ConstraintTerm[] | undefined>();
 
@@ -56,7 +38,6 @@ class DraftValidator {
       visibleWhen: item.visibleWhen,
       question: questions.get(questionKey(item.questionId, item.questionVersion)),
     }));
-    this.#archivedQuestionIds = draft.archivedQuestionIds ?? new Set();
     for (const slot of this.#slots) {
       if (!this.#firstIndexById.has(slot.itemId)) this.#firstIndexById.set(slot.itemId, slot.index);
     }
@@ -83,7 +64,6 @@ class DraftValidator {
       if (this.#firstIndexById.get(slot.itemId) !== slot.index) this.#report(slot, "draft/duplicate-item-id");
       if (placedQuestionIds.has(slot.questionId)) this.#report(slot, "draft/duplicate-question");
       placedQuestionIds.add(slot.questionId);
-      if (this.#archivedQuestionIds.has(slot.questionId)) this.#report(slot, "draft/question-archived");
       if (!slot.question) this.#report(slot, "draft/question-version-unknown");
     }
   }
@@ -100,7 +80,7 @@ class DraftValidator {
     const question = referenced.question;
     if (!question) return "referenced-question-unknown";
     if (question.type !== condition.type) return "predicate/type-mismatch";
-    const known = new Set("options" in question ? question.options.map((option) => option.optionId) : []);
+    const known = new Set(optionIdsOf(question));
     if (referencedOptionIds(condition).some((id) => !known.has(id))) return "predicate/unknown-option";
     return undefined;
   }

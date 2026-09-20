@@ -1,18 +1,19 @@
-import type { DraftItem, QuestionInput } from "@qp/shared";
+import type { DraftItem, DraftPrecondition, QuestionInput } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../../../src/db/client.js";
-import type { DraftPrecondition } from "../../../src/db/definition/draft-precondition.js";
 import { withLockedQuestionnaire } from "../../../src/db/definition/questionnaire-rows.js";
 import { createNextDraft, replaceDraft, validateOpenDraft } from "../../../src/db/definition/drafts.js";
 import { createQuestionnaire } from "../../../src/db/definition/questionnaires.js";
 import { appendQuestionVersion, createQuestion } from "../../../src/db/definition/questions.js";
 import {
+  actor,
   aDraftWithOneItem,
   aPublishedQuestionnaire,
   aTextQuestion,
   publishSavedDraft,
   saveDraft,
   QUESTIONNAIRE_LOCK_STATEMENT,
+  theOpenDraftOf,
   theStatementWaitingOnALock,
   whileHoldingALock,
 } from "../fixtures.js";
@@ -45,9 +46,9 @@ interface PlacedArchivedQuestions {
 }
 
 async function aDraftPlacingTwoQuestionsLaterArchived(db: Database): Promise<PlacedArchivedQuestions> {
-  const choice = await createQuestion(db, { key: null, content: yesNo, createdBy: "test", traceId: null });
-  const firstArchived = await createQuestion(db, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
-  const secondArchived = await createQuestion(db, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
+  const choice = await createQuestion(db, { key: null, content: yesNo, ...actor });
+  const firstArchived = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
+  const secondArchived = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
   const created = await createQuestionnaire(db, {
     key: null,
     name: "Archived later",
@@ -63,7 +64,7 @@ async function aDraftPlacingTwoQuestionsLaterArchived(db: Database): Promise<Pla
   const precondition = await saveDraft(
     db,
     created.questionnaireId,
-    { versionId: created.draftVersionId, draftRevision: created.draftRevision },
+    await theOpenDraftOf(db, created.questionnaireId),
     "Archived later",
     items,
   );
@@ -85,8 +86,8 @@ describe("replaceDraft", () => {
   it("removes, reorders and adds items, renames the draft, bumps the revision and audits the edit", async () => {
     const definitionDb = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(definitionDb);
-    const second = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
-    const third = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
+    const second = await createQuestion(definitionDb, { key: null, content: aTextQuestion, ...actor });
+    const third = await createQuestion(definitionDb, { key: null, content: aTextQuestion, ...actor });
     const withThree = await replaceDraft(definitionDb, {
       questionnaireId: draft.questionnaireId,
       precondition: { versionId: draft.draftVersionId, draftRevision: draft.draftRevision },
@@ -108,7 +109,11 @@ describe("replaceDraft", () => {
       traceId: null,
     });
 
-    expect(outcome).toMatchObject({ outcome: "saved", draftVersionId: draft.draftVersionId, draftRevision: withThree.draftRevision + 1 });
+    expect(outcome).toMatchObject({
+      outcome: "saved",
+      draft: { versionId: draft.draftVersionId },
+      draftRevision: withThree.draftRevision + 1,
+    });
     expect(await draftItems(draft.draftVersionId)).toEqual([
       { item_id: "itm_03", position: 0 },
       { item_id: "itm_01", position: 1 },
@@ -173,7 +178,7 @@ describe("replaceDraft", () => {
   it("rejects an archived question and a question version that does not exist, writing nothing", async () => {
     const definitionDb = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(definitionDb);
-    const archived = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
+    const archived = await createQuestion(definitionDb, { key: null, content: aTextQuestion, ...actor });
     const client = await testDatabase.connect("definition");
     await client.query(`UPDATE definition.question SET archived_at = now() WHERE id = $1`, [archived.questionId]);
 
@@ -202,7 +207,7 @@ describe("replaceDraft", () => {
   it("reports only duplicated item ids when the same draft also places an archived question and an unknown version", async () => {
     const definitionDb = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(definitionDb);
-    const archived = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
+    const archived = await createQuestion(definitionDb, { key: null, content: aTextQuestion, ...actor });
     const client = await testDatabase.connect("definition");
     await client.query(`UPDATE definition.question SET archived_at = now() WHERE id = $1`, [archived.questionId]);
 
@@ -226,7 +231,7 @@ describe("replaceDraft", () => {
   it("reports archived placements before unknown versions, naming every item that places an archived question in request order", async () => {
     const definitionDb = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(definitionDb);
-    const archived = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
+    const archived = await createQuestion(definitionDb, { key: null, content: aTextQuestion, ...actor });
     const client = await testDatabase.connect("definition");
     await client.query(`UPDATE definition.question SET archived_at = now() WHERE id = $1`, [archived.questionId]);
 
@@ -307,7 +312,7 @@ describe("replaceDraft when a placed question has since been archived", () => {
   it("refuses a new archived placement alongside existing ones, naming only the new item and writing nothing", async () => {
     const definitionDb = testDatabase.database("definition");
     const draft = await aDraftPlacingTwoQuestionsLaterArchived(definitionDb);
-    const added = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
+    const added = await createQuestion(definitionDb, { key: null, content: aTextQuestion, ...actor });
     await archive(added.questionId);
 
     const outcome = await replaceDraft(definitionDb, {
@@ -403,7 +408,7 @@ describe("createNextDraft", () => {
   it("opens a next draft copying a since-archived question that then saves, validates and publishes", async () => {
     const definitionDb = testDatabase.database("definition");
     const published = await aPublishedQuestionnaire(definitionDb);
-    const other = await createQuestion(definitionDb, { key: null, content: aTextQuestion, createdBy: "test", traceId: null });
+    const other = await createQuestion(definitionDb, { key: null, content: aTextQuestion, ...actor });
     await archive(published.questionId);
 
     const opened = await createNextDraft(definitionDb, { questionnaireId: published.questionnaireId, createdBy: null, traceId: null });

@@ -11,13 +11,17 @@ import {
 } from "@qp/ui/primitives/table";
 import { useQuery } from "@tanstack/react-query";
 import { Link, getRouteApi } from "@tanstack/react-router";
+import { useOpenDraft } from "../api/mutations/use-open-draft";
 import { isProblem } from "../api/problem-error";
 import { questionnaireQueries } from "../api/queries";
-import { useOpenDraft } from "../api/use-open-draft";
 import { BackToQuestionnaires } from "../components/back-to-questionnaires";
-import { questionCount } from "../components/counts";
 import { Notice } from "../components/notice";
+import { Pill } from "../components/pill";
 import { QuestionnaireNotFound } from "../components/questionnaire-not-found";
+import { LoadingLine, RetryNotice } from "../components/query-state";
+import { ScreenHeader } from "../components/screen-header";
+import { questionCount } from "../lib/counts";
+import { fullTimestamp } from "../lib/dates";
 
 const route = getRouteApi("/questionnaires/$questionnaireId/versions");
 
@@ -25,16 +29,8 @@ const ABSENT = "—";
 
 const COLUMN_COUNT = 5;
 
-const timestampFormat = new Intl.DateTimeFormat("en-GB", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
 function Timestamp({ iso }: { iso: string }) {
-  return <time dateTime={iso}>{timestampFormat.format(new Date(iso))}</time>;
+  return <time dateTime={iso}>{fullTimestamp(iso)}</time>;
 }
 
 function OpenNextDraft({ summary }: { summary: QuestionnaireSummary }) {
@@ -54,19 +50,33 @@ function OpenNextDraft({ summary }: { summary: QuestionnaireSummary }) {
   );
 }
 
+function RawResponsesLink({ questionnaireId }: { questionnaireId: string }) {
+  return (
+    <Button asChild variant="outline">
+      <Link to="/questionnaires/$questionnaireId/responses" params={{ questionnaireId }}>
+        Raw responses
+      </Link>
+    </Button>
+  );
+}
+
 function HistoryHeader({ summary }: { summary: QuestionnaireSummary | undefined }) {
   const canOpenNextDraft = summary !== undefined && !summary.hasDraft && summary.currentVersion !== null;
+  const hasAPublishedVersionToBrowseResponsesFor = summary !== undefined && summary.currentVersion !== null;
   return (
-    <header className="flex items-start justify-between gap-6">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <BackToQuestionnaires />
-          <h1 className="text-xl font-semibold tracking-tight">Version history</h1>
-        </div>
-        {summary === undefined ? null : <p className="pl-9 text-sm text-muted-foreground">{summary.name}</p>}
-      </div>
-      {canOpenNextDraft ? <OpenNextDraft summary={summary} /> : null}
-    </header>
+    <ScreenHeader
+      back={<BackToQuestionnaires />}
+      title="Version history"
+      meta={summary?.name}
+      trailing={
+        summary === undefined ? undefined : (
+          <div className="flex items-center gap-2">
+            {hasAPublishedVersionToBrowseResponsesFor ? <RawResponsesLink questionnaireId={summary.questionnaireId} /> : null}
+            {canOpenNextDraft ? <OpenNextDraft summary={summary} /> : null}
+          </div>
+        )
+      }
+    />
   );
 }
 
@@ -74,9 +84,7 @@ function DraftRow({ questionnaireId, updatedAt }: { questionnaireId: string; upd
   return (
     <TableRow>
       <TableCell>
-        <span className="inline-flex h-5 items-center rounded-full border border-border bg-muted px-2 text-xs font-medium">
-          Draft
-        </span>
+        <Pill className="bg-muted">Draft</Pill>
       </TableCell>
       <TableCell className="text-muted-foreground">{ABSENT}</TableCell>
       <TableCell className="text-muted-foreground">
@@ -178,7 +186,7 @@ export function VersionHistoryScreen() {
 
   const body = (() => {
     if (versions.isPending || questionnaires.isPending) {
-      return <p role="status" className="text-sm text-muted-foreground">Loading versions…</p>;
+      return <LoadingLine>Loading versions…</LoadingLine>;
     }
     if (versions.isError && isProblem(versions.error, "resource/not-found")) {
       return (
@@ -187,13 +195,8 @@ export function VersionHistoryScreen() {
     }
     if (versions.isError) {
       return (
-        <Notice>
-          <p role="alert" className="font-medium">
-            The version history could not be loaded.
-          </p>
-          <Button variant="outline" size="sm" onClick={() => void versions.refetch()}>
-            Try again
-          </Button>
+        <Notice alert>
+          <RetryNotice message="The version history could not be loaded." onRetry={() => void versions.refetch()} />
         </Notice>
       );
     }

@@ -6,10 +6,9 @@ publishing) and execution (sessions, responses). See
 [`docs/7-application-boundary.md`](../../docs/7-application-boundary.md) for how this app's modules
 relate to `packages/shared` and `packages/telemetry`.
 
-> **Status:** scaffold only — `src/index.ts` exposes a `/health` check and nothing else yet.
-> `src/modules/definition` and `src/modules/execution` don't exist yet; once they do,
-> `eslint.config.mjs` enforces that they never import each other and that only
-> `packages/telemetry` imports `pino` or `@opentelemetry/*`.
+> **Status:** `src/index.ts` serves the three API modules and `/health/live` (process up, no database; `/health` is an alias), and `/health/ready` (`SELECT 1` on the definition, execution and reporting pools; `503` with the failing roles in `detail`).
+> `eslint.config.mjs` enforces that `src/modules/definition` and `src/modules/execution` never
+> import each other and that only `packages/telemetry` imports `pino` or `@opentelemetry/*`.
 
 ## Configuration
 
@@ -39,6 +38,11 @@ the working rules are in [`.claude/skills/database/SKILL.md`](../../.claude/skil
   through the real publish transaction. It is idempotent. See [`src/db/seed/README.md`](src/db/seed/README.md).
 - Roles are not migrations: `db/init/01-roles.sh` creates them, and the compose `roles` service re-applies it
   before `migrate` on every `up`, so a new role or changed password reaches an existing volume.
+- `0021_monitor_schema.sql` adds the `monitor` schema of `SECURITY DEFINER` functions that return aggregates to telemetry,
+  executable by `qp_monitor` and no other role; `qp_monitor` holds no privilege on any table
+  ([`docs/9-database-schema.md`](../../docs/9-database-schema.md) §10.1). The `db` service preloads `pg_stat_statements` and
+  logs no parameter or error detail; the roles script creates the extension. `openDatabase` names each pool's connections
+  `qp-backend:<pool>` in `pg_stat_activity`.
 
 ## Hand-edited migrations
 
@@ -77,6 +81,14 @@ The guard tests:
 - `_tests/db/schema-drift.test.ts` runs `drizzle-kit generate` against a temporary copy of `drizzle/` and
   fails unless it reports no schema changes.
 - `_tests/db/migration-lock.test.ts` is the lock described above.
+
+## Migrations that refuse existing data
+
+`0015_other_option_id_reserved.sql` reserves the option id `other` for the freeform option ([Decisions Log](../../docs/2-design-doc.md) #83). Before PR 2c the API accepted a plain option under `other`, so a database written to before then may hold one. The migration then stops before changing anything and raises `23514`, listing each question version and option that breaks the rule. Every pending migration runs in one transaction, so the database stays on `0014`, and compose does not start the backend.
+
+Nothing can repair such a row. Question versions are append-only and published ones immutable (#13), so a migration that made the option freeform, or deleted it, would change what an existing version asked and what its responses mean. For a development or demo database, reset it: `docker compose down -v`, then `docker compose up --build`. No production deployment exists. Before one does, any database that has taken questions from clients other than the admin editor has to be checked with the query at the top of `0015`.
+
+The check at the top of `0015` is written by hand into the generated file. Like the `0000` edits, it survives only because committed migrations are never regenerated, and `migrations.lock.json` pins it.
 
 ## Scripts
 

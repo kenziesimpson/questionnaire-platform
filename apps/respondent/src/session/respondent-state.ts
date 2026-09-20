@@ -1,7 +1,8 @@
 import type { ClientAnswers, PublishedDefinition, Receipt, Session } from "@qp/shared";
-import { withoutItemError, type SubmissionRejection } from "../answers/submission-rejection.ts";
-import type { ExecutionProblemSlug } from "../api/problems.ts";
-import type { StoredPartials } from "../storage/partials.ts";
+import { withoutItemError, type SubmissionRejection } from "../answers/submission-rejection";
+import type { ExecutionProblemSlug } from "../api/problems";
+import type { StoredPartials } from "../storage/partials";
+import { hasAnyAnswer, isRetryable } from "./failure";
 
 export interface FormContext {
   readonly session: Session;
@@ -64,14 +65,6 @@ export type RespondentEvent =
 
 export const INITIAL_STATE: RespondentState = { name: "entering" };
 
-export function hasAnyAnswer(answers: ClientAnswers): boolean {
-  return Object.values(answers).some((answer) => answer !== null);
-}
-
-export function isRetryable(reason: FailureReason): boolean {
-  return reason.kind !== "problem" || reason.slug === "internal";
-}
-
 function contextOf({ session, definition, restoredAnswers, restored }: FormContext): FormContext {
   return { session, definition, restoredAnswers, restored };
 }
@@ -88,7 +81,13 @@ export function formContextOf(state: RespondentState): FormContext | null {
       return state;
     case "failed":
       return state.step === "submitting" ? state : null;
-    default:
+    case "entering":
+    case "resuming":
+    case "starting":
+    case "startingNewSession":
+    case "done":
+    case "closed":
+    case "notFound":
       return null;
   }
 }
@@ -99,7 +98,21 @@ function fromEntering(state: RespondentState, event: RespondentEvent): Responden
       return { name: "resuming", stored: event.stored, previousFailure: null };
     case "noStoredSession":
       return { name: "starting", carriedAnswers: {}, previousFailure: null };
-    default:
+    case "sessionResumed":
+    case "submittedSessionResumed":
+    case "storedSessionStale":
+    case "sessionStarted":
+    case "questionnaireClosed":
+    case "questionnaireNotFound":
+    case "requestFailed":
+    case "retryRequested":
+    case "newSessionRequested":
+    case "submitRequested":
+    case "submitAccepted":
+    case "submissionRejected":
+    case "answerChanged":
+    case "alreadySubmitted":
+    case "recordedReceiptFetched":
       return state;
   }
 }
@@ -125,7 +138,18 @@ function fromResuming(state: Extract<RespondentState, { name: "resuming" }>, eve
       return { name: "closed" };
     case "requestFailed":
       return { name: "failed", step: "resuming", stored: state.stored, failure: failureAfter(state, event.reason) };
-    default:
+    case "storedSessionFound":
+    case "noStoredSession":
+    case "sessionStarted":
+    case "questionnaireNotFound":
+    case "retryRequested":
+    case "newSessionRequested":
+    case "submitRequested":
+    case "submitAccepted":
+    case "submissionRejected":
+    case "answerChanged":
+    case "alreadySubmitted":
+    case "recordedReceiptFetched":
       return state;
   }
 }
@@ -151,7 +175,19 @@ function fromStarting(
       return { name: "notFound" };
     case "requestFailed":
       return { name: "failed", step: "starting", carriedAnswers, failure: failureAfter(state, event.reason) };
-    default:
+    case "storedSessionFound":
+    case "noStoredSession":
+    case "sessionResumed":
+    case "submittedSessionResumed":
+    case "storedSessionStale":
+    case "retryRequested":
+    case "newSessionRequested":
+    case "submitRequested":
+    case "submitAccepted":
+    case "submissionRejected":
+    case "answerChanged":
+    case "alreadySubmitted":
+    case "recordedReceiptFetched":
       return state;
   }
 }
@@ -164,7 +200,21 @@ function fromReady(state: Extract<RespondentState, { name: "ready" }>, event: Re
       const rejection = state.rejection === null ? null : withoutItemError(state.rejection, event.itemId);
       return rejection === state.rejection ? state : { ...state, rejection };
     }
-    default:
+    case "storedSessionFound":
+    case "noStoredSession":
+    case "sessionResumed":
+    case "submittedSessionResumed":
+    case "storedSessionStale":
+    case "sessionStarted":
+    case "questionnaireClosed":
+    case "questionnaireNotFound":
+    case "requestFailed":
+    case "retryRequested":
+    case "newSessionRequested":
+    case "submitAccepted":
+    case "submissionRejected":
+    case "alreadySubmitted":
+    case "recordedReceiptFetched":
       return state;
   }
 }
@@ -193,7 +243,20 @@ function fromFailed(state: FailedState, event: RespondentEvent): RespondentState
       return state.step === "resuming" && isRetryable(state.failure.reason) && hasAnyAnswer(state.stored.answers)
         ? { name: "startingNewSession", stored: state.stored, previousFailure: state.failure }
         : state;
-    default:
+    case "storedSessionFound":
+    case "noStoredSession":
+    case "sessionResumed":
+    case "submittedSessionResumed":
+    case "storedSessionStale":
+    case "sessionStarted":
+    case "questionnaireClosed":
+    case "questionnaireNotFound":
+    case "requestFailed":
+    case "submitAccepted":
+    case "submissionRejected":
+    case "answerChanged":
+    case "alreadySubmitted":
+    case "recordedReceiptFetched":
       return state;
   }
 }
@@ -210,7 +273,18 @@ function fromSubmitting(state: Extract<RespondentState, { name: "submitting" }>,
       return { name: "closed" };
     case "requestFailed":
       return { ...contextOf(state), name: "failed", step: "submitting", failure: failureAfter(state, event.reason) };
-    default:
+    case "storedSessionFound":
+    case "noStoredSession":
+    case "sessionResumed":
+    case "submittedSessionResumed":
+    case "storedSessionStale":
+    case "sessionStarted":
+    case "questionnaireNotFound":
+    case "retryRequested":
+    case "newSessionRequested":
+    case "submitRequested":
+    case "answerChanged":
+    case "recordedReceiptFetched":
       return state;
   }
 }
@@ -221,7 +295,21 @@ function fromFetchingRecordedReceipt(state: Extract<RespondentState, { name: "fe
       return { name: "done", receipt: event.receipt, definition: event.definition, alreadySubmitted: true };
     case "requestFailed":
       return { ...contextOf(state), name: "failed", step: "fetchingRecordedReceipt", failure: failureAfter(state, event.reason) };
-    default:
+    case "storedSessionFound":
+    case "noStoredSession":
+    case "sessionResumed":
+    case "submittedSessionResumed":
+    case "storedSessionStale":
+    case "sessionStarted":
+    case "questionnaireClosed":
+    case "questionnaireNotFound":
+    case "retryRequested":
+    case "newSessionRequested":
+    case "submitRequested":
+    case "submitAccepted":
+    case "submissionRejected":
+    case "answerChanged":
+    case "alreadySubmitted":
       return state;
   }
 }

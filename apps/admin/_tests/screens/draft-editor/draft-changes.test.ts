@@ -9,8 +9,7 @@ import {
   repinItem,
   setRequired,
 } from "../../../src/screens/draft-editor/draft-changes";
-import { aDraft } from "../../fixtures";
-import { aQuestionVersion } from "../question-editor/harness";
+import { aDraft, aQuestionVersion } from "../../support/builders";
 
 const OTHER_QUESTION_ID = "01a0950e-56a0-73d6-b936-4a1e10eff9a0";
 

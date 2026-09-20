@@ -5,12 +5,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createQuestion } from "../../../src/db/definition/questions.js";
 import { questionnaireItem, questionVersion } from "../../../src/db/schema.js";
 import { replyWithDefinitionProblem } from "../../../src/modules/definition/errors.js";
-import { MalformedDraftPrecondition } from "../../../src/modules/definition/if-match.js";
-import { aPublishedQuestionnaire, aTextQuestion } from "../../db/fixtures.js";
-import { useTestDatabase } from "../../db/harness.js";
+import { actor, aPublishedQuestionnaire, aTextQuestion, useTestDatabase } from "../../db/fixtures.js";
 
 const testDatabase = useTestDatabase();
-const actor = { createdBy: "test", traceId: null };
 
 let app: FastifyInstance;
 let failure: () => Promise<unknown>;
@@ -35,18 +32,6 @@ async function responseWhen(fails: () => Promise<unknown>) {
 }
 
 describe("replyWithDefinitionProblem", () => {
-  it("answers a malformed If-Match as request/invalid pointing at the header", async () => {
-    const response = await responseWhen(async () => {
-      throw new MalformedDraftPrecondition();
-    });
-
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toMatchObject({
-      type: problemType("request/invalid"),
-      errors: [{ pointer: "/headers/if-match", code: "schema/pattern" }],
-    });
-  });
-
   it("answers the immutability trigger, raised through drizzle, as version/immutable", async () => {
     const db = testDatabase.database("definition");
     const published = await aPublishedQuestionnaire(db);
@@ -68,7 +53,7 @@ describe("replyWithDefinitionProblem", () => {
     );
 
     expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({ type: problemType("question/version-conflict") });
+    expect(response.json()).toMatchObject({ type: problemType("question/version-conflict"), instance: "/fail" });
   });
 
   it("answers any other unique violation as internal", async () => {
@@ -78,6 +63,6 @@ describe("replyWithDefinitionProblem", () => {
     const response = await responseWhen(() => createQuestion(db, { key: "taken", content: aTextQuestion, ...actor }));
 
     expect(response.statusCode).toBe(500);
-    expect(response.json()).toMatchObject({ type: problemType("internal") });
+    expect(response.json()).toMatchObject({ type: problemType("internal"), instance: "/fail" });
   });
 });

@@ -1,28 +1,25 @@
 import Type from "typebox";
 
-/** Bank rows, questionnaires, sessions and published versions. UUIDv7 or v4, never sequential. */
+export const UUID_PATTERN = "^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$";
 export const Uuid = Type.String({ format: "uuid" });
 
-/**
- * Authored identifiers that live inside a document rather than as a row: `itemId`, `optionId`,
- * and the `key` slugs on questions and questionnaires. `yes`, `no` and `other` are reserved
- * option ids by editor convention (Decisions Log #36), not by this pattern.
- */
 export const SLUG_PATTERN = "^[a-z][a-z0-9_]{0,63}$";
 export const Slug = Type.String({ pattern: SLUG_PATTERN });
 
-/** A calendar date with no timezone — what a date question collects ([[9-database-schema]] §6.1). */
-export const IsoDate = Type.String({ format: "date" });
+export const ISO_YEAR_PATTERN = "(?!0000)[0-9]{4}";
 
-export const IsoDateTime = Type.String({ format: "date-time" });
+export const IsoDate = Type.String({ format: "date", pattern: `^${ISO_YEAR_PATTERN}-` });
 
-/**
- * A number answer on the wire (Decisions Log #42). A JSON number would be parsed into an IEEE
- * double before reaching the `numeric` column or the digest, so the exact decimal travels as text.
- * No exponent, no leading zeros, no `+`.
- */
+export const IsoDateTime = Type.String({
+  format: "date-time",
+  pattern: `^${ISO_YEAR_PATTERN}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-5][0-9](?:\\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$`,
+});
+
 export const DECIMAL_PATTERN = "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$";
-export const DecimalString = Type.String({ pattern: DECIMAL_PATTERN });
+const MAX_DECIMAL_LENGTH = 64;
+export const DecimalString = Type.String({ pattern: DECIMAL_PATTERN, maxLength: MAX_DECIMAL_LENGTH });
 
-export const PositiveInt = Type.Integer({ minimum: 1 });
-export const NonNegativeInt = Type.Integer({ minimum: 0 });
+const INT4_MAX = 2_147_483_647;
+export const PositiveInt = Type.Integer({ minimum: 1, maximum: INT4_MAX });
+export const NonNegativeInt = Type.Integer({ minimum: 0, maximum: INT4_MAX });
+export const strict = { additionalProperties: false } as const;

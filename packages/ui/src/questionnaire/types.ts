@@ -3,7 +3,7 @@ import type {
   ClientAnswerValueOf,
   ClientAnswers,
   Item,
-  QuestionContent,
+  QuestionOf,
   ResponseType,
   SubmissionItemCode,
 } from "@qp/shared";
@@ -13,8 +13,6 @@ export type RendererMode = "interactive" | "readonly";
 export type ItemErrors = Readonly<Partial<Record<string, readonly SubmissionItemCode[]>>>;
 
 export type AnswerChangeHandler = (itemId: string, answer: ClientAnswerValue | null) => void;
-
-export type QuestionOf<T extends ResponseType> = Extract<QuestionContent, { type: T }>;
 
 export interface RendererProps {
   answers: ClientAnswers;
@@ -29,4 +27,5 @@ export interface ControlProps<T extends ResponseType> {
   error: string | undefined;
   mode: RendererMode;
   onChange: AnswerChangeHandler;
+  label?: string;
 }

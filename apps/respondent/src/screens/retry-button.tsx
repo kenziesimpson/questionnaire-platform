@@ -1,3 +1,4 @@
+import { LoaderCircleIcon, PlusIcon, RotateCwIcon } from "@qp/ui/icons";
 import { Button } from "@qp/ui/primitives/button";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -48,20 +49,7 @@ function ActionButton({ label, pendingLabel, icon, pending, blocked, onAction, v
         if (!unavailable) onAction();
       }}
     >
-      <svg
-        aria-hidden="true"
-        className={pending ? "motion-safe:animate-spin" : undefined}
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        {pending ? <path d="M21 12a9 9 0 1 1-6.22-8.56" /> : icon}
-      </svg>
+      {pending ? <LoaderCircleIcon aria-hidden="true" size={16} className="motion-safe:animate-spin" /> : icon}
       {pending ? pendingLabel : label}
     </Button>
   );
@@ -80,12 +68,7 @@ export function RetryButton({ retry, describedBy, focusOnMount, variant = "outli
     <ActionButton
       label="Try again"
       pendingLabel="Trying again…"
-      icon={
-        <>
-          <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-          <path d="M21 3v5h-5" />
-        </>
-      }
+      icon={<RotateCwIcon aria-hidden="true" size={16} />}
       pending={retry.retrying}
       blocked={blocked}
       onAction={retry.onRetry}
@@ -107,12 +90,7 @@ export function NewSessionButton({ newSession, describedBy, blocked }: NewSessio
     <ActionButton
       label="Start a new session"
       pendingLabel="Starting a new session…"
-      icon={
-        <>
-          <path d="M5 12h14" />
-          <path d="M12 5v14" />
-        </>
-      }
+      icon={<PlusIcon aria-hidden="true" size={16} />}
       pending={newSession.starting}
       blocked={blocked}
       onAction={newSession.onStart}

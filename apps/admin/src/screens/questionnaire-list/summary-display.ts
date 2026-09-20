@@ -1,19 +1,5 @@
 import type { QuestionnaireSummary } from "@qp/shared";
-
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-const WEEK = 7 * DAY;
-
-const calendarDate = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-const calendarDateTime = new Intl.DateTimeFormat("en-GB", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-const relativeTime = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+import { fullTimestamp } from "../../lib/dates";
 
 export type QuestionnaireStatus =
   | { kind: "never-published" }
@@ -46,21 +32,8 @@ export function statusLabel(status: QuestionnaireStatus): string {
 }
 
 export function closesLabel({ closesAt, currentVersion }: QuestionnaireSummary): string {
-  if (closesAt !== null) return calendarDateTime.format(Date.parse(closesAt));
+  if (closesAt !== null) return fullTimestamp(closesAt);
   return currentVersion === null ? "—" : "Open-ended";
-}
-
-export function lastEditedLabel(updatedAt: string, now: number): string {
-  const elapsed = now - Date.parse(updatedAt);
-  if (elapsed < MINUTE) return "just now";
-  if (elapsed < HOUR) return relativeTime.format(-Math.floor(elapsed / MINUTE), "minute");
-  if (elapsed < DAY) return relativeTime.format(-Math.floor(elapsed / HOUR), "hour");
-  if (elapsed < WEEK) return relativeTime.format(-Math.floor(elapsed / DAY), "day");
-  return calendarDate.format(Date.parse(updatedAt));
-}
-
-export function fullTimestamp(iso: string): string {
-  return calendarDateTime.format(Date.parse(iso));
 }
 
 export function respondentLink(questionnaireId: string, origin: string = window.location.origin): string {

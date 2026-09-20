@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "../../src/primitives/table";
-import { violationsIn } from "../axe";
+import { axeViolations } from "../../src/testing";
 
 function QuestionnaireTable() {
   return (
@@ -69,6 +69,6 @@ describe("Table", () => {
   it("finds no axe violations", async () => {
     const { container } = render(<QuestionnaireTable />);
 
-    expect(await violationsIn(container)).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 });

@@ -1,41 +1,51 @@
+import { logger } from "@qp/telemetry";
 import { buildApp } from "./app.js";
 import { config, databaseUrl } from "./config.js";
 import { openDatabase } from "./db/client.js";
+import { requestLogger } from "./http/request-logger.js";
+import { shutDown, shutDownOnSignals } from "./shutdown.js";
+import { telemetryOfProcess } from "./telemetry.js";
 
-const definition = openDatabase(databaseUrl("definition"));
-const execution = openDatabase(databaseUrl("execution"));
+const telemetry = telemetryOfProcess();
+const log = logger("backend");
+
+if (!telemetry.preloaded) {
+  log.warn("started without the telemetry preload, so requests and queries are not traced");
+}
+
+const definition = openDatabase(databaseUrl("definition"), { pool: "definition" });
+const execution = openDatabase(databaseUrl("execution"), { pool: "execution" });
+const reporting = openDatabase(databaseUrl("reporting"), { pool: "reporting" });
 
 const app = await buildApp({
-  logger: {
-    level: config.logLevel,
-    transport:
-      config.nodeEnv === "development"
-        ? { target: "pino-pretty", options: { colorize: true } }
-        : undefined,
-  },
+  logger: requestLogger(config.logLevel),
   definition: { database: definition.db },
   execution: { database: execution.db },
-});
-
-app.addHook("onClose", async () => {
-  await Promise.all([definition.close(), execution.close()]);
+  reporting: { reporting: reporting.db },
+  telemetry: { eventsPerSecond: config.ingestEventsPerSecond },
 });
 
 async function start() {
   try {
     await app.listen({ port: config.port, host: config.host });
+    log.info("server listening");
   } catch (err) {
-    app.log.error(err);
+    log.error("server failed to start", undefined, err instanceof Error ? err : undefined);
+    await shutDown(shutdownParts());
     process.exit(1);
   }
 }
 
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, async () => {
-    app.log.info({ signal }, "shutting down");
-    await app.close();
-    process.exit(0);
-  });
+function shutdownParts() {
+  return {
+    closeApp: () => app.close(),
+    telemetry: telemetry.handle,
+    closePools: async () => {
+      await Promise.all([definition.close(), execution.close(), reporting.close()]);
+    },
+  };
 }
 
-start();
+shutDownOnSignals(shutdownParts(), process);
+
+void start();

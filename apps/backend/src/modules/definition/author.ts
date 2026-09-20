@@ -1,6 +1,8 @@
 import type { FastifyRequest } from "fastify";
+import { PLACEHOLDER_ACTOR } from "../../http/placeholder-actor.js";
+import { InvariantViolation } from "../../invariant.js";
 
-export const AUTHOR_PLACEHOLDER = "prototype-author";
+export const AUTHOR_PLACEHOLDER = PLACEHOLDER_ACTOR;
 
 const authenticatedAuthors = new WeakMap<FastifyRequest, string>();
 
@@ -11,7 +13,7 @@ export async function authenticateAuthor(request: FastifyRequest): Promise<void>
 export function authorOf(request: FastifyRequest): string {
   const author = authenticatedAuthors.get(request);
   if (author === undefined) {
-    throw new Error("authorOf read a request that did not pass through the definition module's author hook");
+    throw InvariantViolation.of("author.read-outside-author-hook");
   }
   return author;
 }

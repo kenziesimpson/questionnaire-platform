@@ -95,7 +95,7 @@ export const question = definitionSchema.table("question", {
   createdAt: timestamptz().notNull().defaultNow(),
 });
 
-export const RESPONSE_TYPE_VALUES = ["text", "single_choice", "multiple_choice", "number", "date"] as const;
+const RESPONSE_TYPE_VALUES = ["text", "single_choice", "multiple_choice", "number", "date"] as const;
 
 export const questionVersion = definitionSchema.table(
   "question_version",
@@ -137,8 +137,7 @@ export const questionVersionOption = definitionSchema.table(
       foreignColumns: [questionVersion.questionId, questionVersion.version],
     }),
     unique("question_version_option_position_key").on(t.questionId, t.version, t.position),
-    check("freeform_is_other", sql`NOT freeform OR option_id = 'other'`),
-    uniqueIndex("qvo_one_freeform").on(t.questionId, t.version).where(sql`freeform`),
+    check("freeform_exactly_when_other", sql`freeform = (option_id = 'other')`),
   ],
 );
 
@@ -222,6 +221,9 @@ export const session = executionSchema.table(
     ),
     index("session_by_version").on(t.questionnaireVersionId, t.startedAt),
     index("session_in_progress").on(t.questionnaireId, t.lastActivityAt).where(sql`status = 'in_progress'`),
+    index("session_by_questionnaire").on(t.questionnaireId, t.startedAt, t.id),
+    index("session_by_questionnaire_submitted_asc").on(t.questionnaireId, t.submittedAt.asc().nullsLast(), t.id.asc().nullsLast()),
+    index("session_by_questionnaire_submitted_desc").on(t.questionnaireId, t.submittedAt.desc().nullsLast(), t.id.desc().nullsFirst()),
   ],
 );
 
@@ -272,6 +274,7 @@ export const AUDIT_ACTIONS = [
   "reopen",
   "archive_question",
   "create_question_version",
+  "view_response",
 ] as const;
 
 export const auditEvent = auditSchema.table(
@@ -291,7 +294,7 @@ export const auditEvent = auditSchema.table(
   (t) => [
     check(
       "event_action_check",
-      sql`action IN ('create_draft', 'edit_draft', 'publish', 'retire', 'reopen', 'archive_question', 'create_question_version')`,
+      sql`action IN ('create_draft', 'edit_draft', 'publish', 'retire', 'reopen', 'archive_question', 'create_question_version', 'view_response')`,
     ),
     index("audit_by_questionnaire").on(t.questionnaireId, t.occurredAt.desc()),
   ],

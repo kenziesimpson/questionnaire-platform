@@ -1,6 +1,6 @@
-import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, DEMO_V1, expect, test } from "../../fixtures/index.ts";
-import { ITEM_ERROR_MESSAGES } from "./support/respondent-messages.ts";
-import { recordSubmitRequests, submitBodyOf, waitForSubmitResponse } from "./support/submit-traffic.ts";
+import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, DEMO_V1, expect, test } from "../../fixtures/index";
+import { ITEM_ERROR_MESSAGES } from "./support/respondent-messages";
+import { recordSubmitRequests, submitBodyOf, waitForSubmitResponse } from "./support/submit-traffic";
 
 const { hasCondition, whichCondition, diagnosedOn, pharmacy } = DEMO_V1.prompts;
 const OTHER_LABEL = DEMO_V1.optionLabel(DEMO_OPTION_IDS.other);
@@ -12,12 +12,20 @@ test.describe("E17 — freeform other round trip", () => {
     await respondent.openForm(demo.questionnaireId);
     const { sessionId } = await respondent.waitForEnvelope(demo.questionnaireId);
 
+    const conditionGroup = respondent.choiceGroup(whichCondition);
+
     await respondent.choose(hasCondition, DEMO_V1.optionLabel(DEMO_OPTION_IDS.yes));
     await respondent.choose(whichCondition, OTHER_LABEL);
-    await respondent.fillDate(diagnosedOn, "2020-02-29");
-    await respondent.fillText(pharmacy, "Corner pharmacy");
+    await expect(conditionGroup).not.toHaveAttribute("aria-invalid", "true");
 
-    const conditionGroup = respondent.choiceGroup(whichCondition);
+    await respondent.otherText(whichCondition).click();
+    await expect(conditionGroup).not.toHaveAttribute("aria-invalid", "true");
+
+    await respondent.fillDate(diagnosedOn, "2020-02-29");
+    await expect(conditionGroup).toHaveAttribute("aria-invalid", "true");
+    await expect(conditionGroup).toHaveAccessibleDescription(ITEM_ERROR_MESSAGES.otherTextRequired(OTHER_LABEL));
+
+    await respondent.fillText(pharmacy, "Corner pharmacy");
     await respondent.submit();
     await expect(conditionGroup).toHaveAttribute("aria-invalid", "true");
     await expect(conditionGroup).toHaveAccessibleDescription(ITEM_ERROR_MESSAGES.otherTextRequired(OTHER_LABEL));

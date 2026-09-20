@@ -1,7 +1,9 @@
-import { INTAKE_QUESTIONNAIRE_ID, PROBLEM_CONTENT_TYPE, problem, sensitive, type ClientAnswers } from "@qp/shared";
+import { PROBLEM_CONTENT_TYPE, problem, sensitive, type ClientAnswers } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
+import { createEventQueue, routeLogsToQueue, type QueuedEvent } from "@qp/telemetry/browser";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { createSession, getSession, submitSession } from "../../src/api/execution-client.ts";
-import { ANSWER_SENTINEL, inProgressSession, intakeV1, receipt, SESSION_ID, submittedSession } from "../fixtures.ts";
+import { createSession, getSession, submitSession } from "../../src/api/execution-client";
+import { ANSWER_SENTINEL, inProgressSession, intakeV1, receipt, SESSION_ID, submittedSession } from "../fixtures";
 
 type FetchMock = Mock<typeof fetch>;
 
@@ -262,5 +264,79 @@ describe("unexpected responses", () => {
     respondWithProblem(body);
 
     expect(await submitSession(SESSION_ID, sensitive(answers))).toEqual({ kind: "unexpected-response", status: body.status });
+  });
+});
+
+describe("trace context and client warnings", () => {
+  const TRACEPARENT = /^00-[0-9a-f]{32}-[0-9a-f]{16}-00$/;
+
+  function headersSent(call = 0): Headers {
+    return new Headers(fetchMock.mock.calls[call]?.[1]?.headers);
+  }
+
+  it.each([
+    ["createSession", () => createSession(INTAKE_QUESTIONNAIRE_ID), 201, ["accept", "content-type", "traceparent"]],
+    ["getSession", () => getSession(SESSION_ID), 200, ["accept", "traceparent"]],
+    ["submitSession", () => submitSession(SESSION_ID, sensitive(answers)), 200, ["accept", "content-type", "traceparent"]],
+  ] as const)("sends one traceparent and no other new header on %s, with nothing started", async (_name, call, status, names) => {
+    respondWith(status, {});
+
+    await call();
+
+    const headers = headersSent();
+    expect(headers.get("traceparent")).toMatch(TRACEPARENT);
+    expect([...headers.keys()].sort()).toEqual([...names]);
+    expect(JSON.stringify([...headers.entries()])).not.toContain(ANSWER_SENTINEL);
+  });
+
+  it("puts a traceparent naming no route, session id or answer, only ids and flags", async () => {
+    respondWith(200, { session: inProgressSession, definition: intakeV1 });
+
+    await getSession(SESSION_ID);
+
+    const traceparent = headersSent().get("traceparent") ?? "";
+    expect(traceparent).not.toContain(SESSION_ID);
+    expect(traceparent.split("-")).toHaveLength(4);
+  });
+
+  it("sends the page's one trace id with a different span id on each request", async () => {
+    respondWith(200, { session: inProgressSession, definition: intakeV1 });
+
+    await getSession(SESSION_ID);
+    respondWith(200, { session: inProgressSession, definition: intakeV1 });
+    await getSession(SESSION_ID);
+
+    const [first, second] = [0, 1].map((call) => (headersSent(call).get("traceparent") ?? "").split("-"));
+    expect(first?.[1]).toMatch(/^[0-9a-f]{32}$/);
+    expect(second?.[1]).toBe(first?.[1]);
+    expect(second?.[2]).not.toBe(first?.[2]);
+  });
+
+  it("queues one client warning naming the method and the route template, never the url, when the request fails", async () => {
+    const sent: QueuedEvent[] = [];
+    const queue = createEventQueue({
+      send: (events) => {
+        sent.push(...events);
+      },
+      beacon: () => true,
+    });
+    const stopRouting = routeLogsToQueue(queue);
+    failNetwork();
+
+    await getSession(SESSION_ID);
+    stopRouting();
+    queue.flush();
+    queue.close();
+
+    expect(sent).toEqual([
+      {
+        level: "warn",
+        at: expect.any(String),
+        traceparent: expect.stringMatching(TRACEPARENT),
+        message: "request failed",
+        attributes: { "http.request.method": "GET", "http.route": "/api/run/sessions/:sessionId", module: "browser" },
+      },
+    ]);
+    expect(JSON.stringify(sent)).not.toContain(SESSION_ID);
   });
 });

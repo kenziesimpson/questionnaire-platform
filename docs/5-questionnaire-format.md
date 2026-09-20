@@ -17,6 +17,8 @@ Reusable question content never carries placement or branching. A question is re
 
 There are no edges between questions. Order is the list index; the next question is the first unanswered item whose predicate evaluates true. Convergence after a branch is not a property to prove — it is the only thing a list can do. See §6 for the models this was chosen over.
 
+**Identifiers come in two kinds.** Bank rows, questionnaires, sessions and published versions are addressed by uuid (v7 or v4), never a sequential integer. `itemId`, `optionId` and the `key` slugs on questions and questionnaires are different: they are authored identifiers that live inside a document rather than as a database row, matching `^[a-z][a-z0-9_]{0,63}$`. That pattern only constrains shape, not which slugs are meaningful: `yes` and `no` are reserved by editor convention alone (§2), while `other` carries an enforced guarantee, not just a convention (§2.3).
+
 ## 2. Question types
 
 Five response types. Constraints belong to the question version and compile into a validator at publish time.
@@ -37,7 +39,7 @@ becoming a different kind of thing. A distinct type bought a duplicated operator
 response shape constraint and a `display` render hint, and cost the author the ability to phrase the
 question — see [[2-design-doc#17. Decisions Log]] #36, superseding #10.
 
-The reserved ids are an **editor convention, not a guarantee.** A template-created question aggregates
+The reserved ids `yes` and `no` are an **editor convention, not a guarantee**, unlike `other` (§2.3). A template-created question aggregates
 across questionnaires on `yes` / `no`; a two-option question assembled by hand does not. That is the same
 tier as option-id stability below — upheld by the editor and proven by a test, not by a constraint, for the
 reason [[9-database-schema#3.2 The question bank]] gives when it rejects a registry table.
@@ -55,6 +57,8 @@ A stored answer is `{ value, unit }`, not a bare number. A later version that sw
 ### 2.3 The `other` option
 
 A choice question may mark a trailing option as freeform. The answer then has two parts — the selected option ids (one being `other`) and an `otherText` string — so the stored shape for every choice question carries an optional `otherText`, validated with the same length rules as a `text` question.
+
+**The id `other` is reserved for the freeform option, in both directions.** A freeform option must have the id `other` (`question/freeform-not-other`), and an option with the id `other` must be freeform (`question/other-not-freeform`). Saving a question that breaks either rule is `400 request/invalid`, and the `freeform_exactly_when_other` check holds the same rule in the database ([[9-database-schema#3.2 The question bank]]). The validator, the renderer and the admin editor all find the option through `freeformOptionOf` in `@qp/shared` ([[2-design-doc#17. Decisions Log]] #82, #83).
 
 **Rules may test whether `other` was selected; they may not match against the text.** Kept deliberately simple: text matching in rules is fragile and there is no version-stable identity to match on. If `otherText` ever needs to drive a branch, the likely shape is a promotion workflow — an admin converts a recurring freeform answer into a real option in the next version — rather than string matching in the rule engine. Noted as a possible future change, not a current limitation to design around.
 
@@ -205,6 +209,8 @@ Nesting is not supported. One `all` or `any` over a flat list satisfies the brie
 
 Deeper composition is a plausible future extension, and the escape hatch already exists without it: two conditions that would need nesting can usually be expressed as two items with separate predicates.
 
+Empty `all` and `any` groups are representable in the schema rather than rejected outright. That is deliberate: it lets the engine's edge cases — what an empty group evaluates to — be exercised directly in a test, while what an empty group *means* stays the engine's decision rather than the schema's.
+
 ### 4.2 Conditions are typed per response type
 
 There is no generic `{ itemId, op, value }` shape. The condition union is discriminated by the type of the question it references, so the operator set and the operand type travel together — comparing a date against a number, or asking whether a text answer is greater than 5, is unrepresentable at the type level in the shared package rather than a runtime error class to detect, message and test.
@@ -219,7 +225,7 @@ There is no generic `{ itemId, op, value }` shape. The condition union is discri
 
 Text has no content-matching operators, for the reason in §2.3. Its one operator carries a boolean rather than coming as an `answered` / `notAnswered` pair, so the condition is `{ type: "text", itemId, op: "answered", value: boolean }`. Like every condition, it is `false` when the referenced item is hidden, for either value (§4.3).
 
-Number conditions are expressed in the referenced question's unit. Because rules live on the questionnaire version and each item pins a specific question version, the unit is fixed for the life of that version and the comparison stays internally consistent.
+Number conditions are expressed in the referenced question's unit. Because rules live on the questionnaire version and each item pins a specific question version, the unit is fixed for the life of that version and the comparison stays internally consistent. `between`, on both the `number` and `date` operators, is inclusive of both bounds.
 
 ### 4.3 Evaluation
 

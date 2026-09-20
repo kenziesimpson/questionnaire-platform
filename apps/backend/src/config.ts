@@ -1,3 +1,5 @@
+import { DATABASE_POOLS, DEFAULT_INGEST_EVENTS_PER_SECOND, LOG_LEVELS, type LogLevel } from "@qp/telemetry";
+
 function required(name: string): string {
   const value = process.env[name];
   if (value === undefined || value === "") {
@@ -6,22 +8,62 @@ function required(name: string): string {
   return value;
 }
 
-export const DATABASE_ROLES = ["owner", "definition", "execution"] as const;
+export const POOL_ROLES = DATABASE_POOLS;
+export type PoolRole = (typeof POOL_ROLES)[number];
+
+export const DATABASE_ROLES = ["owner", ...POOL_ROLES] as const;
 export type DatabaseRole = (typeof DATABASE_ROLES)[number];
 
 const databaseUrlVariable: Record<DatabaseRole, string> = {
   owner: "DATABASE_URL_OWNER",
   definition: "DATABASE_URL_DEFINITION",
   execution: "DATABASE_URL_EXECUTION",
+  reporting: "DATABASE_URL_REPORTING",
 };
 
 export function databaseUrl(role: DatabaseRole): string {
   return required(databaseUrlVariable[role]);
 }
 
+function logLevelFrom(value: string | undefined): LogLevel {
+  const level = LOG_LEVELS.find((known) => known === (value ?? "info"));
+  if (level === undefined) {
+    throw new Error(`Unsupported LOG_LEVEL "${value}": expected one of ${LOG_LEVELS.join(", ")}`);
+  }
+  return level;
+}
+
+function presentOrUndefined(value: string | undefined): string | undefined {
+  return value === undefined || value === "" ? undefined : value;
+}
+
+function wholeNumberFrom(name: string, value: string | undefined, fallback: number, minimum: number): number {
+  if (presentOrUndefined(value) === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum) {
+    throw new Error(`Unsupported ${name} "${value}": expected a whole number of at least ${minimum}`);
+  }
+  return parsed;
+}
+
+const MIN_INGEST_EVENTS_PER_SECOND = 2;
+
+const nodeEnv = process.env.NODE_ENV ?? "development";
+
 export const config = {
-  nodeEnv: process.env.NODE_ENV ?? "development",
+  nodeEnv,
   port: Number(process.env.PORT ?? 3000),
   host: process.env.HOST ?? "0.0.0.0",
-  logLevel: process.env.LOG_LEVEL ?? "info",
+  logLevel: logLevelFrom(process.env.LOG_LEVEL),
+  ingestEventsPerSecond: wholeNumberFrom(
+    "TELEMETRY_INGEST_EVENTS_PER_SECOND",
+    process.env.TELEMETRY_INGEST_EVENTS_PER_SECOND,
+    DEFAULT_INGEST_EVENTS_PER_SECOND,
+    MIN_INGEST_EVENTS_PER_SECOND,
+  ),
+  telemetry: {
+    serviceName: presentOrUndefined(process.env.OTEL_SERVICE_NAME) ?? "qp-backend",
+    otlpEndpoint: presentOrUndefined(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
+    prettyLogs: nodeEnv === "development",
+  },
 } as const;

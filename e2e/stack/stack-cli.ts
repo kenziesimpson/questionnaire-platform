@@ -10,7 +10,7 @@ async function up(): Promise<void> {
   console.log("Building images and starting docker-compose.yml through Testcontainers…");
   const stack = await startComposeStack({ reapWhenProcessExits: false });
   const record = await recordKeptStack(stack);
-  console.log(`\nStack is up: ${describe(record)}\n\nRun specs against it by exporting the two variables above, then: npm run test -w e2e`);
+  console.log(`\nStack is up: ${describe(record)}\n\nRun specs against it by exporting the two variables above, then: npm run test:e2e -w e2e`);
   console.log(`Take it down with: npm run stack:down -w e2e -- ${stack.projectName}`);
 }
 
@@ -42,16 +42,10 @@ async function down(requested: string | undefined): Promise<void> {
 
 async function main(argv: readonly string[]): Promise<void> {
   const [command, argument] = argv;
-  switch (command) {
-    case "up":
-      return up();
-    case "list":
-      return list();
-    case "down":
-      return down(argument);
-    default:
-      throw new Error("Usage: stack-cli.ts up | list | down [project]");
-  }
+  if (command === "up") return up();
+  if (command === "list") return list();
+  if (command === "down") return down(argument);
+  throw new Error("Usage: stack-cli.ts up | list | down [project]");
 }
 
 main(process.argv.slice(2)).then(

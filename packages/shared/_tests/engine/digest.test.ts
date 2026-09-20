@@ -27,6 +27,12 @@ function reversedKeys<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).reverse()) as T;
 }
 
+function rowAt(index: number): ResponseRow {
+  const row = rows[index];
+  if (row === undefined) throw new Error(`expected a fixture row at index ${index}`);
+  return row;
+}
+
 const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
 
 describe("canonicalResponseRows — the four rules of [[7-application-boundary]] §5.4", () => {
@@ -55,7 +61,7 @@ describe("responseDigest", () => {
   });
 
   it("is deterministic under key reordering, row reordering and option click order", async () => {
-    const shuffled = [rows[3]!, rows[0]!, rows[4]!, rows[2]!, rows[1]!].map(reversedKeys);
+    const shuffled = [rowAt(3), rowAt(0), rowAt(4), rowAt(2), rowAt(1)].map(reversedKeys);
     const reclicked = shuffled.map((row) => (row.type === "multiple_choice" ? { ...row, optionIds: [...row.optionIds].reverse() } : row));
     expect(hex(await responseDigest(reclicked))).toBe(hex(await responseDigest(rows)));
   });

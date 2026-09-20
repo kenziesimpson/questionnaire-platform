@@ -1,5 +1,7 @@
-import { definitionApi, formatDraftEtag, problem } from "@qp/shared";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import { definitionApi, formatDraftEtag } from "@qp/shared";
+import { activeTraceId, withSpan } from "@qp/telemetry";
+import type { FastifyInstance } from "fastify";
+import type { Database } from "../../../db/client.js";
 import {
   createNextDraft,
   readDraft,
@@ -7,73 +9,94 @@ import {
   validateOpenDraft,
   type CurrentDraft,
 } from "../../../db/definition/drafts.js";
+import { publishDraft } from "../../../db/definition/publish.js";
+import { notFoundProblem } from "../../../http/problems.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { draftPreconditionOf } from "../if-match.js";
-import type { DefinitionModuleOptions } from "../plugin.js";
+import { reportDraftSaved, reportPublish, reportPublishFailed } from "../definition-events.js";
+import { definitionProblem } from "../problems.js";
 
 function draftHeaders({ draft, draftRevision }: CurrentDraft): Record<string, string> {
   return { etag: formatDraftEtag(draft.versionId, draftRevision), "cache-control": "no-store" };
 }
 
-function notFound(request: FastifyRequest) {
-  return problem("resource/not-found", { instance: request.url });
-}
-
-export async function draftRoutes(scope: FastifyInstance, { database }: DefinitionModuleOptions): Promise<void> {
+export function registerDraftRoutes(scope: FastifyInstance, database: Database): void {
   registerRoute(scope, definitionApi.getDraft, async (request) => {
     const current = await readDraft(database, request.params.id);
     if (current === undefined) {
-      return notFound(request);
+      return notFoundProblem();
     }
     return { status: 200, body: current.draft, headers: draftHeaders(current) };
   });
 
   registerRoute(scope, definitionApi.replaceDraft, async (request) => {
     const precondition = draftPreconditionOf(request.headers["if-match"]);
-    const { title, items } = request.body;
-    const outcome = await replaceDraft(database, {
-      questionnaireId: request.params.id,
-      precondition,
-      title,
-      items,
-      actorId: authorOf(request),
-      traceId: null,
-    });
-    switch (outcome.outcome) {
-      case "saved":
-        return { status: 200, body: outcome.draft, headers: draftHeaders(outcome) };
-      case "stale":
-        return problem("questionnaire/draft-stale", { instance: request.url });
-      case "no-draft":
-        return notFound(request);
-      case "invalid":
-        return problem("questionnaire/draft-invalid", { items: [...outcome.items] });
+    if ("status" in precondition) {
+      return precondition;
     }
+    const { title, items } = request.body;
+    const outcome = await withSpan("questionnaire.edit_draft", { questionnaireId: request.params.id }, async () => {
+      const saved = await replaceDraft(database, {
+        questionnaireId: request.params.id,
+        precondition,
+        title,
+        items,
+        actorId: authorOf(request),
+        traceId: activeTraceId(),
+      });
+      reportDraftSaved(request.params.id, saved);
+      return saved;
+    });
+    if (outcome.outcome !== "saved") {
+      return definitionProblem(outcome);
+    }
+    return { status: 200, body: outcome.draft, headers: draftHeaders(outcome) };
   });
 
   registerRoute(scope, definitionApi.openDraft, async (request) => {
-    const outcome = await createNextDraft(database, {
-      questionnaireId: request.params.id,
-      createdBy: authorOf(request),
-      traceId: null,
-    });
-    switch (outcome.outcome) {
-      case "created":
-        return { status: 201, body: outcome.draft, headers: draftHeaders(outcome) };
-      case "draft-exists":
-        return problem("questionnaire/draft-exists", { instance: request.url });
-      case "questionnaire-not-found":
-      case "nothing-published":
-        return notFound(request);
+    const outcome = await withSpan("questionnaire.open_draft", { questionnaireId: request.params.id }, async () =>
+      createNextDraft(database, {
+        questionnaireId: request.params.id,
+        createdBy: authorOf(request),
+        traceId: activeTraceId(),
+      }),
+    );
+    if (outcome.outcome !== "created") {
+      return definitionProblem(outcome);
     }
+    return { status: 201, body: outcome.draft, headers: draftHeaders(outcome) };
   });
 
   registerRoute(scope, definitionApi.validateDraft, async (request) => {
     const validation = await validateOpenDraft(database, request.params.id);
     if (validation === undefined) {
-      return notFound(request);
+      return notFoundProblem();
     }
     return { status: 200, body: validation };
+  });
+
+  registerRoute(scope, definitionApi.publishDraft, async (request) => {
+    const precondition = draftPreconditionOf(request.headers["if-match"]);
+    if ("status" in precondition) {
+      return precondition;
+    }
+    const published = await withSpan("questionnaire.publish", { questionnaireId: request.params.id }, async () => {
+      const outcome = await publishDraft(database, {
+        questionnaireId: request.params.id,
+        precondition,
+        actorId: authorOf(request),
+        traceId: activeTraceId(),
+      }).catch((error: unknown) => {
+        reportPublishFailed(request.params.id);
+        throw error;
+      });
+      reportPublish(request.params.id, outcome);
+      return outcome;
+    });
+    if (published.outcome !== "published") {
+      return definitionProblem(published);
+    }
+    return { status: 201, body: published.summary };
   });
 }

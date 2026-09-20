@@ -1,7 +1,16 @@
-import type { Condition, DraftItem, DraftItemCode, QuestionnaireDraft, ResponseType } from "@qp/shared";
-import { RESPONSE_TYPE_LABELS } from "../question-editor/question-form";
-import { laterReferencesIn, listOfPositions, referenceOf, type Reference } from "./conditions";
-import { conditionsOf, pinnedQuestionOf } from "./draft-changes";
+import {
+  conditionsOf,
+  optionIdsOf,
+  referencedOptionIds,
+  type Condition,
+  type DraftItem,
+  type DraftItemCode,
+  type QuestionnaireDraft,
+  type ResponseType,
+} from "@qp/shared";
+import { RESPONSE_TYPE_LABELS } from "../../lib/question";
+import { pinnedQuestionOf } from "./draft-changes";
+import { laterReferencesIn, listOfPositions, referenceOf, type Reference } from "./draft-selectors";
 
 interface DraftItemContext {
   draft: QuestionnaireDraft;
@@ -28,17 +37,11 @@ function referencesIn({ draft, item }: DraftItemContext): { condition: Condition
   return conditionsOf(item.visibleWhen).map((condition) => ({ condition, reference: referenceOf(draft, item.itemId, condition) }));
 }
 
-function optionIdsOf(condition: Condition): readonly string[] {
-  if ("optionIds" in condition) return condition.optionIds;
-  if ("optionId" in condition) return [condition.optionId];
-  return [];
-}
-
 function referenceWithUnknownOption(context: DraftItemContext): UsableReference | undefined {
   return referencesIn(context).flatMap(({ condition, reference }) => {
     if (reference.kind === "unusable") return [];
-    const known = new Set("options" in reference.question ? reference.question.options.map(({ optionId }) => optionId) : []);
-    return optionIdsOf(condition).some((optionId) => !known.has(optionId)) ? [reference] : [];
+    const known = new Set(optionIdsOf(reference.question));
+    return referencedOptionIds(condition).some((optionId) => !known.has(optionId)) ? [reference] : [];
   })[0];
 }
 

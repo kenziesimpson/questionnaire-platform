@@ -1,8 +1,9 @@
 import type { QuestionnaireDraft } from "@qp/shared";
+import { AlertCircleIcon } from "@qp/ui/icons";
+import { Alert, AlertDescription, AlertTitle } from "@qp/ui/primitives/alert";
 import { Button } from "@qp/ui/primitives/button";
-import type { DraftRejection } from "../../api/use-draft-mutation";
-import { problemCount } from "../../components/counts";
-import { AlertCircleIcon } from "../../components/icons";
+import type { DraftRejection } from "../../api/draft-types";
+import { problemCount } from "../../lib/counts";
 import { DRAFT_ITEM_MESSAGES } from "./draft-item-messages";
 
 export type DraftWrite = "change" | "publish";
@@ -10,7 +11,7 @@ export type DraftWrite = "change" | "publish";
 interface Copy {
   title: string;
   body: string;
-  tone: "neutral" | "destructive";
+  variant: "default" | "destructive";
 }
 
 function copyFor(rejection: DraftRejection, write: DraftWrite): Copy {
@@ -22,7 +23,7 @@ function copyFor(rejection: DraftRejection, write: DraftWrite): Copy {
           write === "publish"
             ? "It was not published. The draft has been reloaded with their changes; check it and publish again."
             : "Your last change was undone and the draft has been reloaded with their version, so carry on from there.",
-        tone: "neutral",
+        variant: "default",
       };
     case "invalid": {
       const found = rejection.problem.items.length;
@@ -33,12 +34,12 @@ function copyFor(rejection: DraftRejection, write: DraftWrite): Copy {
               found === 0
                 ? "Publishing found problems in the draft. They are listed under Publish checks."
                 : `Publishing found ${problemCount(found)}. ${found === 1 ? "It is" : "They are"} listed under Publish checks.`,
-            tone: "destructive",
+            variant: "destructive",
           }
         : {
             title: "Your last change was not saved",
             body: "The server refused it for the reason below, so it was undone. This is not another author's edit.",
-            tone: "destructive",
+            variant: "destructive",
           };
     }
     case "failed":
@@ -48,7 +49,7 @@ function copyFor(rejection: DraftRejection, write: DraftWrite): Copy {
           write === "publish"
             ? "Something went wrong reaching the server. Try publishing again."
             : "It was undone. Something went wrong reaching the server; check the connection and try again.",
-        tone: "destructive",
+        variant: "destructive",
       };
   }
 }
@@ -77,20 +78,20 @@ export function DraftRejectionNotice({
   onShowProblems: () => void;
   onDismiss: () => void;
 }) {
-  const { title, body, tone } = copyFor(rejection, write);
+  const { title, body, variant } = copyFor(rejection, write);
   const refusedItems = rejection.kind === "invalid" && write === "change" ? rejection.problem.items : [];
   const pointsToChecks = rejection.kind === "invalid" && write === "publish";
   return (
-    <div
-      role="alert"
+    <Alert
+      variant={variant}
       data-rejection={rejection.kind}
       data-problem={slugOf(rejection)}
-      className={`flex items-start gap-3.5 rounded-xl border px-4 py-3.5 ${tone === "destructive" ? "border-destructive/30 bg-destructive/5" : "border-border bg-muted"}`}
+      className="items-start gap-3.5 rounded-xl px-4 py-3.5"
     >
-      <AlertCircleIcon className={`mt-0.5 shrink-0 ${tone === "destructive" ? "text-destructive" : ""}`} />
+      <AlertCircleIcon size={18} className={`mt-0.5 shrink-0 ${variant === "destructive" ? "text-destructive" : ""}`} aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="text-sm font-semibold">{title}</p>
-        <p className="text-[13px] leading-normal text-muted-foreground">{body}</p>
+        <AlertTitle>{title}</AlertTitle>
+        <AlertDescription>{body}</AlertDescription>
         {refusedItems.length > 0 && (
           <ul className="mt-1 flex flex-col gap-0.5 text-[13px]">
             {refusedItems.map(({ itemId, code }) => {
@@ -114,6 +115,6 @@ export function DraftRejectionNotice({
           Dismiss
         </Button>
       </div>
-    </div>
+    </Alert>
   );
 }

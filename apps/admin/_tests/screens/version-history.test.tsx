@@ -1,25 +1,12 @@
 import type { QuestionnaireSummary, VersionSummary } from "@qp/shared";
-import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { axeViolations, jsonResponse, problemResponse, stubFetch, type Reply } from "@qp/ui/testing";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import axe from "axe-core";
 import { describe, expect, it } from "vitest";
-import { App } from "../../src/app";
-import { createAppRouter } from "../../src/router";
-import {
-  QUESTIONNAIRE_ID,
-  aDraft,
-  draftResponse,
-  jsonResponse,
-  problemResponse,
-  stubFetch,
-  testQueryClient,
-  type FetchHandler,
-} from "../fixtures";
-
-const JSDOM_CANNOT_EVALUATE = { "color-contrast": { enabled: false } };
-
-const DEFINITION = "/api/definition/questionnaires";
+import { QUESTIONNAIRE_ID, aDraft } from "../support/builders";
+import { draftResponse } from "../support/http";
+import { renderAppAt } from "../support/render-app";
+import { DRAFT_URL, LIST_URL, VALIDATE_URL, VERSIONS_URL } from "../support/routes";
 
 function aVersion(version: number, itemCount: number, publishedAt: string): VersionSummary {
   return { questionnaireId: QUESTIONNAIRE_ID, version, publishedAt, publishedBy: null, itemCount, formatVersion: 1 };
@@ -47,33 +34,35 @@ function serve({
 }: {
   versions?: () => Response;
   summaries?: QuestionnaireSummary[];
-}): FetchHandler {
+}): Reply {
   return ({ url }) => {
-    if (url === DEFINITION) return jsonResponse(200, summaries);
-    if (url === `${DEFINITION}/${QUESTIONNAIRE_ID}/versions`) return versions();
+    if (url === LIST_URL) return jsonResponse(200, summaries);
+    if (url === VERSIONS_URL) return versions();
     throw new Error(`unexpected request to ${url}`);
   };
 }
 
-function renderHistory(handler: FetchHandler) {
+function renderHistory(handler: Reply) {
   const requests = stubFetch(handler);
-  const queryClient = testQueryClient();
-  const router = createAppRouter({
-    queryClient,
-    history: createMemoryHistory({ initialEntries: [`/admin/questionnaires/${QUESTIONNAIRE_ID}/versions`] }),
-  });
-  const { container } = render(<App queryClient={queryClient} router={router} />);
+  const { container, router } = renderAppAt(`/questionnaires/${QUESTIONNAIRE_ID}/versions`);
   return { container, router, requests };
 }
 
 async function findRows() {
   const table = await screen.findByRole("table", { name: /published versions/i });
   const [header, ...rows] = within(table).getAllByRole("row");
+  if (header === undefined) throw new Error("expected a header row");
   return { table, header, rows };
 }
 
 function cellsOf(row: HTMLElement) {
   return within(row).getAllByRole("cell");
+}
+
+function rowAt(rows: HTMLElement[], index: number) {
+  const row = rows[index];
+  if (row === undefined) throw new Error(`expected a row at index ${index}, only ${rows.length} rendered`);
+  return row;
 }
 
 describe("the version history screen", () => {
@@ -83,8 +72,9 @@ describe("the version history screen", () => {
     const { rows } = await findRows();
 
     expect(rows.map((row) => cellsOf(row)[0]?.textContent)).toEqual(["Version 2", "Version 1"]);
-    expect(cellsOf(rows[0]!)[1]).toHaveTextContent("4 questions");
-    expect(within(rows[0]!).getByRole("time")).toHaveAttribute("datetime", "2026-09-13T09:14:00.000Z");
+    const newestRow = rowAt(rows, 0);
+    expect(cellsOf(newestRow)[1]).toHaveTextContent("4 questions");
+    expect(within(newestRow).getByRole("time")).toHaveAttribute("datetime", "2026-09-13T09:14:00.000Z");
   });
 
   it("renders the absent publisher as a dash, keeping the column", async () => {
@@ -143,16 +133,40 @@ describe("the version history screen", () => {
     expect(router.state.location.pathname).toBe(`/questionnaires/${QUESTIONNAIRE_ID}/versions/1`);
   });
 
+  it("offers Raw responses beside the title once a version is published, linking to the responses list", async () => {
+    const { router } = renderHistory(serve({}));
+
+    await findRows();
+    const link = screen.getByRole("link", { name: "Raw responses" });
+
+    expect(link).toHaveAttribute("href", `/admin/questionnaires/${QUESTIONNAIRE_ID}/responses`);
+
+    await userEvent.click(link);
+
+    expect(router.state.location.pathname).toBe(`/questionnaires/${QUESTIONNAIRE_ID}/responses`);
+  });
+
+  it.each([
+    ["nothing has been published", aSummary({ currentVersion: null, hasDraft: true }), []],
+    ["the questionnaire is not in the list", null, TWO_VERSIONS],
+  ])("offers no Raw responses when %s", async (_, summary, versions) => {
+    renderHistory(serve({ summaries: summary === null ? [] : [summary], versions: () => jsonResponse(200, versions) }));
+
+    await findRows();
+
+    expect(screen.queryByRole("link", { name: "Raw responses" })).not.toBeInTheDocument();
+  });
+
   it("shows the open draft above the versions, with its edited time and a link to the draft editor", async () => {
     renderHistory(serve({ summaries: [aSummary({ hasDraft: true, updatedAt: "2026-09-14T08:30:00.000Z" })] }));
 
     const { rows } = await findRows();
-    const [draft] = rows;
 
     expect(rows).toHaveLength(3);
-    expect(cellsOf(draft!)[0]).toHaveTextContent("Draft");
-    expect(within(draft!).getByRole("time")).toHaveAttribute("datetime", "2026-09-14T08:30:00.000Z");
-    expect(within(draft!).getByRole("link", { name: "Edit the draft" })).toHaveAttribute(
+    const draft = rowAt(rows, 0);
+    expect(cellsOf(draft)[0]).toHaveTextContent("Draft");
+    expect(within(draft).getByRole("time")).toHaveAttribute("datetime", "2026-09-14T08:30:00.000Z");
+    expect(within(draft).getByRole("link", { name: "Edit the draft" })).toHaveAttribute(
       "href",
       `/admin/questionnaires/${QUESTIONNAIRE_ID}/draft`,
     );
@@ -186,11 +200,10 @@ describe("the version history screen", () => {
   });
 
   it("offers Open the next draft beside the title when a published questionnaire has no draft, and opens it", async () => {
-    const draftUrl = `${DEFINITION}/${QUESTIONNAIRE_ID}/draft`;
     const opened = aDraft();
     const { router, requests } = renderHistory((request) => {
-      if (request.method === "POST" && request.url === draftUrl) return draftResponse(opened, 1, 201);
-      if (request.url === `${DEFINITION}/${QUESTIONNAIRE_ID}/draft/validate`) return jsonResponse(200, { valid: true, items: [] });
+      if (request.method === "POST" && request.url === DRAFT_URL) return draftResponse(opened, 1, 201);
+      if (request.url === VALIDATE_URL) return jsonResponse(200, { valid: true, items: [] });
       if (request.url.startsWith("/api/definition/questions")) return jsonResponse(200, []);
       return serve({})(request);
     });
@@ -200,17 +213,16 @@ describe("the version history screen", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: aSummary().name })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe(`/questionnaires/${QUESTIONNAIRE_ID}/draft`);
-    expect(requests.filter(({ method, url }) => method === "POST" && url === draftUrl)).toHaveLength(1);
+    expect(requests.filter(({ method, url }) => method === "POST" && url === DRAFT_URL)).toHaveLength(1);
   });
 
   it("on 409 questionnaire/draft-exists from Open the next draft goes to the draft that exists, with no error", async () => {
-    const draftUrl = `${DEFINITION}/${QUESTIONNAIRE_ID}/draft`;
     const theirs = aDraft(["itm_09"]);
     const { router } = renderHistory((request) => {
-      if (request.url === draftUrl) {
+      if (request.url === DRAFT_URL) {
         return request.method === "POST" ? problemResponse("questionnaire/draft-exists") : draftResponse(theirs, 4);
       }
-      if (request.url === `${DEFINITION}/${QUESTIONNAIRE_ID}/draft/validate`) return jsonResponse(200, { valid: true, items: [] });
+      if (request.url === VALIDATE_URL) return jsonResponse(200, { valid: true, items: [] });
       if (request.url.startsWith("/api/definition/questions")) return jsonResponse(200, []);
       return serve({})(request);
     });
@@ -256,7 +268,7 @@ describe("the version history screen", () => {
     const { rows } = await findRows();
 
     expect(rows).toHaveLength(2);
-    expect(cellsOf(rows[0]!)[0]).toHaveTextContent("Draft");
+    expect(cellsOf(rowAt(rows, 0))[0]).toHaveTextContent("Draft");
     expect(rows[1]).toHaveTextContent("Never published");
     expect(screen.queryByRole("link", { name: /^Preview/ })).not.toBeInTheDocument();
   });
@@ -266,7 +278,7 @@ describe("the version history screen", () => {
     const pending = new Promise<Response>((settle) => {
       answer = settle;
     });
-    renderHistory(({ url }) => (url === DEFINITION ? jsonResponse(200, [aSummary()]) : pending));
+    renderHistory(({ url }) => (url === LIST_URL ? jsonResponse(200, [aSummary()]) : pending));
 
     expect(await screen.findByRole("status")).toHaveTextContent("Loading versions");
 
@@ -329,8 +341,6 @@ describe("the version history screen", () => {
     const { container } = renderHistory(handler);
     await settled();
 
-    const results = await axe.run(container, { rules: JSDOM_CANNOT_EVALUATE });
-
-    expect(results.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 });

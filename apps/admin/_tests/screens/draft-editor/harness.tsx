@@ -1,41 +1,12 @@
 import type { DraftItem, Question, QuestionVersion, QuestionnaireDraft, QuestionnaireSummary } from "@qp/shared";
-import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { jsonResponse, problemResponse, stubFetch, type RecordedRequest, type Reply } from "@qp/ui/testing";
+import { screen, waitFor, within } from "@testing-library/react";
 import { expect } from "vitest";
-import { App } from "../../../src/app";
-import { createAppRouter } from "../../../src/router";
-import {
-  QUESTIONNAIRE_ID,
-  VERSION_ID,
-  draftResponse,
-  jsonResponse,
-  problemResponse,
-  stubFetch,
-  testQueryClient,
-  type RecordedRequest,
-} from "../../fixtures";
-import { aBankQuestion, aQuestionVersion } from "../question-editor/harness";
+import { QUESTIONNAIRE_ID, VERSION_ID, aBankQuestion, aQuestionVersion, smoke, uuid } from "../../support/builders";
+import { draftResponse, routed, type Routes } from "../../support/http";
+import { renderAppAt } from "../../support/render-app";
+import { ACTIVE_BANK_URL, BANK_URL, DRAFT_URL, LIST_URL, VALIDATE_URL } from "../../support/routes";
 
-export const DEFINITION = "/api/definition";
-export const DRAFT_URL = `${DEFINITION}/questionnaires/${QUESTIONNAIRE_ID}/draft`;
-export const VALIDATE_URL = `${DRAFT_URL}/validate`;
-export const PUBLISH_URL = `${DEFINITION}/questionnaires/${QUESTIONNAIRE_ID}/publish`;
-export const LIST_URL = `${DEFINITION}/questionnaires`;
-export const BANK_URL = `${DEFINITION}/questions?includeArchived=true`;
-export const ACTIVE_BANK_URL = `${DEFINITION}/questions?includeArchived=false`;
-
-export const uuid = (n: number) => `01a0950e-56a0-73d6-b936-4a1e10eff${String(n).padStart(3, "0")}`;
-
-export const smoke = aQuestionVersion({
-  type: "single_choice",
-  questionId: uuid(101),
-  questionVersion: 1,
-  prompt: "Do you smoke?",
-  options: [
-    { optionId: "yes", label: "Yes" },
-    { optionId: "no", label: "No" },
-  ],
-});
 export const perDay = aQuestionVersion({
   type: "number",
   questionId: uuid(102),
@@ -86,8 +57,6 @@ export const summary: QuestionnaireSummary = {
   updatedAt: "2026-09-14T09:00:00.000Z",
 };
 
-export type Handler = (request: RecordedRequest) => Response | Promise<Response>;
-
 export interface Validation {
   valid: boolean;
   items: { itemId: string; code: string }[];
@@ -97,10 +66,10 @@ interface Setup {
   draft?: QuestionnaireDraft;
   bank?: Question[];
   validation?: Validation;
-  overrides?: Record<string, Handler>;
+  overrides?: Routes;
 }
 
-function echoSaved(revision: { current: number }): Handler {
+function echoSaved(revision: { current: number }): Reply {
   return ({ body }) => {
     revision.current += 1;
     const items: DraftItem[] = body !== null && typeof body === "object" && "items" in body && Array.isArray(body.items) ? body.items : [];
@@ -110,7 +79,7 @@ function echoSaved(revision: { current: number }): Handler {
 
 export function renderEditor({ draft = standardDraft, bank = pool.map(aBankQuestion), validation = { valid: true, items: [] }, overrides = {} }: Setup = {}) {
   const revision = { current: 1 };
-  const routes: Record<string, Handler> = {
+  const routes: Routes = {
     [`GET ${DRAFT_URL}`]: () => draftResponse(draft, revision.current),
     [`PUT ${DRAFT_URL}`]: echoSaved(revision),
     [`POST ${VALIDATE_URL}`]: () => jsonResponse(200, validation),
@@ -119,16 +88,8 @@ export function renderEditor({ draft = standardDraft, bank = pool.map(aBankQuest
     [`GET ${ACTIVE_BANK_URL}`]: () => jsonResponse(200, bank.filter((question) => question.archivedAt === null)),
     ...overrides,
   };
-  const requests = stubFetch((request) => {
-    const respond = routes[`${request.method} ${request.url}`];
-    return respond ? respond(request) : problemResponse("resource/not-found");
-  });
-  const queryClient = testQueryClient();
-  const router = createAppRouter({
-    queryClient,
-    history: createMemoryHistory({ initialEntries: [`/admin/questionnaires/${QUESTIONNAIRE_ID}/draft`] }),
-  });
-  render(<App queryClient={queryClient} router={router} />);
+  const requests = stubFetch(routed(routes, () => problemResponse("resource/not-found")));
+  const { router } = renderAppAt(`/questionnaires/${QUESTIONNAIRE_ID}/draft`);
   return { requests, router };
 }
 

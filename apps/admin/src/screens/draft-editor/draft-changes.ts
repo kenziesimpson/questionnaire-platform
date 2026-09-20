@@ -1,16 +1,11 @@
-import type { Condition, DraftItem, Predicate, QuestionVersion, QuestionnaireDraft } from "@qp/shared";
-import type { DraftChange } from "../../api/use-draft-mutation";
-import { generateUnusedId, randomSuffix } from "../../components/generated-id";
+import { conditionsOf, type DraftItem, type Predicate, type QuestionVersion, type QuestionnaireDraft } from "@qp/shared";
+import type { DraftChange } from "../../api/draft-types";
+import { generateUnusedId, randomSuffix } from "../../lib/generated-id";
 
 const GENERATED_PREFIX = "itm_";
 
 export function generateItemId(taken: ReadonlySet<string>, suffix: () => string = randomSuffix): string {
   return generateUnusedId(GENERATED_PREFIX, taken, suffix);
-}
-
-export function conditionsOf(predicate: Predicate | null): Condition[] {
-  if (predicate === null) return [];
-  return "all" in predicate ? predicate.all : predicate.any;
 }
 
 export function pinnedQuestionOf(draft: QuestionnaireDraft, item: DraftItem): QuestionVersion | undefined {

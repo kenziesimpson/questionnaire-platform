@@ -1,8 +1,8 @@
-import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, expect, RESPONDENT_BUTTONS, RESPONDENT_HEADINGS, test } from "../../fixtures/index.ts";
-import { answerNoPath } from "./support/demo-answers.ts";
-import { createGate } from "./support/gate.ts";
-import { RETRY_PENDING_LABEL, SUBMIT_FAILED_MESSAGE } from "./support/respondent-messages.ts";
-import { recordSubmitRequests, SUBMIT_URL_GLOB, waitForSubmitResponse } from "./support/submit-traffic.ts";
+import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, expect, RESPONDENT_BUTTONS, RESPONDENT_HEADINGS, test } from "../../fixtures/index";
+import { answerNoPath } from "./support/demo-answers";
+import { createGate } from "./support/gate";
+import { RETRY_PENDING_LABEL, SUBMIT_FAILED_MESSAGE } from "./support/respondent-messages";
+import { recordSubmitRequests, SUBMIT_URL_GLOB, waitForSubmitResponse } from "./support/submit-traffic";
 
 test.describe("E15 — network failure on submit, then manual retry", () => {
   test("an aborted submit keeps the stored answers and offers a retry that is disabled in flight and writes one response set", async ({

@@ -1,9 +1,9 @@
 import type { DraftItemCode, QuestionnaireDraft } from "@qp/shared";
+import { AlertCircleIcon, ArrowRightIcon, CheckIcon, LoaderCircleIcon } from "@qp/ui/icons";
 import { Button } from "@qp/ui/primitives/button";
 import { useId, useState, type ReactNode, type Ref } from "react";
-import { problemCount } from "../../components/counts";
-import { AlertCircleIcon, ArrowRightIcon, CheckIcon, SpinnerIcon } from "../../components/icons";
 import { Pill } from "../../components/pill";
+import { problemCount } from "../../lib/counts";
 import { DRAFT_ITEM_MESSAGES } from "./draft-item-messages";
 import { promptOf } from "./draft-changes";
 
@@ -94,7 +94,7 @@ function CountChip({ checks, empty }: { checks: PublishChecks; empty: boolean })
   if (checks.refreshing || empty) return null;
   return (
     <Pill className="h-5 gap-1 text-[11px] text-muted-foreground">
-      <CheckIcon size={11} />
+      <CheckIcon size={11} aria-hidden="true" />
       Ready
     </Pill>
   );
@@ -103,7 +103,7 @@ function CountChip({ checks, empty }: { checks: PublishChecks; empty: boolean })
 function StatusLine({ busy, children }: { busy?: boolean; children: ReactNode }) {
   return (
     <p className={`flex items-center gap-2 px-3.5 pt-1.5 pb-3 text-[13px] ${busy ? "text-muted-foreground" : ""}`}>
-      {busy && <SpinnerIcon className="shrink-0 motion-safe:animate-spin" />}
+      {busy && <LoaderCircleIcon size={14} className="shrink-0 motion-safe:animate-spin" aria-hidden="true" />}
       {children}
     </p>
   );
@@ -156,7 +156,7 @@ function Group({
           <span className="pt-px underline decoration-ring underline-offset-4 group-hover/jump:decoration-foreground">
             {promptOf(draft, item)}
           </span>
-          <ArrowRightIcon className="mt-0.5 ml-auto shrink-0 text-muted-foreground" />
+          <ArrowRightIcon size={14} className="mt-0.5 ml-auto shrink-0 text-muted-foreground" aria-hidden="true" />
         </button>
       )}
       <ul className="flex flex-col gap-2 pl-7">
@@ -166,7 +166,7 @@ function Group({
           return (
             <li key={code} data-code={code} className="flex flex-col gap-0.5">
               <p className="relative text-[13px] font-semibold">
-                <AlertCircleIcon size={13} className="absolute top-[3px] -left-[19px] text-destructive" />
+                <AlertCircleIcon size={13} className="absolute top-[3px] -left-[19px] text-destructive" aria-hidden="true" />
                 {message.title}
               </p>
               {explanation !== null && (

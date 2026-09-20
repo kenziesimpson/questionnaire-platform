@@ -1,16 +1,23 @@
 import {
   PROBLEM_CONTENT_TYPE,
   definitionApi,
-  parseDraftEtag,
-  type BodyOf,
-  type ParamsOf,
-  type QueryOf,
+  isDraftEtagFor,
+  reportingApi,
+  routePath,
+  routeSearch,
+  successSchemaOf,
+  type PathParams,
+  type QueryParams,
   type QuestionnaireDraft,
+  type RequestParts as RouteRequestParts,
   type RouteDefinition,
+  type RouteWith,
+  type SuccessBody,
   type VersionSummary,
 } from "@qp/shared";
-import type { Static, TSchema } from "typebox";
+import { injectTraceHeaders } from "@qp/telemetry/browser";
 import { Value } from "typebox/value";
+import type { DraftContent, VersionedDraft } from "./draft-types";
 import { UnexpectedResponseError, problemErrorFrom } from "./problem-error";
 
 type DefinitionRoute = (typeof definitionApi.definitionRoutes)[number];
@@ -21,26 +28,13 @@ type DraftEtagRoute =
   | typeof definitionApi.replaceDraft
   | typeof definitionApi.publishDraft;
 
-export type PlainDefinitionRoute = Exclude<DefinitionRoute, DraftEtagRoute>;
+type PlainDefinitionRoute = Exclude<DefinitionRoute, DraftEtagRoute>;
 
-type RouteWith<Status extends number> = RouteDefinition & { schema: { response: Record<Status, TSchema> } };
-type SuccessBody<R extends RouteWith<Status>, Status extends number> = Static<R["schema"]["response"][Status]>;
-
-type Declares<R extends RouteDefinition, K extends "params" | "querystring" | "body" | "headers"> =
-  R["schema"] extends Record<K, TSchema> ? true : false;
-
-export type RequestParts<R extends RouteDefinition> = (Declares<R, "params"> extends true
-  ? { params: ParamsOf<R> }
-  : { params?: never }) &
-  (Declares<R, "querystring"> extends true ? { query?: QueryOf<R> } : { query?: never }) &
-  (Declares<R, "body"> extends true ? { body: BodyOf<R> } : { body?: never }) &
-  (Declares<R, "headers"> extends true ? { ifMatch: string } : { ifMatch?: never }) & { signal?: AbortSignal };
-
-type Scalar = string | number | boolean;
+type RequestParts<R extends RouteDefinition> = RouteRequestParts<R> & { signal?: AbortSignal };
 
 interface LooseParts {
-  params?: Record<string, Scalar>;
-  query?: Record<string, Scalar | undefined>;
+  params?: PathParams;
+  query?: QueryParams;
   body?: unknown;
   ifMatch?: string;
   signal?: AbortSignal;
@@ -52,25 +46,12 @@ interface Exchange<Body> {
   headers: Headers;
 }
 
-function pathOf(url: string, params: Record<string, Scalar> | undefined): string {
-  return url.replace(/:([A-Za-z]+)/g, (_, name: string) => {
-    const value = params?.[name];
-    if (value === undefined) throw new Error(`Missing path parameter "${name}" for ${url}`);
-    return encodeURIComponent(String(value));
-  });
+function definitionUrl(route: RouteDefinition, parts: Pick<LooseParts, "params" | "query"> = {}): string {
+  return `${definitionApi.DEFINITION_PREFIX}${routePath(route.url, parts.params)}${routeSearch(parts.query)}`;
 }
 
-function searchOf(query: Record<string, Scalar | undefined> | undefined): string {
-  const search = new URLSearchParams();
-  for (const [name, value] of Object.entries(query ?? {})) {
-    if (value !== undefined) search.set(name, String(value));
-  }
-  const encoded = search.toString();
-  return encoded === "" ? "" : `?${encoded}`;
-}
-
-export function definitionUrl(route: RouteDefinition, parts: Pick<LooseParts, "params" | "query"> = {}): string {
-  return `${definitionApi.DEFINITION_PREFIX}${pathOf(route.url, parts.params)}${searchOf(parts.query)}`;
+export function reportingUrl(route: RouteDefinition, parts: Pick<LooseParts, "params" | "query"> = {}): string {
+  return `${reportingApi.REPORTING_PREFIX}${routePath(route.url, parts.params)}${routeSearch(parts.query)}`;
 }
 
 async function jsonOf(response: Response): Promise<unknown> {
@@ -83,17 +64,24 @@ async function jsonOf(response: Response): Promise<unknown> {
   }
 }
 
-function successSchemaOf(route: RouteDefinition, status: number): TSchema | undefined {
-  const code = String(status);
-  return code.endsWith("xx") ? undefined : route.schema.response[code];
+interface ApiSide {
+  readonly urlOf: typeof definitionUrl;
 }
 
-async function checkedExchange(route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {
-  const headers = new Headers({ accept: `application/json, ${PROBLEM_CONTENT_TYPE}` });
-  if (parts.body !== undefined) headers.set("content-type", "application/json");
-  if (parts.ifMatch !== undefined) headers.set("if-match", parts.ifMatch);
+const DEFINITION_SIDE: ApiSide = { urlOf: definitionUrl };
 
-  const response = await fetch(definitionUrl(route, parts), {
+const REPORTING_SIDE: ApiSide = { urlOf: reportingUrl };
+
+function requestHeaders(parts: LooseParts): Record<string, string> {
+  const headers: Record<string, string> = { accept: `application/json, ${PROBLEM_CONTENT_TYPE}` };
+  if (parts.body !== undefined) headers["content-type"] = "application/json";
+  if (parts.ifMatch !== undefined) headers["if-match"] = parts.ifMatch;
+  return headers;
+}
+
+async function checkedExchangeAt({ urlOf }: ApiSide, route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {
+  const headers = injectTraceHeaders(requestHeaders(parts));
+  const response = await fetch(urlOf(route, parts), {
     method: route.method,
     headers,
     body: parts.body === undefined ? undefined : JSON.stringify(parts.body),
@@ -114,6 +102,10 @@ async function checkedExchange(route: RouteDefinition, parts: LooseParts): Promi
   return { status: response.status, body, headers: response.headers };
 }
 
+function checkedExchange(route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {
+  return checkedExchangeAt(DEFINITION_SIDE, route, parts);
+}
+
 function exchange<R extends RouteWith<200>>(route: R, parts: RequestParts<R>): Promise<Exchange<SuccessBody<R, 200>>>;
 function exchange<R extends RouteWith<201>>(route: R, parts: RequestParts<R>): Promise<Exchange<SuccessBody<R, 201>>>;
 function exchange(route: RouteDefinition, parts: LooseParts): Promise<Exchange<unknown>> {
@@ -132,17 +124,13 @@ export async function callDefinition(route: RouteDefinition, parts: LooseParts):
   return (await checkedExchange(route, parts)).body;
 }
 
-export interface VersionedDraft {
-  draft: QuestionnaireDraft;
-  etag: string;
+export async function callReporting<R extends RouteWith<200>>(route: R, parts: RequestParts<R>): Promise<SuccessBody<R, 200>> {
+  return ((await checkedExchangeAt(REPORTING_SIDE, route, parts)) as Exchange<SuccessBody<R, 200>>).body;
 }
-
-export type DraftContent = BodyOf<typeof definitionApi.replaceDraft>;
 
 function versionedDraft({ status, body, headers }: Exchange<QuestionnaireDraft>): VersionedDraft {
   const etag = headers.get("etag");
-  const parsed = etag === null ? undefined : parseDraftEtag(etag);
-  if (etag === null || parsed?.versionId !== body.versionId.toLowerCase()) {
+  if (etag === null || !isDraftEtagFor(etag, body.versionId)) {
     throw new UnexpectedResponseError(status, "a draft response must carry that draft's ETag");
   }
   return { draft: body, etag };

@@ -1,5 +1,6 @@
-import { intakeDefinition, type ClientAnswers, type Item } from "@qp/shared";
-import type { QuestionOf, RendererProps } from "../src/questionnaire/types";
+import type { ClientAnswers, Item, QuestionOf } from "@qp/shared";
+import { intakeDefinition } from "@qp/shared/demo";
+import type { RendererProps } from "../src/questionnaire/types";
 
 export const intakeV1 = intakeDefinition(1);
 

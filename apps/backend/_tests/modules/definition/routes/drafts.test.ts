@@ -1,6 +1,7 @@
 import {
   PROBLEM_CONTENT_TYPE,
   QuestionnaireDraft,
+  VersionSummary,
   formatDraftEtag,
   parseDraftEtag,
   problemType,
@@ -13,16 +14,30 @@ import { v7 as uuidv7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { publishDraft } from "../../../../src/db/definition/publish.js";
 import { createNextDraft, replaceDraft } from "../../../../src/db/definition/drafts.js";
+import { createQuestionnaire } from "../../../../src/db/definition/questionnaires.js";
 import { appendQuestionVersion, createQuestion } from "../../../../src/db/definition/questions.js";
 import { AUTHOR_PLACEHOLDER } from "../../../../src/modules/definition/author.js";
-import { aDraftWithOneItem, aPublishedQuestionnaire, aTextQuestion, type DraftFixture } from "../../../db/fixtures.js";
-import { useTestDatabase } from "../../../db/harness.js";
-import { definitionUrl, useDefinitionApp } from "../harness.js";
+import {
+  actor,
+  aDraftWithOneItem,
+  aPublishedQuestionnaire,
+  aTextQuestion,
+  type DraftFixture,
+  useTestDatabase,
+} from "../../../db/fixtures.js";
+import {
+  aSecondItem,
+  createNextDraftDirectly,
+  definitionUrl,
+  publish,
+  saveDraft,
+  storedSnapshotText,
+  theOpenDraft,
+} from "../fixtures.js";
+import { useDefinitionApp } from "../harness.js";
 
 const testDatabase = useTestDatabase();
 const app = useDefinitionApp(testDatabase);
-
-const actor = { createdBy: "test", traceId: null };
 
 const yesNo: QuestionInput = {
   type: "single_choice",
@@ -89,6 +104,35 @@ async function draftRowCount(questionnaireId: string): Promise<number> {
   );
   return rows.rowCount ?? 0;
 }
+
+async function draftStatusOf(draftVersionId: string): Promise<string | undefined> {
+  const client = await testDatabase.connect("definition");
+  const result = await client.query<{ status: string }>(`SELECT status FROM definition.questionnaire_version WHERE id = $1`, [
+    draftVersionId,
+  ]);
+  return result.rows[0]?.status;
+}
+
+const invalidPlacements: [string, [Predicate | null, Predicate | null], { itemId: string; code: string }][] = [
+  [
+    "a forward reference",
+    [{ all: [{ type: "single_choice", itemId: "itm_02", op: "is", optionId: "yes" }] }, null],
+    { itemId: "itm_01", code: "predicate/forward-reference" },
+  ],
+  [
+    "an unsatisfiable predicate",
+    [
+      null,
+      {
+        all: [
+          { type: "single_choice", itemId: "itm_01", op: "is", optionId: "yes" },
+          { type: "single_choice", itemId: "itm_01", op: "is", optionId: "no" },
+        ],
+      },
+    ],
+    { itemId: "itm_02", code: "predicate/unsatisfiable" },
+  ],
+];
 
 async function aDraftWithAForwardReference(): Promise<DraftFixture & { readonly items: DraftItem[] }> {
   const db = testDatabase.database("definition");
@@ -261,41 +305,10 @@ describe("PUT /questionnaires/:id/draft", () => {
     expect((await getDraft(draft.questionnaireId)).json().title).toBe("Tab one");
   });
 
-  it("refuses an ETag from the previous draft even when the new draft has reached the same revision", async () => {
-    const db = testDatabase.database("definition");
-    const previous = await aPublishedQuestionnaire(db);
-    const opened = await createNextDraft(db, { questionnaireId: previous.questionnaireId, ...actor });
-    if (opened.outcome !== "created") {
-      throw new Error(opened.outcome);
-    }
-    const next = saved(
-      await replaceDraft(db, {
-        questionnaireId: previous.questionnaireId,
-        precondition: { versionId: opened.draft.versionId, draftRevision: opened.draftRevision },
-        title: "Fixture",
-        items: [],
-        actorId: "test",
-        traceId: null,
-      }),
-    );
-    expect(next.draftRevision).toBe(previous.draftRevision);
-    expect(next.draftVersionId).not.toBe(previous.draftVersionId);
-
-    const response = await putDraft(
-      previous.questionnaireId,
-      formatDraftEtag(previous.draftVersionId, previous.draftRevision),
-      [placement("itm_01", previous.questionId)],
-    );
-
-    expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({ type: problemType("questionnaire/draft-stale") });
-    expect((await getDraft(previous.questionnaireId)).json().items).toEqual([]);
-  });
-
   it.each([
     ["missing", undefined, "schema/required"],
     ["malformed", "W/\"not-a-draft-etag\"", "schema/pattern"],
-  ])("is 400 when If-Match is %s, and writes nothing", async (_label, ifMatch, code) => {
+  ])("is 400 at the draft URL when If-Match is %s, and writes nothing", async (_label, ifMatch, code) => {
     const db = testDatabase.database("definition");
     const draft = await aDraftWithOneItem(db);
     const eventsBefore = await testDatabase.readAuditEvents();
@@ -305,6 +318,7 @@ describe("PUT /questionnaires/:id/draft", () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({
       type: problemType("request/invalid"),
+      instance: draftUrl(draft.questionnaireId),
       errors: [{ pointer: "/headers/if-match", code }],
     });
     expect(await testDatabase.readAuditEvents()).toEqual(eventsBefore);
@@ -334,6 +348,7 @@ describe("PUT /questionnaires/:id/draft", () => {
     expect(archivedResponse.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
     expect(archivedResponse.json()).toMatchObject({
       type: problemType("questionnaire/draft-invalid"),
+      instance: draftUrl(draft.questionnaireId),
       items: [{ itemId: "itm_02", code: "draft/question-archived" }],
     });
     expect(unknownResponse.statusCode).toBe(422);
@@ -492,7 +507,7 @@ describe("POST /questionnaires/:id/draft", () => {
     published(
       await publishDraft(db, {
         questionnaireId: v1.questionnaireId,
-        precondition: { versionId: v2Draft.draftVersionId, draftRevision: v2Draft.draftRevision },
+        precondition: { versionId: v2Draft.draft.versionId, draftRevision: v2Draft.draftRevision },
         actorId: "test",
         traceId: null,
       }),
@@ -504,7 +519,7 @@ describe("POST /questionnaires/:id/draft", () => {
     expect(response.statusCode).toBe(201);
     const body = response.json();
     expect(Value.Check(QuestionnaireDraft, body)).toBe(true);
-    expect(body.versionId).not.toBe(v2Draft.draftVersionId);
+    expect(body.versionId).not.toBe(v2Draft.draft.versionId);
     expect(body).toMatchObject({ questionnaireId: v1.questionnaireId, title: "Second edition", items: sourceItems });
     expect(body.questions.map((q: { questionId: string; questionVersion: number }) => [q.questionId, q.questionVersion])).toEqual([
       [choice.questionId, 1],
@@ -547,32 +562,6 @@ describe("POST /questionnaires/:id/draft", () => {
     expect(exists.json()).toMatchObject({ type: problemType("questionnaire/draft-exists") });
     expect(unknown.statusCode).toBe(404);
     expect(unknown.json()).toMatchObject({ type: problemType("resource/not-found") });
-  });
-
-  it("keeps a copied item whose question has since been archived; the draft validates, saves and publishes", async () => {
-    const db = testDatabase.database("definition");
-    const publishedOnly = await aPublishedQuestionnaire(db);
-    await archive(publishedOnly.questionId);
-
-    const response = await openDraft(publishedOnly.questionnaireId);
-    const validation = await validate(publishedOnly.questionnaireId);
-    const save = await putDraft(publishedOnly.questionnaireId, response.headers.etag as string, response.json().items, "Second edition");
-    const saveEtag = parseDraftEtag(save.headers.etag as string);
-    if (saveEtag === undefined) {
-      throw new Error("the saved draft carried no ETag");
-    }
-    const publish = await publishDraft(db, {
-      questionnaireId: publishedOnly.questionnaireId,
-      precondition: saveEtag,
-      actorId: "test",
-      traceId: null,
-    });
-
-    expect(response.statusCode).toBe(201);
-    expect(response.json().items).toEqual([placement("itm_01", publishedOnly.questionId)]);
-    expect(validation.json()).toEqual({ valid: true, items: [] });
-    expect(save.statusCode).toBe(200);
-    expect(publish).toMatchObject({ outcome: "published", version: 2 });
   });
 });
 
@@ -626,5 +615,103 @@ describe("POST /questionnaires/:id/draft/validate", () => {
     expect(noDraft.statusCode).toBe(404);
     expect(unknown.statusCode).toBe(404);
     expect(noDraft.json()).toMatchObject({ type: problemType("resource/not-found") });
+  });
+});
+
+describe("POST /questionnaires/:id/publish", () => {
+  it("publishes v1 then v2, answers each with its VersionSummary, and leaves v1's snapshot byte-identical", async () => {
+    const db = testDatabase.database("definition");
+    const draft = await aDraftWithOneItem(db);
+
+    const first = await publish(app(), draft.questionnaireId, draft);
+
+    expect(first.statusCode).toBe(201);
+    expect(Value.Check(VersionSummary, first.json())).toBe(true);
+    expect(first.json()).toMatchObject({
+      questionnaireId: draft.questionnaireId,
+      version: 1,
+      publishedBy: null,
+      itemCount: 1,
+      formatVersion: 1,
+    });
+    const storedBefore = await storedSnapshotText(testDatabase, draft.questionnaireId, 1);
+    const servedBefore = await app().inject({ method: "GET", url: definitionUrl(`/questionnaires/${draft.questionnaireId}/versions/1`) });
+
+    const opened = await createNextDraftDirectly(testDatabase, draft.questionnaireId);
+    const next = await saveDraft(db, draft.questionnaireId, opened, [placement("itm_01", draft.questionId), await aSecondItem(db)]);
+    const second = await publish(app(), draft.questionnaireId, next);
+
+    expect(second.statusCode).toBe(201);
+    expect(second.json()).toMatchObject({ questionnaireId: draft.questionnaireId, version: 2, itemCount: 2, publishedBy: null });
+    expect(await storedSnapshotText(testDatabase, draft.questionnaireId, 1)).toBe(storedBefore);
+    const servedAfter = await app().inject({ method: "GET", url: definitionUrl(`/questionnaires/${draft.questionnaireId}/versions/1`) });
+    expect(servedAfter.payload).toBe(servedBefore.payload);
+    const publishEvents = (await testDatabase.readAuditEvents()).filter((event) => event.action === "publish");
+    expect(publishEvents.map((event) => [event.version, event.actor_id])).toEqual([
+      [1, AUTHOR_PLACEHOLDER],
+      [2, AUTHOR_PLACEHOLDER],
+    ]);
+  });
+
+  it.each(invalidPlacements)("refuses %s with 422 naming the item", async (_label, predicates, expectedItem) => {
+    const db = testDatabase.database("definition");
+    const created = await createQuestionnaire(db, { key: null, name: "Invalid", title: "Invalid", ...actor });
+    const items: DraftItem[] = [];
+    for (const [index, visibleWhen] of predicates.entries()) {
+      const saved = await createQuestion(db, { key: null, content: yesNo, ...actor });
+      items.push({ itemId: `itm_0${index + 1}`, required: false, visibleWhen, questionId: saved.questionId, questionVersion: 1 });
+    }
+    const draft = await saveDraft(db, created.questionnaireId, await theOpenDraft(db, created.questionnaireId), items);
+
+    const response = await publish(app(), created.questionnaireId, draft);
+
+    expect(response.statusCode).toBe(422);
+    expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
+    expect(response.json()).toMatchObject({
+      type: problemType("questionnaire/draft-invalid"),
+      instance: definitionUrl(`/questionnaires/${created.questionnaireId}/publish`),
+      items: [expectedItem],
+    });
+    expect(await draftStatusOf(draft.draftVersionId)).toBe("draft");
+  });
+
+  it("is 400 pointing at a malformed If-Match, at the publish URL, and leaves the draft open", async () => {
+    const db = testDatabase.database("definition");
+    const draft = await aDraftWithOneItem(db);
+    const url = definitionUrl(`/questionnaires/${draft.questionnaireId}/publish`);
+
+    const response = await app().inject({ method: "POST", url, headers: { "if-match": 'W/"not-a-draft-etag"' } });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      type: problemType("request/invalid"),
+      instance: url,
+      errors: [{ pointer: "/headers/if-match", code: "schema/pattern" }],
+    });
+    expect(await draftStatusOf(draft.draftVersionId)).toBe("draft");
+  });
+
+  it("refuses a stale If-Match with 409 and leaves the draft open", async () => {
+    const db = testDatabase.database("definition");
+    const draft = await aDraftWithOneItem(db);
+
+    const response = await publish(app(), draft.questionnaireId, { ...draft, draftRevision: draft.draftRevision - 1 });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ type: problemType("questionnaire/draft-stale") });
+    expect(await draftStatusOf(draft.draftVersionId)).toBe("draft");
+  });
+
+  it("answers 404 when no draft is open and when the questionnaire does not exist", async () => {
+    const db = testDatabase.database("definition");
+    const published = await aPublishedQuestionnaire(db);
+
+    const noDraft = await publish(app(), published.questionnaireId, published);
+    const unknown = await publish(app(), uuidv7(), published);
+
+    for (const response of [noDraft, unknown]) {
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toMatchObject({ type: problemType("resource/not-found") });
+    }
   });
 });

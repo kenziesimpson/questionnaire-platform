@@ -1,5 +1,5 @@
-import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, DEMO_V1, expect, test } from "../../fixtures/index.ts";
-import { RenderedTextWatch } from "./support/rendered-text-watch.ts";
+import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, DEMO_V1, expect, test } from "../../fixtures/index";
+import { RenderedTextWatch } from "./support/rendered-text-watch";
 
 const prompts = DEMO_V1.prompts;
 const NO = DEMO_V1.optionLabel(DEMO_OPTION_IDS.no);

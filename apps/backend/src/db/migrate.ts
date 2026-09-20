@@ -1,6 +1,6 @@
 import { databaseUrl } from "../config.js";
 import { openDatabase } from "./client.js";
-import { applyMigrations } from "./migrator.js";
+import { applyMigrations } from "./migrations.js";
 import { ensureResponsePartitions, RESPONSE_PARTITION_HORIZON_MONTHS } from "./partitions.js";
 
 async function main(): Promise<void> {

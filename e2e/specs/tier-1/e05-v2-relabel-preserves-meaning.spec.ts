@@ -8,14 +8,22 @@ import {
   expect,
   test,
   type RespondentPage,
-} from "../../fixtures/index.ts";
-import { DraftAuthoring } from "./support/draft-authoring.ts";
-import { openRespondentBrowser } from "./support/respondent-browser.ts";
+} from "../../fixtures/index";
+import { DraftAuthoring } from "./support/draft-authoring";
+import { openRespondentBrowser } from "./support/respondent-browser";
 
 const prompts = DEMO_V1.prompts;
 const YES = DEMO_V1.optionLabel(DEMO_OPTION_IDS.yes);
 const V1_HYPERTENSION = DEMO_V1.optionLabel(DEMO_OPTION_IDS.hypertension);
 const V2_HYPERTENSION = DEMO_V2.optionLabel(DEMO_OPTION_IDS.hypertension);
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function leadingLabel(label: string): RegExp {
+  return new RegExp(`^${escapeRegExp(label)}`);
+}
 
 async function submitHypertension(respondent: RespondentPage, hypertensionLabel: string, pharmacy: string): Promise<string> {
   await respondent.choose(prompts.hasCondition, YES);
@@ -28,8 +36,7 @@ async function submitHypertension(respondent: RespondentPage, hypertensionLabel:
 test.describe("E5 — a v2 relabel preserves collected meaning", () => {
   test("relabelling an option in a v2 draft leaves v1 responses untouched and both versions record the same option id", async ({
     page,
-    browser,
-    stack,
+    secondContext,
     api,
     db,
     admin,
@@ -37,7 +44,7 @@ test.describe("E5 — a v2 relabel preserves collected meaning", () => {
     const demo = await createDemoShapedQuestionnaire(api, { name: "E5 relabel" });
     const whichConditionQuestionId = demo.questions.whichCondition.questionId;
 
-    const sessionA = await openRespondentBrowser(browser, stack.baseUrl);
+    const sessionA = await openRespondentBrowser(secondContext);
     await sessionA.respondent.openForm(demo.questionnaireId);
     await expect(sessionA.respondent.option(prompts.whichCondition, V2_HYPERTENSION)).toHaveCount(0);
     const sessionAId = await submitHypertension(sessionA.respondent, V1_HYPERTENSION, "Session A pharmacy");
@@ -57,7 +64,7 @@ test.describe("E5 — a v2 relabel preserves collected meaning", () => {
     await authoring.relabelOption(2, DEMO_OPTION_IDS.hypertension, V2_HYPERTENSION, 2);
     await authoring.publish(2);
 
-    const sessionB = await openRespondentBrowser(browser, stack.baseUrl);
+    const sessionB = await openRespondentBrowser(secondContext);
     await sessionB.respondent.openForm(demo.questionnaireId);
     await sessionB.respondent.choose(prompts.hasCondition, YES);
     await expect(sessionB.respondent.option(prompts.whichCondition, V2_HYPERTENSION)).toBeVisible();
@@ -82,7 +89,7 @@ test.describe("E5 — a v2 relabel preserves collected meaning", () => {
 
     await page.getByRole("link", { name: "Preview version 1", exact: true }).click();
     await expect(admin.heading("Preview of version 1")).toBeVisible();
-    await page.getByRole("group", { name: `1. ${prompts.hasCondition}`, exact: true }).getByRole("radio", { name: YES, exact: true }).check();
+    await page.getByRole("radiogroup", { name: leadingLabel(`1. ${prompts.hasCondition}`) }).getByRole("radio", { name: YES, exact: true }).check();
     const preview = page.getByRole("region", { name: DEMO_V1.title, exact: true });
     const previewedWhichCondition = preview.getByRole("radiogroup", { name: prompts.whichCondition });
     await expect(previewedWhichCondition.getByRole("radio", { name: V1_HYPERTENSION, exact: true })).toBeVisible();

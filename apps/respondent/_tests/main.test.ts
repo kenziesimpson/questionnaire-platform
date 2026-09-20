@@ -1,0 +1,103 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+const APP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+const TELEMETRY_ROOT = resolve(APP_ROOT, "../../packages/telemetry/src/");
+
+const ENTRY = resolve(APP_ROOT, "src/main.tsx");
+
+const STATIC_SPECIFIER = /(?:\bfrom|\bimport)\s*"([^"]+)"/g;
+
+const TELEMETRY_ENTRIES: Readonly<Record<string, string>> = {
+  "@qp/telemetry": "index.ts",
+  "@qp/telemetry/browser": "browser.ts",
+};
+
+interface Graph {
+  readonly files: Set<string>;
+  readonly packages: Set<string>;
+}
+
+function specifiersIn(file: string, expression: RegExp): string[] {
+  return [...readFileSync(file, "utf8").matchAll(expression)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
+}
+
+function resolved(from: string, specifier: string): string | undefined {
+  const base = resolve(dirname(from), specifier.replace(/\.js$/, ""));
+  return [`${base}.ts`, `${base}.tsx`, resolve(base, "index.ts"), resolve(base, "index.tsx")].find((candidate) => existsSync(candidate));
+}
+
+function staticGraphFrom(entry: string): Graph {
+  const graph: Graph = { files: new Set(), packages: new Set() };
+  const pending = [entry];
+  for (let file = pending.pop(); file !== undefined; file = pending.pop()) {
+    if (graph.files.has(file)) continue;
+    graph.files.add(file);
+    for (const specifier of specifiersIn(file, STATIC_SPECIFIER)) {
+      const telemetryEntry = TELEMETRY_ENTRIES[specifier];
+      if (telemetryEntry !== undefined) {
+        graph.packages.add(specifier);
+        pending.push(resolve(TELEMETRY_ROOT, telemetryEntry));
+      } else if (specifier.startsWith(".")) {
+        const next = resolved(file, specifier);
+        if (next !== undefined) pending.push(next);
+      } else {
+        graph.packages.add(specifier);
+      }
+    }
+  }
+  return graph;
+}
+
+describe("the respondent's import graph", () => {
+  const graph = staticGraphFrom(ENTRY);
+
+  it("reads the whole static graph: the app, its telemetry wiring and the SDK it builds on", () => {
+    const names = [...graph.files].map((file) => relative(file.startsWith(TELEMETRY_ROOT) ? TELEMETRY_ROOT : APP_ROOT, file));
+
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "src/main.tsx",
+        "src/app.tsx",
+        "src/api/request.ts",
+        "src/telemetry/start.ts",
+        "browser.ts",
+        "browser/queue.ts",
+        "browser/trace-headers.ts",
+        "index.ts",
+        "spans.ts",
+      ]),
+    );
+  });
+
+  it("reaches no tracer provider, no span exporter and no tracing entry point: the browser mints trace ids by hand and creates no span", () => {
+    expect([...graph.packages].filter((name) => name.startsWith("@opentelemetry/sdk-"))).toEqual([]);
+    expect([...graph.packages].filter((name) => name.includes("tracing"))).toEqual([]);
+    expect([...graph.files].filter((file) => file.includes("tracing"))).toEqual([]);
+  });
+
+  it("reaches no Node-only telemetry module", () => {
+    for (const nodeOnly of ["node.ts", "testing.ts", "leak-test.ts", "pipeline.ts", "exporters.ts", "log-records.ts", "client-trace-processor.ts"]) {
+      expect(graph.files.has(resolve(TELEMETRY_ROOT, nodeOnly))).toBe(false);
+    }
+    expect([...graph.packages].filter((name) => name === "pino" || name.startsWith("@opentelemetry/sdk-node"))).toEqual([]);
+  });
+});
+
+describe("the respondent's entry point", () => {
+  const main = readFileSync(ENTRY, "utf8");
+
+  it("gives the one shared ErrorBoundary its fallback and reportRenderError as onError, and no other reporter", () => {
+    const boundaries = [...main.matchAll(/<ErrorBoundary\b(.*\})>\s*$/gm)].map((match) => match[1]?.trim());
+
+    expect(boundaries).toEqual(["fallback={<EntryFailedScreen />} onError={reportRenderError}"]);
+  });
+
+  it("takes the boundary from @qp/ui/error-boundary and the reporter from its own telemetry start module", () => {
+    expect(main).toContain('import { ErrorBoundary } from "@qp/ui/error-boundary";');
+    expect(main).toMatch(/import \{[^}]*\breportRenderError\b[^}]*\} from "\.\/telemetry\/start";/);
+  });
+});

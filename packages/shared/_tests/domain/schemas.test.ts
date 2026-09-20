@@ -7,10 +7,6 @@ import { PublishedDefinition } from "../../src/domain/definition.js";
 import { QuestionInput, QuestionVersionSummary, RESPONSE_TYPES, ResponseType } from "../../src/domain/question.js";
 import type { Equal } from "../type-equality.js";
 
-/**
- * The worked example from [[5-questionnaire-format]] §3, verbatim. Schema conformance of the documented
- * format, not the seeded demo builder — that lands with the seed and replaces nothing here.
- */
 const documentedV1 = {
   formatVersion: 1,
   questionnaireId: "01a0950e-56a0-73d6-b936-4a1e10eff8c0",
@@ -77,6 +73,16 @@ const documentedV1 = {
 
 const clone = <T>(v: T): T => structuredClone(v);
 
+type DocumentedItem = (typeof documentedV1.items)[number];
+
+function withItem(index: number, patch: (item: DocumentedItem) => object): object {
+  return { ...documentedV1, items: documentedV1.items.map((item, at) => (at === index ? patch(item) : item)) };
+}
+
+const withQuestion = (index: number, patch: object) => withItem(index, (item) => ({ ...item, question: { ...item.question, ...patch } }));
+
+const withVisibleWhen = (index: number, visibleWhen: object) => withItem(index, (item) => ({ ...item, visibleWhen }));
+
 describe("PublishedDefinition", () => {
   it("accepts the documented version 1 snapshot", () => {
     expect(Value.Check(PublishedDefinition, documentedV1)).toBe(true);
@@ -85,29 +91,32 @@ describe("PublishedDefinition", () => {
   it("accepts version 2: opt_hyperten relabelled, question version 4, nothing else changed (#26)", () => {
     const v2 = clone(documentedV1);
     v2.version = 2;
-    const which = v2.items[1]!.question as { questionVersion: number; options: { optionId: string; label: string }[] };
+    const item = v2.items[1];
+    if (item === undefined) throw new Error("the documented v1 fixture is missing its second item");
+    const which = item.question as { questionVersion: number; options: { optionId: string; label: string }[] };
     which.questionVersion = 4;
-    which.options[1]!.label = "High blood pressure (hypertension)";
+    const hypertension = which.options[1];
+    if (hypertension === undefined) throw new Error("the documented v1 fixture is missing its second option");
+    hypertension.label = "High blood pressure (hypertension)";
     expect(Value.Check(PublishedDefinition, v2)).toBe(true);
   });
 
-  it.each([
-    ["an unknown formatVersion", (d: any) => (d.formatVersion = 2)],
-    ["a yes_no question type (#36)", (d: any) => (d.items[0].question.type = "yes_no")],
-    ["a condition naming questionId instead of itemId (#41)", (d: any) => {
-      d.items[1].visibleWhen.all[0] = { type: "single_choice", questionId: d.items[0].question.questionId, op: "is", optionId: "yes" };
-    }],
-    ["a question.key carried into the snapshot (#35)", (d: any) => (d.items[0].question.key = "qst_has_condition")],
-    ["a slug questionnaireId", (d: any) => (d.questionnaireId = "qnr_intake")],
-    ["a nested predicate", (d: any) => (d.items[1].visibleWhen = { all: [{ any: [] }] })],
-    ["a date operator on a single_choice condition", (d: any) => (d.items[1].visibleWhen.all[0].op = "before")],
-    ["a number without numberKind", (d: any) => (d.items[3].question = { ...d.items[3].question, type: "number", maxLength: undefined })],
-    ["an impossible calendar date bound", (d: any) => (d.items[2].question.max = "2026-02-30")],
-    ["a choice question with no options", (d: any) => (d.items[0].question.options = [])],
-  ])("rejects %s", (_, mutate) => {
-    const d = clone(documentedV1);
-    mutate(d);
-    expect(Value.Check(PublishedDefinition, d)).toBe(false);
+  it.each<[string, unknown]>([
+    ["an unknown formatVersion", { ...documentedV1, formatVersion: 2 }],
+    ["a yes_no question type (#36)", withQuestion(0, { type: "yes_no" })],
+    [
+      "a condition naming questionId instead of itemId (#41)",
+      withVisibleWhen(1, { all: [{ type: "single_choice", questionId: documentedV1.items[0]?.question.questionId, op: "is", optionId: "yes" }] }),
+    ],
+    ["a question.key carried into the snapshot (#35)", withQuestion(0, { key: "qst_has_condition" })],
+    ["a slug questionnaireId", { ...documentedV1, questionnaireId: "qnr_intake" }],
+    ["a nested predicate", withVisibleWhen(1, { all: [{ any: [] }] })],
+    ["a date operator on a single_choice condition", withVisibleWhen(1, { all: [{ type: "single_choice", itemId: "itm_01", op: "before", optionId: "yes" }] })],
+    ["a number without numberKind", withQuestion(3, { type: "number", maxLength: undefined })],
+    ["an impossible calendar date bound", withQuestion(2, { max: "2026-02-30" })],
+    ["a choice question with no options", withQuestion(0, { options: [] })],
+  ])("rejects %s", (_, snapshot) => {
+    expect(Value.Check(PublishedDefinition, snapshot)).toBe(false);
   });
 });
 

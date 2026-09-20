@@ -1,6 +1,6 @@
 # Structural Refactor
 
-> **Status: agreed, not started.** This is the plan for one consolidation pass over the finished build, to prepare the codebase for adding telemetry and metrics. It comes from a structural audit made on 2026-09-16 (six area leads, each backed by per-file deep dives).
+> **Status: nearly complete.** Every PR in Phases A–F has merged; PR 21 (Phase G) is the only one left. This is the plan for one consolidation pass over the finished build, to prepare the codebase for adding telemetry and metrics. It comes from a structural audit made on 2026-09-16 (six area leads, each backed by per-file deep dives).
 >
 > The pass has four aims:
 > - make each concept live in one place;
@@ -43,8 +43,8 @@ Two PRs can run at the same time when the files they own don't overlap. The wave
 | --- | --- | --- |
 | 0 | PR 0 (lint harness), PR 0b (the four rules PR 0 left unowned), PR 17 (compose), PR 20 (ownership table) | nothing |
 | 1 | PR 1 (request helpers, problem parser), PR 3 (`db/execution`), PR 13 (tsconfig presets) | PR 0 |
-| 2 | PR 2 (shared vocabulary, test support), PR 4b (route cleanup), PR 15 (root scripts) | PR 1 and PR 3 |
-| 3 | PR 4 (database cleanup), PR 5 → PR 6 (admin), PR 7 → PR 8 → PR 8b (respondent), PR 9 (primitives), PR 10 (questionnaire index), PR 16 (e2e), PR 18 (comments) | PR 2 |
+| 2 | PR 2a (shared vocabulary), PR 2b (test support), PR 4b (route cleanup), PR 15 (root scripts), then PR 2c (`other` id reserved) | PR 1 and PR 3; PR 2c waits for PR 2a |
+| 3 | PR 4 (database cleanup), PR 5 → PR 6 (admin), PR 7 → PR 8 → PR 8b (respondent), PR 9 (primitives), PR 10 (questionnaire index), PR 16 (e2e), PR 18 (comments) | PR 2a and PR 2b |
 | 4 | PR 11 (icons), PR 12 (preview panel) | PR 5, PR 6, PR 8b, PR 10 |
 | 5 | PR 14 (import extensions), then PR 19 (`AGENTS.md`) | everything above; PR 14 runs alone |
 | 6 | PR 21 (`noUncheckedIndexedAccess`) | everything |
@@ -54,9 +54,10 @@ Wave 3 is the widest: up to eight branches at once (PR 4, PR 5, PR 6, one respon
 ```mermaid
 graph LR
   PR0 --> PR1 & PR3 & PR13
-  PR1 --> PR2 & PR4b & PR15
-  PR3 --> PR2 & PR4b
-  PR2 --> PR4 & PR5 & PR7 & PR9 & PR10 & PR16 & PR18
+  PR1 --> PR2a & PR2b & PR4b & PR15
+  PR3 --> PR2a & PR2b & PR4b
+  PR2a --> PR2c
+  PR2a & PR2b --> PR4 & PR5 & PR7 & PR9 & PR10 & PR16 & PR18
   PR4b -. merges before .-> PR4
   PR5 -- first commit --> PR6
   PR7 --> PR8 --> PR8b
@@ -119,8 +120,8 @@ Owns: the four blocks it appends to `eslint.config.mjs`, `tests/lint-{library-sp
 This is items 1 and 2 of the audit's first tier.
 
 - **Request helpers.** Add `packages/shared/src/api/request.ts` with `routePath`, `routeSearch`, `successSchemaOf` and `RequestParts<R>`. It must be transport-free: shared builds with `types: []`, so `fetch`, `Headers` and `URLSearchParams` are not available there.
-- **Route types and ETag check.** Move the `SuccessStatus`/`SuccessOf` helpers from `apps/backend/src/http/routes.ts` into `packages/shared/src/api/route.ts`. Add `isDraftEtagFor` to `packages/shared/src/api/etag.ts`.
-- **Problem parser.** Add `problemFromWire(wire, { unknownCodes: "drop" | "reject" })` to `packages/shared/src/problems.ts`, driven by a value-level extension table. Export the code guards and one item-error schema factory. Admin passes `"drop"` and respondent passes `"reject"`, so today's behaviour is kept on both sides.
+- **Route types and ETag check.** Move the route-success helpers into `packages/shared/src/api/route.ts`: `SuccessStatus` comes from `apps/backend/src/http/routes.ts`, the only one of them that lived there, and `RouteWith`/`SuccessBody` come from admin's `src/api/client.ts`. Add `isDraftEtagFor` to `packages/shared/src/api/etag.ts`.
+- **Problem parser.** Add `problemFromWire(wire)` to `packages/shared/src/problems.ts`, driven by a value-level extension table, reading against a permissive envelope so an unknown code is distinguishable from a malformed body. Export the code guards and one item-error schema factory. **Amended:** the plan called for an `{ unknownCodes: "drop" | "reject" }` policy, on the premise that admin drops unknown codes today. It does not — `apps/admin/src/api/problem-error.ts` and `apps/respondent/src/api/request.ts` both opened with the same `Value.Check(ProblemDetails, body)` and both rejected. The parser therefore has one behaviour, refusing a body it does not fully understand, which is what both consumers already did ([[2-design-doc#17. Decisions Log]] #81).
 - **Consumers.** Admin (`src/api/client.ts`, `src/api/problem-error.ts`), respondent (`src/api/request.ts`, `src/api/problems.ts`) and e2e (`fixtures/api/api-exchange.ts`, `specs/tier-3/support/authoring.ts`) switch to the shared helpers. Each consumer keeps only its policy: admin throws `ProblemError` and checks the ETag, respondent returns an outcome union, e2e sends through Playwright.
 - **Admin cleanup.** Delete admin's builders for the execution-only slugs.
 - **Admin type tests.** The `@ts-expect-error` type tests in admin must still fail to compile without the directive; they are the regression net.
@@ -138,15 +139,20 @@ Follow-up: [gh#80](https://github.com/kenziesimpson/questionnaire-platform/issue
 
 This is items 3 and 4 of the audit's first tier. It branches after PR 1 merges, because both edit `packages/shared/src/index.ts`.
 
+**Amended:** PR 2 shipped as two PRs, so its halves could run in parallel. **PR 2a** owns **Domain vocabulary** and **Shared package surface** below, with L8, L9 and L15. **PR 2b** owns **Test support**, with L11. Wave 3 waits for both (§3.1), and a later PR that depends on "PR 2" depends on both.
+
 **Domain vocabulary**
 - Export the following from `packages/shared/src/domain/`: `QuestionOf`, `OTHER_OPTION_ID`, `optionIdsOf`, `freeformOptionOf`, `conditionsOf`, `referencedOptionIds`, `OPERATORS_BY_TYPE`, `isChoiceQuestion`, `draftItemOf`, `draftForValidation` and `questionInputOf`.
 - Delete every local copy of those helpers: 4 of `QuestionOf`, 3 of `OTHER_OPTION_ID`, 5 of the `Item`→`DraftItem` projection, 3 of the `QuestionContent`→`QuestionInput` strip, and so on.
 - Use one definition of the "other" option everywhere: `id === OTHER_OPTION_ID && freeform`. Today it is detected three different ways, so this is a small behaviour change, recorded as a new Decisions Log row (§5).
+- **Amended (PR 2a):** admin's `questionInputOf` was not a copy: it builds a `QuestionInput` from the editor's form, not from `QuestionContent`. It is renamed `questionInputFromForm` rather than deleted, because L9 reserves the name. `freeformOptionOf`, `OPERATORS_BY_TYPE` and `isChoiceQuestion` had no copies under those names; they replace inline spellings (`"options" in question`, admin's `OPERATORS` and `isChoice`, the renderer's `option.freeform`).
 
 **Shared package surface**
 - Move `strict` into `primitives.ts` and delete `domain/utils.ts`. Remove the 7 re-declarations of `strict`.
 - Convert `packages/shared/src/index.ts` from `export *` to named exports, and stop exporting the roughly 30 names nothing imports.
+- **Amended (PR 2a):** that includes the code guards (`is*Code`) and `ItemErrorOf`, which PR 1 exported; nothing outside the package imports them, and L10 bans hand-built guards anyway.
 - Move the demo data to a `./demo` subpath export, including the seed's question keys and bank history, and the item and option ids that e2e re-types by hand.
+- **Amended (PR 2a):** the e2e fixtures keep their `DEMO_*` names as aliases of the shared `INTAKE_*` constants, so no spec changes; folding the aliases away is PR 16's.
 - Add an execution-route completeness test to match the existing definition-route one.
 
 **Test support**
@@ -158,9 +164,28 @@ This is items 3 and 4 of the audit's first tier. It branches after PR 1 merges, 
 - Add `apps/admin/_tests/support/` with `render-app.tsx`, `routes.ts`, `builders.ts` and `http.ts`. The general helpers in `_tests/screens/question-editor/harness.tsx`, which nine unrelated files import, move there. `fillJsdomLayoutGaps` moves into `_tests/setup.ts`.
 - Align backend test support naming: `harness.ts` builds the app, `fixtures.ts` holds data and request helpers. Add `_tests/modules/definition/fixtures.ts`, and export the shared helpers once from `_tests/db/fixtures.ts`.
 
-Lint rules: L8, L9 and L11.
+Lint rules: L8, L9 and L11. **Amended:** L15 too, which §4.1 assigns to PR 2; PR 2a lands L8, L9 and L15, and PR 2b lands L11.
 
 Owns: `packages/shared/src/{index.ts,primitives.ts,domain,engine,demo}`, `packages/ui/src/testing/**`, `**/_tests/{setup,support,axe,fixtures,harness}*`, `apps/backend/src/db/seed/**`.
+
+**Amended:** one Owns line per half.
+- **Owns (2a):** `packages/shared/src/**`, `packages/shared/package.json` (the `./demo` export), `apps/backend/src/db/seed/**`, the local copies of the vocabulary wherever they sit, and every import of the demo names.
+- **Owns (2b):** `packages/ui/src/testing/**` and its tests in `packages/ui/_tests/testing/**`; the `./testing` export and test-only dependencies in `packages/ui/package.json`, and `axe-core` in the admin and respondent manifests; `**/_tests/{setup,support,axe,fixtures,harness}*`; the fakes it replaced (`apps/admin/_tests/fake-definition-api.ts`, `apps/respondent/_tests/execution-server.ts`); the tests whose imports change as a result; `tests/lint-test-support.test.ts`; and `package-lock.json` for the dependency moves.
+- The halves share test files, `eslint.config.mjs` and `docs/8-testing.md`. **PR 2a merges first; PR 2b rebases onto it** and keeps 2a's `@qp/shared/demo` imports and vocabulary imports in the shared test files.
+
+Also tightens R6 (§4.3): PR 15 relaxed knip's `exports`/`types`/`files` checks under every `_tests/**` directory because this PR's test-support unification was still pending. **Checked again after PR 2a and PR 2b both merged: the relaxation is still needed** — `apps/admin/_tests/screens/draft-editor/harness.tsx`, `apps/admin/_tests/support/builders.ts`, `apps/backend/_tests/db/{fixtures,harness}.ts` and `packages/ui/_tests/fixtures.ts` still export names nothing imports. Drop it once those are cleaned up too.
+
+#### PR 2c — The `other` option id is reserved · S · changes behaviour
+
+> **Depends on:** PR 2a. **Can run alongside:** PR 2b, PR 4b, PR 15. **PR 4b merges first**, because it renames `apps/backend/src/db/migrator.ts` to `migrations.ts`, which this PR's `_tests/db/other-option.test.ts` imports and git does not report as a conflict. Whichever of the two lands second fixes that import.
+
+**Added after PR 2a.** PR 2a made `id === OTHER_OPTION_ID && freeform` the one definition of the other option (#82), which left an edge case: on a question with a plain `other` option, ticking the editor's freeform Other checkbox failed with `question/duplicate-option-id`. This PR makes the rule work both ways, so an option has the id `other` exactly when it is freeform. It is a contract change, recorded as Decisions Log #83.
+
+- The shared question rules reject a non-freeform `other` option with `question/other-not-freeform`, pointing at the option's `optionId`. `POST /questions` and `POST /questions/:questionId/versions` return `400` for it.
+- Migration `0015` replaces `freeform_is_other` with `freeform_exactly_when_other` (`freeform = (option_id = 'other')`) and drops `qvo_one_freeform`, which the primary key now covers. It fails if a stored row breaks the rule.
+- The admin editor needs no new state: option ids are generated with the `opt_` prefix, so an author cannot type or generate `other` on an ordinary row.
+
+Owns: `packages/shared/src/{problems.ts,engine/question-rules.ts}`, `apps/backend/src/db/schema.ts`, `apps/backend/drizzle/{0015_other_option_id_reserved.sql,migrations.lock.json,meta/{_journal.json,0015_snapshot.json}}`, `apps/backend/README.md`, `apps/admin/src/screens/question-editor/field-errors.ts`, and these test files: `packages/shared/_tests/{problems.test.ts,engine/question-rules.test.ts}`, `apps/backend/_tests/db/other-option.test.ts`, `apps/backend/_tests/modules/definition/routes/questions.test.ts` and `apps/admin/_tests/screens/question-editor/question-form.test.ts`. `questions.test.ts` is also edited by PR 4b and PR 2b, so this PR rebases onto whichever merges first.
 
 ### Phase B — Backend
 
@@ -203,10 +228,17 @@ This PR follows PR 3 and covers `src/db/definition`.
 
 **Decide and document**
 - Decide what happens to the `archivedQuestionIds` option on the shared `validateDraft`: `refusedItems` either uses it or it is deleted. Either way, the behaviour in #75 stays.
+  **Decided: deleted.** No caller ever passed it — `draftForValidation` does not set it, so the validator's `draft/question-archived` branch was unreachable — and under #75 neither validate nor publish may report an existing placement, which is exactly what passing it would make them do ([[4-implementation-plan#Track 6 file split]]: "its draft validator needed no change"). `refusedItems` keeps its own `archivedQuestionIds` query, which sees only new placements. `DraftForValidation` loses the field and `DraftValidator` loses the branch; `draft/question-archived` stays a `DraftItemCode`, produced by `replaceDraft` alone.
 - Write down which test layer owns what in [[8-testing#2. Layers]]: repository tests own outcomes, locks and audit; route tests own status, problem type and headers. Then trim the scenarios both layers repeat.
+- **Open from PR 2b:** `useExecutionApp` lives in `_tests/db/execution/harness.ts`, and `_tests/db/execution/fixtures.ts` re-exports it so `_tests/modules/execution` can build the same app without importing another directory's harness (L11). Once the layers are decided, move the builder to the directory that owns route tests and drop the re-export.
+  **Closed:** every test under `_tests/db/execution/` drove the module through `inject()` and asserted status, problem type and headers, so by the rule above they are route tests. The three files, the harness and the fixtures moved to `_tests/modules/execution/`, the re-export is gone, and `_tests/db/execution/` no longer exists.
 - Unchanged: `traceId` stays on every command type (§1).
 
-Owns: `apps/backend/src/db/**` except `schema.ts`, `client.ts` and the migrations.
+Lint rule: L18, which §4.1 assigns to this PR.
+
+Owns: `apps/backend/src/db/**` except `schema.ts`, `client.ts` and the migrations. **Also, by the bullets above:** `apps/backend/src/http/database-errors.ts` (moved to `db/errors.ts`) and its two importers, the `db/definition` imports in `modules/definition`, `packages/shared/src/api/etag.ts` and `src/index.ts` (`DraftPrecondition`), `packages/shared/src/{domain/draft.ts,engine/draft-validation.ts}` (the `archivedQuestionIds` decision), the backend `_tests` mirroring all of it, and `schema.ts`'s `export` keyword on `RESPONSE_TYPE_VALUES` — the constant is used twice inside `schema.ts`, so "delete it" is read as dropping the export nothing imports rather than inlining the array.
+
+Also tightens R6 (§4.3): PR 15 relaxed knip's `exports`/`types`/`files` checks under `apps/backend/src/db/**` because this PR's cleanup was still pending. **Dropped: `apps/backend/src/db/**` is clean and the entry is gone from `knip.json`.**
 
 #### PR 4b — Backend route and HTTP cleanup · S–M
 
@@ -214,13 +246,15 @@ Owns: `apps/backend/src/db/**` except `schema.ts`, `client.ts` and the migration
 
 This is its own PR, separate from the database cleanup in PR 4.
 
-- Add `notFoundProblem` in `src/http/problems.ts`; the same problem is built 6 times today. Make `registerRoute` fill in `instance` from `request.url` by default.
-- Add a `definitionProblem(refusal, instance)` mapper in `src/modules/definition/problems.ts`, replacing four switches that have already drifted from each other.
+- Add `notFoundProblem` in `src/http/problems.ts`; the same problem is built 6 times today. Make `registerRoute` fill in `instance` from `request.url` by default. **Amended:** `sendProblem`, which every problem goes through, sets `instance` to the request URL, not `registerRoute`. Every problem body therefore carries it, including those from the error and not-found handlers, so handlers and mappers never pass it. `notFoundProblem()` takes no argument. This changes behaviour, which the user approved on review: the schema-validation `400`s (a missing `If-Match` among them), other framework `4xx`, the `500`, the malformed-URL `400` (which also changes from Fastify's own JSON body to a problem, through `frameworkErrors`), the question-rule and type-lock `400`s, the malformed-`If-Match` `400` and `PUT /draft`'s `422` gain an `instance`. The `500`'s `detail` stays a correlation id: the request id here, the trace id when a span is active (T0b).
+- Add a `definitionProblem(refusal, instance)` mapper in `src/modules/definition/problems.ts`, replacing four switches that have already drifted from each other. **Amended:** the mapper is `definitionProblem(refusal)`, because `sendProblem` supplies `instance`; execution's `problemFor(refusal)` drops the parameter too. The four were three `switch`es (`PUT /draft`, `POST /draft`, `POST /publish`) and the `if` chain in `POST /questions/:questionId/versions`. They had drifted in one place: `PUT /draft`'s `422 questionnaire/draft-invalid` left out the `instance` that `POST /publish`'s carried, which was a bug. The mapper also takes the not-found refusals of `setClosesAt` and `archiveQuestion`, so no definition route maps an outcome by hand.
 - Make `draftPreconditionOf` return `DraftPrecondition | Problem`, and delete the exception class that is thrown and caught by `instanceof`.
 - Move the publish route into `routes/drafts.ts`, and turn the route files into plain `register*Routes(scope, database)` functions.
 - Split `http/problems.ts` into `problems.ts` and `validation.ts`, and add an `applyHttpDefaults(scope, errorHandler)` helper used by the root app and both modules.
 - Rename `db/migrator.ts` to `db/migrations.ts`.
 - Move `snapshotEtag` into `@qp/shared`.
+
+Also tightens R6 (§4.3): PR 15 relaxed knip's `exports`/`types`/`files` checks under `apps/backend/src/{http,modules/definition}/**` because this PR's cleanup was still pending. **Now that this PR has merged: `modules/definition/**` is clean and that half of the relaxation is dropped.** `http/**` still needs a narrower one — `RouteRequest`, `RouteSuccess` and `RouteResponse` in `http/routes.ts` are exported but only ever used inside that file. Drop the remaining `types` relaxation once those three lose their `export`.
 
 ### Phase C — Frontends (after PR 2)
 
@@ -250,6 +284,8 @@ This is its own PR, separate from the database cleanup in PR 4.
 Lint rules: L3 and L4.
 
 Owns: `apps/admin/src/{lib,components,api,features}/**`, `draft-items.tsx`, `options-editor.tsx`, `version-preview/**`, `questionnaire-list/**`, `question-bank/**`.
+
+Also tightens R6 (§4.3): PR 15 relaxed knip's `exports`/`types`/`files` checks across all of `apps/admin/src/**` (per-workspace, not per-file) because this cleanup was still pending. Thirteen of today's fourteen findings land in this PR's or PR 6's own paths once PR 5's `screens/` → `features/` move happens. The fourteenth does not: `apps/admin/src/page-title.ts`'s `APP_TITLE` sits in neither `Owns` line. Drop the relaxation for everything but that file once PR 5 and PR 6 both merge; `page-title.ts` carries over to the unowned-findings follow-up (see the R6 amendment).
 
 #### PR 6 — Admin splits for testability · M
 
@@ -319,6 +355,8 @@ It amends the respondent half of #32 and rewrites [[10-frontend#8. Library choic
 
 Owns: `apps/respondent/src/screens/questionnaire-screen.tsx`, `apps/respondent/src/storage/**`.
 
+Also tightens R6 (§4.3), together with PR 7 and PR 8: PR 15 relaxed knip's `exports`/`types`/`files` checks across all of `apps/respondent/src/**` (per-workspace, not per-file) because this cleanup was still pending. **Now that PR 7, PR 8 and PR 8b have all merged:** `session/respondent-session.ts` and `storage/partials.ts` are clean (their last unused exports, `fetchExecutionClient`, `localPartialsStorage` and `StoredPartialsEnvelope`, lost the `export` keyword nothing outside the file needed), and the workspace-wide relaxation is replaced by three narrow, permanent per-file entries for the findings no `Owns` line covers: `api/execution-client.ts` (`CREATE_SESSION_PROBLEMS`, `GET_SESSION_PROBLEMS`, `SUBMIT_SESSION_PROBLEMS`), `api/problems.ts` (`EXECUTION_PROBLEM_SLUGS`) and `screens/error-summary.tsx` (`UNPLACED_ERRORS_MESSAGE`) — carried by the unowned-findings follow-up (see the R6 amendment). `answers/precheck.ts`'s `browserTimeZone` is not among them: this PR gives it a real consumer (the per-field date validator in `questionnaire-screen.tsx`), so the file needs no exception at all.
+
 ### Phase D — `packages/ui`
 
 #### PR 9 — Primitives: shadcn versions, logic in components · S–M
@@ -330,8 +368,11 @@ Owns: `apps/respondent/src/screens/questionnaire-screen.tsx`, `apps/respondent/s
 - **Add shadcn's `native-select` primitive.** Admin's `NativeSelect` goes away, and the predicate editor uses the primitive directly.
 - **Add shadcn's `tooltip` primitive.** `InfoTip` stays in `apps/admin/src/components/info-tip.tsx` as a thin component built on it. The hover/focus/Escape state it manages by hand today is deleted, and the tooltip now repositions itself away from screen edges.
 - Amend #66.
+- **Move `shadcn` from `devDependencies` to `dependencies`.** `packages/ui/src/styles/globals.css` does `@import "shadcn/tailwind.css"`, which ships into every consumer that imports `@qp/ui/globals.css` (admin, respondent); today it only resolves through hoisting. R5 (§4.3) cannot catch this — it checks per workspace, not what ships transitively into a consumer's bundle.
 
-Owns: `packages/ui/src/primitives/**`, `packages/ui/package.json`, `apps/admin/src/components/info-tip.tsx`, and the admin native-select call sites.
+R2 (§4.3) lands here: `tests/package-exports.test.ts`, modeled on PR 13's `tests/tsconfig-presets.test.ts` for R1, checks every workspace's `package.json` `exports`/`main`/`types` targets against the filesystem, falling back to the matching source file for a `dist/`-built target so a fresh, unbuilt checkout does not fail spuriously.
+
+Owns: `packages/ui/src/primitives/**`, `packages/ui/package.json`, `apps/admin/src/components/info-tip.tsx`, the admin native-select call sites, and `tests/package-exports.test.ts`.
 
 #### PR 10 — Close the questionnaire index · S
 
@@ -349,6 +390,8 @@ Owns: `packages/ui/src/primitives/**`, `packages/ui/package.json`, `apps/admin/s
 Lint rule: L12.
 
 Owns: `packages/ui/src/questionnaire/**`, `apps/respondent/src/screens/focus-item.ts`.
+
+Also tightens R6 (§4.3): PR 15 relaxed knip's `exports`/`types`/`files` checks under `packages/ui/src/questionnaire/**` because this PR's export trim was still pending. **Now that this PR has merged: the relaxation is dropped.**
 
 #### PR 11 — Lucide only, through `@qp/ui/icons` · S–M
 
@@ -404,7 +447,7 @@ Lint rule: L13. This PR touches many files, so it runs after Phase C and D.
 
 > **Depends on:** PR 1. **Can run alongside:** PR 2, PR 4b, PR 16.
 
-- `build` becomes the shared build followed by `npm run build --workspaces --if-present`. The explicit shared step stays, because npm runs workspaces in declaration order, not dependency order.
+- `build` becomes the shared build followed by `npm run build --workspaces --if-present`. The explicit shared step stays, because npm runs workspaces in declaration order, not dependency order. **Amended:** the only real ordering constraint this repo has is shared-before-everything, which the explicit step covers directly; there is no telemetry-before-backend constraint to protect; nothing outside `packages/telemetry` imports `@qp/telemetry` today, and `apps/backend` does not declare it as a dependency. With today's `workspaces` globs (`packages/shared, packages/telemetry, packages/ui, apps/admin, apps/backend, apps/respondent, e2e`), `--workspaces` alone already builds shared first, so the explicit step is redundant right now (it just re-runs an incremental `tsc`, ~0.6s) — it is kept as a guard against a future change to the `workspaces` array or a renamed/reordered package making shared build after a dependent.
 - Drop the `lint --workspaces --if-present` half of the root `lint` script. Linting stays one root `eslint .` run.
 - Rename e2e's `test` script to `test:e2e`, so `test` means Vitest in every workspace.
 - Align `@types/node` to one version.
@@ -419,11 +462,13 @@ Lint rule: L13. This PR touches many files, so it runs after Phase C and D.
   - the draft-list locators, as methods on `AdminPage`;
   - a `secondContext` fixture;
   - one `Deferred` helper.
-- Split up `tier-3/support/authoring.ts`.
+- Split up `tier-3/support/authoring.ts`. Note that `tier-2/support/submit-traffic.ts` is not owned by any PR in this pass; PR 16 takes it.
 - Delete the three `.gitkeep` files.
 - Do not rename spec files or tier directories.
 
-Lint rule: L10, which PR 1 introduced, extends to e2e.
+Lint rule: L10 already covers e2e — PR 1 extended it there and converted all three hand-parses (`fixtures/api/api-exchange.ts`, `tier-3/support/authoring.ts`, `tier-2/support/submit-traffic.ts`) onto `problemFromWire`, promoting one `ProblemReply` and a `problemOf(reply, slug)` accessor into `e2e/fixtures/api/problem-reply.ts`. What is left for PR 16 is the route matcher and request recorder, the draft-list locators, `secondContext`, `Deferred`, and splitting `authoring.ts`.
+
+Also tightens R6 (§4.3): PR 15 relaxed knip's `exports`/`types`/`files` checks across all of `e2e/**` because this PR's cleanup was still pending. PR 16 has no `Owns:` line, so this only checks against its bullets above: the fixtures and `authoring.ts` findings clear once this PR merges, but six do not — `stack/compose-stack.ts`'s `REPO_ROOT`, `PRODUCTION_COMPOSE_FILE`, `COMPOSE_PROJECT_PREFIX`, `COMPOSE_SUPERUSER` and `newComposeProjectName`, plus `stack/kept-stacks.ts`'s `KEPT_STACKS_DIRECTORY` — since none of this PR's bullets touch `e2e/stack/**`. Those six carry over to the unowned-findings follow-up (see the R6 amendment) unless this PR's scope grows to cover them.
 
 #### PR 17 — Compose redundancy · S
 
@@ -493,23 +538,25 @@ All rules below are agreed. The "today" column counts violations measured on 202
 | L2 | Icons only through `@qp/ui/icons` | `lucide-react` may be imported only in `packages/ui/src/{icons.ts,primitives/**}`. No `<svg>` JSX outside `packages/ui` | `no-restricted-imports` plus `no-restricted-syntax` on `JSXOpeningElement[name.name="svg"]` | 11 | 5 files with inline SVG |
 | L3 | Admin screen directories are private | `screens/<name>/**` is imported only by `screens/<name>.tsx` and its own files. `lib/`, `components/`, `api/` and `features/` never import `screens/` | `no-restricted-imports`, with one block per screen generated from the directory listing | 5 | 5 imports across screens |
 | L4 | Mutations live in `src/api/mutations` | Importing `useMutation` is allowed only there | `no-restricted-imports` with `importNames` | 5 | 4 files outside |
-| L5 | No prose comments | Rejects any comment except ESLint and TypeScript directives (`eslint-*`, `@ts-expect-error — <reason>`) | A local rule in `eslint.config.mjs` | 18 | about 190 lines |
+| L5 | No prose comments | Rejects any comment except ESLint and TypeScript directives (`eslint-*`, `@ts-expect-error — <reason>`), everywhere. **Amended twice:** PR 18 landed it scoped to `packages/shared/**` and `packages/telemetry/**`, the directories that PR actually cleared, because the other Wave 3 PRs were still in flight and a repo-wide rule would have failed lint on files none of them had touched yet. Now that all of Wave 3 has merged, a follow-up widens it repo-wide, joining `theToolConfigFiles` (`**/*.config.{ts,tsx,mts,cts,js,mjs,cjs}`, the same exemption L20 uses) to `ignores`: `eslint.config.mjs`'s and `vitest.config.mts`'s own doc-pointer headers stay, since both are `*.config.*` files, and every other comment outside the original scope was already an allowed directive | A local rule in `eslint.config.mjs` | 18 | 0 outside the two config-file headers |
 | L6 | Route paths are built only by the shared helper | Rejects regex literals matching `/:(…)/` outside `packages/shared/src/api/request.ts` | `no-restricted-syntax` on `Literal[regex.pattern=/^:\\(/]` | 1 | 4 |
 | L7 | Library split by app (#32) | `@tanstack/react-query`, `@tanstack/react-router` and `@dnd-kit/*` are allowed only in `apps/admin`. `@tanstack/react-form` is allowed only in `apps/respondent`. `radix-ui` is allowed only in `packages/ui/src/primitives`. Each home covers the workspace's tests as well as its sources | `no-restricted-imports` | 0b | 0; this codifies the current state |
-| L8 | No named exports via `export *` in package entry points | Public APIs are explicit | `no-restricted-syntax` on `ExportAllDeclaration` in `packages/*/src` | 2 | 13 |
-| L9 | Shared vocabulary is not re-declared | Rejects declaring `QuestionOf`, `strict`, `OTHER_OPTION_ID`, `conditionsOf` and the other PR 2 names outside `packages/shared` | `no-restricted-syntax` on `TSTypeAliasDeclaration` and `VariableDeclarator` names | 2 | 14 |
-| L10 | Problem bodies are parsed only by `problemFromWire` | Rejects hand-built problem guards, and rejects calling `problem("resource/not-found", …)` outside `notFoundProblem` | `no-restricted-syntax` | 1 (and 4b, 16) | 6 in backend `src` |
-| L11 | Test support comes from support modules | `axe-core` and `vitest-axe` may be imported only in `@qp/ui/testing`. `_tests/**` may not import another directory's `harness` | `no-restricted-imports` | 2 | 7 admin files |
+| L8 | No unnamed `export *` | Public APIs are explicit. **Amended:** the rule covers every file, not only `packages/*/src`, because it travels with the selectors `syntax()` carries (see L9); `export * as namespace` passes, since it adds one named export | `no-restricted-syntax` on `ExportAllDeclaration[exported=null]` | 2a | 13; 14 when PR 2a landed it, all in `packages/shared/src/index.ts` |
+| L9 | Shared vocabulary is not re-declared | Rejects declaring `QuestionOf`, `strict`, `OTHER_OPTION_ID`, `conditionsOf` and the other PR 2 names outside `packages/shared`. **Amended:** outside `packages/shared/src/domain` and `packages/shared/src/primitives.ts`, so the engine's and the API modules' own copies inside `packages/shared` are caught too. The selectors join the ones `syntax()` carries for every file, like the double-assertion ones, so a block appended later cannot drop them; one block exempts the domain and restates the rest | `no-restricted-syntax` on `TSTypeAliasDeclaration`, `VariableDeclarator` and `FunctionDeclaration` names | 2a | 14 |
+| L10 | Problem bodies are parsed only by `problemFromWire` | Rejects hand-built problem guards, and rejects calling `problem("resource/not-found", …)` outside `notFoundProblem` | `no-restricted-syntax` | 1 (and 4b, 16) | 6 in backend `src`; 0 once 4b lands |
+| L11 | Test support comes from support modules | `axe-core` and `vitest-axe` may be imported only in `@qp/ui/testing`. `_tests/**` may not import another directory's `harness`. **Amended:** a `_tests` file may import the harness beside it, an enclosing directory's, and one directly below it, which is meant for the test named after that directory (`screens/draft-editor.test.tsx` → `./draft-editor/harness`). A regex cannot check that name, so any child directory's harness passes. Production code may not import `@qp/ui/testing`, by package name anywhere under `src` or by relative path inside `packages/ui/src`. The axe patterns join the library table `restrictOutside()` builds from. The `_tests` blocks restate the library split, the `openDatabase` restriction and `pino`; they replace two earlier blocks, which are deleted. Open for PR 4: `_tests/db/execution/fixtures.ts` re-exports `useExecutionApp` from its harness, because `_tests/modules/execution` builds the same app | `no-restricted-imports`; `@typescript-eslint/no-restricted-imports` for `@qp/ui/testing` in `src` | 2b | 7 admin files; when PR 2b landed it, 9 files imported `axe-core` outside `@qp/ui/testing` and 20 imported another directory's harness (9 in admin, 11 in the backend) |
 | L12 | No deep imports into `packages/ui` internals | Apps import only the `@qp/ui/*` entry points. The package `exports` map already blocks most deep imports; this rule also blocks relative paths | `no-restricted-imports` | 10 | 0 |
 | L13 | Import extension convention | `.js` in backend, shared and telemetry; no extension in admin, ui, respondent and e2e | `no-restricted-syntax` on `ImportDeclaration[source.value=/…/]` per block | 14 | about 60 |
 | L14 | No non-null assertions | Keeps PR 21 honest | `@typescript-eslint/no-non-null-assertion` | 21 | 5 (3 in `decimal.ts`) |
-| L15 | No explicit `any` | Types stay honest; test data uses typed builders | `@typescript-eslint/no-explicit-any` | 2 | 16, all in shared tests |
+| L15 | No explicit `any` | Types stay honest; test data uses typed builders | `@typescript-eslint/no-explicit-any` | 2a | 16, all in shared tests; 10 when PR 2a landed it, all in `domain/schemas.test.ts` |
 | L16 | `fetch` only in API client modules | One transport per app. This is where trace headers and client spans will attach | `no-restricted-globals` everywhere except `apps/*/src/api/**`, `e2e/fixtures/**` and `e2e/stack/**` | 1 | 0 outside; this codifies the current state |
 | L17 | `localStorage` only in `apps/respondent/src/storage` | One persistence seam, in production code: the rule covers every `src` directory and not `_tests/**` or `e2e/**`, whose Playwright `page.evaluate` callbacks run in the browser | `no-restricted-globals` for the bare global, plus `no-restricted-properties` for `window.localStorage` and `globalThis.localStorage`, which the global rule does not see | 0b | 0; this codifies the current state |
-| L18 | `process.env` only in `apps/backend/src/config.ts` and root config files | One environment reader, which is where telemetry configuration will land | `no-restricted-properties` | 4 | 1 extra (`drizzle.config.ts`, which is allowed as a config file) |
+| L18 | `process.env` only in `apps/backend/src/config.ts`. **Amended:** like L17 and L19, the rule covers every `src` directory and nothing else, so tool config files, `_tests/**` and `e2e/stack/**` — which set the environment up for a process they start — are outside it rather than exempted by name. The seam-owning blocks for `fetch` and `localStorage` restate it, because flat config replaces a rule's options rather than merging them | One environment reader, which is where telemetry configuration will land | `no-restricted-properties` | 4 | 0 under `src` outside `config.ts` |
 | L19 | No `console` in `src` | Logging goes through the logger, and later through telemetry. The rule covers every `src` directory and all of `e2e/`, and allows five entry points that write to a terminal by exact path: `apps/backend/src/db/migrate.ts`, `apps/backend/src/db/seed/seed.ts` and `e2e/stack/{stack-cli,global-setup,global-teardown}.ts` | `no-console` | 0b | 0 outside the allowed files |
 | L20 | No default exports except in tool config files | Consistent named imports. `*.config.*` is exempt, and so are the three `globalSetup`/`globalTeardown` files vitest and Playwright load by default export: `apps/backend/_tests/db/global-setup.ts` and `e2e/stack/{global-setup,global-teardown}.ts`. An exempted file loses only this selector and keeps every other `no-restricted-syntax` selector that reaches it | `no-restricted-syntax` on `ExportDefaultDeclaration` | 0b | 0 outside those files |
 | L21 | Dates are formatted only in `src/lib/dates.ts` per app | One locale policy per app | `no-restricted-syntax` on `toLocale*String` and `Intl.DateTimeFormat` | 5 | 5 files |
+
+**Amended:** PR 5 lands L21 for `apps/admin` only, where the violation count is 0 once its own three files move. `apps/respondent`'s two call sites (`answers/precheck.ts`, `screens/receipt-screen.tsx`) are outside PR 5's `Owns` line; extending the rule there is a follow-up.
 
 Deferred to the telemetry work, not this pass: banning `request.log`, `reply.log` and `app.log` in `apps/backend/src` outside one logger adapter. There are 3 such calls today.
 
@@ -533,8 +580,8 @@ These are agreed. R1–R5 live as tests under `tests/`, next to `text-files.test
 | R2 | Every target in a package `exports` map exists; this would have caught `./hooks/*` | 9 |
 | R3 | No `*.test.*` file sits under `src/`, and every `_tests/**/x.test.ts` has a matching `src/**/x.ts` or is on an allowlist of integration and support files | 7 |
 | R4 | Every test path cited in [[8-testing#7. Test case enumeration]] exists | 7 |
-| R5 | Workspace `dependencies` match what the workspace imports | 15 |
-| R6 | [knip](https://knip.dev) in `npm run lint`, for unused exports, files and dependencies. It adds a dev dependency. It is configured to ignore `packages/telemetry` and the unused exports inside generated shadcn files | 15 |
+| R5 | Workspace `dependencies` match what the workspace imports. **Amended:** the check is per workspace, so it cannot see a package shipping into another workspace's bundle through a re-exported asset — see the `shadcn`/`packages/ui` case in the R6 row | 15 |
+| R6 | [knip](https://knip.dev) in `npm run lint`, for unused exports, files and dependencies. It adds a dev dependency. It is configured to ignore `packages/telemetry` and the unused exports inside generated shadcn files. **Amended:** dependency findings are fixed outright (`apps/backend` keeps `pino`, `pino-pretty` and `@fastify/otel` unused via an explicit `ignoreDependencies`, per ground rule §1; `tailwindcss` is dropped from admin's and respondent's devDependencies — unused because `@tailwindcss/vite@4.3.3` already declares its own `tailwindcss` dependency, not because of anything in `packages/ui`). `packages/shared`'s `./demo` export (PR 2a) needed an explicit per-workspace `entry` in `knip.json` (`src/index.ts`, `src/demo/intake.ts`) — knip's default entry heuristic only matches `index`/`cli`/`main` filenames, so a differently-named subpath entry is otherwise treated as ordinary internal code and its cross-workspace consumers aren't credited. The `exports`/`types` issue types (not `files` — nothing in the relaxed directories is a whole unused file today, so that element was dropped from every bucket) are relaxed per directory, not fixed, wherever a later PR's own cleanup is still pending: `apps/admin/src/**` (PR 5, PR 6 — all but `page-title.ts`, which neither owns), ~~`apps/backend/src/db/**` (PR 4)~~ **dropped, PR 4 merged and that directory is clean**, `apps/backend/src/http/**` for `types` only (PR 4b — `modules/definition/**` is already clean), `apps/respondent/src/**` (PR 7's `session/respondent-session.ts`, PR 8b's `storage/partials.ts`; four more files sit outside all three `Owns` lines, see the PR 8b note), `e2e/**` (PR 16's fixtures and `authoring.ts`; six `e2e/stack/**` findings sit outside its bullets, see the PR 16 note) and every `_tests/**` (PR 2, checked again after PR 2a/2b merged — still needed). `packages/ui/src/questionnaire/**` (PR 10) is no longer in this list: PR 10 dropped it and its own bullet in §3 says so. `packages/ui/src/primitives/**` is relaxed pre-emptively per this row's own original scope (shadcn's generator), not because anything there is unused today — removing that entry alone leaves knip clean, so it is a standing guard, not a currently-live suppression. Each owning PR's bullet in §3 repeats which slice it tightens. **Leftover dead exports, not covered by any pending cleanup bullet:** `apps/backend/src/config.ts`'s `DATABASE_ROLES` sits in a file no PR's `Owns` line names at all. `packages/shared/src/domain/condition.ts`'s five condition-variant types do sit in PR 2a's `Owns` line (merged, #93), but PR 2a's own cleanup pass didn't remove them — they're genuinely unused, just missed. Both are relaxed by exact file path rather than assigned to a PR that either doesn't own them or has already merged without fixing them. `packages/shared/src/problems.ts` is **not** in this bucket — it is PR 1's `Owns` line (merged, #86) and PR 2c's (merged, #96), and PR 1's own bullet explicitly calls for exporting the code guards (`is*Code`) its `problemFromWire` extension table needs; its relaxation is therefore permanent, deliberate API, the same as `primitives/**`, not a pending cleanup. `PROBLEM_TYPE_BASE` and `SchemaErrorCode` are exported alongside those guards as part of the same public problem-contract surface. R5 also has one documented blind spot: it checks a workspace's own `dependencies`/`devDependencies`/`peerDependencies` against what that workspace imports directly, so it cannot see `packages/ui/src/styles/globals.css`'s `@import "shadcn/tailwind.css"` shipping into admin's and respondent's bundles (via their own `@import "@qp/ui/globals.css"`) while `shadcn` sits in `packages/ui`'s **devDependencies** — that placement is PR 9's to fix (it owns `packages/ui/package.json`), noted on its bullet in §3 | 15 |
 
 ## 5. Decisions Log changes
 
@@ -543,16 +590,18 @@ These are agreed. R1–R5 live as tests under `tests/`, next to `text-files.test
 | #32 | Amend the respondent half: TanStack Form is used per field for validation and touched state, and the rationale is rewritten to match | 8b |
 | #66 | Amend: the unused `command`, `input-group` and Radix `select` primitives are removed; `native-select` and `tooltip` are added; `popover` is kept | 9 |
 | #68 | Amend: the sample-answer panel is built from the renderer in `interactive` mode, and the preview stays `readonly`. The panel accepts the free-text "Other" answer | 12 |
-| New | One definition of the "other" option across the engine, the renderer and admin: `id === OTHER_OPTION_ID && freeform` | 2 |
+| New | One definition of the "other" option across the engine, the renderer and admin: `id === OTHER_OPTION_ID && freeform` | 2a |
+| New | The id `other` is reserved for the freeform option in both directions; supersedes the plain-`other` clause of the row above | 2c |
 | New | The respondent shows an item's errors once the field is left (touched on blur), and every visible item's errors after a submit attempt | 8b |
 | New | Execution persistence lives in `src/db/execution`, mirroring the definition side | 3 |
 | New | Icons come only from lucide, through `@qp/ui/icons` | 11 |
 | New | The import extension convention depends on how a workspace is resolved | 14 |
 | New | Comment content moves to the docs, and a lint rule enforces the no-comments rule | 18 |
 | New | The track file-ownership table is deprecated | 20 |
+| New | A problem body is read off the wire whole or not at all; `problemFromWire` takes no unknown-code policy, because both consumers already rejected | 1 |
 | Several | Rationale extracted from comments in `packages/shared` and `packages/telemetry`; the rows cited include #13, #15, #18, #20, #25, #31, #34, #36 and #37 and #40–#44 | 18 |
 
-New rows are numbered from #79 in the order they merge.
+New rows are numbered from #79 in the order they merge. PR 1 took #81, PR 2a #82, PR 2c #83, PR 8b #84, PR 11 #85 and PR 14 #86; a PR that merges before one of them renumbers.
 
 ## 6. Out of scope
 

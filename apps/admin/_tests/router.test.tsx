@@ -1,16 +1,12 @@
+import { problemResponse, stubFetch } from "@qp/ui/testing";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { App } from "../src/app";
 import { createAppRouter } from "../src/router";
-import { QUESTIONNAIRE_ID, problemResponse, stubFetch, testQueryClient } from "./fixtures";
+import { QUESTIONNAIRE_ID } from "./support/builders";
+import { renderAppAt, testQueryClient } from "./support/render-app";
 
-function renderAt(path: string) {
-  const queryClient = testQueryClient();
-  const router = createAppRouter({ queryClient, history: createMemoryHistory({ initialEntries: [`/admin${path}`] }) });
-  render(<App queryClient={queryClient} router={router} />);
-  return router;
-}
+const renderAt = (path: string) => renderAppAt(path).router;
 
 describe("the admin route tree", () => {
   it.each([
@@ -87,6 +83,8 @@ describe("the admin route tree", () => {
       "/",
       "/questionnaires",
       "/questionnaires/$questionnaireId/draft",
+      "/questionnaires/$questionnaireId/responses",
+      "/questionnaires/$questionnaireId/responses/$sessionId",
       "/questionnaires/$questionnaireId/versions",
       "/questionnaires/$questionnaireId/versions/$version",
       "/questions",

@@ -1,6 +1,6 @@
-import { formatDraftEtag } from "@qp/shared";
+import { formatDraftEtag, problem } from "@qp/shared";
 import { describe, expect, it } from "vitest";
-import { draftPreconditionOf, MalformedDraftPrecondition } from "../../../src/modules/definition/if-match.js";
+import { draftPreconditionOf } from "../../../src/modules/definition/if-match.js";
 
 const versionId = "01a0950e-56a0-73d6-b936-4a1e10eff8c0";
 
@@ -10,9 +10,11 @@ describe("draftPreconditionOf", () => {
   });
 
   it.each(["*", "abc", `"${versionId}:3"`, `W/"${versionId}"`, `W/"${versionId}:-1"`])(
-    "rejects %s as malformed rather than treating it as unconditional",
+    "answers %s with request/invalid pointing at the header, rather than treating it as unconditional",
     (ifMatch) => {
-      expect(() => draftPreconditionOf(ifMatch)).toThrow(MalformedDraftPrecondition);
+      expect(draftPreconditionOf(ifMatch)).toEqual(
+        problem("request/invalid", { errors: [{ pointer: "/headers/if-match", code: "schema/pattern" }] }),
+      );
     },
   );
 });

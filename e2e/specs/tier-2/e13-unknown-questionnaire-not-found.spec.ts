@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { expect, RESPONDENT_HEADINGS, test } from "../../fixtures/index.ts";
-import { isCreateSessionRequest, problemReplyOf, recordRequests } from "./support/submit-traffic.ts";
+import { expect, recordRequests, RESPONDENT_HEADINGS, test } from "../../fixtures/index";
+import { isCreateSessionRequest, problemReplyOf } from "./support/submit-traffic";
 
 test.describe("E13 — an unknown questionnaire id", () => {
   test("a well-formed id with no questionnaire renders the not-found screen without an unhandled error", async ({

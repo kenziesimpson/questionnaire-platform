@@ -1,4 +1,4 @@
-import { definitionApi } from "@qp/shared";
+import { PlusIcon } from "@qp/ui/icons";
 import { Button } from "@qp/ui/primitives/button";
 import {
   Dialog,
@@ -10,103 +10,54 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@qp/ui/primitives/dialog";
-import { Input } from "@qp/ui/primitives/input";
-import { Label } from "@qp/ui/primitives/label";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { useId, useRef, useState, type FormEvent, type Ref } from "react";
-import { callDefinition } from "../../api/client";
-import { queryKeys } from "../../api/query-keys";
-import { PlusIcon } from "../../components/icons";
+import { useRef, useState, type FormEvent } from "react";
+import { useCreateQuestionnaire, type NewQuestionnaire } from "../../api/mutations/use-create-questionnaire";
+import { InputField } from "../../components/field";
+import type { FieldErrors } from "../../features/question-editor/field-errors";
 
-interface NewQuestionnaire {
-  name: string;
-  title: string;
-}
+const NO_ERRORS: FieldErrors = {};
 
-function RequiredField({
-  label,
-  hint,
-  value,
-  onChange,
-  showMissing,
-  inputRef,
-}: {
-  label: string;
-  hint: string;
-  value: string;
-  onChange: (value: string) => void;
-  showMissing: boolean;
-  inputRef: Ref<HTMLInputElement>;
-}) {
-  const id = useId();
-  const missing = showMissing && value.trim() === "";
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <Input
-        id={id}
-        ref={inputRef}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        aria-invalid={missing || undefined}
-        aria-describedby={missing ? `${id}-hint ${id}-error` : `${id}-hint`}
-        autoComplete="off"
-      />
-      <p id={`${id}-hint`} className="text-xs text-muted-foreground">
-        {hint}
-      </p>
-      {missing ? (
-        <p id={`${id}-error`} className="text-xs text-destructive">
-          Enter a {label.toLowerCase()}.
-        </p>
-      ) : null}
-    </div>
-  );
+function missingEntries(fields: NewQuestionnaire): FieldErrors {
+  const errors: FieldErrors = {};
+  if (fields.name.trim() === "") errors["/name"] = ["Enter a name."];
+  if (fields.title.trim() === "") errors["/title"] = ["Enter a title."];
+  return errors;
 }
 
 export function CreateQuestionnaireDialog() {
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [fields, setFields] = useState<NewQuestionnaire>({ name: "", title: "" });
-  const [showMissing, setShowMissing] = useState(false);
+  const [showErrors, setShowErrors] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
 
-  const create = useMutation({
-    mutationFn: (body: NewQuestionnaire) => callDefinition(definitionApi.createQuestionnaire, { body }),
-    onSuccess: async ({ questionnaireId }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.questionnaires.list() });
-      await navigate({ to: "/questionnaires/$questionnaireId/draft", params: { questionnaireId } });
-    },
-  });
+  const create = useCreateQuestionnaire();
+  const errors = showErrors ? missingEntries(fields) : NO_ERRORS;
 
   const changeOpen = (next: boolean) => {
     setOpen(next);
     if (next) return;
     setFields({ name: "", title: "" });
-    setShowMissing(false);
+    setShowErrors(false);
     create.reset();
   };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const name = fields.name.trim();
-    const title = fields.title.trim();
-    if (name === "" || title === "") {
-      setShowMissing(true);
-      (name === "" ? nameRef : titleRef).current?.focus();
+    const missing = missingEntries(fields);
+    if (Object.keys(missing).length > 0) {
+      setShowErrors(true);
+      (missing["/name"] !== undefined ? nameRef : titleRef).current?.focus();
       return;
     }
-    create.mutate({ name, title });
+    create.mutate({ name: fields.name.trim(), title: fields.title.trim() });
   };
 
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogTrigger asChild>
         <Button>
-          <PlusIcon size={15} />
+          <PlusIcon size={15} aria-hidden="true" />
           New questionnaire
         </Button>
       </DialogTrigger>
@@ -116,21 +67,27 @@ export function CreateQuestionnaireDialog() {
             <DialogTitle>New questionnaire</DialogTitle>
             <DialogDescription>Creating it opens draft version 1, where you add its questions.</DialogDescription>
           </DialogHeader>
-          <RequiredField
+          <InputField
             label="Name"
+            pointer="/name"
+            errors={errors}
+            width="w-full"
             hint="What authors see in this list."
             value={fields.name}
-            onChange={(name) => setFields((current) => ({ ...current, name }))}
-            showMissing={showMissing}
+            onValue={(name) => setFields((current) => ({ ...current, name }))}
             inputRef={nameRef}
+            autoComplete="off"
           />
-          <RequiredField
+          <InputField
             label="Title"
+            pointer="/title"
+            errors={errors}
+            width="w-full"
             hint="What respondents see. A later draft can change it."
             value={fields.title}
-            onChange={(title) => setFields((current) => ({ ...current, title }))}
-            showMissing={showMissing}
+            onValue={(title) => setFields((current) => ({ ...current, title }))}
             inputRef={titleRef}
+            autoComplete="off"
           />
           {create.isError ? (
             <p role="alert" className="text-sm text-destructive">

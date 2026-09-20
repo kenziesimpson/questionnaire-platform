@@ -12,7 +12,8 @@ interface DecimalParts {
 function decimalParts(decimal: string): DecimalParts | undefined {
   const match = DECIMAL.exec(decimal);
   if (!match) return undefined;
-  const integer = match[1]!;
+  const integer = match[1];
+  if (integer === undefined) throw new Error(`DECIMAL_PATTERN matched without its mandatory integer group: ${decimal}`);
   const fraction = (match[2] ?? "").slice(1).replace(/0+$/, "");
   const isZero = integer === "0" && fraction === "";
   return { negative: decimal.startsWith("-") && !isZero, integer, fraction };
@@ -32,8 +33,11 @@ export function decimalFromNumber(value: number): string {
   const shortest = String(value);
   const match = EXPONENT_FORM.exec(shortest);
   if (!match) return shortest;
-  const sign = match[1]!;
-  const whole = match[2]!;
+  const sign = match[1];
+  const whole = match[2];
+  if (sign === undefined || whole === undefined) {
+    throw new Error(`EXPONENT_FORM matched without its mandatory sign or whole-number group: ${shortest}`);
+  }
   const digits = whole + (match[3] ?? "");
   const pointAt = whole.length + Number(match[4]);
   if (pointAt <= 0) return `${sign}0.${"0".repeat(-pointAt)}${digits}`;

@@ -17,7 +17,7 @@ import {
   type RouteDefinition,
   type VersionSummary,
 } from "@qp/shared";
-import { expectBody, sendRouteRequest, type ApiExchange, type ApiRequestParts } from "./api-exchange.ts";
+import { expectBody, sendRouteRequest, type ApiExchange, type ApiRequestParts } from "./api-exchange";
 
 export type DraftContent = BodyOf<typeof definitionApi.replaceDraft>;
 export type DraftValidationResult = ReplyOf<typeof definitionApi.validateDraft, 200>;

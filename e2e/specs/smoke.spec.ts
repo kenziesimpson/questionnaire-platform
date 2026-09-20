@@ -9,7 +9,7 @@ import {
   expect,
   RESPONDENT_HEADINGS,
   test,
-} from "../fixtures/index.ts";
+} from "../fixtures/index";
 
 test.describe("harness smoke", () => {
   test("the seeded demo loads at /q/:id and its session row is readable from the database", async ({

@@ -1,10 +1,8 @@
-import type { BodyOf, HeadersOf, ParamsOf, Problem, QueryOf, ReplyOf, RouteDefinition } from "@qp/shared";
+import type { BodyOf, HeadersOf, ParamsOf, Problem, QueryOf, ReplyOf, RouteDefinition, SuccessStatus } from "@qp/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { sendProblem } from "./problems.js";
 
 type Declared<T> = [T] extends [never] ? unknown : T;
-
-type SuccessStatus<R extends RouteDefinition> = Exclude<keyof R["schema"]["response"], "4xx" | "5xx">;
 
 export type RouteRequest<R extends RouteDefinition> = FastifyRequest<{
   Params: Declared<ParamsOf<R>>;
@@ -29,11 +27,21 @@ function isSuccess<R extends RouteDefinition>(response: RouteResponse<R>): respo
   return "body" in response;
 }
 
-export function registerRoute<R extends RouteDefinition>(scope: FastifyInstance, route: R, handler: RouteHandler<R>): void {
+interface RouteLimits {
+  readonly bodyLimit?: number;
+}
+
+export function registerRoute<R extends RouteDefinition>(
+  scope: FastifyInstance,
+  route: R,
+  handler: RouteHandler<R>,
+  limits: RouteLimits = {},
+): void {
   scope.route({
     method: route.method,
     url: route.url,
     schema: route.schema,
+    ...(limits.bodyLimit === undefined ? {} : { bodyLimit: limits.bodyLimit }),
     handler: async (request, reply) => {
       const response = await handler(request as RouteRequest<R>);
       if (!isSuccess(response)) {

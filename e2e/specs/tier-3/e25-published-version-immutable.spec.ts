@@ -1,20 +1,26 @@
 import type { Locator } from "@playwright/test";
-import { definitionApi, type DraftItem, type Item, type Question } from "@qp/shared";
-import { expect, test, uniqueName, type DefinitionApi } from "../../fixtures/index.ts";
+import { definitionApi, draftItemOf, type Question } from "@qp/shared";
 import {
-  draftItemList,
-  draftItemRow,
+  expect,
   problemReplyOfExchange,
-  promptOf,
-  textQuestionInput,
+  test,
+  uniqueName,
   waitForDefinitionResponse,
-  YES_NO_OPTION_IDS,
-  yesNoQuestionInput,
-} from "./support/authoring.ts";
+  type DefinitionApi,
+} from "../../fixtures/index";
+import { promptOf, textQuestionInput, YES_NO_OPTION_IDS, yesNoQuestionInput } from "./support/question-input";
 
 const ITEM_IDS = { gate: "itm_gate", followUp: "itm_follow_up" } as const;
 
 const EDITING_CONTROL_NAMES = /^(Publish|Add question|Edit|Remove question|Drag to reorder|Rules for question|Re-pin question|Save as version|Open the next draft|New question)/;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function leadingLabel(label: string): RegExp {
+  return new RegExp(`^${escapeRegExp(label)}`);
+}
 
 interface PublishedFixture {
   readonly questionnaireId: string;
@@ -53,10 +59,6 @@ function formControlsIn(scope: Locator): Locator {
     .or(scope.getByRole("combobox"));
 }
 
-function asDraftItem({ itemId, required, visibleWhen, question }: Item): DraftItem {
-  return { itemId, required, visibleWhen, questionId: question.questionId, questionVersion: question.questionVersion };
-}
-
 test.describe("E25 a published version is not editable", () => {
   test("the published version view offers no editing affordance", async ({ api, admin, page }) => {
     const published = await publishGatedQuestionnaire(api, "E25 read-only view");
@@ -72,7 +74,7 @@ test.describe("E25 a published version is not editable", () => {
 
     await expect(main.getByRole("button", { name: EDITING_CONTROL_NAMES })).toHaveCount(0);
     await expect(main.getByRole("checkbox", { name: "Required" })).toHaveCount(0);
-    await expect(draftItemList(page)).toHaveCount(0);
+    await expect(admin.draftItemList()).toHaveCount(0);
     await expect(snapshot.getByRole("button", { name: "Submit answers", exact: true })).toBeDisabled();
 
     const snapshotRadios = snapshot.getByRole("radio");
@@ -82,7 +84,7 @@ test.describe("E25 a published version is not editable", () => {
     }
     await expect(snapshot.getByRole("textbox")).toHaveCount(0);
 
-    const sampleGate = sampleAnswers.getByRole("group", { name: `1. ${promptOf(published.gate)}`, exact: true });
+    const sampleGate = sampleAnswers.getByRole("radiogroup", { name: leadingLabel(`1. ${promptOf(published.gate)}`) });
     await sampleGate.getByRole("radio", { name: "Yes", exact: true }).check();
     const revealedFollowUp = snapshot.getByRole("textbox", { name: promptOf(published.followUp) });
     await expect(revealedFollowUp).toBeVisible();
@@ -103,14 +105,14 @@ test.describe("E25 a published version is not editable", () => {
     expect((await opened).status()).toBe(201);
     await expect(page).toHaveURL(new RegExp(`/questionnaires/${published.questionnaireId}/draft$`));
 
-    const followUpRow = draftItemRow(page, 2, promptOf(published.followUp));
+    const followUpRow = admin.draftItemRow(2, promptOf(published.followUp));
     await expect(followUpRow.getByText("Text · pinned v1 · Shown when 1 condition is true")).toBeVisible();
     await expect(followUpRow.getByText("Newer version available")).toBeVisible();
 
     const snapshot = await api.getVersion(published.questionnaireId, 1);
     const { draft } = await api.getDraft(published.questionnaireId);
     expect(draft.title).toBe(snapshot.title);
-    expect(draft.items).toEqual(snapshot.items.map(asDraftItem));
+    expect(draft.items).toEqual(snapshot.items.map(draftItemOf));
     expect(draft.items.map((item) => item.questionVersion)).toEqual([1, 1]);
   });
 

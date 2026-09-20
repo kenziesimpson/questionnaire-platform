@@ -1,13 +1,7 @@
 import Type, { type Static } from "typebox";
-import { IsoDate, Slug } from "../primitives.js";
-import { strict } from "./utils.js";
+import { IsoDate, Slug, strict } from "../primitives.js";
+import type { ResponseType } from "./question.js";
 
-/**
- * Conditions are discriminated by the response type of the item they reference, so the operator
- * set and operand type travel together and a date compared against a number cannot be built
- * (Decisions Log #9). A condition names an `itemId` — a placement — never a `questionId` (#41).
- * `type` must equal the type of the question version the referenced item pins ([[5-questionnaire-format]] §5.4).
- */
 const OptionIds = Type.Array(Slug, { minItems: 1, uniqueItems: true });
 
 export const TextCondition = Type.Object(
@@ -62,7 +56,6 @@ export const MultipleChoiceCondition = Type.Union([
   ),
 ]);
 
-/** Operands are in the referenced question's unit, which its pinned version fixes. `between` is inclusive. */
 export const NumberCondition = Type.Union([
   Type.Object(
     {
@@ -86,7 +79,6 @@ export const NumberCondition = Type.Union([
   ),
 ]);
 
-/** `between` is inclusive. */
 export const DateCondition = Type.Union([
   Type.Object(
     {
@@ -115,12 +107,27 @@ export const Condition = Type.Union([
 export type Condition = Static<typeof Condition>;
 export type ConditionOf<T extends Condition["type"]> = Extract<Condition, { type: T }>;
 
-/**
- * One level of `all` / `any`; no nesting ([[5-questionnaire-format]] §4.1). Empty groups are
- * representable so the engine's edge cases are testable; what they mean is the engine's to define.
- */
 export const Predicate = Type.Union([
   Type.Object({ all: Type.Array(Condition) }, strict),
   Type.Object({ any: Type.Array(Condition) }, strict),
 ]);
 export type Predicate = Static<typeof Predicate>;
+
+export const OPERATORS_BY_TYPE: { readonly [T in ResponseType]: readonly ConditionOf<T>["op"][] } = {
+  text: ["answered"],
+  single_choice: ["is", "isNot", "isAnyOf", "isNoneOf"],
+  multiple_choice: ["includes", "excludes", "includesAnyOf", "includesAllOf"],
+  number: ["eq", "neq", "lt", "lte", "gt", "gte", "between"],
+  date: ["before", "onOrBefore", "after", "onOrAfter", "between"],
+};
+
+export function conditionsOf(predicate: Predicate | null): readonly Condition[] {
+  if (predicate === null) return [];
+  return "all" in predicate ? predicate.all : predicate.any;
+}
+
+export function referencedOptionIds(condition: Condition): readonly string[] {
+  if ("optionId" in condition) return [condition.optionId];
+  if ("optionIds" in condition) return condition.optionIds;
+  return [];
+}

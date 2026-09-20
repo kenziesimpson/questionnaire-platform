@@ -1,26 +1,15 @@
 import { problem } from "@qp/shared";
 import type { FastifyError, FastifyReply, FastifyRequest } from "fastify";
-import { databaseErrorOf } from "../../http/database-errors.js";
+import { databaseErrorOf, QUESTION_VERSION_PRIMARY_KEY, SQLSTATE } from "../../db/errors.js";
 import { replyWithProblem, sendProblem } from "../../http/problems.js";
-import { MalformedDraftPrecondition } from "./if-match.js";
-
-const IMMUTABLE_ROW = "QP001";
-const UNIQUE_VIOLATION = "23505";
-const QUESTION_VERSION_PRIMARY_KEY = "question_version_pkey";
 
 export function replyWithDefinitionProblem(error: FastifyError, request: FastifyRequest, reply: FastifyReply): FastifyReply {
-  if (error instanceof MalformedDraftPrecondition) {
-    return sendProblem(
-      reply,
-      problem("request/invalid", { errors: [{ pointer: "/headers/if-match", code: "schema/pattern" }] }),
-    );
-  }
   const databaseError = databaseErrorOf(error);
-  if (databaseError?.code === IMMUTABLE_ROW) {
-    return sendProblem(reply, problem("version/immutable", { instance: request.url }));
+  if (databaseError?.code === SQLSTATE.immutable) {
+    return sendProblem(reply, problem("version/immutable"));
   }
-  if (databaseError?.code === UNIQUE_VIOLATION && databaseError.constraint === QUESTION_VERSION_PRIMARY_KEY) {
-    return sendProblem(reply, problem("question/version-conflict", { instance: request.url }));
+  if (databaseError?.code === SQLSTATE.uniqueViolation && databaseError.constraint === QUESTION_VERSION_PRIMARY_KEY) {
+    return sendProblem(reply, problem("question/version-conflict"));
   }
   return replyWithProblem(error, request, reply);
 }

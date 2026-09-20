@@ -1,15 +1,17 @@
-import { FORMAT_VERSION, type DraftItem, type QuestionInput } from "@qp/shared";
+import { FORMAT_VERSION, type DraftItem, type DraftPrecondition, type QuestionInput } from "@qp/shared";
 import { v4 as uuidv4, v7 as uuidv7 } from "uuid";
 import type pg from "pg";
 import type { Database, Transaction } from "../../src/db/client.js";
-import type { DraftPrecondition } from "../../src/db/definition/draft-precondition.js";
 import { publishDraft } from "../../src/db/definition/publish.js";
 import { createNextDraft, replaceDraft } from "../../src/db/definition/drafts.js";
 import { createQuestionnaire } from "../../src/db/definition/questionnaires.js";
+import { readOpenDraft } from "../../src/db/definition/questionnaire-version-rows.js";
 import { createQuestion } from "../../src/db/definition/questions.js";
 import type { TestDatabase } from "./harness.js";
 
-const actor = { createdBy: "test", traceId: null };
+export { SQLSTATE, expectSqlState, useTestDatabase, type TestDatabase } from "./harness.js";
+
+export const actor = { createdBy: "test", traceId: null };
 
 export const aTextQuestion: QuestionInput = { type: "text", prompt: "Anything else?" };
 
@@ -31,7 +33,7 @@ export async function saveDraft(
   if (edited.outcome !== "saved") {
     throw new Error(`fixture draft was not saved: ${JSON.stringify(edited)}`);
   }
-  return { versionId: edited.draftVersionId, draftRevision: edited.draftRevision };
+  return { versionId: edited.draft.versionId, draftRevision: edited.draftRevision };
 }
 
 export async function publishSavedDraft(db: Database, questionnaireId: string, precondition: DraftPrecondition): Promise<number> {
@@ -39,7 +41,7 @@ export async function publishSavedDraft(db: Database, questionnaireId: string, p
   if (published.outcome !== "published") {
     throw new Error(`fixture draft was not published: ${JSON.stringify(published)}`);
   }
-  return published.version;
+  return published.summary.version;
 }
 
 export async function saveAndPublish(
@@ -52,13 +54,21 @@ export async function saveAndPublish(
   return publishSavedDraft(db, questionnaireId, await saveDraft(db, questionnaireId, precondition, title, items));
 }
 
+export async function theOpenDraftOf(db: Database, questionnaireId: string): Promise<DraftPrecondition> {
+  const draft = await readOpenDraft(db, questionnaireId);
+  if (draft === undefined) {
+    throw new Error(`questionnaire ${questionnaireId} has no open draft`);
+  }
+  return { versionId: draft.id, draftRevision: draft.draftRevision };
+}
+
 export async function aDraftWithOneItem(db: Database): Promise<DraftFixture> {
   const saved = await createQuestion(db, { key: null, content: aTextQuestion, ...actor });
   const created = await createQuestionnaire(db, { key: null, name: "Fixture", title: "Fixture", ...actor });
   const edited = await saveDraft(
     db,
     created.questionnaireId,
-    { versionId: created.draftVersionId, draftRevision: created.draftRevision },
+    await theOpenDraftOf(db, created.questionnaireId),
     "Fixture",
     [{ itemId: "itm_01", required: true, visibleWhen: null, questionId: saved.questionId, questionVersion: 1 }],
   );
@@ -121,13 +131,7 @@ export async function publishNextVersion(db: Database, questionnaireId: string, 
 
 export async function aPublishedQuestionnaireOf(db: Database, name: string, items: readonly DraftItem[]): Promise<string> {
   const created = await createQuestionnaire(db, { key: null, name, title: name, ...actor });
-  await saveAndPublish(
-    db,
-    created.questionnaireId,
-    { versionId: created.draftVersionId, draftRevision: created.draftRevision },
-    name,
-    items,
-  );
+  await saveAndPublish(db, created.questionnaireId, await theOpenDraftOf(db, created.questionnaireId), name, items);
   return created.questionnaireId;
 }
 

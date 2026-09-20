@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { executionApi, INTAKE_QUESTIONNAIRE_ID, PROBLEM_CONTENT_TYPE, problem } from "@qp/shared";
+import { executionApi, PROBLEM_CONTENT_TYPE, problem } from "@qp/shared";
+import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
 import { sql } from "drizzle-orm";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
@@ -15,8 +16,9 @@ import {
   questionVersionOption,
 } from "../../../src/db/schema.js";
 import { executionModule } from "../../../src/modules/execution/plugin.js";
-import { answersYes, executionUrl, seedIntakeV1, startedSessionId, submit, useExecutionApp } from "../../db/execution/fixtures.js";
-import { expectSqlState, SQLSTATE, useTestDatabase } from "../../db/harness.js";
+import { answersYes, executionUrl, seedIntakeV1, startedSessionId, submit } from "./fixtures.js";
+import { useExecutionApp } from "./harness.js";
+import { expectSqlState, SQLSTATE, useTestDatabase } from "../../db/fixtures.js";
 
 const testDatabase = useTestDatabase();
 const executionApp = useExecutionApp(testDatabase);
@@ -78,7 +80,11 @@ describe("the execution module on its own", () => {
   it("imports from the schema only the execution tables, the questionnaire row it is granted, and the definition schema for the published view", async () => {
     const source = await executionSources();
     const schemaImports = [...source.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*"[./]*(?:db\/)?schema\.js"/g)]
-      .flatMap((match) => match[1]!.split(","))
+      .flatMap((match) => {
+        const names = match[1];
+        if (names === undefined) throw new Error("import statement matched without its named-imports group");
+        return names.split(",");
+      })
       .map((name) => name.trim())
       .filter((name) => name !== "");
 
@@ -90,7 +96,7 @@ describe("the execution module on its own", () => {
 });
 
 describe("an unhandled failure", () => {
-  it("is 500 internal whose detail is the request id, carrying no error text", async () => {
+  it("is 500 internal at the request URL, whose detail is the request id, carrying no error text", async () => {
     const unreachable = openDatabase(testDatabase.url("execution"));
     await unreachable.close();
     const app = Fastify({ genReqId: () => "req-correlation-1" });
@@ -100,7 +106,7 @@ describe("an unhandled failure", () => {
 
     expect(response.statusCode).toBe(500);
     expect(response.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
-    expect(response.json()).toEqual(problem("internal", { detail: "req-correlation-1" }));
+    expect(response.json()).toEqual(problem("internal", { detail: "req-correlation-1", instance: executionUrl("/sessions") }));
     await app.close();
   });
 });

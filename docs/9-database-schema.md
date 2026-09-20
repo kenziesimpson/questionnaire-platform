@@ -6,13 +6,14 @@
 
 ## 1. Shape
 
-Three Postgres schemas.
+Four Postgres schemas, three of them holding data.
 
 | Schema | Holds | Written by |
 | --- | --- | --- |
 | `definition` | question bank, question versions, questionnaires, versions, draft items, `version_question_index` | `qp_definition` |
 | `execution` | sessions, responses | `qp_execution` |
 | `audit` | the audit log | nobody directly — see §8 |
+| `monitor` | `SECURITY DEFINER` functions that return aggregates for telemetry, and nothing else | `qp_owner`, at migration time; read by `qp_monitor` (§10.1) |
 
 [[7-application-boundary#3.2 Database grants]] already puts the definition/execution barrier in Postgres grants. Schemas are what make that rule structural instead of a list to maintain: `ALTER DEFAULT PRIVILEGES IN SCHEMA definition` means every authoring table added later is denied to `qp_execution` automatically. A per-table grant list has to be remembered, and `GRANT ... ON ALL TABLES IN SCHEMA` covers only the tables that exist when it runs — verified: a table added by a later migration is not covered, and the failure surfaces at runtime as `permission denied` rather than at migration time.
 
@@ -227,18 +228,16 @@ CREATE TABLE definition.question_version_option (
   PRIMARY KEY (question_id, version, option_id),
   FOREIGN KEY (question_id, version) REFERENCES definition.question_version(question_id, version),
   UNIQUE (question_id, version, position),
-  CONSTRAINT freeform_is_other CHECK (NOT freeform OR option_id = 'other')
+  CONSTRAINT freeform_exactly_when_other CHECK (freeform = (option_id = 'other'))
 );
-CREATE UNIQUE INDEX qvo_one_freeform
-  ON definition.question_version_option (question_id, version) WHERE freeform;
 ```
 
 There is no `yes_no` type. A yes/no question is a `single_choice` with two options, created by an editor
 template that seeds the reserved ids `yes` / `no` with editable labels — one storage shape and one operator
-set, per Decisions Log #36 (superseding #10). Nothing in the schema enforces the reserved ids; see the note
-on option-id stability below, which is the same tier of guarantee.
+set, per Decisions Log #36 (superseding #10). Nothing in the schema enforces `yes` / `no`; see the note
+on option-id stability below, which is the same tier of guarantee. The id `other` is enforced, by the check below.
 
-`freeform_is_other` and `qvo_one_freeform` close a gap between the boolean and the format doc. [[5-questionnaire-format#2.3 The `other` option]] treats `other` as a reserved id that rules test by name, but a bare `freeform boolean` would allow `opt_misc` to be marked freeform — an option that can never carry `otherText`, because the response-side constraint keys on the literal `other`. The check pins freeform to the one reserved id, and the partial unique index allows at most one per version.
+`freeform_exactly_when_other` closes a gap between the boolean and the format doc. [[5-questionnaire-format#2.3 The `other` option]] reserves the id `other` for the freeform option, and rules test it by name. A bare `freeform boolean` would allow `opt_misc` to be marked freeform, an option that can never carry `otherText` because the response-side constraint keys on the literal `other`. It would also allow a plain option under `other`, which the response-side constraint would let carry `otherText`. The check makes an option freeform exactly when its id is `other`, both ways (Decisions Log #83). Because every freeform row then has the id `other`, the primary key allows at most one per version. That is now the only thing holding that invariant: if `freeform_exactly_when_other` is ever relaxed, for example to allow a second freeform id, restore `qvo_one_freeform`, because the primary key alone does not limit freeform options. Migration `0015` dropped the partial unique index `qvo_one_freeform` that enforced this before. On a database that already holds a row breaking the check, `0015` stops before changing anything and names the row, because no migration may rewrite a question version; the backend README's "Migrations that refuse existing data" gives the recovery.
 
 **On option-id stability.** [[5-questionnaire-format#2.1 Option ids are stable across question versions]] guarantees option ids survive a version bump. An earlier draft of this schema added a `question_option (question_id, option_id)` registry so that guarantee would be a foreign key. It was dropped, because it does not deliver it: the application inserts into the registry on demand, so nothing distinguishes "renamed an option's label" from "minted a new id". A table that looks like an enforcement mechanism without being one is worse than no table. Stability is preserved by the editor copying ids forward into version N+1, and proven by the v2 demo test — which is exactly the role [[8-testing#3. Required coverage — the graded list]] already assigns it.
 
@@ -414,11 +413,16 @@ CREATE TABLE execution.session (
  OR (status='submitted'   AND submitted_at IS NOT NULL AND response_digest IS NOT NULL))
 );
 CREATE INDEX session_by_version  ON execution.session (questionnaire_version_id, started_at);
+CREATE INDEX session_by_questionnaire ON execution.session (questionnaire_id, started_at, id);
+CREATE INDEX session_by_questionnaire_submitted_asc  ON execution.session (questionnaire_id, submitted_at, id);
+CREATE INDEX session_by_questionnaire_submitted_desc ON execution.session (questionnaire_id, submitted_at DESC NULLS LAST, id DESC NULLS FIRST);
 CREATE INDEX session_in_progress ON execution.session (questionnaire_id, last_activity_at)
   WHERE status = 'in_progress';
 ```
 
 `status` and `session_state` together make `in_progress → submitted` the only lifecycle the table can express, matching [[7-application-boundary#5.3 Session lifecycle]]. Abandonment is the absence of a submit, so it has no column.
+
+`started_at` and `last_activity_at` carry `DEFAULT now()`, which writes microseconds, while the admin responses list's cursor carries a millisecond `Date` (Decisions Log #88, #90). The two agree only because the application writes both timestamps itself, as millisecond `Date`s, in `db/execution/sessions.ts` (`startSession`) and `db/execution/submit.ts` (`markSubmitted`); the schema does not enforce it, and a row that took the default can be skipped or repeated across a page boundary. This is a known bug, tracked in [issue #120](https://github.com/kenziesimpson/questionnaire-platform/issues/120) and deliberately not fixed with the sorting change.
 
 `response_digest` is the idempotency mechanism from Decisions Log #19 — SHA-256 over the canonicalized answers, written at first submit. There is no separate idempotency-key table because the session *is* the key.
 
@@ -558,9 +562,10 @@ Every index below exists for a named query or a named invariant. Nothing is inde
 | `questionnaire_version_number` | version lookup by number, and uniqueness of it |
 | `qv_addressable` | §3.1's published-only foreign keys |
 | `vqi_reverse` | "which published versions contain question X" ([[2-design-doc#Authoring vs published]]) |
-| `qvo_one_freeform` | at most one freeform option per question version |
 | `session` PK | resume — `GET /sessions/:sessionId`, a point lookup |
 | `session_by_version` | "sessions started against version N", for the republish story and analytics |
+| `session_by_questionnaire (questionnaire_id, started_at, id)` | the admin responses list sorted by Started (Decisions Log #88, #90): one questionnaire's sessions in either direction, paged by keyset. `started_at` is `NOT NULL`, so this one index is scanned forward for ascending and backward for descending, and its backward scan is the previous page. The predicate is the row comparison `(started_at, id) < ($1, $2)`, which a btree seeks to directly; the equivalent `OR` form is only a filter and re-walks every earlier page |
+| `session_by_questionnaire_submitted_asc (questionnaire_id, submitted_at, id)` and `session_by_questionnaire_submitted_desc (questionnaire_id, submitted_at DESC NULLS LAST, id DESC NULLS FIRST)` | the same list sorted by Submitted (Decisions Log #90, migration `0019`). The `NULLS FIRST` on `id` in the descending index is what the migration and `schema.ts` emit, and it is immaterial: `id` is `NOT NULL`. In-progress sessions have a `NULL` `submitted_at` and sort last in both directions, so the order is `(submitted_at NULLS LAST, id)` ascending or descending. **Two indexes, not one, because a btree scanned backward reverses its `NULL` placement:** the default index serves ascending-`NULLS LAST` forward and descending-`NULLS FIRST` backward, and descending-`NULLS LAST`, with its own reverse for the previous page, needs the second definition. One index would serve both only under `NULLS FIRST` for descending, which puts every unfinished session above the newest submission. The cost is two more entries per session insert and per submit, on a submit `UPDATE` that was already not heap-only. Row comparison does not work over a `NULL`, so the keyset is explicit: `(submitted_at, id) > ($1, $2)` for the non-null run, then `submitted_at IS NULL`, and inside the tail `submitted_at IS NULL AND id > $2`, each an `Index Cond` on these indexes; backward paging from the tail adds `submitted_at IS NOT NULL`. A page that needs both segments reads them in one `REPEATABLE READ` read-only transaction, and a `status` filter removes the segment it makes impossible (`submitted` sessions are the non-null run, `in_progress` ones the `NULL` tail), so a filtered page is one statement and no transaction; the cursor-less first page under `status=in_progress` is the `submitted_at IS NULL` statement too, which is what keeps it a seek to the tail instead of a walk of the submitted run. **None of the three indexes carries `status` or `version`, so both are post-filters on the scan;** what that costs, measured, is in Decisions Log #90 |
 | `session_in_progress` (partial) | abandonment analytics; partial because submitted sessions are the majority and are never the subject of this query |
 | `session_pinned_version_key (id, questionnaire_version_id)` | the target of `response`'s composite foreign key (§6.3); an invariant, not an access path |
 | `response_by_session (session_id, created_at)` | idempotent replay, with partition pruning (§6.4) |
@@ -595,7 +600,7 @@ CREATE TABLE audit.event (
   actor_id                 text,
   action                   text NOT NULL CHECK (action IN
                              ('create_draft','edit_draft','publish','retire','reopen',
-                              'archive_question','create_question_version')),
+                              'archive_question','create_question_version','view_response')),
   questionnaire_id         uuid,
   questionnaire_version_id uuid,
   version                  int,
@@ -607,7 +612,7 @@ CREATE INDEX audit_by_questionnaire ON audit.event (questionnaire_id, occurred_a
 
 **No foreign keys, deliberately.** The deferred move in [[6-observability#5.1 Isolation — separate schema with a restricted role]] is to lift this table into its own database behind a transactional outbox, and foreign keys into `definition` would have to be dropped to do it. The same section's requirement that audit rows carry their own id and timestamp rather than borrowing the domain row's is the other half of the same argument.
 
-`trace_id` correlates an audit row to the OpenTelemetry trace that produced it without putting anything about a respondent's answers into either — audit covers authoring actions only.
+`trace_id` correlates an audit row to the OpenTelemetry trace that produced it without putting anything about a respondent's answers into either. Audit covers authoring actions and, since `0020`, one read: `view_response`, written when an admin opens a session's raw answers. Its row names the questionnaire, the session's pinned version and, in `summary`, the session id (`{ "sessionId": … }`). It never holds an answer. Two things keep it so: `recordResponseView` casts the id to `uuid` before building the object, and, since `0022`, `audit.record` itself refuses a `qp_reporting` call whose `summary` is anything else (§9.1). The database does not constrain `actor_id`, which the caller supplies (the placeholder author until authentication lands), and it does not check that the ids on the row exist or belong together. No column was added for the session id: `summary` already exists for this, and a column would widen the table for one action.
 
 The action list is wider than [[6-observability#5. Audit trail]] enumerates. `create_draft` and `reopen` (clearing `closes_at`) are real state changes an auditor would ask about, and `create_question_version` covers the fact that a new question version changes what patients are asked — `question_version.created_by` records who, and the audit row records when and in what context.
 
@@ -640,10 +645,12 @@ GRANT  USAGE   ON SCHEMA audit TO qp_definition;
 GRANT  EXECUTE ON FUNCTION audit.record(text,uuid,uuid,int,text,jsonb,text) TO qp_definition;
 ```
 
+That is the `0006` definition. `0022` replaced the function body (see "One action, one shape, for `qp_reporting`" below); the signature, owner, `search_path` and grants are as shown.
+
 **`EXECUTE` on a new function is granted to `PUBLIC` by default**, so without the third `REVOKE` every role
 could call `audit.record` — held back only by lacking `USAGE` on the schema, and a privilege check would
 report that it can. The revoke landed in a later migration (`0014`) with the same sweep for every function in
-the three schemas, so `qp_definition`'s explicit grant is the only one.
+the three schemas, so `qp_definition`'s explicit grant was the only one. `0020` adds a second, for `qp_reporting`, whose responses browser records a `view_response` row in the transaction that reads the answers (Decisions Log #89, [[6-observability#13. Decisions and open questions]] O14, O18); it also gains `USAGE` on the schema and nothing on the table. `0022` then limits that role to one action and one payload shape, in the function ("One action, one shape, for `qp_reporting`" at the end of this section).
 
 Verified end to end:
 
@@ -665,9 +672,45 @@ should be "simplified" later.
 
 **A second trap, in the migration itself, reproduced against a live database.** The two `OWNER TO` statements fail in either order, and — confusingly — with the identical error. Table before schema: `audit_owner` does not yet have `CREATE` on `audit`, which is still `qp_owner`'s, so the table's `OWNER TO` is rejected. Schema before table: that succeeds, but it strips `qp_owner`, the migration connection, of `USAGE` on `audit`, so the table's `OWNER TO` — now next — fails instead, and so does anything after it that still runs as `qp_owner` and still names `audit.*`. Both failures print `permission denied for schema audit`, which is exactly why this is worth spelling out rather than leaving to be rediscovered: the message does not distinguish the missing-`CREATE` case from the lost-`USAGE` case, and neither points at the fix. The fix is the explicit `GRANT CREATE` before either transfer, table before schema once it is in place, and running everything from `CREATE FUNCTION` on as `audit_owner` via `SET LOCAL ROLE` rather than `qp_owner` — which is also why the separate `ALTER FUNCTION ... OWNER TO audit_owner` is gone: creating the function while `audit_owner` is the active role already makes it the owner.
 
+#### One action, one shape, for `qp_reporting` (`0022`)
+
+`0020` gave `qp_reporting` `EXECUTE` on `audit.record` so the responses browser could record `view_response`. `EXECUTE` alone would let a caller with that credential record any action and any payload, so `0022` (`CREATE OR REPLACE` as `audit_owner`; the language becomes `plpgsql` to hold the checks) adds a guard ahead of the unchanged `INSERT`. It applies only when `session_user = 'qp_reporting'`, and raises `42501` with a fixed message that names no caller-supplied text, before anything is written:
+
+```sql
+IF session_user = 'qp_reporting' THEN
+  IF p_action IS DISTINCT FROM 'view_response' THEN
+    RAISE EXCEPTION 'qp_reporting may record view_response only' USING ERRCODE = '42501';
+  END IF;
+  IF NOT coalesce(<qid, qvid and version are not NULL
+                   AND trace id is NULL or 32 lower-case hex digits
+                   AND summary is exactly {"sessionId": "<canonical lower-case uuid>"}>, false) THEN
+    RAISE EXCEPTION 'qp_reporting may record only the view_response row that names a session' USING ERRCODE = '42501';
+  END IF;
+END IF;
+```
+
+What that fixes on the reporting caller, each read off `recordResponseView` (`db/reporting/audit.ts`) and its one call site, `getSessionDetail`:
+
+| Argument | Enforced for `qp_reporting` | Why that is what the caller passes |
+| --- | --- | --- |
+| action | `view_response` | The function names it as a literal |
+| `p_summary` | a JSON object whose only key is `sessionId`, whose value is a JSON string in canonical lower-case hyphenated uuid form; `NULL`, other keys, non-strings, nested values and non-objects are refused | `jsonb_build_object('sessionId', <uuid>)`: Postgres renders a `uuid` in that form |
+| questionnaire id, version id, version | not `NULL` | Read from the session row, so always present |
+| `p_trace_id` | `NULL` or exactly 32 lower-case hex digits | `activeTraceId()` is an OpenTelemetry trace id or `undefined` (stored as `NULL`) |
+
+What it does not, and cannot, enforce: `actor_id` is free text from the caller (the placeholder author until authentication lands, O14), so a compromised `qp_reporting` credential could put text there; and the ids are not checked to exist or to belong together (the audit table has no foreign keys by design, and `audit_owner` reads nothing in `execution`), so such a credential could record a false `view_response` naming any session id. The credential can already read answers through its `SELECT` grants, so neither adds a read, but `actor_id` is not guaranteed free of text a hostile credential chose to put there; closing that needs authentication, not a database check. `qp_definition` and every other caller keep the unrestricted function.
+
+**Why `session_user`.** Inside a `SECURITY DEFINER` function `current_user` is the owner (`audit_owner`), so it cannot tell callers apart. `session_user` is the role the connection logged in as: `SET ROLE` does not change it, entering a `SECURITY DEFINER` function does not change it, and only a session that started as a superuser can change it (`SET SESSION AUTHORIZATION`). Role memberships therefore do not matter: even a `qp_reporting` session that `SET ROLE`s to `qp_definition` (which holds `EXECUTE`) is still refused, and the test suite shows exactly that by granting the membership, switching role and calling the function. The harness's own `SET ROLE audit_owner` runs in a `qp_owner` session, where `session_user` is `qp_owner`, so it is not affected. The guard compares with `=` and not `pg_has_role(session_user, 'qp_reporting', 'MEMBER')`, because `pg_has_role` is true for a superuser for every role and would refuse the bootstrap superuser.
+
+**Limits of a name match.**
+
+- The guard fails open by name. It matches the string `'qp_reporting'`, so a deployment that renames the role or prefixes role names, and so logs the reporting pool in as something else, gets an unguarded function until a migration is written for that name.
+- Every other caller is unrestricted by default. The guard is an allow-list for one role, not a deny-list for the rest: a role granted `EXECUTE` later can record any action. A catalog test (`_tests/db/grants.test.ts`) fails if a role other than `qp_definition`, `qp_reporting`, `audit_owner` and superusers holds `EXECUTE` on the function, so a future grantee is noticed and has to be decided on.
+- It is correct only while `session_user` on the server connection is the role that logged in: one pool per role, each with its own credentials, and no pooler configured to connect to Postgres as a fixed server user or to `SET ROLE` on a shared connection. A pooler that did would make every caller look like the same `session_user`. The transaction-mode pooler of Decisions Log #78 is compatible for the same reason it already needs distinct users ([[3-scaling]]).
+
 ## 10. Grants
 
-The migrations build this up across several files (`0005`, `0007`, `0009`, `0010`, `0013`); the net result is:
+The migrations build this up across several files (`0005`, `0007`, `0009`, `0010`, `0013`, `0017`, `0018`, `0020`, `0021`, `0022`); the net result is:
 
 ```sql
 GRANT USAGE ON SCHEMA definition TO qp_definition;
@@ -691,17 +734,36 @@ GRANT SELECT, INSERT         ON execution.response TO qp_execution;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner IN SCHEMA definition
   GRANT SELECT, INSERT, UPDATE ON TABLES TO qp_definition;
+
+-- qp_reporting: the admin responses browser (gh#18, Decisions Log #89) — SELECT only, and one write
+-- path, audit.record. 0017 grants the two execution tables; 0018 the published-versions view and one
+-- column; 0020 the audit function, which 0022 restricts to view_response for this role.
+GRANT USAGE ON SCHEMA execution TO qp_reporting;
+GRANT SELECT ON execution.session, execution.response TO qp_reporting;
+GRANT USAGE ON SCHEMA definition TO qp_reporting;
+GRANT SELECT ON definition.published_questionnaire_version TO qp_reporting;
+GRANT SELECT (id) ON definition.questionnaire TO qp_reporting;
+GRANT USAGE ON SCHEMA audit TO qp_reporting;
+GRANT EXECUTE ON FUNCTION audit.record(text, uuid, uuid, int, text, jsonb, text) TO qp_reporting;
+
+-- qp_monitor (§10.1): no table, and one schema of aggregate functions. 0021.
+GRANT USAGE ON SCHEMA monitor TO qp_monitor;
+REVOKE EXECUTE ON FUNCTION monitor.response_partition_months_ahead(timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION monitor.response_partition_months_ahead(timestamptz) TO qp_monitor;
 ```
 
 | Role | `definition` | `execution` | `audit` |
 | --- | --- | --- | --- |
 | `qp_definition` | `SELECT, INSERT` on every table; `UPDATE` on every table except `questionnaire_version` and `questionnaire`, which get only the columns above; `DELETE` on `questionnaire_item` only; `EXECUTE` on `promote_draft` | none | `EXECUTE` on `audit.record` only (§9.1) |
 | `qp_execution` | `SELECT` on `questionnaire`, `version_question_index` and the `published_questionnaire_version` view — not the base `questionnaire_version` table | `SELECT, INSERT, UPDATE` on `session`; `SELECT, INSERT` on `response` | none |
+| `qp_reporting` | `SELECT` on the `published_questionnaire_version` view and on `questionnaire (id)` only — not the base `questionnaire_version` table | `SELECT` on `session` and `response` only | `EXECUTE` on `audit.record`, which refuses it every action but `view_response`, and any payload but the one `recordResponseView` writes (`0022`), and `USAGE` on the schema, nothing on `audit.event` (§9.1) |
+| `qp_monitor` | none — no privilege on any relation, no `USAGE` on the schema | none | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` |
 | `qp_owner` | owns every object | owns every object | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` (§9.1) |
 
-No function in `definition`, `execution` or `audit` keeps the default `EXECUTE` for `PUBLIC`: `audit.record` and
-`promote_draft` are executable only by `qp_definition`, and the trigger functions by no application role (a
-trigger fires without its caller holding `EXECUTE`). A catalog test asserts it, so a new function that forgets
+`qp_reporting` backs `/api/reporting`'s admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)), a narrow, later addition (Wave 3a) and not the wider "aggregate admin reporting" surface [[2-design-doc#18. Open Questions]] §8 still leaves open. It is deliberately not `qp_execution` with a different name and not a widened `qp_definition` — see Decisions Log #89 for why a fourth role rather than reusing either. It holds `SELECT` only, on every relation it touches, and `modules/reporting` holds no other pool, so the module cannot write except through `audit.record`, and only for `view_response`, which records that an admin opened a session's answers (`0020`, restricted by `0022`). The reporting repository's only audit function, `recordResponseView` in `db/reporting/audit.ts`, names that one action, so no code path in the module can record another, and the database enforces the same limit independently: `audit.record` refuses any other action from a `qp_reporting` session (§9.1). The published-versions view follows `0010`'s precedent (the one relation that exposes published snapshots without the base table), and `questionnaire` is granted by column — `id` alone — because the existence check reads nothing else. It was first shipped borrowing `qp_execution`'s pool for those two reads; review reversed that, since the borrowed credentials could write to `session` and `response`.
+
+No function in `definition`, `execution`, `audit` or `monitor` keeps the default `EXECUTE` for `PUBLIC`: `promote_draft` is executable only by `qp_definition`, `audit.record` by `qp_definition` and `qp_reporting`, the `monitor` functions by `qp_monitor`, and the trigger functions by no application role (a
+trigger fires without its caller holding `EXECUTE`). A catalog test asserts it for the first three schemas and another for `monitor`, so a new function that forgets
 the revoke fails the suite.
 
 **Publishing columns are not `qp_definition`'s to write.** Status, version, snapshot, `format_version`, `published_at` and the current-version pointer change only inside `promote_draft` (§4.3). A `FOR UPDATE` row lock needs `UPDATE` on just one column, so the §5 locks still work.
@@ -732,6 +794,22 @@ Keeping `qp_owner` a plain role rather than the cluster superuser (§11.3) is wh
 growing to cover the whole cluster.
 
 Roles are created outside migrations — see §11.
+
+### 10.1 `qp_monitor` and the `monitor` schema
+
+Telemetry needs to read the database's own health without being able to read a respondent's answer ([[6-observability#14. Database telemetry]], layer 4). `qp_monitor` is the one identity it uses. It is a login role, created by `db/init/01-roles.sh` with the password in `QP_MONITOR_PASSWORD`, and a member of `pg_monitor`, which is `pg_read_all_settings`, `pg_read_all_stats` and `pg_stat_scan_tables`. It is not a member of `pg_read_all_data`, which would read every table.
+
+What `pg_monitor` gives it is the statistics views, read directly and not through a function. `pg_read_all_stats` lets `qp_monitor` read every role's statement text and counters instead of `<insufficient privilege>`: `pg_stat_statements` (loaded by the `db` service) stores each statement with its constants replaced by placeholders, and `pg_stat_activity.query` holds every session's running and last statement exactly as sent. Both are safe only because the backend always binds values through Parse and Bind, so the text carries `$n` and never a value. The residual exposure is any future statement built with inline literals instead of bound parameters: its values would show in `pg_stat_activity.query` while it runs and after, in the `STATEMENT:` line of the Postgres log when it errors, and, for a utility statement, in `pg_stat_statements`. The extension and its grants live in `db/init/pg-stat-statements.sql`, which `01-roles.sh` runs with `\i` and the test harness runs against the template database when it is given `TEST_DATABASE_URL`, so there is one copy: it creates the extension, revokes the two views and the two functions behind them (`pg_stat_statements(boolean)`, `pg_stat_statements_info()`) from `PUBLIC`, and grants `SELECT` on the views and `EXECUTE` on the two functions to `qp_monitor`, so no application role reads or calls them. Both grants are needed: Postgres checks the privileges on a view's underlying relations as the view's owner, but checks `EXECUTE` on a function the view calls as the calling user. The `monitor` functions below are the only thing `qp_monitor` reads that is computed rather than observed.
+
+Migration `0021` creates the `monitor` schema, owned by `qp_owner` like every other schema but `audit`, and grants `USAGE` on it to `qp_monitor`. Each object in it is a `SECURITY DEFINER` function owned by `qp_owner`, so it can read what `qp_monitor` cannot, with `search_path` pinned to `pg_catalog, pg_temp`, `EXECUTE` revoked from `PUBLIC` and granted to `qp_monitor`, and a return type that is an aggregate: a count or a number, never a row of an answer table. The schema holds no table or view, so there is no relation for a `SELECT` grant to widen onto.
+
+| Function | Returns | Reads |
+| --- | --- | --- |
+| `monitor.response_partition_months_ahead(as_of timestamptz DEFAULT now())` | `integer`: the months after the one containing `as_of` that a `response` partition covers, counted without a gap. `0` when only that month is covered and also `0` when that month has no partition, so the alert fires on `< 1` and does not tell the two apart | the catalog's partition bounds of `execution.response` (§6.4); no row of any table |
+
+That is the signal behind the sixth alert of [[6-observability#8.1 The six alerts]]: a missing partition fails every submit while every process is up, so it must read below one before the current month runs out (§11.4). A count of in-progress sessions was left out: it scans `execution.session` on every scrape, no alert reads it, and it would need an index first.
+
+A database test asserts the absence, as it does for `qp_definition` and `qp_reporting`: `qp_monitor` holds none of `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES` or `TRIGGER` on any relation in `definition`, `execution` or `audit`, at table or column level, has no `USAGE` on those schemas and no `EXECUTE` on their functions, is a member of no role but `pg_monitor`, and cannot create anything in `monitor`. Another checks that `monitor` holds only the functions above, each `SECURITY DEFINER`, owned by `qp_owner`, with a pinned search path and no `PUBLIC` `EXECUTE`. A later function is a new migration that adds the function, revokes `PUBLIC` and grants `qp_monitor`; the role never gains a grant on a table.
 
 ## 11. Migrations
 
@@ -797,7 +875,7 @@ inside a per-database migration is the wrong layer even without the secret.
 
 They go in a shell script instead, `db/init/01-roles.sh`, run by the one-shot `roles` compose
 service — not by the postgres entrypoint's `docker-entrypoint-initdb.d`, which the `db` service does not
-mount. Five identities, three connection strings:
+mount. Seven identities, four connection strings (`qp_reporting` and `DATABASE_URL_REPORTING` joined in Wave 3a, gh#18, Decisions Log #89; `qp_monitor` joined with the telemetry work and has no connection string of the backend's, §10.1):
 
 | Identity | Created by | Connects? |
 | --- | --- | --- |
@@ -805,6 +883,8 @@ mount. Five identities, three connection strings:
 | `qp_owner` | the `roles` service | Yes — the `migrate` service, `DATABASE_URL_OWNER` |
 | `qp_definition` | the `roles` service | Yes — backend authoring pool, `DATABASE_URL_DEFINITION` |
 | `qp_execution` | the `roles` service | Yes — backend execution pool, `DATABASE_URL_EXECUTION` |
+| `qp_reporting` | the `roles` service | Yes — backend reporting pool, `DATABASE_URL_REPORTING` |
+| `qp_monitor` | the `roles` service, a member of `pg_monitor` | Yes — the observability Collector, with `QP_MONITOR_PASSWORD`; not the backend |
 | `audit_owner` | the `roles` service, **`NOLOGIN`** | **No.** No password, no connection string |
 
 **The bootstrap superuser and `qp_owner` are different roles, deliberately.** `initdb` creates
@@ -837,7 +917,10 @@ written to be re-run: each `CREATE ROLE` is guarded by `NOT EXISTS`, and each lo
 set by an unconditional `ALTER ROLE ... PASSWORD`, so the environment is always the source of truth.
 Adding a role means adding it to the script (plus its password variable in compose and `.env.example`)
 and granting it privileges in a normal migration; the `roles` service guarantees it exists before that
-migration runs.
+migration runs. The script also runs `db/init/pg-stat-statements.sql` (`CREATE EXTENSION IF NOT EXISTS pg_stat_statements` and its grants) in the application database, as the
+bootstrap superuser: extensions are per database and need a superuser, the `roles` service is the one path that runs as one
+on every `up` (so an existing volume gets the extension too), and `CREATE EXTENSION` succeeds whether or not the server has
+preloaded the library, which the `db` service does through its `command` (§10.1). The SQL is a plain file with no password in it and no `psql` command, so the test harness can run it over an ordinary connection as well; the `db` service does not mount `db/init`, so nothing runs it at `initdb`.
 
 **`ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner` has a hidden dependency.** It applies only to objects
 created *by* `qp_owner`. If migrations ever run as some other identity — easy to do by pointing the
@@ -867,7 +950,9 @@ So the migration pre-creates 24–36 monthly partitions and rollover becomes a s
 something someone has to remember. The tempting insurance is a `DEFAULT` partition to catch strays,
 and §6.4 is the argument against it: it disables `DETACH ... CONCURRENTLY`, which is the archival
 operation the partitioning exists for. A missed rollover should fail loudly and be fixable, not
-silently accumulate rows that later block the fix.
+silently accumulate rows that later block the fix. It is also watched:
+`monitor.response_partition_months_ahead()` (§10.1) reads `0`, so below one, when the next month has no partition (or the current one has none either), which is the
+sixth alert of [[6-observability#8.1 The six alerts]].
 
 ### 11.5 The circular foreign key needs an `ALTER TABLE`
 

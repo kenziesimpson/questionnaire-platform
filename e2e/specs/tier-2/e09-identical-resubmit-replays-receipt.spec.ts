@@ -1,7 +1,7 @@
 import { Value } from "typebox/value";
-import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, expect, RESPONDENT_HEADINGS, test } from "../../fixtures/index.ts";
-import { answerNoPath } from "./support/demo-answers.ts";
-import { receiptBodyOf, recordSubmitRequests, submitBodyOf, SubmitReceiptBody, waitForSubmitResponse } from "./support/submit-traffic.ts";
+import { createDemoShapedQuestionnaire, DEMO_ITEM_IDS, DEMO_OPTION_IDS, expect, RESPONDENT_HEADINGS, test } from "../../fixtures/index";
+import { answerNoPath } from "./support/demo-answers";
+import { receiptBodyOf, recordSubmitRequests, submitBodyOf, SubmitReceiptBody, waitForSubmitResponse } from "./support/submit-traffic";
 
 test.describe("E9 — replaying an identical submit returns the same receipt", () => {
   test("a double-click sends one submit, and re-firing the same answers after a reload replays the original receipt", async ({

@@ -8,7 +8,7 @@ Two audiences with opposite profiles, and one thing genuinely in common.
 
 The **respondent app** is anonymous, potentially high volume, and consists of a single flow: receive a published definition, render the items that apply, collect answers, submit once. It is the surface that would sit behind a CDN, and the one where a vulnerability would be reached ([[7-application-boundary#8. Deployment topology]]), so it stays small and dependency-light on purpose.
 
-The **admin app** is the opposite: low volume, eventually authenticated, and five screens of genuine editing — a question bank, a draft editor with ordering and branching, publishing, version history. Complexity here is expected and affordable.
+The **admin app** is the opposite: low volume, eventually authenticated, and five screens of genuine editing — a question bank, a draft editor with ordering and branching, publishing, version history — plus, as of Wave 3a, a two-screen unaggregated responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)), sortable by its Started and Submitted columns (Decisions Log #90), reading through its own `qp_reporting` role. Complexity here is expected and affordable.
 
 What they share is **rendering a questionnaire**. The respondent renders it to answer it; the admin renders it to preview a published version. That shared surface is the reason `packages/ui` exists and is the only thing that crosses between them.
 
@@ -46,7 +46,7 @@ Both apps build into one tree — respondent at the root, admin under `/admin/` 
 
 Two details that are cheap up front and annoying to discover later. The admin app needs `base: '/admin/'` in its Vite config or its asset URLs resolve against the root and the page loads blank. And the nginx config uses a single `root` with two `location` blocks rather than `alias` — `alias` combined with `try_files` is a long-standing footgun that silently resolves to the wrong path.
 
-Single origin is preserved, so the trace-context propagation in [[6-observability#6. Client-side telemetry]] still needs no CORS allowances, and neither app needs a build-time API URL.
+Single origin is preserved, so the trace-context propagation in [[6-observability#6. Client-side telemetry]] still needs no CORS allowances, and neither app needs a build-time API URL. The image also builds `packages/telemetry`, which both apps import.
 
 ### 2.3 The dev loop
 
@@ -66,7 +66,7 @@ The package holds two folders and one rule.
 <QuestionnaireForm
   definition={publishedDefinition}   // the immutable snapshot
   answers={answers}                  // current answer map
-  errors={errorsByItemId}            // SubmissionItemCode[] per itemId, no values echoed
+  errors={errorsByItemId}            // ItemErrors: the codes that reach a rendered item, per itemId, no values echoed
   onChange={(itemId, answer) => void}
   mode="interactive" | "readonly"
 />
@@ -136,6 +136,12 @@ A `422` names item ids and rule codes and never carries values ([[7-application-
 
 **A network failure** on submit, as on start and resume, shows a manual retry. Submit is disabled while a request is in flight, so a second click cannot race the first, and a retry is safe because submit is idempotent on the digest (Decisions Log #19, #73).
 
+### 4.5 Telemetry
+
+The respondent reports through `@qp/telemetry/browser`, wired in `src/telemetry/` and its one API client ([[6-observability#6. Client-side telemetry]]). `main.tsx` starts telemetry after the first paint has settled, so the SDK never delays the first render, and wraps the app in the shared `ErrorBoundary` from `@qp/ui/error-boundary`, whose fallback is the existing entry-failed screen and whose `onError` is `reportRenderError`; a component error reports its class and stack frames, never its message (O8). `src/api/request.ts` adds `traceparent` with `injectTraceHeaders` to each request (O12, O24); `browserTransport()` from `@qp/telemetry/browser` is the one place `fetch` and `navigator.sendBeacon` are named for telemetry, so the app names neither. The session exposes `progress()`, which is the session id and the last item changed while the form is ready or a failed submit can be retried and nothing otherwise; the hook registers it with `watchAbandonment`, and the page-hide hook emits `session.abandoned` for it once per session (O11). `page.loaded` reports the load duration against the route template `/q/:questionnaireId`, never the URL.
+
+The `traceparent` is always sent and there is no tracing build option. `injectTraceHeaders` builds `00-<page trace id>-<fresh span id>-00` from one trace id per page load, generated with `crypto.getRandomValues` and kept in memory (never in storage or a cookie), and the queue stamps every event the same way. The browser creates no span and loads no tracer, so `main.tsx` has nothing to `await` before first paint. The backend records the id as `client.trace_id` and does not continue it as a trace (O24, [[6-observability#6. Client-side telemetry]]).
+
 ## 5. Admin app
 
 ### 5.1 Screens
@@ -177,12 +183,12 @@ The fields follow the `QuestionFields` and `AdminQuestionEditor` prototypes in `
 | Type | Fields after the prompt | What the controls hold |
 | --- | --- | --- |
 | `text` | Min length and max length inputs; `multiline` checkbox | Max clamped at or above min while typing — `question/min-length-exceeds-max-length` |
-| `single_choice` | Options list; "Allow a freeform Other" checkbox | Ids generated, never typed; only `other` can be freeform — `question/duplicate-option-id`, `question/freeform-not-other` |
+| `single_choice` | Options list; "Allow a freeform Other" checkbox | Ids generated, never typed; `other` is the freeform option and nothing else is — `question/duplicate-option-id`, `question/freeform-not-other`, `question/other-not-freeform` |
 | `multiple_choice` | Options list; min and max selections inputs | Both bounds capped by the option count, max never below min — `question/min-selections-exceeds-max-selections`, `question/selections-exceed-options` |
 | `number` | `numberKind` as a Whole number / Decimal segmented control, required; min, max and unit inputs | Max never below min — `question/min-exceeds-max` |
 | `date` | Earliest and latest as native date inputs; `relative` as an Any / Not in the future / Not in the past segmented control | Latest never before earliest — `question/min-exceeds-max`. The fixed bounds and the relative rule are independent |
 
-**The six `QUESTION_RULE_CODES` cross-field rules are made unrepresentable in the controls, not reported after a save** — the predicate editor's move (§5.4). Their `400` exists for clients that are not this editor; an author who sees one has found an editor bug.
+**The `QUESTION_RULE_CODES` cross-field rules are made unrepresentable in the controls, not reported after a save** — the predicate editor's move (§5.4). Their `400` exists for clients that are not this editor; an author who sees one has found an editor bug.
 
 **Options** are one row each: a drag handle for reordering (dnd-kit, as everywhere else), the generated option id shown in a locked chip, an editable label, and a remove button, with "Add option" below the list. The id is set once and never changes, so relabelling stays safe ([[5-questionnaire-format#2.1 Option ids are stable across question versions]]). The freeform `other` option is marked on its own row.
 
@@ -205,6 +211,12 @@ Each row is three controls: **which earlier question**, **which operator**, **wh
 
 That is the same move the format model makes, one layer up: the invalid states are removed from the interface instead of detected in it. It is also why this screen is cheap despite sounding expensive — the format decision paid for it in advance.
 
+### 5.5 Telemetry
+
+The admin reports through `@qp/telemetry/browser`, wired in `src/telemetry/` and its one API client ([[6-observability#6. Client-side telemetry]]). `src/api/client.ts` adds `traceparent` with `injectTraceHeaders` to each call (O12, O24); `browserTransport()` from `@qp/telemetry/browser` names `fetch` and `sendBeacon` for telemetry. `main.tsx` starts the SDK after first paint with the router's matched route id as the screen, so a screen is `/questionnaires/$questionnaireId/responses/$sessionId`, never the URL or its search (O19). Failures report through two hooks that take an error and nothing else: the query and mutation caches (`src/telemetry/report.ts`, skipping a 4xx problem and a cancellation) and the router's `defaultOnCatch` with the shared `ErrorBoundary` (`@qp/ui/error-boundary`, given `reportRenderError`) behind it, both recording a class name and stack frames, never a message (O8, O19). The response-detail screen renders raw answers, so its component errors take that path and its fallback (`components/error-fallback.tsx`) shows no message.
+
+`GET /sessions/:sessionId` writes a `view_response` audit row on every read (O14, O18), so the response-detail query is read when the screen opens and not again on a window refocus or a reconnect: `refetchOnWindowFocus` and `refetchOnReconnect` are off and `staleTime` is 0, so opening the screen again is a new read and a refocus is not. The query also sets `retry: false`: the audit row is written in the transaction that commits before the response is serialised, so a retry after a 5xx that followed the commit, or after a lost response, would write a second row for one view. In development, StrictMode's double mount can still issue two audited reads for one open; a production build issues one. The `traceparent` is always sent, as in §4.5.
+
 ## 6. Authoring concurrency
 
 Three races exist between two authors. The brief asks for concurrency control to be defensible, and two of these are resolved by contract shape rather than by locking.
@@ -223,13 +235,14 @@ A fourth case is already covered elsewhere: re-pinning an item while that draft 
 
 The demo questionnaire collects medical conditions. Accessibility is treated the same way answer redaction is — designed in at the point the decision is made, rather than audited afterwards.
 
-**What the libraries actually provide.** Radix primitives carry the parts that are hard to hand-roll and easy to get subtly wrong: dialog focus trapping and restoration for the question editor, roving focus in radio groups, correct `aria-*` wiring on the controls. dnd-kit provides a keyboard sensor and screen-reader announcements for sortable lists, which is what makes drag-based reordering usable at all without a pointer. TanStack Form provides none of this — it is headless and renders nothing; what it contributes is reliable per-field error and touched state to attach `aria-invalid` and `aria-describedby` to, and knowledge of the first invalid field so focus can move there on a failed submit.
+**What the libraries actually provide.** Radix primitives carry the parts that are hard to hand-roll and easy to get subtly wrong: dialog focus trapping and restoration for the question editor, roving focus in radio groups, correct `aria-*` wiring on the controls. dnd-kit provides a keyboard sensor and screen-reader announcements for sortable lists, which is what makes drag-based reordering usable at all without a pointer. TanStack Form provides none of this — it is headless and renders nothing; what it contributes is one `<form.Field>` per visible item, each carrying its own `validateAnswer`-backed error and its own `isTouched`/`isBlurred` meta, plus a form-level validator for the cross-item, visibility-dependent `answer/required` check, and knowledge of the first invalid field so focus can move there on a failed submit.
 
 **What we write ourselves.**
 
-- A `<fieldset>` with a `<legend>` per choice group; a real `<label>` per control; `aria-invalid` and `aria-describedby` pointing at the error node.
+- A `<fieldset>` with a `<legend>` per choice group; a real `<label>` per control; `aria-invalid` and `aria-describedby` pointing at the error node. `aria-invalid` and the error text appear together, the moment TanStack Form marks that item's field touched — never before, so a screen reader is not told about a problem the respondent has not reached yet.
+- **A field is marked touched on blur.** React's `onBlur` is bubbling, backed by the native `focusout` event (unlike `blur` itself, which does not bubble), so `apps/respondent/src/screens/questionnaire-screen.tsx` attaches one `onBlur` to the `<form>` and reads which item the blurred control sits in from its nearest `data-item-id` ancestor — the same attribute `focusItem` reads. The handler checks `event.relatedTarget` against that same attribute first: focus moving to another control inside the *same* item, such as a choice question's radio to its own freeform Other box, is not leaving the item, so it is ignored. Only when focus leaves the item's subtree does the handler call TanStack Form's `validateField` for it, which touches it and runs its validator against the current answer. From then on the item's `aria-invalid` and error text update live as the answer changes, through the same per-field validator. A submit attempt touches and validates every currently visible field at once, which is what makes all of them show together on a rejected submit — exactly as before this changed the per-item timing.
 - **An `aria-live="polite"` region announcing visibility changes.** This is the gap the single-page model creates: answering *yes* makes two questions appear, and without an announcement a screen-reader user is told nothing at all. Announce what was added or removed.
-- Focus moved to the first invalid item on a rejected submit, and the error summary reachable rather than merely visible.
+- Focus moved to the first invalid item on a rejected submit, and the error summary reachable rather than merely visible. Every item's rendered wrapper carries a `data-item-id` attribute equal to its `itemId`: this is the one contract for locating an item's control from outside the renderer, used by `focusItem` in `packages/ui/src/questionnaire`, by the blur listener above, and by the end-to-end specs, so none of them keeps its own way of finding an item in the DOM.
 - Native `<input type="date">` rather than a custom date widget — accessible, free, and internationalised by the platform.
 
 **What is tested.** [[8-testing#2.4 End-to-end — Playwright against the composed stack]] already queries by role and label, which makes the labelling a tested property. Added to that: an `@axe-core/playwright` check on the respondent form and the draft editor. This narrows the deferral in [[8-testing#9. Open questions]] §4 from "not graded, so deferred" to a committed minimum, on the grounds that the domain argues for it even where the rubric does not.
@@ -253,7 +266,7 @@ The through-line: **the respondent app stays dependency-light and imperative; th
 
 **Server state.** Three uncached calls on one side; roughly eight endpoints with cross-invalidating mutations on the other, where publishing changes the questionnaire list, the version history and the draft state at once. TanStack Query is the tool for the second and dead weight on the first. The list and bank screens keep its default refetch-on-window-focus, so another tab's edit shows up when the author comes back (Decisions Log #69).
 
-**Form state.** TanStack Form in the respondent app, for ecosystem consistency and for the per-field error and touched bookkeeping the accessibility work depends on. Not in the admin app: the two admin forms that matter are dynamic in a way that fights schema-first form state — the question editor's constraint fields depend on the selected response type, and a condition row's operators depend on the referenced question's type — so a form library would spend its budget on conditional field registration. Controlled state and validation from `@qp/shared` is less machinery there, not more.
+**Form state.** TanStack Form in the respondent app, used per field rather than as a single opaque blob. One `<form.Field name="answers.<itemId>">` is mounted per currently visible item, each with its own validator that calls the shared `validateAnswer` — the same per-answer rules `validateSubmission` runs server-side, now with a client consumer. A second, form-level validator carries the one rule that cannot be a field's own — whether an item is `required` depends on visibility, which is a property of the whole answer set — and reports it back onto the relevant fields with TanStack Form's `{ fields }` error-mapping. `packages/ui` still owns no form state (§3): the screen reads each field's value and touched/error state out of the form and maps it into the renderer's plain `answers`/`errors` props, the same boundary as before this PR, just fed by TanStack Form's own bookkeeping instead of one hand-rolled object. `form.Subscribe` drives the submit button, and `onSubmitInvalid` still moves focus to the first error. Local persistence goes through the form's `listeners.onChange`, which fires on every field change and writes the whole answer map to `localStorage`; it no longer threads through a per-change callback prop. This is more of the library than the respondent app used before (§9.4 declined a form library in *admin* for having runtime-shaped fields, not for using a library at all), and it is what buys the touched-on-blur error timing in §7 without a parallel, hand-rolled bookkeeping layer. Not in the admin app: the two admin forms that matter are dynamic in a way that fights schema-first form state — the question editor's constraint fields depend on the selected response type, and a condition row's operators depend on the referenced question's type — so a form library would spend its budget on conditional field registration. Controlled state and validation from `@qp/shared` is less machinery there, not more.
 
 This asymmetry is the one thing in this document a reviewer is most likely to query, so to state it directly: the library goes where the validation state is complex and runtime-driven, and nowhere else.
 

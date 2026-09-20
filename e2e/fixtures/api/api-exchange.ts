@@ -1,10 +1,10 @@
 import type { APIRequestContext } from "@playwright/test";
-import { ProblemDetails, problemSlug, type HttpMethod, type ProblemDetailsWire, type ProblemSlug, type RouteDefinition } from "@qp/shared";
+import { routePath, routeSearch, type HttpMethod, type PathParams, type Problem, type ProblemSlug, type QueryParams, type RouteDefinition } from "@qp/shared";
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
+import { problemReplyOf } from "./problem-reply";
 
-export type PathParams = Readonly<Record<string, string | number>>;
-export type QueryParams = Readonly<Record<string, string | number | boolean | undefined>>;
+export type { PathParams, QueryParams } from "@qp/shared";
 
 export interface ApiRequestParts {
   readonly params?: PathParams;
@@ -25,12 +25,11 @@ export interface ApiExchange {
 export class ApiProblemError extends Error {
   readonly exchange: ApiExchange;
   readonly status: number;
-  readonly problem: ProblemDetailsWire | undefined;
+  readonly problem: Problem | undefined;
   readonly slug: ProblemSlug | undefined;
 
   constructor(exchange: ApiExchange, expectedStatus: number) {
-    const problem = Value.Check(ProblemDetails, exchange.body) ? exchange.body : undefined;
-    const slug = problem === undefined ? undefined : problemSlug(problem.type);
+    const { slug, problem } = problemReplyOf(exchange.status, exchange.body);
     super(
       `${exchange.method} ${exchange.path} answered ${exchange.status}${slug === undefined ? "" : ` ${slug}`}, expected ${expectedStatus}: ${JSON.stringify(exchange.body)}`,
     );
@@ -53,23 +52,7 @@ export class ApiContractError extends Error {
 }
 
 export function pathFor(prefix: string, url: string, params: PathParams = {}): string {
-  return (
-    prefix +
-    url.replace(/:([A-Za-z]+)/g, (_segment, name: string) => {
-      const value = params[name];
-      if (value === undefined) throw new Error(`Missing path parameter "${name}" for ${url}`);
-      return encodeURIComponent(String(value));
-    })
-  );
-}
-
-function searchFor(query: QueryParams | undefined): string {
-  const search = new URLSearchParams();
-  for (const [name, value] of Object.entries(query ?? {})) {
-    if (value !== undefined) search.set(name, String(value));
-  }
-  const encoded = search.toString();
-  return encoded === "" ? "" : `?${encoded}`;
+  return prefix + routePath(url, params);
 }
 
 function bodyOf(text: string): unknown {
@@ -87,7 +70,7 @@ export async function sendRouteRequest(
   route: RouteDefinition,
   parts: ApiRequestParts = {},
 ): Promise<ApiExchange> {
-  const path = pathFor(prefix, route.url, parts.params) + searchFor(parts.query);
+  const path = pathFor(prefix, route.url, parts.params) + routeSearch(parts.query);
   const headers: Record<string, string> = { accept: "application/json, application/problem+json", ...parts.headers };
   if (parts.ifMatch !== undefined) headers["if-match"] = parts.ifMatch;
   if (parts.body !== undefined) headers["content-type"] = "application/json";

@@ -5,9 +5,9 @@ import {
   RESPONDENT_HEADINGS,
   test,
   uniqueName,
-} from "../../fixtures/index.ts";
-import { DraftAuthoring } from "./support/draft-authoring.ts";
-import { MainFrameNavigations, openRespondentBrowser } from "./support/respondent-browser.ts";
+} from "../../fixtures/index";
+import { DraftAuthoring } from "./support/draft-authoring";
+import { MainFrameNavigations, openRespondentBrowser } from "./support/respondent-browser";
 
 const prompts = DEMO_V1.prompts;
 const HYPERTENSION = DEMO_V1.optionLabel(DEMO_OPTION_IDS.hypertension);
@@ -16,8 +16,7 @@ const YES = DEMO_V1.optionLabel(DEMO_OPTION_IDS.yes);
 test.describe("E1 — author, publish, and take the yes path", () => {
   test("a questionnaire authored in the admin UI reveals its branch in place and persists four pinned responses", async ({
     page,
-    browser,
-    stack,
+    secondContext,
     api,
     db,
     browserErrors,
@@ -53,7 +52,7 @@ test.describe("E1 — author, publish, and take the yes path", () => {
       throw new Error("The published definition does not hold the four authored items");
     }
 
-    const { context, page: respondentPage, respondent } = await openRespondentBrowser(browser, stack.baseUrl);
+    const { context, page: respondentPage, respondent } = await openRespondentBrowser(secondContext);
     browserErrors.watch(respondentPage);
     await respondent.openForm(questionnaireId);
     const form = respondent.form(DEMO_V1.title);

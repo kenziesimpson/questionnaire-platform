@@ -1,24 +1,34 @@
-import { validateDraft, type DraftItem, type DraftValidation, type QuestionnaireDraft } from "@qp/shared";
+import {
+  draftForValidation,
+  validateDraft,
+  type DraftItem,
+  type DraftPrecondition,
+  type DraftValidation,
+  type QuestionnaireDraft,
+} from "@qp/shared";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import { desc, eq, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
-import { recordAudit } from "../audit.js";
-import { isCurrentDraft, type DraftPrecondition } from "./draft-precondition.js";
+import { recordAudit, type AuditTraceId } from "../audit.js";
 import type { Database, Executor, Transaction } from "../client.js";
+import { mustExist } from "../errors.js";
 import { questionnaireItem, questionnaireVersion } from "../schema.js";
 import {
-  archivedQuestionIds,
-  draftForValidation,
   itemsWithQuestionContent,
   pinnedQuestionVersionsInPlacementOrder,
   readDraftContents,
   type DraftInvalidItem,
 } from "./draft-contents.js";
+import { archivedQuestionIds } from "./question-rows.js";
 import { insertItems, readItems } from "./questionnaire-items.js";
-import { readBack } from "./read-back.js";
-import { lockOpenDraft, readOpenDraft, withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
+import { withLockedQuestionnaire, type QuestionnaireNotFound } from "./questionnaire-rows.js";
+import {
+  isPublishedVersionOf,
+  readOpenDraft,
+  withCurrentDraft,
+  type DraftNotWritable,
+} from "./questionnaire-version-rows.js";
 import { existingQuestionVersionKeys, questionVersionKey, type QuestionVersionKey } from "./question-versions.js";
-import { isPublishedVersionOf } from "./versions.js";
 
 const READ_ONLY_SNAPSHOT: PgTransactionConfig = { isolationLevel: "repeatable read", accessMode: "read only" };
 
@@ -56,13 +66,12 @@ export interface ReplaceDraftCommand {
   readonly title: string;
   readonly items: readonly DraftItem[];
   readonly actorId: string | null;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 export type ReplaceDraftOutcome =
-  | ({ readonly outcome: "saved"; readonly draftVersionId: string } & CurrentDraft)
-  | { readonly outcome: "stale" }
-  | { readonly outcome: "no-draft" }
+  | ({ readonly outcome: "saved" } & CurrentDraft)
+  | DraftNotWritable
   | { readonly outcome: "invalid"; readonly items: readonly DraftInvalidItem[] };
 
 function duplicatedItemIds(items: readonly DraftItem[]): string[] {
@@ -105,48 +114,45 @@ async function refusedItems(tx: Transaction, draftVersionId: string, items: read
 }
 
 export async function replaceDraft(executor: Executor, command: ReplaceDraftCommand): Promise<ReplaceDraftOutcome> {
-  return executor.transaction(async (tx) => {
-    const draft = await lockOpenDraft(tx, command.questionnaireId);
-    if (draft === undefined) {
-      return { outcome: "no-draft" };
-    }
-    if (!isCurrentDraft(command.precondition, { versionId: draft.id, draftRevision: draft.draftRevision })) {
-      return { outcome: "stale" };
-    }
-    const refused = await refusedItems(tx, draft.id, command.items);
-    if (refused.length > 0) {
-      return { outcome: "invalid", items: refused };
-    }
+  return executor.transaction(async (tx) =>
+    withCurrentDraft(tx, command, async (draft): Promise<ReplaceDraftOutcome> => {
+      const refused = await refusedItems(tx, draft.id, command.items);
+      if (refused.length > 0) {
+        return { outcome: "invalid", items: refused };
+      }
 
-    await tx
-      .update(questionnaireVersion)
-      .set({
-        title: command.title,
-        draftRevision: draft.draftRevision + 1,
-        // eslint-disable-next-line no-restricted-syntax -- updated_at takes the database's transaction timestamp, the same clock as every column default
-        updatedAt: sql`now()`,
-      })
-      .where(eq(questionnaireVersion.id, draft.id));
-    await tx.delete(questionnaireItem).where(eq(questionnaireItem.questionnaireVersionId, draft.id));
-    await insertItems(tx, draft.id, command.items);
-    await recordAudit(tx, {
-      action: "edit_draft",
-      questionnaireId: command.questionnaireId,
-      questionnaireVersionId: draft.id,
-      version: null,
-      actorId: command.actorId,
-      summary: { title: command.title, itemIds: command.items.map((item) => item.itemId) },
-      traceId: command.traceId,
-    });
-    const saved = readBack(await readCurrentDraft(tx, command.questionnaireId), "the draft just saved");
-    return { outcome: "saved", draftVersionId: draft.id, ...saved };
-  });
+      await tx
+        .update(questionnaireVersion)
+        .set({
+          title: command.title,
+          draftRevision: draft.draftRevision + 1,
+          // eslint-disable-next-line no-restricted-syntax -- updated_at takes the database's transaction timestamp, the same clock as every column default
+          updatedAt: sql`now()`,
+        })
+        .where(eq(questionnaireVersion.id, draft.id));
+      await tx.delete(questionnaireItem).where(eq(questionnaireItem.questionnaireVersionId, draft.id));
+      await insertItems(tx, draft.id, command.items);
+      await recordAudit(tx, {
+        action: "edit_draft",
+        questionnaireId: command.questionnaireId,
+        questionnaireVersionId: draft.id,
+        version: null,
+        actorId: command.actorId,
+        summary: { title: command.title, itemIds: command.items.map((item) => item.itemId) },
+        traceId: command.traceId,
+      });
+      const saved = mustExist(await readCurrentDraft(tx, command.questionnaireId), "draft.unreadable-after-save", {
+        questionnaireId: command.questionnaireId,
+      });
+      return { outcome: "saved", ...saved };
+    }),
+  );
 }
 
 export interface CreateNextDraftCommand {
   readonly questionnaireId: string;
   readonly createdBy: string | null;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 export type CreateNextDraftOutcome =
@@ -194,7 +200,9 @@ export async function createNextDraft(executor: Executor, command: CreateNextDra
       traceId: command.traceId,
     });
 
-    const created = readBack(await readCurrentDraft(tx, command.questionnaireId), "the next draft just created");
+    const created = mustExist(await readCurrentDraft(tx, command.questionnaireId), "draft.unreadable-after-open", {
+      questionnaireId: command.questionnaireId,
+    });
     return { outcome: "created", ...created };
   });
 }

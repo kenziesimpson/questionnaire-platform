@@ -4,13 +4,14 @@ import {
   DEMO_OPTION_IDS,
   DEMO_V1,
   expect,
+  recordRequests,
   RESPONDENT_HEADINGS,
   RespondentPage,
   test,
-} from "../../fixtures/index.ts";
-import { answerNoPath } from "./support/demo-answers.ts";
-import { ALREADY_SUBMITTED_NOTE } from "./support/respondent-messages.ts";
-import { isGetSessionRequest, problemReplyOf, recordRequests, waitForSubmitResponse } from "./support/submit-traffic.ts";
+} from "../../fixtures/index";
+import { answerNoPath } from "./support/demo-answers";
+import { ALREADY_SUBMITTED_NOTE } from "./support/respondent-messages";
+import { isGetSessionRequest, problemReplyOf, waitForSubmitResponse } from "./support/submit-traffic";
 
 test.describe("E10 — a conflicting resubmit is not a dead end", () => {
   test("a resubmit with a changed answer gets 409, and the app shows the recorded receipt with a note", async ({

@@ -13,15 +13,10 @@ export interface RouteSchema {
 
 export interface RouteDefinition<S extends RouteSchema = RouteSchema> {
   method: HttpMethod;
-  /** Relative to the module's mount point: `/api/definition` or `/api/run`. */
   url: string;
   schema: S;
 }
 
-/**
- * One route's contract: Fastify registers `schema` as-is, and clients derive their types from it.
- * Every route declares the problem body for `4xx` and `5xx`, so error serialization is contractual too.
- */
 export function defineRoute<const M extends HttpMethod, const U extends string, S extends RouteSchema>(route: {
   method: M;
   url: U;
@@ -44,3 +39,9 @@ export type HeadersOf<R extends RouteDefinition> = Field<R, "headers">;
 export type BodyOf<R extends RouteDefinition> = Field<R, "body">;
 export type ReplyOf<R extends RouteDefinition, Code extends keyof R["schema"]["response"]> =
   R["schema"]["response"][Code] extends TSchema ? Static<R["schema"]["response"][Code]> : never;
+
+export type SuccessStatus<R extends RouteDefinition> = Exclude<keyof R["schema"]["response"], "4xx" | "5xx">;
+
+export type RouteWith<Status extends number> = RouteDefinition & { schema: { response: Record<Status, TSchema> } };
+
+export type SuccessBody<R extends RouteWith<Status>, Status extends number> = Static<R["schema"]["response"][Status]>;

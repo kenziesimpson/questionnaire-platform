@@ -1,0 +1,596 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: Questionnaire platform, O10
+    folder: Questionnaire platform
+    interval: 1m
+    rules:
+      - uid: qp-submit-success-rate
+        title: Submit success rate drops
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: ((sum(increase(questionnaire_submissions_total{questionnaire_outcome=~"accepted|replayed"}[15m])) or vector(0)) / sum(increase(questionnaire_submissions_total{questionnaire_outcome=~"accepted|replayed|rejected_validation|failed"}[15m]))) and on() (sum(increase(questionnaire_submissions_total{questionnaire_outcome=~"accepted|replayed|rejected_validation|failed"}[15m])) >= 10)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.85
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        annotations:
+          summary: Fewer than 85% of counted submissions in the last 15 minutes were accepted or replayed.
+          description: Success is accepted plus replayed over accepted, replayed, rejected_validation and failed. rejected_conflict (a double submit, or a questionnaire that closed) is not counted; refusals past the cutoff are watched in questionnaire.sessions.rejected_past_cutoff. It needs at least 10 counted submissions in the window.
+          first_look: "Respondent funnel dashboard, panel Submissions by outcome: which outcome grew. failed points at the backend or the database, rejected_validation at a client or definition change."
+        labels:
+          severity: page
+        isPaused: false
+      - uid: qp-http-5xx-rate
+        title: 5xx rate rises
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: ((sum(rate(traces_span_metrics_calls_total{http_response_status_code=~"5.."}[10m])) or vector(0)) / sum(rate(traces_span_metrics_calls_total{http_response_status_code=~".+"}[10m]))) and on() (sum(increase(traces_span_metrics_calls_total{http_response_status_code=~".+"}[10m])) >= 20)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.02
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: More than 2% of requests in the last 10 minutes ended in a 5xx.
+          description: Server errors over all requests the backend served, health probes excluded. It needs at least 20 requests in the window.
+          first_look: "Service health dashboard, panels Requests by status and Request rate by route: which route. Then the Warnings and errors logs panel, and the trace of a failing request through its trace_id."
+        labels:
+          severity: page
+        isPaused: false
+      - uid: qp-definition-fetch-p95
+        title: p95 of the questionnaire definition fetch rises
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: histogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{http_route=~"/api/run/sessions(/:sessionId)?", http_request_method=~"GET|POST"}[10m]))) and on() (sum(increase(traces_span_metrics_duration_milliseconds_count{http_route=~"/api/run/sessions(/:sessionId)?", http_request_method=~"GET|POST"}[10m])) >= 20)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 1000
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: The 95th percentile of session create and session read, the two requests that return a definition, has been over 1 second for 10 minutes.
+          description: POST /api/run/sessions and GET /api/run/sessions/:sessionId, in milliseconds. It needs at least 20 requests in the window.
+          first_look: "Database dashboard, panels Query duration p95 by operation and Requests queued for a connection, by pool: is the time in Postgres or waiting for a connection. Then Service health, panel Event loop delay."
+        labels:
+          severity: ticket
+        isPaused: false
+      - uid: qp-event-loop-lag
+        title: Event-loop lag stays high
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: max(nodejs_eventloop_delay_p99_seconds)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.2
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: The Node event loop's 99th percentile delay has been over 200 ms for 10 minutes.
+          description: The delay is measured over each export window of the backend. A blocked loop moves before latency does.
+          first_look: "Service health dashboard, panels Event loop delay and Event loop utilization, then Latency p95 by route: a route that got slow or busy at the same time. A recent deploy is the first suspect."
+        labels:
+          severity: ticket
+        isPaused: false
+      - uid: qp-pool-waiting
+        title: Requests stay queued for a pool connection
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: max by (db_pool) (db_pool_connections_waiting)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: Requests have been queued for a database connection on a pool at every sample for 5 minutes.
+          description: One alert per pool (definition, execution, reporting). Waiting above zero for a sustained time means the pool, not the database, is the bottleneck.
+          first_look: "Database dashboard, panels Requests queued for a connection, by pool and Connections in use, by pool: the pool named in the alert. Then Query duration p95 by operation: slow queries hold connections and look the same."
+        labels:
+          severity: ticket
+        isPaused: false
+      - uid: qp-partition-runway
+        title: Fewer than one month of future response partitions remain
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: min(qp_monitor_response_partition_months_ahead)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: threshold
+        noDataState: Alerting
+        execErrState: Error
+        for: 15m
+        annotations:
+          summary: No response partition covers the month after the current one, or none covers now.
+          description: "monitor.response_partition_months_ahead() counts the months after the current one that a partition covers without a gap. At 0 a submit fails once the month ends, and at once if no partition covers now. No data also fires: the Collector could not read the function."
+          first_look: "Database dashboard, panel Partition runway, then the migrate job, which pre-creates the next 24 monthly partitions every time it runs: run it (docker compose run --rm migrate) before the month ends."
+        labels:
+          severity: page
+        isPaused: false
+  - orgId: 1
+    name: Questionnaire platform, client
+    folder: Questionnaire platform
+    interval: 1m
+    rules:
+      - uid: qp-client-error-rate
+        title: Client errors per page load rise
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: loki
+            model:
+              datasource:
+                type: loki
+                uid: loki
+              editorMode: code
+              expr: (sum(count_over_time({service_name=~"qp-.+"} |= "client.error" [30m])) or vector(0)) / sum(count_over_time({service_name=~"qp-.+"} |= "page.loaded" [30m])) and on() (sum(count_over_time({service_name=~"qp-.+"} |= "page.loaded" [30m])) >= 20)
+              queryType: instant
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.05
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        annotations:
+          summary: More than 5% as many client errors as page loads were logged in the last 30 minutes.
+          description: client.error log lines over page.loaded log lines, both written by the ingest from what browsers report. Errors from the admin app count in the numerator and only the respondent reports page loads, so the ratio is a trend and not a rate per session. It needs at least 20 page loads in the window. Client telemetry is unauthenticated and spoofable, so this rule only ever tickets.
+          first_look: "Client dashboard, panels Client errors by error type and Client errors by screen: which class of error, on which screen. Then the Client warnings and errors, as logged panel for the frames."
+        labels:
+          severity: ticket
+        isPaused: false
+      - uid: qp-client-ingest-drops
+        title: The ingest drops what browsers send
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: sum(increase(telemetry_ingest_dropped_total{telemetry_ingest_reason=~"unknown_field|invalid_field|unknown_event|malformed|invalid_trace"}[30m]))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 50
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        annotations:
+          summary: The ingest dropped more than 50 fields or events in the last 30 minutes because of what a browser sent, not because of volume.
+          description: Counts telemetry.ingest.dropped for the reasons that mean the ingest and a deployed build disagree about the schema (unknown_field, invalid_field, unknown_event, malformed and invalid_trace). over_limit and over_capacity are left out, since they are volume. A healthy build drops none, so the threshold is the traffic floor. It is a count and not a share, because the ingest keeps no counter of the events it received.
+          first_look: "Client dashboard, panel Browser fields the ingest dropped: which reason. unknown_field or unknown_event means a deployed build sends something the ingest does not list, and the fields change expand-then-contract (O17)."
+        labels:
+          severity: ticket
+        isPaused: false
+      - uid: qp-client-page-load-p75
+        title: Page load p75 degrades
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: histogram_quantile(0.75, sum by (le) (rate(browser_page_load_duration_milliseconds_bucket[30m]))) and on() (sum(increase(browser_page_load_duration_milliseconds_count[30m])) >= 20)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 4000
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 30m
+        annotations:
+          summary: The 75th percentile of the respondent's page load time is above 4 seconds over the last 30 minutes.
+          description: browser.page.load.duration is the time from navigation start to the end of the load event, reported by the respondent's browser, so it includes the respondent's network and device. It needs at least 20 page loads in the window. Client telemetry is unauthenticated and spoofable, so this rule only ever tickets.
+          first_look: "Client dashboard, panel Page load duration percentiles: whether the median or the tail moved. Then the Service health dashboard, panel Latency p95 by route, to see whether the backend moved with it."
+        labels:
+          severity: ticket
+        isPaused: false

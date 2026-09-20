@@ -1,8 +1,22 @@
+import type { Option } from "@qp/shared";
 import { Label } from "@qp/ui/primitives/label";
 import { RadioGroup, RadioGroupItem } from "@qp/ui/primitives/radio-group";
-import { ChoiceFieldset } from "../field";
+import { ChoiceFieldset, type FieldIds } from "../field";
 import { OtherTextInput } from "./other-text-input";
-import type { SingleChoiceViewProps } from "./single-choice-control";
+
+export interface SingleChoiceViewProps {
+  ids: FieldIds;
+  prompt: string;
+  required: boolean;
+  error: string | undefined;
+  options: readonly Option[];
+  otherOptionId: string | undefined;
+  selectedOptionId: string | null;
+  otherText: string;
+  readOnly: boolean;
+  onSelect: (optionId: string) => void;
+  onOtherTextChange: (optionId: string, text: string) => void;
+}
 
 export function RadioChoiceView({
   ids,
@@ -10,6 +24,7 @@ export function RadioChoiceView({
   required,
   error,
   options,
+  otherOptionId,
   selectedOptionId,
   otherText,
   readOnly,
@@ -27,7 +42,7 @@ export function RadioChoiceView({
               <Label htmlFor={id} className="font-normal">
                 {option.label}
               </Label>
-              {option.freeform && (
+              {option.optionId === otherOptionId && (
                 <OtherTextInput
                   option={option}
                   value={otherText}

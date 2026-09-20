@@ -26,13 +26,15 @@ respondent form and the admin preview.
 
 | Path | Contents |
 | --- | --- |
-| `src/primitives/` | shadcn components written by the CLI (`button`, `input`, `label`, `radio-group`, `checkbox`, `textarea`, `dialog`, `select`, `popover`, `table`, `command`, and `input-group`, which `command` needs). A searchable combobox is shadcn's `Popover` + `Command` pattern, composed where it is used; shadcn's own `combobox` is built on Base UI rather than Radix, so it is not added |
+| `src/primitives/` | shadcn components written by the CLI (`button`, `input`, `label`, `radio-group`, `checkbox`, `textarea`, `dialog`, `popover`, `table`, `native-select`, and `tooltip`), plus `alert`, hand-written for parity with the same design tokens (the CLI's own registry was unreachable when this package was built) |
+| `src/error-boundary.tsx` | `ErrorBoundary`, a React error boundary that renders its `fallback` after a component throws and hands the error to an `onError` prop. It knows nothing about telemetry: each app passes its own reporter |
+| `src/icons.ts` | Every lucide icon the apps use, re-exported as `@qp/ui/icons`. `lucide-react` is otherwise importable only inside `src/primitives/` |
 | `src/questionnaire/` | `QuestionnaireForm`, `QuestionnaireItems`, one control per response type, the `aria-live` visibility announcer, the error catalogue, and `errorsByItemId`, which groups a `submission/invalid` body into the `errors` prop |
 | `src/styles/globals.css` | Tailwind v4 entry, shadcn theme tokens, and the `@source` that scans this package |
 | `src/lib/utils.ts` | The `cn` helper the shadcn `utils` alias points at |
 | `components.json` | shadcn configuration for components written into this package |
 
-Import paths are `@qp/ui/primitives/<name>`, `@qp/ui/questionnaire`, `@qp/ui/lib/utils` and
+Import paths are `@qp/ui/primitives/<name>`, `@qp/ui/questionnaire`, `@qp/ui/error-boundary`, `@qp/ui/icons`, `@qp/ui/lib/utils` and
 `@qp/ui/globals.css`.
 
 ## Tailwind and shadcn in a package
@@ -51,7 +53,7 @@ layout the CLI generates for its own monorepo template:
   runs `@tailwindcss/vite`. `globals.css` declares `@source "../**/*.{ts,tsx}"` so this package's
   classes are generated in every app's build. Without it they are purged silently and the renderer
   arrives unstyled.
-- `shadcn` is a devDependency: the CLI and its `shadcn/tailwind.css` are only used at build time.
+- `shadcn` is a `dependencies` entry, not a devDependency: `globals.css`'s `@import "shadcn/tailwind.css"` ships into every consumer that imports `@qp/ui/globals.css` (admin, respondent), not only the CLI at build time.
 
 ## Scripts
 

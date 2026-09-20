@@ -2,13 +2,13 @@ import { Input } from "@qp/ui/primitives/input";
 import { errorAria, FieldError, FieldLabel, useFieldIds } from "../field";
 import type { ControlProps } from "../types";
 
-export function DateControl({ item, answer, error, mode, onChange }: ControlProps<"date">) {
+export function DateControl({ item, answer, error, mode, onChange, label }: ControlProps<"date">) {
   const ids = useFieldIds();
   const { question } = item;
   return (
     <div className="grid gap-2">
       <FieldLabel htmlFor={ids.control} required={item.required}>
-        {question.prompt}
+        {label ?? question.prompt}
       </FieldLabel>
       <Input
         id={ids.control}
