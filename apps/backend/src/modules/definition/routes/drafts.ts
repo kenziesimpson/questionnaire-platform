@@ -1,4 +1,5 @@
 import { definitionApi, formatDraftEtag } from "@qp/shared";
+import { withSpan } from "@qp/telemetry";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "../../../db/client.js";
 import {
@@ -13,7 +14,9 @@ import { notFoundProblem } from "../../../http/problems.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { draftPreconditionOf } from "../if-match.js";
+import { reportDraftSaved, reportPublish, reportPublishFailed } from "../definition-events.js";
 import { definitionProblem } from "../problems.js";
+import { auditTraceId } from "../../../http/trace.js";
 
 function draftHeaders({ draft, draftRevision }: CurrentDraft): Record<string, string> {
   return { etag: formatDraftEtag(draft.versionId, draftRevision), "cache-control": "no-store" };
@@ -34,13 +37,17 @@ export function registerDraftRoutes(scope: FastifyInstance, database: Database):
       return precondition;
     }
     const { title, items } = request.body;
-    const outcome = await replaceDraft(database, {
-      questionnaireId: request.params.id,
-      precondition,
-      title,
-      items,
-      actorId: authorOf(request),
-      traceId: null,
+    const outcome = await withSpan("questionnaire.edit_draft", { questionnaireId: request.params.id }, async () => {
+      const saved = await replaceDraft(database, {
+        questionnaireId: request.params.id,
+        precondition,
+        title,
+        items,
+        actorId: authorOf(request),
+        traceId: auditTraceId(),
+      });
+      reportDraftSaved(request.params.id, saved);
+      return saved;
     });
     if (outcome.outcome !== "saved") {
       return definitionProblem(outcome);
@@ -49,11 +56,13 @@ export function registerDraftRoutes(scope: FastifyInstance, database: Database):
   });
 
   registerRoute(scope, definitionApi.openDraft, async (request) => {
-    const outcome = await createNextDraft(database, {
-      questionnaireId: request.params.id,
-      createdBy: authorOf(request),
-      traceId: null,
-    });
+    const outcome = await withSpan("questionnaire.open_draft", { questionnaireId: request.params.id }, async () =>
+      createNextDraft(database, {
+        questionnaireId: request.params.id,
+        createdBy: authorOf(request),
+        traceId: auditTraceId(),
+      }),
+    );
     if (outcome.outcome !== "created") {
       return definitionProblem(outcome);
     }
@@ -73,11 +82,18 @@ export function registerDraftRoutes(scope: FastifyInstance, database: Database):
     if ("status" in precondition) {
       return precondition;
     }
-    const published = await publishDraft(database, {
-      questionnaireId: request.params.id,
-      precondition,
-      actorId: authorOf(request),
-      traceId: null,
+    const published = await withSpan("questionnaire.publish", { questionnaireId: request.params.id }, async () => {
+      const outcome = await publishDraft(database, {
+        questionnaireId: request.params.id,
+        precondition,
+        actorId: authorOf(request),
+        traceId: auditTraceId(),
+      }).catch((error: unknown) => {
+        reportPublishFailed(request.params.id);
+        throw error;
+      });
+      reportPublish(request.params.id, outcome);
+      return outcome;
     });
     if (published.outcome !== "published") {
       return definitionProblem(published);

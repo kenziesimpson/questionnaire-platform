@@ -1,4 +1,4 @@
-import type { ResponseType, SubmissionItemCode } from "@qp/shared";
+import type { DraftItemCode, ResponseType, SubmissionItemCode } from "@qp/shared";
 import { FIELDS, type FieldName, type Outcome, type TelemetryContext } from "./fields.js";
 import { guarded } from "./guard.js";
 import { incrementCounter, recordSessionDuration, reportDropped } from "./instruments.js";
@@ -24,6 +24,14 @@ const DOMAIN_EVENTS = {
   "questionnaire.created": event<{ questionnaireId: string }>("questionnaire.created"),
   "questionnaire.published": event<{ questionnaireId: string; questionnaireVersion: number }>("questionnaire.published"),
   "questionnaire.retired": event<{ questionnaireId: string }>("questionnaire.retired"),
+  "questionnaire.publish_finished": event<{ questionnaireId: string; outcome: Outcome }>("questionnaire.publish.total", {
+    labels: ["outcome"],
+  }),
+  "questionnaire.publish_rejected": event<{ questionnaireId: string; itemId: string; problemCode: DraftItemCode }>(
+    "questionnaire.publish.rejections",
+    { labels: ["problemCode"] },
+  ),
+  "questionnaire.draft_conflict": event<{ questionnaireId: string }>("questionnaire.draft.conflicts"),
   "session.started": event<{ sessionId: string; questionnaireId: string; questionnaireVersion: number }>(
     "questionnaire.sessions.started",
   ),

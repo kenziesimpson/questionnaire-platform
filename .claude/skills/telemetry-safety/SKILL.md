@@ -303,7 +303,8 @@ Flows built so far: the submit, rejection, past-cutoff, skipped-item and replay 
 module, and the `/api/telemetry` ingest, with a batch that carries the sentinel in a field, a nested
 object, an event name, a timestamp and a traceparent, and batches refused as not an envelope. Flows still owed, by the lane that builds each path: the apps' use of the
 browser SDK, both the admin response-detail screen and the respondent app, through their telemetry wrapper (O20);
-the definition operations; the `view_response` audit path (O14); and any new reporting read.
+the `view_response` audit path (O14); and any new reporting read. The definition routes' flow plants the sentinel in a title,
+a prompt and an option label, and takes a draft through a stale save, a refused publish, a publish and a retirement.
 
 ## The gate
 

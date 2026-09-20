@@ -8,6 +8,12 @@ export interface TestDatabase {
   connect(role: ApplicationRole): Promise<pg.Client>;
   database(role: ApplicationRole): Database;
   readAuditEvents(): Promise<AuditEventRow[]>;
+  readAuditTraceIds(): Promise<AuditTraceRow[]>;
+}
+
+export interface AuditTraceRow {
+  readonly action: string;
+  readonly trace_id: string | null;
 }
 
 export interface AuditEventRow {
@@ -125,6 +131,11 @@ export function useTestDatabase(): TestDatabase {
           `SELECT action, questionnaire_id, questionnaire_version_id, version, actor_id, summary
              FROM audit.event ORDER BY occurred_at, id`,
         );
+        return result.rows;
+      }),
+    readAuditTraceIds: () =>
+      withAuditOwner(async (owner) => {
+        const result = await owner.query<AuditTraceRow>("SELECT action, trace_id FROM audit.event ORDER BY occurred_at, id");
         return result.rows;
       }),
   };

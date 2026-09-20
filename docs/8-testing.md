@@ -1158,7 +1158,7 @@ The browser SDK (`@qp/telemetry/browser`) takes `window`, the transport and the 
 | The queue stamps each event with the time it was queued from the injected clock (the wall clock without one), not the time of the flush, stamps the active span's `traceparent` and none outside a span, and marks a record as a browser domain event only when `emitDomainEvent` wrote it and its name is a `BROWSER_DOMAIN_EVENTS` member, never by a `module` attribute, a message, `enqueueRecord` or a `logger("events")` call, while `enqueue` discards a caller's `module`, and a spread copy or a structured clone of a domain-event record loses the marker the original keeps; `enqueue` never throws into the caller for attributes that throw when read (a getter, a `Proxy`) and counts each as `internal`, and does nothing on a closed queue; `flushOnExit` hands an abandonment queued behind a full batch to the first beacon | `packages/telemetry/_tests/browser/queue.test.ts` | O5, O8: the age the server computes is the event's, and the wire's event name comes from a marker app code cannot set | — conventions |
 | With reading the active span throwing, `injectTraceHeaders` returns the headers without a `traceparent` and counts one internal span drop; with the context manager refusing to register, `startBrowserTracing` does not throw, counts one and leaves no tracer provider registered; with the tracer provider refusing to disable, `stopBrowserTracing` still disables the context manager, resolves and counts one; with the provider's shutdown rejecting, it resolves and counts one | `packages/telemetry/_tests/browser/tracing.test.ts` | T0d: a telemetry failure never reaches the app | — conventions |
 
-### T8 — the telemetry ingest (`POST /api/telemetry`)
+### T8a — the telemetry ingest (`POST /api/telemetry`)
 
 **Shared contract — `packages/shared`, the telemetry wire types**
 
@@ -1210,6 +1210,23 @@ The browser SDK (`@qp/telemetry/browser`) takes `window`, the transport and the 
 | Case | File | Invariant defended | §3 row |
 | --- | --- | --- | --- |
 | `modules/telemetry` rejects imports of the db layer, its subpaths, `drizzle-orm`, `pg` and the other modules; `@qp/shared`, `@qp/telemetry` and the http helpers pass | `tests/lint-boundaries.test.ts` | The ingest has no database access | No respondent answer in telemetry |
+
+### T8b — definition telemetry
+
+**Backend — `apps/backend`, the definition module's events, spans and audit trace ids, Testcontainers Postgres**
+
+| Case | File | Invariant defended | §3 row |
+| --- | --- | --- | --- |
+| Creating a questionnaire emits `questionnaire.created` and counts it, in a `questionnaire.create` span whose trace id is on the `create_draft` audit row | `_tests/modules/definition/definition-events.test.ts` | O3: the log line and the counter are one call; the audit row is joined to the trace | The telemetry |
+| A publish emits `questionnaire.published` with the version and counts `publish.total` as accepted, in a `questionnaire.publish` span that carries the version and the outcome, and the `publish` audit row has the span's trace id | `_tests/modules/definition/definition-events.test.ts` | O3, O6: bounded labels, ids in traces and logs only | The telemetry |
+| At the moment a publish's, a create's or a close-time change's transaction commits no `questionnaire.published`, `questionnaire.created` or `questionnaire.retired` line exists yet, and one exists after the response; a create and a close-time change that roll back after their work emit nothing | `_tests/modules/definition/definition-events.test.ts` | The event is emitted after the commit | The telemetry |
+| A publish whose transaction rolls back after its work returns `500`, leaves no published version and no `publish` audit row, emits no `questionnaire.published` line, moves no `questionnaire.published` counter and is counted as failed | `_tests/modules/definition/definition-events.test.ts` | A rolled-back publish never emits an event | The telemetry |
+| A publish refused with `422` emits no `questionnaire.published`, one `questionnaire.publish_rejected` per item it names (at most `MAX_FINDINGS`, though the problem names every item), counts each `publish.rejections` by its draft item code and `publish.total` as rejected for validation | `_tests/modules/definition/definition-events.test.ts` | `DraftItemCode` is a bounded label | The telemetry |
+| A draft save and a publish each refused as stale are counted in `draft.conflicts`, and the publish also as rejected for a conflict | `_tests/modules/definition/definition-events.test.ts` | Stale-draft `409`s are visible as a rate | The telemetry |
+| Setting or moving a close time emits `questionnaire.retired` and clearing it emits nothing, each in a `questionnaire.retire` span with a trace id on its audit row | `_tests/modules/definition/definition-events.test.ts` | `retire` is the audited action that ends a questionnaire's life | The telemetry |
+| Every audited definition route, run on an app built after the Fastify instrumentation starts (create, append and archive a question, create a questionnaire, save, publish, open a draft, retire, reopen), writes an audit row whose trace id is that of a `request` span | `_tests/modules/definition/definition-events.test.ts` | Every audit write carries the current trace id instead of `null` | The telemetry |
+| `auditTraceId` is `null` with no active span and the active span's trace id inside one | `_tests/http/trace.test.ts` | One place reads the trace id for every audit write | The telemetry |
+| A draft saved with the sentinel in the title, a prompt and an option label, a stale save refused `409`, a publish refused `422`, then a publish and a retirement: the sentinel reaches no exporter, and the flow declares the `questionnaire.*` events it must emit | `_tests/leak-test/leak-test.test.ts` | Authored text does not enter telemetry through the definition path | No respondent answer in telemetry |
 
 ## 8. Alternatives considered
 
