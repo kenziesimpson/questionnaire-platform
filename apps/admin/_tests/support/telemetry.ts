@@ -1,6 +1,15 @@
+import { PROBLEM_CONTENT_TYPE, problem, reportingApi, type SessionDetail } from "@qp/shared";
+import { INTAKE_ITEM_IDS } from "@qp/shared/demo";
 import { createEventQueue, routeLogsToQueue, type QueuedEvent, type Transport } from "@qp/telemetry/browser";
+import { contractResponse, jsonResponse, type Reply } from "@qp/ui/testing";
 import { vi } from "vitest";
 import { startAdminTelemetry, type AdminTelemetry } from "../../src/telemetry/start";
+import { aSessionDetail, aSessionPage, aSessionSummary, sessionIdOf } from "./reporting";
+import { LIST_URL, VERSIONS_URL, sessionUrl } from "./routes";
+
+export const ANSWER_SENTINEL = "SENTINEL-answer-value-9c4d";
+
+export const INGEST_URL = "/api/telemetry";
 
 export function recordingTransport() {
   const sent: QueuedEvent[] = [];
@@ -44,5 +53,32 @@ export function routedQueue() {
       stopRouting();
       queue.close();
     },
+  };
+}
+
+export function plantedDetail(): SessionDetail {
+  const detail = aSessionDetail(1);
+  return {
+    ...detail,
+    items: detail.items.map((item) =>
+      item.itemId === INTAKE_ITEM_IDS.pharmacy && item.answer?.type === "text" ? { ...item, answer: { ...item.answer, text: ANSWER_SENTINEL } } : item,
+    ),
+  };
+}
+
+export function sentinelProblemResponse(): Response {
+  const body = { ...problem("internal", { detail: ANSWER_SENTINEL }), title: ANSWER_SENTINEL, instance: `/${ANSWER_SENTINEL}` };
+  return new Response(JSON.stringify(body), { status: 500, headers: { "content-type": PROBLEM_CONTENT_TYPE } });
+}
+
+export function leakHandler(refetchFails: () => boolean = () => false): Reply {
+  return ({ url }) => {
+    if (url === INGEST_URL) return jsonResponse(202, { accepted: 1, dropped: 0 });
+    if (url === LIST_URL || url === VERSIONS_URL) return jsonResponse(200, []);
+    if (url.split("?")[0]?.endsWith("/responses")) return contractResponse(reportingApi.listSessions, 200, aSessionPage([aSessionSummary(1)]));
+    if (url === sessionUrl(sessionIdOf(1))) {
+      return refetchFails() ? sentinelProblemResponse() : contractResponse(reportingApi.getSessionDetail, 200, plantedDetail());
+    }
+    throw new Error(`unexpected request to ${url}`);
   };
 }

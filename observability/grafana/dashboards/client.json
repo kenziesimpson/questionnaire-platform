@@ -340,7 +340,8 @@
             "uid": "loki"
           },
           "expr": "sum by (detected_level) (count_over_time({service_name=~\"qp-.+\"} | telemetry_source=\"browser\" [$__interval]))",
-          "editorMode": "code"
+          "editorMode": "code",
+          "legendFormat": "{{detected_level}}"
         }
       ],
       "fieldConfig": {
@@ -455,7 +456,8 @@
             "uid": "loki"
           },
           "expr": "sum by (detected_level) (count_over_time({service_name=~\"qp-.+\"} |= \"client.\" | detected_level=~\"warn|error\" [$__interval]))",
-          "editorMode": "code"
+          "editorMode": "code",
+          "legendFormat": "{{detected_level}}"
         }
       ],
       "fieldConfig": {
@@ -549,7 +551,8 @@
             "uid": "loki"
           },
           "expr": "sum by (error_type) (count_over_time({service_name=~\"qp-.+\"} |= \"client.error\" [$__interval]))",
-          "editorMode": "code"
+          "editorMode": "code",
+          "legendFormat": "{{error_type}}"
         }
       ],
       "fieldConfig": {
@@ -596,7 +599,8 @@
             "uid": "loki"
           },
           "expr": "sum by (http_route) (count_over_time({service_name=~\"qp-.+\"} |= \"client.error\" [$__interval]))",
-          "editorMode": "code"
+          "editorMode": "code",
+          "legendFormat": "{{http_route}}"
         }
       ],
       "fieldConfig": {
@@ -643,7 +647,8 @@
             "uid": "prometheus"
           },
           "expr": "sum by (telemetry_ingest_reason) (increase(telemetry_ingest_dropped_total[$__rate_interval]))",
-          "editorMode": "code"
+          "editorMode": "code",
+          "legendFormat": "{{telemetry_ingest_reason}}"
         }
       ],
       "fieldConfig": {
@@ -691,7 +696,8 @@
           },
           "expr": "topk(10, sum by (questionnaire_last_item_id) (count_over_time({service_name=~\"qp-.+\"} |= \"session.abandoned\" | telemetry_source=\"browser\" [$__range])))",
           "editorMode": "code",
-          "queryType": "instant"
+          "queryType": "instant",
+          "legendFormat": "{{questionnaire_last_item_id}}"
         }
       ],
       "fieldConfig": {

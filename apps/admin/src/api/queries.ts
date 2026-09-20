@@ -71,6 +71,7 @@ export const responseQueries = {
       queryKey: queryKeys.responses.session(questionnaireId, sessionId),
       queryFn: ({ signal }) => callReporting(reportingApi.getSessionDetail, { params: { id: questionnaireId, sessionId }, signal }),
       staleTime: 0,
+      retry: false,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
     }),

@@ -1,9 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TelemetryErrorBoundary } from "../../src/telemetry/error-boundary";
-import { recordingTransport, startedTelemetry } from "../support/telemetry";
-
-const ANSWER_SENTINEL = "SENTINEL-answer-value-9c4d";
+import { ANSWER_SENTINEL, recordingTransport, startedTelemetry } from "../support/telemetry";
 
 const stops: (() => void)[] = [];
 

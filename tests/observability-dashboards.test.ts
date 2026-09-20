@@ -295,6 +295,23 @@ const LOG_STREAM_LABELS = ["service_name"];
 
 const LOG_BUILT_IN_LABELS = ["detected_level"];
 
+const STAMPED_ATTRIBUTES = ["module", "telemetry.source", "telemetry.event_age_ms", "trace_id", "span_id"];
+
+function fieldNamesIn(block: string): string[] {
+  return [...block.matchAll(/"(\w+)"/g)].map((match) => match[1] ?? "");
+}
+
+function attributeLabelOf(field: string): string {
+  const entry = Object.entries(FIELDS).find(([name]) => name === field);
+  if (entry === undefined) throw new Error(`wire-contract.ts lists "${field}", which is not a registry field`);
+  return entry[1].attribute.replaceAll(".", "_");
+}
+
+const CLIENT_LINE_LABELS = [
+  ...fieldNamesIn(/CLIENT_LOG_FIELDS = \[([^\]]*)\]/.exec(wireContractSource)?.[1] ?? ""),
+  ...fieldNamesIn(/BROWSER_DOMAIN_FIELDS = \{([^}]*)\}/.exec(wireContractSource)?.[1] ?? ""),
+].map(attributeLabelOf);
+
 const INGEST_REASONS = [...(/INGEST_DROP_REASONS = \[([^\]]*)\]/.exec(vocabularySource)?.[1] ?? "").matchAll(/"(\w+)"/g)].map((match) => match[1] ?? "");
 
 const BROWSER_DOMAIN_EVENT_NAMES = [...(/BROWSER_DOMAIN_EVENTS = \[([^\]]*)\]/.exec(wireContractSource)?.[1] ?? "").matchAll(/"([\w.]+)"/g)].map((match) => match[1] ?? "");
@@ -315,7 +332,7 @@ function lineFiltersIn(expression: string): string[] {
 
 describe("the log queries the dashboards and alerts read", () => {
   const queries = logQueries();
-  const allowedLabels = new Set([...LOG_STREAM_LABELS, ...LOG_BUILT_IN_LABELS, ...KNOWN_LABELS]);
+  const allowedLabels = new Set([...LOG_STREAM_LABELS, ...LOG_BUILT_IN_LABELS, ...STAMPED_ATTRIBUTES.map((attribute) => attribute.replaceAll(".", "_")), ...CLIENT_LINE_LABELS]);
 
   it("finds the log queries to check, on the dashboards and in the alert rules", () => {
     expect(queries.length).toBeGreaterThan(8);
@@ -339,6 +356,12 @@ describe("the log queries the dashboards and alerts read", () => {
       if (label === "detected_level") expect(value.split("|").filter((level) => !LOG_LEVELS.some((known) => known === level))).toEqual([]);
       if (label === "telemetry_source") expect(FIELDS.source.accepts(value), value).toBe(true);
     }
+  });
+
+  it("derives the labels a client line carries from the wire contract's field lists, not the whole registry", () => {
+    expect(CLIENT_LINE_LABELS).toEqual(expect.arrayContaining(["error_type", "http_route", "questionnaire_last_item_id", "questionnaire_session_id", "questionnaire_duration_ms"]));
+    expect(CLIENT_LINE_LABELS).not.toContain("http_response_status_code");
+    expect(CLIENT_LINE_LABELS).not.toContain("questionnaire_outcome");
   });
 
   it("derives the client lines from the SDK and the wire contract", () => {
@@ -460,6 +483,27 @@ describe("the alert rules", () => {
     expect(textAt(rule, "for")).toMatch(/^\d+m$/);
     expect([PROMETHEUS, LOKI]).toContain(textAt(listAt(rule, "data")[0], "datasourceUid"));
     expect(textAt(annotations, "description")).toMatch(/at least 20|threshold is the traffic floor/);
+  });
+
+  it.each(CLIENT_ALERT_TITLES)("the client rule %s has its traffic floor in the query or as its threshold, and not only in its prose", (title) => {
+    const rule = clientRules.find((candidate) => isRecord(candidate) && candidate.title === title);
+    const expression = textAt(recordAt(listAt(rule, "data")[0], "model"), "expr");
+    const guard = /\band on\(\)\s*\(.*>=\s*(\d+)\)\s*$/.exec(expression)?.[1];
+    const threshold = Number(listAt(recordAt(listAt(recordAt(listAt(rule, "data")[2], "model"), "conditions")[0], "evaluator"), "params")[0]);
+    if (guard !== undefined) {
+      expect(Number(guard)).toBeGreaterThanOrEqual(20);
+    } else {
+      expect(expression).toMatch(/^sum\(increase\(/);
+      expect(threshold).toBeGreaterThanOrEqual(20);
+    }
+  });
+
+  it.each(CLIENT_ALERT_TITLES)("the client rule %s names, for each dashboard it sends a person to, a panel that dashboard has", (title) => {
+    const rule = clientRules.find((candidate) => isRecord(candidate) && candidate.title === title);
+    const lookFirst = textAt(recordAt(rule, "annotations"), "first_look");
+    const named = dashboards.filter(({ board }) => lookFirst.includes(`${textAt(board, "title")} dashboard`));
+    expect(named.length).toBeGreaterThan(0);
+    for (const { board } of named) expect(panelTitles(board).some((panel) => lookFirst.includes(panel)), textAt(board, "title")).toBe(true);
   });
 
   it("never page for what a browser reports, since client telemetry is unauthenticated and spoofable", () => {

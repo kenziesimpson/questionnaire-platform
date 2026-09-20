@@ -2,9 +2,7 @@ import { problem } from "@qp/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProblemError, UnexpectedResponseError } from "../../src/api/problem-error";
 import { reportMutationFailure, reportQueryFailure } from "../../src/telemetry/report";
-import { routedQueue } from "../support/telemetry";
-
-const ANSWER_SENTINEL = "SENTINEL-answer-value-9c4d";
+import { ANSWER_SENTINEL, routedQueue } from "../support/telemetry";
 
 const stops: (() => void)[] = [];
 
@@ -60,6 +58,25 @@ describe("reportQueryFailure and reportMutationFailure", () => {
     reportMutationFailure(error);
 
     expect(flush()).toEqual([]);
+  });
+
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["a string", ANSWER_SENTINEL],
+    ["an object with a message", { message: ANSWER_SENTINEL, name: "AbortError" }],
+  ])("does not throw for a throw of %s, and reports it as a warning with no class, frames or message", (_case, thrown) => {
+    const { flush } = routed();
+
+    expect(() => {
+      reportQueryFailure(thrown);
+      reportMutationFailure(thrown);
+    }).not.toThrow();
+    const events = flush();
+
+    expect(events.map((event) => event.message)).toEqual(["query failed", "mutation failed"]);
+    for (const event of events) expect(event.attributes).not.toHaveProperty("error.type");
+    expect(JSON.stringify(events)).not.toContain(ANSWER_SENTINEL);
   });
 
   it("takes an error and nothing else, so no context, message or cache entry can be passed with it", () => {

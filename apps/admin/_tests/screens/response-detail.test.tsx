@@ -530,6 +530,7 @@ describe("the response detail screen and the audit trail", () => {
     const requests = stubFetch(serve());
     const client = testQueryClient();
     const observer = new QueryObserver(client, { ...responseQueries.session(QUESTIONNAIRE_ID, sessionIdOf(1)), refetchOnWindowFocus: true });
+    client.mount();
     const unsubscribe = observer.subscribe(() => undefined);
     await waitFor(() => {
       expect(readsOf(requests)).toHaveLength(1);
@@ -545,5 +546,19 @@ describe("the response detail screen and the audit trail", () => {
       expect(readsOf(requests)).toHaveLength(2);
     });
     unsubscribe();
+    client.unmount();
+  });
+
+  it("does not retry a failed read, since the audit row is written before the response is, so a retry would write a second row", async () => {
+    const client = testQueryClient();
+    client.setDefaultOptions({ queries: { retry: 3, retryDelay: 0, gcTime: Infinity } });
+    const requests = stubFetch(serve({ detail: () => problemResponse("internal", { detail: "trace" }) }));
+    renderAppAt(`/questionnaires/${QUESTIONNAIRE_ID}/responses/${sessionIdOf(1)}`, client);
+
+    expect(await screen.findByText("This session could not be loaded.")).toBeInTheDocument();
+    await settle();
+
+    expect(readsOf(requests)).toHaveLength(1);
+    expect(responseQueries.session(QUESTIONNAIRE_ID, sessionIdOf(1)).retry).toBe(false);
   });
 });

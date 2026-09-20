@@ -1,6 +1,5 @@
-import { reportingApi } from "@qp/shared";
 import type { PageDocument, PageWindow } from "@qp/telemetry/browser";
-import { contractResponse, jsonResponse, stubFetch, type Reply } from "@qp/ui/testing";
+import { stubFetch } from "@qp/ui/testing";
 import { screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { reportQueryFailure } from "../../src/telemetry/report";
@@ -8,9 +7,8 @@ import { routeTemplateOf } from "../../src/telemetry/screen";
 import { startAdminTelemetry } from "../../src/telemetry/start";
 import { QUESTIONNAIRE_ID } from "../support/builders";
 import { renderAppAt } from "../support/render-app";
-import { aSessionDetail, aSessionPage, aSessionSummary, sessionIdOf } from "../support/reporting";
-import { recordingTransport, startedTelemetry } from "../support/telemetry";
-import { LIST_URL, VERSIONS_URL, sessionUrl } from "../support/routes";
+import { sessionIdOf } from "../support/reporting";
+import { leakHandler, recordingTransport, startedTelemetry } from "../support/telemetry";
 
 const stops: (() => void)[] = [];
 
@@ -18,14 +16,6 @@ afterEach(() => {
   for (const stop of stops.splice(0)) stop();
   vi.useRealTimers();
 });
-
-const handler: Reply = ({ url }) => {
-  if (url === LIST_URL) return jsonResponse(200, []);
-  if (url === VERSIONS_URL) return jsonResponse(200, []);
-  if (url.split("?")[0]?.endsWith("/responses")) return contractResponse(reportingApi.listSessions, 200, aSessionPage([aSessionSummary(1)]));
-  if (url === sessionUrl(sessionIdOf(1))) return contractResponse(reportingApi.getSessionDetail, 200, aSessionDetail(1));
-  throw new Error(`unexpected request to ${url}`);
-};
 
 describe("the page a browser hands over", () => {
   it("is a PageWindow, and its document a PageDocument, by assignment", () => {
@@ -39,7 +29,7 @@ describe("the page a browser hands over", () => {
 
 describe("startAdminTelemetry", () => {
   it("stamps each event with the route template of the screen the router shows, never the URL", async () => {
-    stubFetch(handler);
+    stubFetch(leakHandler());
     const { router } = renderAppAt(`/questionnaires/${QUESTIONNAIRE_ID}/responses/${sessionIdOf(1)}?version=1&cursor=abc`);
     await screen.findByRole("list");
     const { transport, beaconed } = recordingTransport();

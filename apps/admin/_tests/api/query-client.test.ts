@@ -3,7 +3,7 @@ import { MutationObserver } from "@tanstack/react-query";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProblemError, UnexpectedResponseError } from "../../src/api/problem-error";
 import { createQueryClient, shouldRetryQuery } from "../../src/api/query-client";
-import { routedQueue } from "../support/telemetry";
+import { ANSWER_SENTINEL, routedQueue } from "../support/telemetry";
 
 describe("the app's query client", () => {
   it("does not retry a 4xx problem, which a retry cannot change, but retries a 5xx or a network failure up to three times", () => {
@@ -21,8 +21,6 @@ describe("the app's query client", () => {
     expect(createQueryClient().getDefaultOptions().queries?.refetchOnWindowFocus).toBeUndefined();
   });
 });
-
-const ANSWER_SENTINEL = "SENTINEL-answer-value-9c4d";
 
 const stops: (() => void)[] = [];
 

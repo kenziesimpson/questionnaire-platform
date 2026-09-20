@@ -16,8 +16,7 @@ if (!root) throw new Error("index.html is missing #root");
 const queryClient = createQueryClient();
 const router = createAppRouter({ queryClient });
 
-const tracingRequested: unknown = import.meta.env.VITE_TELEMETRY_TRACING;
-await startTracingWhenEnabled(tracingRequested === "true");
+await startTracingWhenEnabled();
 startAdminTelemetry({ page: window, screen: () => routeTemplateOf(router) });
 
 createRoot(root).render(
