@@ -25,6 +25,8 @@ export async function stopBrowserTracing(): Promise<void> {
   provider = undefined;
   guarded("span", () => {
     trace.disable();
+  });
+  guarded("span", () => {
     context.disable();
   });
   await guardedAsync("span", async () => {

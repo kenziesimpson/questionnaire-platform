@@ -3,7 +3,10 @@ import type { CallerAttributes, QueuedEvent } from "../../src/browser/events.js"
 import { routeLogsToQueue } from "../../src/browser/logging.js";
 import { createEventQueue, type EventQueueOptions } from "../../src/browser/queue.js";
 import { startBrowserTracing, stopBrowserTracing } from "../../src/browser/tracing.js";
+import { toWireEvent } from "../../src/browser/wire.js";
 import { emitDomainEvent, logger, withSpan } from "../../src/index.js";
+import { configureLogging, resetLogging, type LogRecord } from "../../src/logger.js";
+import { forgedModuleAttributes } from "../faults.js";
 import { SESSION_ID } from "../fixtures.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
@@ -28,11 +31,6 @@ function queueWith(overrides: Partial<EventQueueOptions> = {}) {
 
 function info(message: string, attributes: unknown = {}) {
   return { level: "info", message, attributes };
-}
-
-function forgedModule(): CallerAttributes {
-  const attributes: CallerAttributes = JSON.parse('{"module":"events"}');
-  return attributes;
 }
 
 function messagesOf(batches: readonly (readonly QueuedEvent[])[]): string[] {
@@ -188,6 +186,43 @@ describe("createEventQueue: what is queued", () => {
 });
 
 describe("createEventQueue: enqueue, the form for app code", () => {
+  it("never throws into the caller, even when the attributes throw when read, and counts each as internal", () => {
+    const { queue } = queueWith();
+    const hostile: CallerAttributes = {
+      get boom(): string {
+        throw new Error(LEAK);
+      },
+    };
+    const proxied = new Proxy<CallerAttributes>(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error(LEAK);
+        },
+        get: () => {
+          throw new Error(LEAK);
+        },
+      },
+    );
+
+    expect(() => {
+      queue.enqueue({ level: "info", message: "session abandoned", attributes: hostile });
+      queue.enqueue({ level: "info", message: "session abandoned", attributes: proxied });
+    }).not.toThrow();
+    expect(queue.stats().droppedEvents.internal).toBe(2);
+    expect(queue.stats().pending).toBe(0);
+  });
+
+  it("does nothing once the queue is closed, without counting a drop", () => {
+    const { queue } = queueWith();
+    queue.close();
+
+    queue.enqueue({ level: "info", message: "session abandoned" });
+
+    expect(queue.stats().droppedEvents).toEqual({ overflow: 0, undelivered: 0, internal: 0, level: 0 });
+    expect(queue.stats().pending).toBe(0);
+  });
+
   it("takes a literal message and attributes that do not name the error stack", () => {
     const { queue, batches } = queueWith();
 
@@ -533,7 +568,7 @@ describe("createEventQueue: what each event is stamped with when it is queued", 
     const { queue, batches } = queueWith();
 
     queue.enqueueRecord(info("session.abandoned", { module: "events" }));
-    queue.enqueue({ level: "info", message: "session.abandoned", attributes: forgedModule() });
+    queue.enqueue({ level: "info", message: "session.abandoned", attributes: forgedModuleAttributes() });
     queue.enqueueRecord(info("session.abandoned"));
     queue.flush();
 
@@ -557,10 +592,34 @@ describe("createEventQueue: what each event is stamped with when it is queued", 
     ]);
   });
 
+  it("loses the marker on a spread copy or a structured clone of a domain-event record, and keeps it on the original", () => {
+    const captured: LogRecord[] = [];
+    configureLogging({
+      level: "info",
+      sink: (record) => {
+        captured.push(record);
+      },
+    });
+    emitDomainEvent({ name: "session.abandoned", sessionId: SESSION_ID, lastItemId: "itm_03" });
+    resetLogging();
+    const [original] = captured;
+    const { queue, batches } = queueWith();
+
+    if (original === undefined) throw new Error("no record was captured");
+    queue.enqueueRecord(original);
+    queue.enqueueRecord({ ...original });
+    queue.enqueueRecord(structuredClone(original));
+    queue.flush();
+
+    const queued = batches.flat();
+    expect(queued.map((event) => event.event)).toEqual(["session.abandoned", undefined, undefined]);
+    expect(queued.map((event) => toWireEvent(event).name)).toEqual(["session.abandoned", "client.info", "client.info"]);
+  });
+
   it("ignores a module attribute an app passes to enqueue and keeps its other attributes", () => {
     const { queue, batches } = queueWith();
 
-    queue.enqueue({ level: "info", message: "screen shown", attributes: { ...forgedModule(), "questionnaire.session_id": SESSION_ID } });
+    queue.enqueue({ level: "info", message: "screen shown", attributes: { ...forgedModuleAttributes(), "questionnaire.session_id": SESSION_ID } });
     queue.flush();
 
     expect(batches[0]?.[0]?.attributes).toEqual({ "questionnaire.session_id": SESSION_ID });

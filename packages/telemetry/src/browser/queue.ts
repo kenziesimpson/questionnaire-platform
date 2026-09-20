@@ -150,7 +150,12 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
   }
 
   function enqueue<M extends string>(event: CallerEvent<M>): void {
-    enqueueRecord(callerRecord(event));
+    if (closed) return;
+    try {
+      enqueueRecord(callerRecord(event));
+    } catch {
+      droppedEvents.internal += 1;
+    }
   }
 
   function close(): void {

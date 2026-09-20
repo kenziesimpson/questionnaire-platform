@@ -1,7 +1,7 @@
 import { telemetryApi } from "@qp/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { captureError } from "../../src/browser/errors.js";
-import type { CallerAttributes, QueuedEvent } from "../../src/browser/events.js";
+import type { QueuedEvent } from "../../src/browser/events.js";
 import { routeLogsToQueue } from "../../src/browser/logging.js";
 import { createEventQueue, type EventQueue } from "../../src/browser/queue.js";
 import { startBrowserTracing, stopBrowserTracing } from "../../src/browser/tracing.js";
@@ -9,7 +9,7 @@ import { toEnvelopes, toFetchInit, type WireEnvelope } from "../../src/browser/w
 import { activeTraceId, emitDomainEvent, ingestBatch, logger, withSpan } from "../../src/index.js";
 import { LEAK_SENTINEL } from "../../src/leak-test.js";
 import { installTestTelemetry, type TestTelemetry } from "../../src/testing.js";
-import { counterValueIn, ingestDropsIn } from "../faults.js";
+import { counterValueIn, forgedModuleAttributes, ingestDropsIn } from "../faults.js";
 import { QUESTION_ID, SESSION_ID } from "../fixtures.js";
 
 const log = logger("execution");
@@ -304,9 +304,8 @@ describe("the wire contract: a planted answer never leaves the browser", () => {
 
 describe("the wire contract: negative controls", () => {
   it("names session.abandoned only for the record emitDomainEvent wrote, never for a forged module or a logger call from app code", async () => {
-    const forgedAttributes: CallerAttributes = JSON.parse('{"module":"events"}');
     const { queued } = await runBrowser((queue) => {
-      queue.enqueue({ level: "info", message: "session.abandoned", attributes: forgedAttributes });
+      queue.enqueue({ level: "info", message: "session.abandoned", attributes: forgedModuleAttributes() });
       queue.enqueueRecord({ level: "info", message: "session.abandoned", attributes: { module: "events" } });
       logger("events").info("session.abandoned", { sessionId: SESSION_ID, lastItemId: "itm_03" });
       emitDomainEvent({ name: "session.abandoned", sessionId: SESSION_ID, lastItemId: "itm_04" });

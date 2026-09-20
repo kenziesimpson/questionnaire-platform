@@ -1,4 +1,5 @@
 import { context, isSpanContextValid, trace } from "@opentelemetry/api";
+import { WebTracerProvider } from "@opentelemetry/sdk-trace-web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { injectTraceHeaders, startBrowserTracing, stopBrowserTracing } from "../../src/browser/tracing.js";
 import { activeTraceId, withSpan } from "../../src/index.js";
@@ -131,12 +132,24 @@ describe("the tracing helpers under a fault", () => {
     expect(isSpanContextValid(trace.getTracer("test").startSpan("orphan").spanContext())).toBe(false);
   });
 
-  it("does not throw, and counts an internal span drop, when the provider fails to shut down or the globals cannot be disabled", async () => {
+  it("still disables the context manager, does not throw and counts one internal span drop when the tracer provider cannot be disabled", async () => {
     startBrowserTracing();
     const recorded = installFaultyMeter();
+    const contextDisable = vi.spyOn(context, "disable");
     vi.spyOn(trace, "disable").mockImplementation(() => {
       throw new Error("disable failed");
     });
+
+    await expect(stopBrowserTracing()).resolves.toBeUndefined();
+
+    expect(contextDisable).toHaveBeenCalledTimes(1);
+    expect(internalDropsOf(recorded)).toEqual(["span"]);
+  });
+
+  it("does not throw and counts one internal span drop when the provider rejects its shutdown", async () => {
+    startBrowserTracing();
+    const recorded = installFaultyMeter();
+    vi.spyOn(WebTracerProvider.prototype, "shutdown").mockRejectedValue(new Error("shutdown failed"));
 
     await expect(stopBrowserTracing()).resolves.toBeUndefined();
 

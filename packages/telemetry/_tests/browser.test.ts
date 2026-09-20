@@ -76,7 +76,7 @@ describe("the browser entry point", () => {
   it("exports the browser SDK and nothing from the Node side", () => {
     expect(Object.keys(browser).sort()).toEqual([
       "BEACON_BODY_BUDGET_BYTES",
-      "QUEUED_LEVELS",
+      "CLIENT_LOG_LEVELS",
       "afterFirstPaint",
       "captureError",
       "createEventQueue",

@@ -5,9 +5,6 @@ import { CLIENT_LOG_LEVELS, LOG_ATTRIBUTES, type ClientLogLevel } from "../vocab
 import { browserDomainEventOf, type BrowserDomainEvent } from "../wire-contract.js";
 import { safeFrames } from "./frames.js";
 
-export const QUEUED_LEVELS = CLIENT_LOG_LEVELS;
-export type QueuedLevel = ClientLogLevel;
-
 interface EventStamp {
   readonly at: string;
   readonly traceparent: string | undefined;
@@ -15,7 +12,7 @@ interface EventStamp {
 }
 
 export type QueuedEvent = Omit<LogRecord, "level"> & {
-  readonly level: QueuedLevel;
+  readonly level: ClientLogLevel;
   readonly at: string;
   readonly event?: BrowserDomainEvent;
   readonly traceparent?: string;
@@ -30,7 +27,7 @@ export interface EventRecord {
 export type CallerAttributes = { readonly [attribute: string]: unknown; readonly "error.stack"?: never; readonly module?: never };
 
 export interface CallerEvent<M extends string> {
-  readonly level: QueuedLevel;
+  readonly level: ClientLogLevel;
   readonly message: LiteralMessage<M>;
   readonly attributes?: CallerAttributes;
 }
@@ -44,8 +41,8 @@ const UNNAMED_MESSAGE = "unnamed";
 
 const MESSAGE_SHAPE = /^[a-z][a-z0-9 ._:-]{0,79}$/;
 
-function isQueuedLevel(level: string): level is QueuedLevel {
-  return QUEUED_LEVELS.some((known) => known === level);
+function isClientLogLevel(level: string): level is ClientLogLevel {
+  return CLIENT_LOG_LEVELS.some((known) => known === level);
 }
 
 function attributesOf(input: unknown): Record<string, unknown> {
@@ -68,7 +65,7 @@ export function scrubbedEvent(input: EventRecord, screen: string | undefined, st
   const message = typeof input.message === "string" && MESSAGE_SHAPE.test(input.message) ? input.message : undefined;
   const dropped = { ...scrubbed.dropped, invalid: scrubbed.dropped.invalid + (message === undefined ? 1 : 0) };
   const { level } = input;
-  if (!isQueuedLevel(level)) return { event: undefined, dropped };
+  if (!isClientLogLevel(level)) return { event: undefined, dropped };
   const domainEvent = stamp.isDomainEvent ? browserDomainEventOf(message) : undefined;
   return {
     event: {

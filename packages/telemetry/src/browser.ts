@@ -1,5 +1,5 @@
 export { captureError, installErrorCapture, type ErrorKind } from "./browser/errors.js";
-export { QUEUED_LEVELS, type CallerAttributes, type CallerEvent, type EventRecord, type QueuedEvent, type QueuedLevel } from "./browser/events.js";
+export { type CallerAttributes, type CallerEvent, type EventRecord, type QueuedEvent } from "./browser/events.js";
 export { afterFirstPaint } from "./browser/idle.js";
 export { flushOnPageHide } from "./browser/lifecycle.js";
 export { routeLogsToQueue, type LoggingRoute } from "./browser/logging.js";
@@ -18,3 +18,4 @@ export {
   type WireEvent,
 } from "./browser/wire.js";
 export type { LogRecord } from "./logger.js";
+export { CLIENT_LOG_LEVELS, type ClientLogLevel } from "./vocabulary.js";

@@ -1,6 +1,7 @@
 import { createNoopMeter, metrics, type Attributes, type Counter, type Histogram } from "@opentelemetry/api";
 import { vi } from "vitest";
 import { DROPPED_COUNTER, resetInstruments } from "../src/instruments.js";
+import type { CallerAttributes } from "../src/browser/events.js";
 import type { TestTelemetry } from "../src/testing.js";
 
 export { DROPPED_COUNTER } from "../src/instruments.js";
@@ -75,4 +76,9 @@ export async function ingestDropsIn(installed: TestTelemetry): Promise<Record<st
 export async function counterValueIn(installed: TestTelemetry, name: string): Promise<number> {
   const points = await metricPointsIn(installed, name);
   return points.reduce((total, point) => total + (typeof point.value === "number" ? point.value : 0), 0);
+}
+
+export function forgedModuleAttributes(): CallerAttributes {
+  const attributes: CallerAttributes = JSON.parse('{"module":"events"}');
+  return attributes;
 }

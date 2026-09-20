@@ -62,7 +62,7 @@ fetch(url, { headers: injectTraceHeaders({ accept: "application/json" }) });
 
 | Export | What it does |
 | --- | --- |
-| `createEventQueue({ send, beacon, screen?, maxPending?, batchSize?, flushIntervalMs? })` | A bounded queue of `{ level, message, attributes }` events. `enqueue({ level, message, attributes })` is the form for app code: the message is a literal (`LiteralMessage`, as in `logger`), the level is not `debug`, and the attributes cannot name `error.stack`. `enqueueRecord` takes a plain record and is for `routeLogsToQueue` and `captureError`. Both scrub before they queue and never throw; `flush()` sends through `send`; `flushOnExit()` hands everything left to `beacon`; `close()` stops the timer and every later send, and ignores later events; `stats()` reports pending, sent and every drop |
+| `createEventQueue({ send, beacon, screen?, maxPending?, batchSize?, flushIntervalMs? })` | A bounded queue of `{ level, message, attributes }` events. `enqueue({ level, message, attributes })` is the form for app code: the message is a literal (`LiteralMessage`, as in `logger`), the level is not `debug`, and the attributes cannot name `error.stack` or `module`, and a `module` an app passes anyway is discarded. `enqueueRecord` takes a plain record and is for `routeLogsToQueue` and `captureError`. Both scrub before they queue and never throw; `flush()` sends through `send`; `flushOnExit()` hands everything left to `beacon`; `close()` stops the timer and every later send, and ignores later events; `stats()` reports pending, sent and every drop |
 | `routeLogsToQueue(queue, { debug? })` | Points `logger(...)` and `emitDomainEvent` at the queue. `debug` never reaches it: it goes to the optional `debug` function, which an app passes only in a development build |
 | `flushOnPageHide(queue, window)` | `flushOnExit()` on `pagehide` and when `visibilitychange` finds the page hidden |
 | `installErrorCapture(queue, window)`, `captureError(queue, kind, error)` | An `error` and an `unhandledrejection` listener, and the same capture for an error boundary. Records the error's class name and its stack frames only. Installing twice on one page adds no second listener |
@@ -363,7 +363,7 @@ and by test. It is the one home of that mapping; `_tests/browser/wire-contract.l
   `traceparent` is the active span's, formatted by `formatTraceparent`, and is absent when no valid span is active.
 - `toEnvelopes(events, maxBytes?)` returns `{ events }` envelopes of at most `MAX_TELEMETRY_EVENTS` events and `maxBytes` bytes of UTF-8 JSON
   (`MAX_TELEMETRY_BODY_BYTES` from `@qp/shared` by default), splitting into several when a batch is larger. `session.abandoned` events come
-  first. A beacon passes `BEACON_BODY_BUDGET_BYTES` (32 KiB) so that one envelope never uses the whole of `sendBeacon`'s roughly 64 KiB
+  first. A beacon passes `BEACON_BODY_BUDGET_BYTES` (half of `MAX_TELEMETRY_BODY_BYTES`, 32 KiB) so that one envelope never uses the whole of `sendBeacon`'s roughly 64 KiB
   quota. `flushOnExit` orders the whole pending queue with the abandonments first before it slices it into batches, so an abandonment
   is in the first batch handed to the beacon and, mapped with the budget, in the first envelope. No single event can outgrow an
   envelope: a stack is at most 40 frames of 200 characters, and every other field is short.
@@ -372,7 +372,7 @@ and by test. It is the one home of that mapping; `_tests/browser/wire-contract.l
 
 `trace-context.ts` has no imports and holds the `traceparent` version and field widths, `formatTraceparent` and `parseTraceparent`, so
 the header the SDK writes and the field the ingest reads cannot drift; `_tests/trace-context.test.ts` round-trips one through the other.
-`injectTraceHeaders`, `startBrowserTracing` and `stopBrowserTracing` run under `guarded`, `guardedOr` and `guardedAsync`, and a
+`injectTraceHeaders`, `startBrowserTracing` and `stopBrowserTracing` run under `guarded`, `guardedOr` and `guardedAsync` (the two global disables each under their own guard), and a
 `startBrowserTracing` that fails to register its context manager unregisters the tracer provider it had registered.
 
 ## Sinks

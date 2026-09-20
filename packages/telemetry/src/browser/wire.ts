@@ -16,7 +16,7 @@ export interface FetchInit {
   readonly body: string;
 }
 
-export const BEACON_BODY_BUDGET_BYTES = 32_768;
+export const BEACON_BODY_BUDGET_BYTES = telemetryApi.MAX_TELEMETRY_BODY_BYTES / 2;
 
 const JSON_CONTENT_TYPE = "application/json";
 

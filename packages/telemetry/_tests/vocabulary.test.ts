@@ -10,6 +10,13 @@ describe("the client log names", () => {
     expect(clientLogLevelOf(clientLogEventOf(level))).toBe(level);
   });
 
+  it("does not build an event name for a level the client log excludes", () => {
+    // @ts-expect-error — debug is not a client log level, so it has no client log event
+    const name = clientLogEventOf("debug");
+
+    expect(clientLogLevelOf(name)).toBeUndefined();
+  });
+
   it.each(["session.abandoned", "client.debug", "client", "info", "", undefined, null, 7, {}])("reads no level from %j", (name) => {
     expect(clientLogLevelOf(name)).toBeUndefined();
   });
