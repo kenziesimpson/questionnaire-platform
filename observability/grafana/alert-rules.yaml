@@ -524,7 +524,7 @@ groups:
         for: 15m
         annotations:
           summary: The ingest dropped more than 50 fields or events in the last 30 minutes because of what a browser sent, not because of volume.
-          description: Counts telemetry.ingest.dropped for the reasons that mean the ingest and a deployed build disagree about the schema (unknown_field, invalid_field, unknown_event, malformed and invalid_trace). over_limit is left out, since it is volume. A healthy build drops none, so the threshold is the traffic floor. It is a count and not a share, because the ingest keeps no counter of the events it received.
+          description: Counts telemetry.ingest.dropped for the reasons that mean the ingest and a deployed build disagree about the schema (unknown_field, invalid_field, unknown_event, malformed and invalid_trace). over_limit and over_capacity are left out, since they are volume. A healthy build drops none, so the threshold is the traffic floor. It is a count and not a share, because the ingest keeps no counter of the events it received.
           first_look: "Client dashboard, panel Browser fields the ingest dropped: which reason. unknown_field or unknown_event means a deployed build sends something the ingest does not list, and the fields change expand-then-contract (O17)."
         labels:
           severity: ticket

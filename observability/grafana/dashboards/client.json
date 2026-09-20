@@ -634,7 +634,7 @@
     {
       "type": "timeseries",
       "title": "Browser fields the ingest dropped",
-      "description": "The ingest keeps each event and strips a field outside the registry or an event's own list (O17). A build that sends a field the ingest does not list shows here as unknown_field.",
+      "description": "The ingest keeps each event and strips a field outside the registry or an event's own list (O17). A build that sends a field the ingest does not list shows here as unknown_field. over_limit and over_capacity are volume: a batch past 50 events, and events shed past the global cap, which keeps session.abandoned last to go.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
