@@ -1,4 +1,4 @@
-import { annotateActiveSpan, emitDomainEvent, MAX_FINDINGS, type Outcome } from "@qp/telemetry";
+import { annotateActiveSpan, capFindings, emitDomainEvent, type FindingTotals, type Outcome } from "@qp/telemetry";
 import type { SessionRow } from "../../db/execution/sessions.js";
 import type { SessionFacts, SubmitOutcome } from "../../db/execution/submit.js";
 
@@ -6,9 +6,9 @@ function elapsedSecondsSince(startedAt: Date, now: Date): number {
   return Math.max(0, Math.round((now.getTime() - startedAt.getTime()) / 1000));
 }
 
-function finished(facts: SessionFacts, outcome: Outcome): void {
+function finished(facts: SessionFacts, outcome: Outcome, findings?: FindingTotals): void {
   annotateActiveSpan({ ...facts, outcome });
-  emitDomainEvent({ name: "session.submit_finished", ...facts, outcome });
+  emitDomainEvent({ name: "session.submit_finished", ...facts, outcome, ...findings });
 }
 
 export function reportSubmitFailed(sessionId: string): void {
@@ -50,12 +50,17 @@ export function reportSubmit(submitted: SubmitOutcome): void {
       emitDomainEvent({ name: "session.rejected_past_cutoff", ...submitted.facts });
       finished(submitted.facts, "rejected_conflict");
       return;
-    case "invalid":
-      for (const { itemId, questionId, code } of submitted.rejections.slice(0, MAX_FINDINGS)) {
+    case "invalid": {
+      const { logged, totals, perCode } = capFindings(submitted.rejections, (rejection) => rejection.code);
+      for (const { itemId, questionId, code } of logged) {
         emitDomainEvent({ name: "session.answer_rejected", sessionId: submitted.facts.sessionId, itemId, questionId, reason: code });
       }
-      finished(submitted.facts, "rejected_validation");
+      for (const [reason, codeFindingCount] of perCode) {
+        emitDomainEvent({ name: "session.answers_rejected", sessionId: submitted.facts.sessionId, reason, codeFindingCount });
+      }
+      finished(submitted.facts, "rejected_validation", totals);
       return;
+    }
     case "submitted":
       for (const { itemId, questionId, questionType } of submitted.answered) {
         emitDomainEvent({ name: "session.question_answered", sessionId: submitted.facts.sessionId, itemId, questionId, questionType });

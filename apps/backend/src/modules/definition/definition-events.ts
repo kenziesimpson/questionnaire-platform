@@ -1,11 +1,11 @@
-import { annotateActiveSpan, emitDomainEvent, MAX_FINDINGS, type Outcome } from "@qp/telemetry";
+import { annotateActiveSpan, capFindings, emitDomainEvent, type FindingTotals, type Outcome } from "@qp/telemetry";
 import type { ReplaceDraftOutcome } from "../../db/definition/drafts.js";
 import type { PublishDraftOutcome } from "../../db/definition/publish.js";
 import type { SetClosesAtOutcome } from "../../db/definition/questionnaires.js";
 
-function publishFinished(questionnaireId: string, outcome: Outcome): void {
+function publishFinished(questionnaireId: string, outcome: Outcome, findings?: FindingTotals): void {
   annotateActiveSpan({ questionnaireId, outcome });
-  emitDomainEvent({ name: "questionnaire.publish_finished", questionnaireId, outcome });
+  emitDomainEvent({ name: "questionnaire.publish_finished", questionnaireId, outcome, ...findings });
 }
 
 export function reportQuestionnaireCreated(questionnaireId: string): void {
@@ -26,12 +26,17 @@ export function reportPublish(questionnaireId: string, published: PublishDraftOu
       emitDomainEvent({ name: "questionnaire.published", questionnaireId, questionnaireVersion: published.summary.version });
       publishFinished(questionnaireId, "accepted");
       return;
-    case "invalid":
-      for (const { itemId, code } of published.items.slice(0, MAX_FINDINGS)) {
+    case "invalid": {
+      const { logged, totals, perCode } = capFindings(published.items, (item) => item.code);
+      for (const { itemId, code } of logged) {
         emitDomainEvent({ name: "questionnaire.publish_rejected", questionnaireId, itemId, problemCode: code });
       }
-      publishFinished(questionnaireId, "rejected_validation");
+      for (const [problemCode, codeFindingCount] of perCode) {
+        emitDomainEvent({ name: "questionnaire.publish_items_rejected", questionnaireId, problemCode, codeFindingCount });
+      }
+      publishFinished(questionnaireId, "rejected_validation", totals);
       return;
+    }
     case "stale":
       emitDomainEvent({ name: "questionnaire.draft_conflict", questionnaireId });
       publishFinished(questionnaireId, "rejected_conflict");

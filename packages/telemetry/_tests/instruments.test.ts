@@ -12,6 +12,12 @@ describe("instruments record normally", () => {
     expect(recorded).toEqual([{ name: "questionnaire.created", value: 1, attributes: { "questionnaire.outcome": "accepted" } }]);
   });
 
+  it("adds the amount it is given to a named counter", () => {
+    const recorded = installFaultyMeter();
+    incrementCounter("questionnaire.answers.rejected", { "questionnaire.reason": "answer/required" }, 35);
+    expect(recorded).toEqual([{ name: "questionnaire.answers.rejected", value: 35, attributes: { "questionnaire.reason": "answer/required" } }]);
+  });
+
   it("records a session duration", () => {
     const recorded = installFaultyMeter();
     recordSessionDuration(1200);
@@ -34,6 +40,14 @@ describe("instruments never throw", () => {
     const recorded = installFaultyMeter({ failing: ["questionnaire.created"] });
     expect(() => {
       incrementCounter("questionnaire.created", {});
+    }).not.toThrow();
+    expect(internalDropsOf(recorded)).toEqual(["metric"]);
+  });
+
+  it("swallows a counter that throws when adding an amount, and counts one internal metric drop", () => {
+    const recorded = installFaultyMeter({ failing: ["questionnaire.answers.rejected"] });
+    expect(() => {
+      incrementCounter("questionnaire.answers.rejected", {}, 35);
     }).not.toThrow();
     expect(internalDropsOf(recorded)).toEqual(["metric"]);
   });

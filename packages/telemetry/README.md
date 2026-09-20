@@ -116,6 +116,7 @@ context key with an attribute name, a runtime check and a `bounded` flag.
 | `sessionId`, `questionnaireId`, `questionnaireVersionId`, `questionId`, `requestId` | `questionnaire.session_id`, `questionnaire.id`, … | a UUID (`UUID_PATTERN` from `@qp/shared`) | no |
 | `itemId`, `lastItemId` | `questionnaire.item_id`, `questionnaire.last_item_id` | an author-chosen slug (`SLUG_PATTERN` from `@qp/shared`) | no |
 | `questionnaireVersion`, `elapsedSeconds`, `durationMs`, `questionCount`, `responseTimeMs` | `questionnaire.version`, … | a finite number | no |
+| `findingCount`, `omittedCount`, `codeFindingCount` | `questionnaire.finding_count`, `questionnaire.omitted_count`, `questionnaire.code_finding_count` | a whole number from 0 to 1,000,000 (`COUNT_FIELDS`): a refused request's real number of findings, how many were not logged one by one, and how many carried one code | no |
 | `questionType`, `outcome`, `reason`, `method`, `signal` | `questionnaire.question_type`, … | a member of a closed list | yes |
 | `status` | `http.response.status_code` | an integer from 100 to 599 | yes |
 | `route` | `http.route` | a route template: `/`, or lower-case literal segments and `:name`, `$name`, `{name}` or `*` parameters, with no query string or fragment | yes |
@@ -254,36 +255,55 @@ adds scrubbed fields, and the error's class name, to it.
 ## Domain events
 
 ```ts
-emitDomainEvent({ name: "session.answer_rejected", sessionId, itemId, questionId, reason: "answer/required" });
+emitDomainEvent({ name: "session.question_answered", sessionId, itemId, questionId, questionType: "date" });
 ```
 
-One call writes an `info` log line named for the event and increments a counter, so the two cannot
-drift. `DomainEvent` is a closed union whose fields are all registry fields.
+One call writes an `info` log line named for the event and, for an event that has a counter, increments it, so the two
+cannot drift. An event defined `logOnly` writes its line and has no counter. `DomainEvent` is a closed union whose fields
+are all registry fields.
 
 Each event is defined once, in the `DOMAIN_EVENTS` table in `src/events.ts`: its name, its payload
-type and its counter name on one entry. `DomainEvent` and the counter lookup are derived from that
+type and its counter name (or `logOnly`) on one entry. `DomainEvent` and the counter lookup are derived from that
 table, so adding an event is one entry.
 
 ```ts
-"session.answer_rejected": event<{ sessionId: string; itemId: string | null; questionId: string | null; reason: SubmissionItemCode }>(
+"session.answers_rejected": event<{ sessionId: string; reason: SubmissionItemCode; codeFindingCount: number }>(
   "questionnaire.answers.rejected",
-  { labels: ["reason"] },
+  { labels: ["reason"], countBy: "codeFindingCount" },
 ),
 ```
+
+`countBy` names one of the `COUNT_FIELDS` (`findingCount`, `omittedCount`, `codeFindingCount`, the registry's whole-number
+count fields) that the event's payload carries as a number, and the counter adds that field's value instead of 1. A value that
+is not a whole number from 0 to 1,000,000 (a fraction, a negative, `-0`, a `BigInt`, text, an object, a missing one) adds
+nothing and is counted as one internal metric drop (`telemetry.scrub.dropped`, reason `internal`); it never throws.
+
+A request that fails many items emits its per-item lines up to `MAX_FINDINGS` (20, in `src/problems.ts`) and no more.
+Those per-item events (`session.answer_rejected`, `questionnaire.publish_rejected`) are `logOnly`, so they never touch a
+counter. The counter is driven by one event per distinct code (`session.answers_rejected`,
+`questionnaire.publish_items_rejected`) whose `codeFindingCount` is the real number of findings with that code, so the counter's
+total equals the number of findings and nothing counts twice. `capFindings(findings, codeOf)` derives all of it from one
+place: the findings to log (the first `MAX_FINDINGS`), the per-code tallies and the request totals. The totals are `findingCount`
+(every finding) and `omittedCount` (findings past the cap, 0 when there are `MAX_FINDINGS` or fewer), and
+`session.submit_finished` and `questionnaire.publish_finished` add them to their log line when the outcome is
+`rejected_validation`. `codeFindingCount` is one code's share and `findingCount` is the request's total, so a query never
+sums one across the other. All three are numbers on the log line and never metric labels, and none may come from a browser.
 
 | Event | Counter |
 | --- | --- |
 | `questionnaire.created`, `.published`, `.retired` | `questionnaire.created`, `.published`, `.retired`; `retired` means a close time was set or moved, not a version retired |
-| `questionnaire.publish_finished` | `questionnaire.publish.total`, labelled by `outcome` |
-| `questionnaire.publish_rejected` | `questionnaire.publish.rejections`, labelled by `problemCode`, a draft item code |
+| `questionnaire.publish_finished` | `questionnaire.publish.total`, labelled by `outcome`; `findingCount` and `omittedCount` ride on the line for a validation refusal |
+| `questionnaire.publish_rejected` | none: a log line per refused item, at most `MAX_FINDINGS` per publish |
+| `questionnaire.publish_items_rejected` | `questionnaire.publish.rejections`, labelled by `problemCode`, a draft item code, adding `codeFindingCount` (one event per distinct code) |
 | `questionnaire.draft_conflict` | `questionnaire.draft.conflicts` |
 | `reporting.responses_listed`, `reporting.response_viewed` | `questionnaire.responses.listed`, `questionnaire.responses.viewed` |
 | `session.started`, `.resumed`, `.abandoned`, `.completed` | `questionnaire.sessions.started`, `.resumed`, `.abandoned`, `.completed` |
 | `session.question_answered` | `questionnaire.answers.accepted`, labelled by `questionType` |
-| `session.answer_rejected` | `questionnaire.answers.rejected`, labelled by `reason`; `itemId` and `questionId` are `null` for an unknown item key, which came from the respondent; the backend emits at most `MAX_FINDINGS` (20) per submit |
+| `session.answer_rejected` | none: a log line per rejection, at most `MAX_FINDINGS` per submit; `itemId` and `questionId` are `null` for an unknown item key, which came from the respondent |
+| `session.answers_rejected` | `questionnaire.answers.rejected`, labelled by `reason`, adding `codeFindingCount` (one event per distinct reason) |
 | `session.item_skipped` | `questionnaire.items.skipped` |
 | `session.rejected_past_cutoff` | `questionnaire.sessions.rejected_past_cutoff` |
-| `session.submit_finished` | `questionnaire.submissions`, labelled by `outcome` (`accepted`, `replayed`, `rejected_validation`, `rejected_conflict`, `failed`); `questionnaireId` and `questionnaireVersion` are `null` for `failed`, which is known only by the session id |
+| `session.submit_finished` | `questionnaire.submissions`, labelled by `outcome` (`accepted`, `replayed`, `rejected_validation`, `rejected_conflict`, `failed`); `questionnaireId` and `questionnaireVersion` are `null` for `failed`, which is known only by the session id; `findingCount` and `omittedCount` ride on the line for a validation refusal |
 
 `session.completed` also records `questionnaire.session.duration`, a histogram in milliseconds with explicit bucket boundaries from one second to a day.
 Counters carry bounded labels only, named per event in its `labels`. The ingest stamps `source: "browser"` on the ones a browser
@@ -490,7 +510,7 @@ The flows live with the code they exercise. The backend's registry is
 | `src/guard.ts` | `guarded`, `guardedOr`, `guardedAsync`: run a telemetry action, swallow a failure and count it as `internal` |
 | `src/logger.ts` | `logger`, `LOG_LEVELS`, `LiteralMessage`, the sink and threshold, and `logDomainEvent` with `isDomainEventRecord`, which mark the records `emitDomainEvent` writes |
 | `src/spans.ts` | `withSpan`, `SPAN_NAMES`, `SpanName`, `activeTraceId`, `annotateActiveSpan` |
-| `src/problems.ts` | `projectProblem`, `PROBLEM_CODES`, `SCHEMA_CODES`, `MAX_FINDINGS` |
+| `src/problems.ts` | `projectProblem`, `PROBLEM_CODES`, `SCHEMA_CODES`, `MAX_FINDINGS`, `capFindings` |
 | `src/problem-telemetry.ts` | `problemTelemetry`: `projectProblem` behind the never-throw guard |
 | `src/events.ts` | `DOMAIN_EVENTS` (each event's name, payload, counter and counter labels), `DomainEvent`, `emitDomainEvent`, `relayBrowserEvent` |
 | `src/ingest.ts` | `ingestBatch`: the `/api/telemetry` ingest's event allowlist, field filter, trace context and drop counting, behind the never-throw guard |

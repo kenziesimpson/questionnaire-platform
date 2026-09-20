@@ -1,6 +1,6 @@
 import { sensitive, telemetryApi } from "@qp/shared";
 import { INTAKE_ITEM_IDS, INTAKE_OPTION_IDS, INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
-import { emitDomainEvent, FIELDS, logger, withSpan, type DomainEvent, type FieldName, type TelemetryContext } from "@qp/telemetry";
+import { emitDomainEvent, FIELDS, logger, MAX_FINDINGS, withSpan, type DomainEvent, type FieldName, type TelemetryContext } from "@qp/telemetry";
 import { plantThirdPartyTelemetry, type LeakFlow } from "@qp/telemetry/leak-test";
 import { DrizzleQueryError } from "drizzle-orm";
 import { expect } from "vitest";
@@ -16,6 +16,8 @@ import type { LeakWorld } from "./harness.js";
 export type BackendLeakFlow = LeakFlow<LeakWorld>;
 
 export const leakLog = logger("execution");
+
+const OVER_CAP = MAX_FINDINGS + 15;
 
 function forgedContext(fields: Record<string, unknown>): TelemetryContext {
   return Object.assign<TelemetryContext, Record<string, unknown>>({}, fields);
@@ -183,6 +185,11 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
       emitDomainEvent(
         forgedEvent({ name: "session.answer_rejected", sessionId: ids.sessionId, itemId: null, questionId: null, reason: sentinel, answer: sentinel }),
       );
+      emitDomainEvent(forgedEvent({ name: "session.answers_rejected", sessionId: ids.sessionId, reason: sentinel, codeFindingCount: 35, answer: sentinel }));
+      emitDomainEvent(
+        forgedEvent({ name: "questionnaire.publish_items_rejected", questionnaireId: sentinel, problemCode: sentinel, codeFindingCount: 35, answer: sentinel }),
+      );
+      emitDomainEvent(forgedEvent({ name: "questionnaire.publish_rejected", questionnaireId: sentinel, itemId: ids.itemId, problemCode: sentinel, answer: sentinel }));
       emitDomainEvent(forgedEvent({ name: "session.item_skipped", ...ids, answer: sentinel }));
       emitDomainEvent(forgedEvent({ name: "session.rejected_past_cutoff", sessionId: ids.sessionId, questionnaireId: sentinel, answer: sentinel }));
     },
@@ -212,7 +219,7 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
   },
   {
     name: "execution: a submit rejected with 422 for a known item, an unknown item key that is the lower-cased sentinel and a hundred more unknown keys",
-    emits: ["session.answer_rejected", "session.submit_finished"],
+    emits: ["session.answer_rejected", "session.answers_rejected", "session.submit_finished"],
     run: async ({ app, testDatabase }, sentinel) => {
       await seedIntakeV1(testDatabase);
       const sessionId = await startedSessionId(app);
@@ -292,6 +299,7 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
       "questionnaire.created",
       "questionnaire.draft_conflict",
       "questionnaire.publish_rejected",
+      "questionnaire.publish_items_rejected",
       "questionnaire.published",
       "questionnaire.publish_finished",
       "questionnaire.retired",
@@ -356,6 +364,44 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
         payload: { closesAt: "2026-10-01T00:00:00.000Z" },
       });
       expect([valid.statusCode, published.statusCode, retired.statusCode], "the planted draft must publish and retire").toEqual([200, 201, 200]);
+    },
+  },
+  {
+    name: "definition: a publish refused with 422 for more items than the findings cap, with the sentinel in every title and prompt",
+    emits: ["questionnaire.publish_rejected", "questionnaire.publish_items_rejected", "questionnaire.publish_finished"],
+    run: async ({ app }, sentinel) => {
+      const post = (path: string, payload?: object) =>
+        app.inject({ method: "POST", url: definitionUrl(path), ...(payload === undefined ? {} : { payload }) });
+      const created = await post("/questionnaires", { name: sentinel, title: sentinel });
+      expect(created.statusCode, "the planted questionnaire must be stored").toBe(201);
+      const questionnaireId: string = created.json().questionnaireId;
+      const items: object[] = [];
+      for (let index = 0; index < OVER_CAP; index += 1) {
+        const question = await post("/questions", { question: { type: "text", prompt: `${sentinel} ${index}` } });
+        expect(question.statusCode, "the planted question must be stored").toBe(201);
+        items.push({
+          itemId: `itm_${index}`,
+          required: false,
+          visibleWhen: { all: [{ type: "single_choice", itemId: "itm_missing", op: "is", optionId: "yes" }] },
+          questionId: question.json().questionId,
+          questionVersion: 1,
+        });
+      }
+      const opened = await app.inject({ method: "GET", url: definitionUrl(`/questionnaires/${questionnaireId}/draft`) });
+      const saved = await app.inject({
+        method: "PUT",
+        url: definitionUrl(`/questionnaires/${questionnaireId}/draft`),
+        headers: { "if-match": String(opened.headers.etag) },
+        payload: { title: sentinel, items },
+      });
+      expect(saved.statusCode, "the planted draft must be saved").toBe(200);
+      const refused = await app.inject({
+        method: "POST",
+        url: definitionUrl(`/questionnaires/${questionnaireId}/publish`),
+        headers: { "if-match": String(saved.headers.etag) },
+      });
+      expect(refused.statusCode, "the planted publish must be refused for the flow to prove anything").toBe(422);
+      expect(refused.json<{ items: unknown[] }>().items, "the refusal must name every item, past the findings cap").toHaveLength(OVER_CAP);
     },
   },
   {

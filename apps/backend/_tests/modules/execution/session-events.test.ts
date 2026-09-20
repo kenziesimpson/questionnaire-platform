@@ -15,6 +15,10 @@ const executionApp = useExecutionApp(testDatabase);
 
 const SESSION = "questionnaire.session_id";
 
+const OMITTED = 15;
+
+const OVER_CAP = MAX_FINDINGS + OMITTED;
+
 let telemetry: TestTelemetry;
 let extraApp: FastifyInstance | undefined;
 
@@ -238,6 +242,7 @@ describe("a submit that is refused", () => {
     ]);
     expect(rejected[1]).not.toHaveProperty("questionnaire.item_id");
     expect(rejected[1]).not.toHaveProperty("questionnaire.question_id");
+    expect(eventLines("session.answers_rejected")).toHaveLength(2);
     expect(await metricPoints("questionnaire.answers.rejected")).toEqual(
       expect.arrayContaining([
         { value: 1, attributes: { "questionnaire.reason": "answer/not-visible" } },
@@ -247,14 +252,62 @@ describe("a submit that is refused", () => {
     expect(await metricPoints("questionnaire.submissions")).toEqual([
       { value: 1, attributes: { "questionnaire.outcome": "rejected_validation" } },
     ]);
+    expect(eventLines("session.submit_finished")).toMatchObject([
+      { [SESSION]: sessionId, "questionnaire.outcome": "rejected_validation", "questionnaire.finding_count": 2, "questionnaire.omitted_count": 0 },
+    ]);
     expect(eventLines("session.completed")).toEqual([]);
   });
 
-  it("emits at most the shared findings cap of answer_rejected events, however many unknown keys are sent", async () => {
+  it("emits at most the shared findings cap of answer_rejected events but counts every rejection, and reports the total and the omitted count on the outcome", async () => {
     await seedIntakeV1(testDatabase);
     const app = executionApp();
     const sessionId = await startedSessionId(app);
-    const unknownKeys = Object.fromEntries(Array.from({ length: 120 }, (_unused, index) => [`itm_x${index}`, { type: "text", text: "x" } as const]));
+    const unknownKeys = Object.fromEntries(Array.from({ length: OVER_CAP }, (_unused, index) => [`itm_x${index}`, { type: "text", text: "x" } as const]));
+
+    const response = await submit(app, sessionId, answersNo(unknownKeys));
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ items: unknown[] }>().items).toHaveLength(OVER_CAP);
+    expect(eventLines("session.answer_rejected")).toHaveLength(MAX_FINDINGS);
+    expect(eventLines("session.answers_rejected")).toMatchObject([
+      { [SESSION]: sessionId, "questionnaire.reason": "answer/unknown-item", "questionnaire.code_finding_count": OVER_CAP },
+    ]);
+    expect(eventLines("session.answers_rejected")[0]).not.toHaveProperty("questionnaire.finding_count");
+    expect(await metricPoints("questionnaire.answers.rejected")).toEqual([
+      { value: OVER_CAP, attributes: { "questionnaire.reason": "answer/unknown-item" } },
+    ]);
+    expect(await metricPoints("questionnaire.submissions")).toEqual([
+      { value: 1, attributes: { "questionnaire.outcome": "rejected_validation" } },
+    ]);
+    expect(eventLines("session.submit_finished")).toMatchObject([
+      { [SESSION]: sessionId, "questionnaire.outcome": "rejected_validation", "questionnaire.finding_count": OVER_CAP, "questionnaire.omitted_count": OMITTED },
+    ]);
+  });
+
+  it("counts each reason across all its rejections, not only the ones it logged, when several reasons are refused", async () => {
+    await seedIntakeV1(testDatabase);
+    const app = executionApp();
+    const sessionId = await startedSessionId(app);
+    const unknownKeys = Object.fromEntries(Array.from({ length: OVER_CAP - 1 }, (_unused, index) => [`itm_x${index}`, { type: "text", text: "x" } as const]));
+
+    const response = await submit(app, sessionId, answersNo({ ...unknownKeys, [INTAKE_ITEM_IDS.whichCondition]: { type: "text", text: "x" } }));
+
+    expect(response.statusCode).toBe(422);
+    expect(eventLines("session.answer_rejected")).toHaveLength(MAX_FINDINGS);
+    const points = (await metricPoints("questionnaire.answers.rejected")) ?? [];
+    expect(points).toHaveLength(2);
+    expect(points).toContainEqual({ value: OVER_CAP - 1, attributes: { "questionnaire.reason": "answer/unknown-item" } });
+    expect(points).toContainEqual({ value: 1, attributes: { "questionnaire.reason": "answer/not-visible" } });
+    expect(eventLines("session.submit_finished")).toMatchObject([{ "questionnaire.finding_count": OVER_CAP, "questionnaire.omitted_count": OMITTED }]);
+  });
+
+  it("reports no omitted findings when exactly the findings cap is refused, and logs every one", async () => {
+    await seedIntakeV1(testDatabase);
+    const app = executionApp();
+    const sessionId = await startedSessionId(app);
+    const unknownKeys = Object.fromEntries(
+      Array.from({ length: MAX_FINDINGS }, (_unused, index) => [`itm_x${index}`, { type: "text", text: "x" } as const]),
+    );
 
     const response = await submit(app, sessionId, answersNo(unknownKeys));
 
@@ -263,9 +316,20 @@ describe("a submit that is refused", () => {
     expect(await metricPoints("questionnaire.answers.rejected")).toEqual([
       { value: MAX_FINDINGS, attributes: { "questionnaire.reason": "answer/unknown-item" } },
     ]);
-    expect(await metricPoints("questionnaire.submissions")).toEqual([
-      { value: 1, attributes: { "questionnaire.outcome": "rejected_validation" } },
+    expect(eventLines("session.submit_finished")).toMatchObject([
+      { "questionnaire.outcome": "rejected_validation", "questionnaire.finding_count": MAX_FINDINGS, "questionnaire.omitted_count": 0 },
     ]);
+  });
+
+  it("carries no finding totals on an outcome that is not a validation refusal", async () => {
+    await seedIntakeV1(testDatabase);
+    const app = executionApp();
+    const sessionId = await startedSessionId(app);
+    await submit(app, sessionId, answersNo());
+
+    expect(eventLines("session.submit_finished")).toHaveLength(1);
+    expect(eventLines("session.submit_finished")[0]).not.toHaveProperty("questionnaire.finding_count");
+    expect(eventLines("session.submit_finished")[0]).not.toHaveProperty("questionnaire.omitted_count");
   });
 
   it("counts a submit with different answers after the session was submitted as a conflict, with no answer events", async () => {

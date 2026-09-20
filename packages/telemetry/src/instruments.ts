@@ -53,9 +53,9 @@ function addDropped(kind: SignalKind, reason: DropReason, amount: number): boole
   }
 }
 
-export function incrementCounter(name: string, attributes: ScrubbedAttributes): void {
+export function incrementCounter(name: string, attributes: ScrubbedAttributes, amount: number = 1): void {
   try {
-    counter(name).add(1, attributes);
+    counter(name).add(amount, attributes);
   } catch {
     addDropped("metric", "internal", 1);
   }

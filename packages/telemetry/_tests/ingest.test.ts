@@ -200,6 +200,26 @@ describe("ingestBatch: only the fields a browser legitimately knows are kept", (
     expect(await ingestDropsIn(installed)).toEqual({ unknown_field: 4 });
   });
 
+  it("drops the finding count fields from every browser event, since only the server counts findings", async () => {
+    const installed = install();
+    const counts = { findingCount: 3, omittedCount: 1, codeFindingCount: 2 };
+
+    ingestBatch(
+      [
+        { name: "session.abandoned", at: AT, fields: { sessionId: SESSION_ID, ...counts } },
+        { name: "client.error", at: AT, fields: { errorType: "Error", ...counts } },
+      ],
+      RECEIVED_AT,
+    );
+
+    for (const line of installed.logs()) {
+      expect(line).not.toHaveProperty("questionnaire.finding_count");
+      expect(line).not.toHaveProperty("questionnaire.omitted_count");
+      expect(line).not.toHaveProperty("questionnaire.code_finding_count");
+    }
+    expect(await ingestDropsIn(installed)).toEqual({ unknown_field: 6 });
+  });
+
   it("accepts exactly the client log events and session.abandoned", () => {
     install();
 
