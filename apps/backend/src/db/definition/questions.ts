@@ -1,7 +1,7 @@
 import type { Question, QuestionInput } from "@qp/shared";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
-import { recordAudit } from "../audit.js";
+import { recordAudit, type AuditTraceId } from "../audit.js";
 import type { Executor, Transaction } from "../client.js";
 import { mustExist } from "../errors.js";
 import { question, questionVersion, questionVersionOption } from "../schema.js";
@@ -14,7 +14,7 @@ export interface CreateQuestionCommand {
   readonly key: string | null;
   readonly content: QuestionInput;
   readonly createdBy: string | null;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 export interface SavedQuestionVersion {
@@ -29,7 +29,7 @@ async function insertQuestionVersion(
   version: number,
   content: QuestionInput,
   createdBy: string | null,
-  traceId: string | null,
+  traceId: AuditTraceId,
 ): Promise<SavedQuestionVersion> {
   const columns = questionInputToColumns(content);
   await tx.insert(questionVersion).values({
@@ -77,7 +77,7 @@ export interface AppendQuestionVersionCommand {
   readonly questionId: string;
   readonly content: QuestionInput;
   readonly createdBy: string | null;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 interface QuestionTypeChanged {
@@ -123,7 +123,7 @@ export async function appendQuestionVersion(
 export interface ArchiveQuestionCommand {
   readonly questionId: string;
   readonly actorId: string | null;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 export type ArchiveQuestionOutcome =

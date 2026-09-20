@@ -287,6 +287,17 @@ describe("emitDomainEvent against the real SDK", () => {
     expect(conflicts?.dataPoints.map((point) => point.attributes)).toEqual([{}]);
   });
 
+  it("counts the reporting reads with no label, and logs the session a detail read opened as a named field", async () => {
+    const installed = install();
+    emitDomainEvent({ name: "reporting.responses_listed", questionnaireId: QUESTIONNAIRE_ID });
+    emitDomainEvent({ name: "reporting.response_viewed", questionnaireId: QUESTIONNAIRE_ID, sessionId: SESSION_ID });
+    const listed = await metricNamed(installed, "questionnaire.responses.listed");
+    const viewed = await metricNamed(installed, "questionnaire.responses.viewed");
+    expect(listed?.dataPoints.map((point) => point.attributes)).toEqual([{}]);
+    expect(viewed?.dataPoints.map((point) => point.attributes)).toEqual([{}]);
+    expect(installed.logs()[1]).toMatchObject({ msg: "reporting.response_viewed", "questionnaire.session_id": SESSION_ID });
+  });
+
   it("counts a submit by its outcome and a past-cutoff rejection with no label", async () => {
     const installed = install();
     const session = { sessionId: SESSION_ID, questionnaireId: QUESTIONNAIRE_ID, questionnaireVersion: 2 };

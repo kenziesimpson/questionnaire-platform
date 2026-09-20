@@ -239,16 +239,62 @@ describe("audit.record", () => {
     await denied(owner, auditRecordCall);
   });
 
-  it("is executable by qp_definition and by neither qp_owner nor qp_execution", async () => {
+  it("is executable by qp_definition and qp_reporting and by neither qp_owner nor qp_execution", async () => {
     const owner = await testDatabase.connect("owner");
     const privileges = await owner.query(
       `SELECT has_function_privilege('qp_definition', p.oid, 'EXECUTE') AS definition,
+              has_function_privilege('qp_reporting', p.oid, 'EXECUTE') AS reporting,
               has_function_privilege('qp_owner', p.oid, 'EXECUTE') AS owner,
               has_function_privilege('qp_execution', p.oid, 'EXECUTE') AS execution
          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = 'audit' AND p.proname = 'record'`,
     );
-    expect(privileges.rows).toEqual([{ definition: true, owner: false, execution: false }]);
+    expect(privileges.rows).toEqual([{ definition: true, reporting: true, owner: false, execution: false }]);
+  });
+
+  it("accepts view_response, which qp_reporting records in its own transaction", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const reporting = await testDatabase.connect("reporting");
+    const before = (await testDatabase.readAuditEvents()).length;
+
+    await reporting.query("BEGIN");
+    await reporting.query(
+      `SELECT audit.record('view_response', $1, $2, $3, 'reader-1', '{"sessionId":"s"}'::jsonb, 'trace-1')`,
+      [published.questionnaireId, published.draftVersionId, published.version],
+    );
+    await reporting.query("COMMIT");
+
+    const events = await testDatabase.readAuditEvents();
+    expect(events).toHaveLength(before + 1);
+    expect(events.at(-1)).toMatchObject({
+      action: "view_response",
+      questionnaire_id: published.questionnaireId,
+      questionnaire_version_id: published.draftVersionId,
+      version: published.version,
+      actor_id: "reader-1",
+      summary: { sessionId: "s" },
+    });
+  });
+
+  it("is discarded with the read on ROLLBACK, for qp_reporting as for qp_definition", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const reporting = await testDatabase.connect("reporting");
+    const before = await testDatabase.readAuditEvents();
+
+    await reporting.query("BEGIN");
+    await reporting.query(`SELECT audit.record('view_response', $1, NULL, NULL, 'reader-1', NULL, NULL)`, [published.questionnaireId]);
+    await reporting.query("ROLLBACK");
+
+    expect(await testDatabase.readAuditEvents()).toEqual(before);
+  });
+
+  it("refuses qp_reporting an action outside the closed list", async () => {
+    const reporting = await testDatabase.connect("reporting");
+
+    await expectSqlState(
+      reporting.query(`SELECT audit.record('delete_everything', NULL, NULL, NULL, NULL, NULL, NULL)`),
+      SQLSTATE.checkViolation,
+    );
   });
 
   it("only appends actions from the closed list", async () => {
@@ -328,7 +374,7 @@ describe("qp_reporting", () => {
     }
   });
 
-  it("cannot write any definition table or read the audit schema", async () => {
+  it("cannot write any definition table, and holds no privilege on audit.event itself", async () => {
     const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
     const reporting = await testDatabase.connect("reporting");
 
@@ -337,10 +383,12 @@ describe("qp_reporting", () => {
     await denied(reporting, `DELETE FROM definition.questionnaire WHERE id = $1`, [published.questionnaireId]);
     await denied(reporting, `UPDATE definition.published_questionnaire_version SET title = 'x'`);
     await denied(reporting, `SELECT 1 FROM audit.event`);
-    await denied(reporting, auditRecordCall);
+    await denied(reporting, `INSERT INTO audit.event (action) VALUES ('view_response')`);
+    await denied(reporting, `UPDATE audit.event SET actor_id = 'someone else'`);
+    await denied(reporting, `DELETE FROM audit.event`);
   });
 
-  it("holds SELECT on exactly four relations and no write privilege of any kind on any relation", async () => {
+  it("holds SELECT on exactly four relations and no write privilege on any relation, so audit.record is its only write", async () => {
     const owner = await testDatabase.connect("owner");
     const readable = await owner.query(
       `SELECT c.oid::regclass::text AS relation

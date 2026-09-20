@@ -32,6 +32,8 @@ const DOMAIN_EVENTS = {
     { labels: ["problemCode"] },
   ),
   "questionnaire.draft_conflict": event<{ questionnaireId: string }>("questionnaire.draft.conflicts"),
+  "reporting.responses_listed": event<{ questionnaireId: string }>("questionnaire.responses.listed"),
+  "reporting.response_viewed": event<{ questionnaireId: string; sessionId: string }>("questionnaire.responses.viewed"),
   "session.started": event<{ sessionId: string; questionnaireId: string; questionnaireVersion: number }>(
     "questionnaire.sessions.started",
   ),

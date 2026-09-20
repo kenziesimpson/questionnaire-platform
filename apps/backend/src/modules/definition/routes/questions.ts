@@ -1,4 +1,5 @@
 import { definitionApi, problem, validateQuestionRules, type Problem, type QuestionInput } from "@qp/shared";
+import { activeTraceId } from "@qp/telemetry";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "../../../db/client.js";
 import {
@@ -13,7 +14,6 @@ import { notFoundProblem } from "../../../http/problems.js";
 import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { definitionProblem } from "../problems.js";
-import { auditTraceId } from "../../../http/trace.js";
 
 function questionRuleProblem(content: QuestionInput): Problem | undefined {
   const failures = validateQuestionRules(content);
@@ -40,7 +40,7 @@ export function registerQuestionRoutes(scope: FastifyInstance, database: Databas
       key: request.body.key ?? null,
       content: request.body.question,
       createdBy: authorOf(request),
-      traceId: auditTraceId(),
+      traceId: activeTraceId(),
     });
     return { status: 201, body: created.question };
   });
@@ -69,7 +69,7 @@ export function registerQuestionRoutes(scope: FastifyInstance, database: Databas
       questionId: request.params.questionId,
       content: request.body.question,
       createdBy: authorOf(request),
-      traceId: auditTraceId(),
+      traceId: activeTraceId(),
     });
     if (appended.outcome !== "saved") {
       return definitionProblem(appended);
@@ -81,7 +81,7 @@ export function registerQuestionRoutes(scope: FastifyInstance, database: Databas
     const archived = await archiveQuestion(database, {
       questionId: request.params.questionId,
       actorId: authorOf(request),
-      traceId: auditTraceId(),
+      traceId: activeTraceId(),
     });
     if (archived.outcome === "question-not-found") {
       return definitionProblem(archived);

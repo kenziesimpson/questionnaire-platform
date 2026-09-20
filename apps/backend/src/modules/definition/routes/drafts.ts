@@ -1,5 +1,5 @@
 import { definitionApi, formatDraftEtag } from "@qp/shared";
-import { withSpan } from "@qp/telemetry";
+import { activeTraceId, withSpan } from "@qp/telemetry";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "../../../db/client.js";
 import {
@@ -16,7 +16,6 @@ import { authorOf } from "../author.js";
 import { draftPreconditionOf } from "../if-match.js";
 import { reportDraftSaved, reportPublish, reportPublishFailed } from "../definition-events.js";
 import { definitionProblem } from "../problems.js";
-import { auditTraceId } from "../../../http/trace.js";
 
 function draftHeaders({ draft, draftRevision }: CurrentDraft): Record<string, string> {
   return { etag: formatDraftEtag(draft.versionId, draftRevision), "cache-control": "no-store" };
@@ -44,7 +43,7 @@ export function registerDraftRoutes(scope: FastifyInstance, database: Database):
         title,
         items,
         actorId: authorOf(request),
-        traceId: auditTraceId(),
+        traceId: activeTraceId(),
       });
       reportDraftSaved(request.params.id, saved);
       return saved;
@@ -60,7 +59,7 @@ export function registerDraftRoutes(scope: FastifyInstance, database: Database):
       createNextDraft(database, {
         questionnaireId: request.params.id,
         createdBy: authorOf(request),
-        traceId: auditTraceId(),
+        traceId: activeTraceId(),
       }),
     );
     if (outcome.outcome !== "created") {
@@ -87,7 +86,7 @@ export function registerDraftRoutes(scope: FastifyInstance, database: Database):
         questionnaireId: request.params.id,
         precondition,
         actorId: authorOf(request),
-        traceId: auditTraceId(),
+        traceId: activeTraceId(),
       }).catch((error: unknown) => {
         reportPublishFailed(request.params.id);
         throw error;

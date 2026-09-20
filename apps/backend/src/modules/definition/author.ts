@@ -1,7 +1,8 @@
 import type { FastifyRequest } from "fastify";
+import { PLACEHOLDER_ACTOR } from "../../http/placeholder-actor.js";
 import { InvariantViolation } from "../../invariant.js";
 
-export const AUTHOR_PLACEHOLDER = "prototype-author";
+export const AUTHOR_PLACEHOLDER = PLACEHOLDER_ACTOR;
 
 const authenticatedAuthors = new WeakMap<FastifyRequest, string>();
 

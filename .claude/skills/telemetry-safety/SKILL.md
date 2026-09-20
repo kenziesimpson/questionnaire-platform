@@ -299,12 +299,19 @@ drives the real path — a real request through `app.inject`, a real stored row,
   selects by that word. `tests/leak-test-selection.test.ts` fails when such a test does not carry it,
   so a flow cannot quietly fall outside the gate step.
 
-Flows built so far: the submit, rejection, past-cutoff, skipped-item and replay paths of the execution
-module, and the `/api/telemetry` ingest, with a batch that carries the sentinel in a field, a nested
-object, an event name, a timestamp and a traceparent, and batches refused as not an envelope. Flows still owed, by the lane that builds each path: the apps' use of the
-browser SDK, both the admin response-detail screen and the respondent app, through their telemetry wrapper (O20);
-the `view_response` audit path (O14); and any new reporting read. The definition routes' flow plants the sentinel in a title,
-a prompt and an option label, and takes a draft through a stale save, a refused publish, a publish and a retirement.
+Flows built so far, in `flows.ts`:
+
+- The execution module's submit, rejection, past-cutoff, skipped-item and replay paths.
+- The `/api/telemetry` ingest: a batch with the sentinel in a field, a nested object, an event name, a timestamp and a
+  traceparent, and batches refused as not an envelope.
+- The definition routes: the sentinel in a title, a prompt and an option label, through a stale save, a refused publish, a
+  publish and a retirement.
+- The reporting reads: a stored sentinel answer read back through the list, with a real and a forged cursor, and the detail,
+  then the `view_response` audit row: one for the detail read, none for the list, no sentinel in it (O14, O20).
+
+Still owed, by the lane that builds each path: the apps' use of the browser SDK, both the admin response-detail screen and
+the respondent app, through their telemetry wrapper (O20), and any new reporting read. A new reporting read gets a span, an event and a flow of
+its own, and its cursor and any session id inside it stay out of every signal (O19).
 
 ## The gate
 

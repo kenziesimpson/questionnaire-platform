@@ -1,5 +1,5 @@
 import { definitionApi } from "@qp/shared";
-import { withSpan } from "@qp/telemetry";
+import { activeTraceId, withSpan } from "@qp/telemetry";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "../../../db/client.js";
 import { createQuestionnaire, listQuestionnaireSummaries, setClosesAt } from "../../../db/definition/questionnaires.js";
@@ -7,7 +7,6 @@ import { registerRoute } from "../../../http/routes.js";
 import { authorOf } from "../author.js";
 import { reportClosesAtSet, reportQuestionnaireCreated } from "../definition-events.js";
 import { definitionProblem } from "../problems.js";
-import { auditTraceId } from "../../../http/trace.js";
 
 export function registerQuestionnaireRoutes(scope: FastifyInstance, database: Database): void {
   registerRoute(scope, definitionApi.listQuestionnaires, async () => ({
@@ -22,7 +21,7 @@ export function registerQuestionnaireRoutes(scope: FastifyInstance, database: Da
         name: request.body.name,
         title: request.body.title,
         createdBy: authorOf(request),
-        traceId: auditTraceId(),
+        traceId: activeTraceId(),
       });
       reportQuestionnaireCreated(result.questionnaireId);
       return result;
@@ -38,7 +37,7 @@ export function registerQuestionnaireRoutes(scope: FastifyInstance, database: Da
         questionnaireId: request.params.id,
         closesAt: closing,
         actorId: authorOf(request),
-        traceId: auditTraceId(),
+        traceId: activeTraceId(),
       });
       reportClosesAtSet(request.params.id, closing, outcome);
       return outcome;

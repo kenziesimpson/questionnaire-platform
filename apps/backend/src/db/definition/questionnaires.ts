@@ -1,7 +1,7 @@
 import type { QuestionnaireSummary } from "@qp/shared";
 import { desc, eq, max, type SQL } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
-import { recordAudit } from "../audit.js";
+import { recordAudit, type AuditTraceId } from "../audit.js";
 import type { Executor } from "../client.js";
 import { mustExist } from "../errors.js";
 import { questionnaire, questionnaireVersion } from "../schema.js";
@@ -67,7 +67,7 @@ export interface CreateQuestionnaireCommand {
   readonly name: string;
   readonly title: string;
   readonly createdBy: string | null;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 export interface CreatedQuestionnaire {
@@ -108,7 +108,7 @@ export interface SetClosesAtCommand {
   readonly questionnaireId: string;
   readonly closesAt: Date | null;
   readonly actorId: string | null;
-  readonly traceId: string | null;
+  readonly traceId: AuditTraceId;
 }
 
 export type SetClosesAtOutcome =
