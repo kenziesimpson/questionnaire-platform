@@ -118,6 +118,10 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - ./observability/grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/qp-dashboards.yaml:ro
+      - ./observability/grafana/dashboards:/otel-lgtm/qp-dashboards:ro
+      - ./observability/grafana/alert-rules.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/qp-alert-rules.yaml:ro
 
 volumes:
   db-data:
