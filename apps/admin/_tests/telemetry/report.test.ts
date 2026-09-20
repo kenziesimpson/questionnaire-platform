@@ -49,7 +49,9 @@ describe("reportQueryFailure and reportMutationFailure", () => {
   it.each([
     ["a 404 problem", new ProblemError("resource/not-found", 404, problem("resource/not-found", { instance: ANSWER_SENTINEL }))],
     ["a 409 problem", new ProblemError("questionnaire/draft-stale", 409, problem("questionnaire/draft-stale"))],
-    ["a cancelled request", new DOMException("aborted", "AbortError")],
+    ["a cancelled request that is an Error named AbortError", Object.assign(new Error("aborted"), { name: "AbortError" })],
+    ["a cancelled request that is a DOMException, which may come from another realm", new DOMException("aborted", "AbortError")],
+    ["a cancelled request that is a plain object with the name", { name: "AbortError", message: "aborted" }],
     ["a query cancelled by the client", Object.assign(new Error("cancelled"), { name: "CancelledError" })],
   ])("reports nothing for %s, which the screen handles or the user caused", (_case, error) => {
     const { flush } = routed();
@@ -64,7 +66,8 @@ describe("reportQueryFailure and reportMutationFailure", () => {
     ["null", null],
     ["undefined", undefined],
     ["a string", ANSWER_SENTINEL],
-    ["an object with a message", { message: ANSWER_SENTINEL, name: "AbortError" }],
+    ["an object with a message and no cancellation name", { message: ANSWER_SENTINEL, name: "Diabetes" }],
+    ["an object whose name is not a string", { message: ANSWER_SENTINEL, name: 7 }],
   ])("does not throw for a throw of %s, and reports it as a warning with no class, frames or message", (_case, thrown) => {
     const { flush } = routed();
 

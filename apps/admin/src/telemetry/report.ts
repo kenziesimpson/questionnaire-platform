@@ -5,9 +5,18 @@ const log = logger("browser");
 
 const CANCELLATION_NAMES = ["AbortError", "CancelledError"];
 
+function isCancellation(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  try {
+    const name: unknown = Reflect.get(error, "name");
+    return typeof name === "string" && CANCELLATION_NAMES.includes(name);
+  } catch {
+    return false;
+  }
+}
+
 function isExpected(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return (error instanceof ProblemError && error.status < 500) || CANCELLATION_NAMES.includes(error.name);
+  return (error instanceof ProblemError && error.status < 500) || isCancellation(error);
 }
 
 function errorOrNothing(error: unknown): Error | undefined {
