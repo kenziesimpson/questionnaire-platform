@@ -1,5 +1,6 @@
 import type pg from "pg";
 import { describe, expect, it } from "vitest";
+import { AUDIT_ACTIONS } from "../../src/db/schema.js";
 import { aDraftWithOneItem, aPublishedQuestionnaire, aSession, insertResponse } from "./fixtures.js";
 import { SQLSTATE, expectSqlState, useTestDatabase } from "./harness.js";
 
@@ -14,6 +15,48 @@ const AUTHORING_TABLES = [
 ] as const;
 
 const auditRecordCall = `SELECT audit.record('publish', NULL, NULL, NULL, 'intruder', NULL, NULL)`;
+
+const ACTIONS_QP_REPORTING_CANNOT_RECORD = AUDIT_ACTIONS.filter((action) => action !== "view_response");
+
+const ACTION_SPELLINGS_QP_REPORTING_CANNOT_RECORD = [
+  ...ACTIONS_QP_REPORTING_CANNOT_RECORD,
+  "delete_everything",
+  "VIEW_RESPONSE",
+  " view_response",
+  "view_response ",
+  "",
+];
+
+const RECORD_WITH_ACTION = `SELECT audit.record($1, $2, $3, $4, 'reader-1', NULL, NULL)`;
+
+const RECORD_VIEW_RESPONSE = `SELECT audit.record('view_response', $1, $2, $3, 'reader-1', $4::jsonb, $5) AS id`;
+
+const A_SESSION_ID = "6f1c2a3e-8b7d-4c5f-9a10-3d2e1f0a9b8c";
+const A_TRACE_ID = "0af7651916cd43dd8448eb211c80319c";
+
+function aSessionSummary(sessionId: string = A_SESSION_ID): string {
+  return JSON.stringify({ sessionId });
+}
+
+const PAYLOADS_QP_REPORTING_CANNOT_RECORD: readonly (readonly [string, string | null])[] = [
+  ["a NULL summary", null],
+  ["an extra key beside sessionId", JSON.stringify({ sessionId: A_SESSION_ID, answer: "yes" })],
+  ["only another key", JSON.stringify({ session: A_SESSION_ID })],
+  ["an empty object", "{}"],
+  ["a sessionId that is not a uuid", JSON.stringify({ sessionId: "patient answered yes" })],
+  ["a sessionId that is a uuid with a suffix", JSON.stringify({ sessionId: `${A_SESSION_ID} and more` })],
+  ["a sessionId in upper case", JSON.stringify({ sessionId: A_SESSION_ID.toUpperCase() })],
+  ["a sessionId without hyphens", JSON.stringify({ sessionId: A_SESSION_ID.replaceAll("-", "") })],
+  ["a sessionId that is a number", JSON.stringify({ sessionId: 42 })],
+  ["a sessionId that is null", JSON.stringify({ sessionId: null })],
+  ["a sessionId that is a boolean", JSON.stringify({ sessionId: true })],
+  ["a sessionId that is an array", JSON.stringify({ sessionId: [A_SESSION_ID] })],
+  ["a sessionId that is a nested object", JSON.stringify({ sessionId: { sessionId: A_SESSION_ID } })],
+  ["a top-level array", JSON.stringify([A_SESSION_ID])],
+  ["a top-level string", JSON.stringify(A_SESSION_ID)],
+  ["a top-level number", "7"],
+  ["JSON null", "null"],
+];
 
 async function denied(client: pg.Client, statement: string, params: unknown[] = []): Promise<void> {
   await expectSqlState(client.query(statement, params), SQLSTATE.insufficientPrivilege);
@@ -259,8 +302,8 @@ describe("audit.record", () => {
 
     await reporting.query("BEGIN");
     await reporting.query(
-      `SELECT audit.record('view_response', $1, $2, $3, 'reader-1', '{"sessionId":"s"}'::jsonb, 'trace-1')`,
-      [published.questionnaireId, published.draftVersionId, published.version],
+      RECORD_VIEW_RESPONSE,
+      [published.questionnaireId, published.draftVersionId, published.version, aSessionSummary(), A_TRACE_ID],
     );
     await reporting.query("COMMIT");
 
@@ -272,8 +315,24 @@ describe("audit.record", () => {
       questionnaire_version_id: published.draftVersionId,
       version: published.version,
       actor_id: "reader-1",
-      summary: { sessionId: "s" },
+      summary: { sessionId: A_SESSION_ID },
     });
+    expect((await testDatabase.readAuditTraceIds()).at(-1)).toEqual({ action: "view_response", trace_id: A_TRACE_ID });
+  });
+
+  it("accepts a view_response with no trace id, as when there is no active span", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const reporting = await testDatabase.connect("reporting");
+
+    await reporting.query(RECORD_VIEW_RESPONSE, [
+      published.questionnaireId,
+      published.draftVersionId,
+      published.version,
+      aSessionSummary(),
+      null,
+    ]);
+
+    expect((await testDatabase.readAuditTraceIds()).at(-1)).toEqual({ action: "view_response", trace_id: null });
   });
 
   it("is discarded with the read on ROLLBACK, for qp_reporting as for qp_definition", async () => {
@@ -282,19 +341,202 @@ describe("audit.record", () => {
     const before = await testDatabase.readAuditEvents();
 
     await reporting.query("BEGIN");
-    await reporting.query(`SELECT audit.record('view_response', $1, NULL, NULL, 'reader-1', NULL, NULL)`, [published.questionnaireId]);
+    await reporting.query(RECORD_VIEW_RESPONSE, [
+      published.questionnaireId,
+      published.draftVersionId,
+      published.version,
+      aSessionSummary(),
+      null,
+    ]);
     await reporting.query("ROLLBACK");
 
     expect(await testDatabase.readAuditEvents()).toEqual(before);
   });
 
-  it("refuses qp_reporting an action outside the closed list", async () => {
+  it.each(ACTION_SPELLINGS_QP_REPORTING_CANNOT_RECORD)("refuses qp_reporting the action %j and leaves no audit row", async (action) => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const reporting = await testDatabase.connect("reporting");
+    const before = await testDatabase.readAuditEvents();
+
+    await denied(reporting, RECORD_WITH_ACTION, [action, published.questionnaireId, published.draftVersionId, published.version]);
+
+    expect(await testDatabase.readAuditEvents()).toEqual(before);
+  });
+
+  it("refuses qp_reporting a NULL action rather than passing it on to the table", async () => {
+    const reporting = await testDatabase.connect("reporting");
+    const before = await testDatabase.readAuditEvents();
+
+    await denied(reporting, RECORD_WITH_ACTION, [null, null, null, null]);
+
+    expect(await testDatabase.readAuditEvents()).toEqual(before);
+  });
+
+  it("names no caller-supplied text in the refusal", async () => {
     const reporting = await testDatabase.connect("reporting");
 
-    await expectSqlState(
-      reporting.query(`SELECT audit.record('delete_everything', NULL, NULL, NULL, NULL, NULL, NULL)`),
-      SQLSTATE.checkViolation,
+    const message = await reporting.query(RECORD_WITH_ACTION, ["patient answered yes", null, null, null]).then(
+      () => undefined,
+      (failure: unknown) => (failure instanceof Error ? failure.message : undefined),
     );
+
+    expect(message).toBe("qp_reporting may record view_response only");
+  });
+
+  it("leaves nothing behind when a refused action aborts a qp_reporting transaction that had recorded view_response", async () => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const reporting = await testDatabase.connect("reporting");
+    const before = await testDatabase.readAuditEvents();
+
+    await reporting.query("BEGIN");
+    await reporting.query(RECORD_VIEW_RESPONSE, [
+      published.questionnaireId,
+      published.draftVersionId,
+      published.version,
+      aSessionSummary(),
+      null,
+    ]);
+    await denied(reporting, RECORD_WITH_ACTION, ["publish", published.questionnaireId, null, null]);
+    await reporting.query("ROLLBACK");
+
+    expect(await testDatabase.readAuditEvents()).toEqual(before);
+  });
+
+  it.each(AUDIT_ACTIONS)("still records %s for qp_definition", async (action) => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const definition = await testDatabase.connect("definition");
+    const before = (await testDatabase.readAuditEvents()).length;
+
+    await definition.query(RECORD_WITH_ACTION, [action, published.questionnaireId, published.draftVersionId, published.version]);
+
+    const events = await testDatabase.readAuditEvents();
+    expect(events).toHaveLength(before + 1);
+    expect(events.at(-1)).toMatchObject({ action, actor_id: "reader-1" });
+  });
+
+  it.each(AUDIT_ACTIONS)("still records %s when audit_owner calls it after SET ROLE from a qp_owner session, as the test harness does", async (action) => {
+    const owner = await testDatabase.connect("owner");
+    const before = (await testDatabase.readAuditEvents()).length;
+
+    await owner.query("SET ROLE audit_owner");
+    try {
+      await owner.query(RECORD_WITH_ACTION, [action, null, null, null]);
+    } finally {
+      await owner.query("RESET ROLE");
+    }
+
+    expect(await testDatabase.readAuditEvents()).toHaveLength(before + 1);
+  });
+
+  it.each(PAYLOADS_QP_REPORTING_CANNOT_RECORD)("refuses qp_reporting a view_response with %s and leaves no audit row", async (_label, summary) => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const reporting = await testDatabase.connect("reporting");
+    const before = await testDatabase.readAuditEvents();
+
+    await denied(reporting, RECORD_VIEW_RESPONSE, [
+      published.questionnaireId,
+      published.draftVersionId,
+      published.version,
+      summary,
+      A_TRACE_ID,
+    ]);
+
+    expect(await testDatabase.readAuditEvents()).toEqual(before);
+  });
+
+  it.each([
+    ["a NULL questionnaire id", { questionnaireId: null }],
+    ["a NULL questionnaire version id", { versionId: null }],
+    ["a NULL version", { version: null }],
+    ["a trace id that is not 32 lower-case hex digits", { traceId: "patient answered yes" }],
+    ["a trace id in upper case", { traceId: A_TRACE_ID.toUpperCase() }],
+    ["a trace id with a suffix", { traceId: `${A_TRACE_ID}0` }],
+    ["an empty trace id", { traceId: "" }],
+  ] as const)("refuses qp_reporting a view_response with %s and leaves no audit row", async (_label, override) => {
+    const published = await aPublishedQuestionnaire(testDatabase.database("definition"));
+    const reporting = await testDatabase.connect("reporting");
+    const before = await testDatabase.readAuditEvents();
+    const callArgs = { questionnaireId: published.questionnaireId, versionId: published.draftVersionId, version: published.version, traceId: A_TRACE_ID, ...override };
+
+    await denied(reporting, RECORD_VIEW_RESPONSE, [
+      callArgs.questionnaireId,
+      callArgs.versionId,
+      callArgs.version,
+      aSessionSummary(),
+      callArgs.traceId,
+    ]);
+
+    expect(await testDatabase.readAuditEvents()).toEqual(before);
+  });
+
+  it("names no caller-supplied text in the payload refusal", async () => {
+    const reporting = await testDatabase.connect("reporting");
+
+    const message = await reporting
+      .query(RECORD_VIEW_RESPONSE, [null, null, null, JSON.stringify({ sessionId: "patient answered yes" }), null])
+      .then(
+        () => undefined,
+        (failure: unknown) => (failure instanceof Error ? failure.message : undefined),
+      );
+
+    expect(message).toBe("qp_reporting may record only the view_response row that names a session");
+  });
+
+  it("does not restrict qp_definition's payload: it still records any summary, trace id and NULL references", async () => {
+    const definition = await testDatabase.connect("definition");
+
+    await definition.query(RECORD_VIEW_RESPONSE, [null, null, null, JSON.stringify({ anything: ["goes"] }), "trace-1"]);
+
+    expect((await testDatabase.readAuditTraceIds()).at(-1)).toEqual({ action: "view_response", trace_id: "trace-1" });
+  });
+
+  it("keeps refusing after SET ROLE to a role that holds EXECUTE, because session_user does not change under SET ROLE", async () => {
+    const admin = await testDatabase.connectAsAdmin();
+
+    await admin.query("BEGIN");
+    try {
+      await admin.query("GRANT qp_definition TO qp_reporting");
+      await admin.query("SET SESSION AUTHORIZATION qp_reporting");
+      await admin.query("SET ROLE qp_definition");
+      const identities = await admin.query(`SELECT session_user AS session_user, current_user AS current_user`);
+      expect(identities.rows).toEqual([{ session_user: "qp_reporting", current_user: "qp_definition" }]);
+
+      await admin.query("SAVEPOINT before_record");
+      await denied(admin, RECORD_WITH_ACTION, ["publish", null, null, null]);
+      await admin.query("ROLLBACK TO SAVEPOINT before_record");
+      await denied(admin, RECORD_VIEW_RESPONSE, [null, null, null, aSessionSummary(), null]);
+    } finally {
+      await admin.query("ROLLBACK");
+    }
+
+    expect(await testDatabase.readAuditEvents()).toEqual([]);
+  });
+
+  it("is executable by no role but qp_definition, qp_reporting, audit_owner and superusers, so a new grantee is noticed", async () => {
+    const owner = await testDatabase.connect("owner");
+    const byPrivilege = await owner.query(
+      `SELECT r.rolname
+         FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+        CROSS JOIN pg_roles r
+        WHERE n.nspname = 'audit' AND p.proname = 'record'
+          AND has_function_privilege(r.oid, p.oid, 'EXECUTE')
+          AND NOT r.rolsuper
+          AND r.rolname NOT IN ('qp_definition', 'qp_reporting', 'audit_owner')
+        ORDER BY 1`,
+    );
+    const byAcl = await owner.query(
+      `SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee
+         FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+        CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+        WHERE n.nspname = 'audit' AND p.proname = 'record' AND a.privilege_type = 'EXECUTE'
+          AND (a.grantee = 0 OR pg_get_userbyid(a.grantee) NOT IN ('qp_definition', 'qp_reporting', 'audit_owner'))
+        ORDER BY 1`,
+    );
+
+    expect(byPrivilege.rows).toEqual([]);
+    expect(byAcl.rows).toEqual([]);
   });
 
   it("only appends actions from the closed list", async () => {

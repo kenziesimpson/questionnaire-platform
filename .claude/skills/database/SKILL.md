@@ -37,7 +37,7 @@ structural instead of a per-table list someone has to remember to extend.
 
 Roles: `qp_owner` owns everything and runs migrations. `qp_definition`, `qp_execution` and `qp_reporting`
 are the three application roles (three pools, three connection strings; the owner's makes four).
-`qp_reporting` is read-only, apart from `audit.record`, and exists for the admin responses browser (Decisions Log #89).
+`qp_reporting` is read-only, apart from `audit.record` (for `view_response` only), and exists for the admin responses browser (Decisions Log #89).
 `audit_owner` owns the audit schema and the function that writes to it. `qp_monitor` is the telemetry identity: a member of
 `pg_monitor`, `EXECUTE` on the `monitor.*` functions, no privilege of any kind on a table in `definition`, `execution` or `audit`. It has no backend
 connection string; the Collector connects as it.
@@ -68,14 +68,14 @@ check instead, the change is wrong.
    database has distinct `option_ids`.
 5. **Collected responses are immutable.** `qp_execution` has `SELECT, INSERT` on `response` and nothing
    else. `qp_reporting` is the only other role that can read `execution.*` — `SELECT` on `session` and
-   `response`, no write privilege on any relation, and no other write than `audit.record` — and `qp_definition` has no grant on either. A response's
+   `response`, no write privilege on any relation, and no other write than `audit.record`, which accepts only `view_response` from it — and `qp_definition` has no grant on either. A response's
    `questionnaire_version_id` must match its session's pin (composite FK). **The only `DELETE` any
    application role holds is `qp_definition` on `questionnaire_item`**, bounded to drafts by the item guard.
    Do not grant another.
 6. **`audit.event` is append-only and unreachable directly.** Writes go through
    `audit.record(...)`, a `SECURITY DEFINER` function. `qp_definition` has no privilege on the table —
    not even `SELECT`. `qp_definition` and `qp_reporting` are the only roles with `EXECUTE` on the
-   function, and the reporting repository's one audit function records `view_response` alone (`0020`).
+   function. The function refuses any action but `view_response` when `session_user` is `qp_reporting` (`0022`), and the reporting repository's one audit function records `view_response` alone (`0020`).
 7. **Nothing is deleted; things are hidden.** Questionnaires retire via `closes_at`, questions archive
    via `archived_at`. Apply this to any new entity.
 
@@ -98,7 +98,7 @@ check instead, the change is wrong.
   `definition.published_questionnaire_version`; it has no `SELECT` on the base `questionnaire_version`.
   **`modules/reporting` holds the `qp_reporting` pool and no other.** Its whole surface is `SELECT` on `session`,
   `response`, the same published view, and the `id` column of `definition.questionnaire`, plus `EXECUTE` on `audit.record`
-  for `view_response` (`0020`). If it needs another
+  for `view_response` (`0020`; `0022` enforces the action inside the function). If it needs another
   read, add a `SELECT` grant in a migration (`0010`, `0018` are the shape); never hand it `qp_execution`'s pool,
   which can write. A test enumerates the role's privileges, so a widening fails loudly.
 - **Read `response` with its partition key.** Filter on `created_at` as well as `session_id` (a submitted session's
@@ -198,6 +198,11 @@ schema, and each one fails *silently* in the naive version.
   default is a hard error (`23514`), not a slow scan.
 - **A unique index on a partitioned table must contain the partition key**, so it can never be global.
   Do not add one that looks like a cross-partition guarantee.
+- **Inside a `SECURITY DEFINER` function, tell callers apart by `session_user`, never `current_user`.** `current_user` is the function
+  owner there. `session_user` is the login role, and `SET ROLE` does not change it. `audit.record` refuses `qp_reporting` any action but
+  `view_response`, and any summary but `{"sessionId": <uuid>}`, this way (`0022`). It is a name match: it fails open if the role is renamed, every other
+  caller is unrestricted, and it needs one pool per role with no pooler forcing a server user. Compare with `=`: `pg_has_role(session_user, ..., 'MEMBER')` is
+  true for a superuser for every role.
 - **A `SECURITY DEFINER` function's owner needs `USAGE` on its schema.** If the function is owned by
   `audit_owner` but the schema is not, every call fails at runtime with `permission denied for schema
   audit` — long after the migration reported success. `ALTER SCHEMA audit OWNER TO audit_owner`.
