@@ -529,4 +529,80 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
       expect(stored, "the audit row must not carry the planted answer").not.toContain(sentinel.toLowerCase());
     },
   },
+  {
+    name: "reporting: reads refused at the edge or answered with a first page, with the sentinel in a path, a query and a cursor built around it, and reads of a session the questionnaire does not have, after a planted response is stored",
+    run: async (world, sentinel) => {
+      const sessionId = await submitPlantedResponse(world, sentinel);
+      const around = (value: string) => Buffer.from(`forward|started|desc|${value}|${value}`, "utf8").toString("base64url");
+      const refused = [
+        listSessionsUrl(sentinel),
+        listSessionsUrl(INTAKE_QUESTIONNAIRE_ID, { version: sentinel }),
+        listSessionsUrl(INTAKE_QUESTIONNAIRE_ID, { status: sentinel }),
+        listSessionsUrl(INTAKE_QUESTIONNAIRE_ID, { sort: sentinel }),
+        listSessionsUrl(INTAKE_QUESTIONNAIRE_ID, { order: sentinel }),
+        listSessionsUrl(INTAKE_QUESTIONNAIRE_ID, { [sentinel]: sentinel }),
+        sessionDetailUrl(INTAKE_QUESTIONNAIRE_ID, sentinel),
+        sessionDetailUrl(sentinel, sessionId),
+      ];
+      const statuses = [];
+      for (const url of refused) {
+        statuses.push((await world.app.inject({ method: "GET", url })).statusCode);
+      }
+      expect(statuses, "each planted path or query must be refused as a bad request for the flow to prove anything").toEqual(refused.map(() => 400));
+
+      const firstPages = [around(sentinel), around(sentinel.toLowerCase())];
+      for (const cursor of firstPages) {
+        const listed = await world.app.inject({ method: "GET", url: listSessionsUrl(INTAKE_QUESTIONNAIRE_ID, { cursor }) });
+        expect(listed.statusCode, "a cursor built around the sentinel must be answered, as a first page").toBe(200);
+        expect(listed.body, "the list carries no answer").not.toContain(sentinel);
+      }
+
+      const noSuchSession = await world.app.inject({ method: "GET", url: sessionDetailUrl(INTAKE_QUESTIONNAIRE_ID, SESSION_ID) });
+      const noSuchQuestionnaire = await world.app.inject({ method: "GET", url: listSessionsUrl(SESSION_ID) });
+      expect([noSuchSession.statusCode, noSuchQuestionnaire.statusCode]).toEqual([404, 404]);
+      const viewRows = (await world.testDatabase.readAuditEvents()).filter((event) => event.action === "view_response");
+      expect(viewRows, "a refused or missing read must write no audit row").toEqual([]);
+    },
+  },
+  {
+    name: "reporting: a stored sentinel answer read with a traceparent whose tracestate and baggage carry the sentinel, and the admin's failure of that read reported through the ingest under the same trace",
+    emits: ["reporting.responses_listed", "reporting.response_viewed", "client.warn", "client.error"],
+    run: async (world, sentinel) => {
+      const sessionId = await submitPlantedResponse(world, sentinel);
+      const traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+      const headers = { traceparent, tracestate: `vendor=${sentinel}`, baggage: `answer=${sentinel}` };
+      const listed = await world.app.inject({ method: "GET", url: listSessionsUrl(INTAKE_QUESTIONNAIRE_ID), headers });
+      const detail = await world.app.inject({ method: "GET", url: sessionDetailUrl(INTAKE_QUESTIONNAIRE_ID, sessionId), headers });
+      expect([listed.statusCode, detail.statusCode]).toEqual([200, 200]);
+      expect(detail.body, "the read-back must return the planted answer for the flow to prove anything").toContain(sentinel);
+
+      const at = new Date().toISOString();
+      const screen = "/questionnaires/$questionnaireId/responses/$sessionId";
+      const reported = await world.app.inject({
+        method: "POST",
+        url: telemetryApi.TELEMETRY_PREFIX,
+        headers,
+        payload: {
+          events: [
+            { name: "client.warn", at, traceparent, fields: { errorType: "TypeError", route: screen } },
+            { name: "client.error", at, traceparent, fields: { errorType: "Error", route: screen, errorStack: "    at render (index-3f2a.js:1:2)" } },
+            {
+              name: "client.error",
+              at,
+              traceparent,
+              fields: {
+                errorType: "Error",
+                route: `/questionnaires/${sentinel}/responses/${sentinel}`,
+                errorStack: `    at ${sentinel} (index-3f2a.js:1:2)`,
+                answer: sentinel,
+                text: sentinel,
+              },
+            },
+          ],
+        },
+      });
+      expect(reported.statusCode, "the reported failure must be accepted for the flow to prove anything").toBe(202);
+      expect(reported.json()).toEqual({ accepted: 3, dropped: 0 });
+    },
+  },
 ];
