@@ -12,6 +12,7 @@ export interface TestDatabaseServer {
 declare module "vitest" {
   export interface ProvidedContext {
     testDatabaseServer: TestDatabaseServer;
+    postgresServerLog: string;
   }
 }
 

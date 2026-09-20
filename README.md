@@ -5,8 +5,12 @@ platform with conditional branching. See [`docs/2-design-doc.md`](docs/2-design-
 for the full design (in progress — sections fill in as decisions land) and
 [`docs/4-implementation-plan.md`](docs/4-implementation-plan.md) for build status.
 
-> **Status:** repo scaffold only. Domain model, API, and UI are not yet
-> implemented — see the implementation plan for what's next.
+> **Status:** a working prototype. Administrators author, preview and publish versioned
+> questionnaires with conditional branching; respondents fill them in and submit; administrators
+> browse the responses, and each read of a response's raw answers is written to an audit trail.
+> Telemetry is built in, with a rule that a respondent's answer never enters it, and an opt-in
+> observability stack (a Collector and Grafana) runs beside the app. [`docs/4-implementation-plan.md`](docs/4-implementation-plan.md)
+> has what is built and what is still a manual check. Run it below.
 
 ## Repo layout
 
@@ -21,7 +25,10 @@ packages/
   telemetry/    The single boundary allowed to import a logging/tracing library
 deploy/
   frontend/     The nginx image that serves both app builds and proxies /api to the backend
-observability/  The OpenTelemetry Collector's configuration, run by the `observability` Compose profile
+observability/  The OpenTelemetry Collector's configuration and the Grafana dashboards and alert rules, run by the `observability` Compose profile
+db/init/        The script that creates the database roles, and the `pg_stat_statements` setup
+e2e/            Playwright specs against the composed stack
+tests/          Repo-level tests: lint rules, test placement, the nginx access log, the Compose profile and the dashboards
 docs/           Design doc, scaling notes, implementation plan, ideation
 ```
 
@@ -55,8 +62,7 @@ docker compose up --build
 ```
 
 This builds and runs the full stack — Postgres, a one-shot migrate/seed job,
-the backend API, and the frontend container — seeded with the demo questionnaire once
-that lands. `docker-compose.override.yml` is applied automatically (it's how
+the backend API, and the frontend container — seeded with the demo intake questionnaire. `docker-compose.override.yml` is applied automatically (it's how
 Compose works when the file is present) and switches both app containers to
 dev mode with hot reload via bind mounts. The frontend container runs two Vite dev servers, one per
 app, and each proxies `/api` itself, so with the plain command above:
@@ -103,7 +109,7 @@ What runs today:
 - **Structured JSON logs** on the backend's stdout, one line per event, with the trace and span id inside a span; with export on, the same lines also leave as OpenTelemetry log records. `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`) sets the threshold. Logs are pretty-printed when `NODE_ENV=development`.
 - **Health probes:** `/health/live` (the process is up) and `/health/ready` (each database pool answers).
 - **A closed field registry.** A log line or span carries only registered fields, whose types cannot hold free text; anything else is dropped and counted. `.claude/skills/telemetry-safety/SKILL.md` says how to add a field or a signal.
-- **The sentinel leak test**, which plants a value where an answer would be and fails if it reaches any log, span or metric. Run it with `npm run test:leak-test`; CI runs it as its own job, "Response telemetry leak test".
+- **The sentinel leak test**, which plants a value where an answer would be and fails if it reaches any log, span, metric or exported log record. Run it with `npm run test:leak-test`; CI runs it as its own job, "Response telemetry leak test".
 
 OpenTelemetry export is off unless you point the backend at an OTLP/HTTP receiver. Set these in the backend's environment:
 
@@ -130,6 +136,7 @@ docker compose -f docker-compose.yml --profile observability up --build
 - **Dashboards:** Dashboards, folder "Questionnaire platform": Service health, Respondent funnel, Admin and authoring, Database, and Client. They are files under `observability/grafana/dashboards/`, so edit the JSON, not the UI.
 - **Alerts:** Alerting, Alert rules, the group "Questionnaire platform, O10": the six alerts, and the group "Questionnaire platform, client": three that only ever ticket, each labelled `severity` `page` or `ticket` and annotated with what to look at first. No contact point is provisioned, so they show in Grafana and notify nobody until you add one under Alerting, Notification policies. Thresholds and reasoning are in [`docs/6-observability.md`](docs/6-observability.md) §8.3.
 - **Turning on export:** the backend sends nothing until `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Inside Compose it is `http://collector:4318`; for a backend on the host it is `http://localhost:4318` (the Collector publishes `OTLP_PORT` on `127.0.0.1`). Compose passes `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` and `LOG_LEVEL` to the backend. Set `QP_SERVICE_VERSION` to a commit SHA to stamp each signal with the build; it defaults to `dev`. The plain `docker compose --profile observability up` (with the dev override) works too.
+- **Browser tracing** is off unless the frontend image is built with `VITE_TELEMETRY_TRACING=true`, which Compose does not pass: build it with `docker compose -f docker-compose.yml build --build-arg VITE_TELEMETRY_TRACING=true frontend`, then start the profile without `--build`. Without it the browser sends no `traceparent` and a trace starts at the backend. Browser spans are never exported; a trace that came from a browser shows the backend's `request` span with a parent that was never received. H7 in [`docs/4-implementation-plan.md`](docs/4-implementation-plan.md#manual-checkpoints) is the manual check that follows one submit and one admin read through the stack.
 - **What the Collector keeps.** Every pipeline that exports has a redaction stage that removes every attribute not on its allowlist; the backend's signals use the telemetry field registry as the allowlist. The request-rate and latency metrics are derived from every span before sampling. Sampling, redaction and the log path are in [`docs/6-observability.md`](docs/6-observability.md) §8.2, §10 and §11.
 - **Logs** are emitted by the backend as OpenTelemetry log records, from the same place that writes its stdout lines and after the same scrub, and they carry the trace id of the request they belong to. The Collector reads no file and no container. **nginx's access log** is JSON on the frontend container's stdout (`docker compose logs frontend`): the method, the status, the trace context and the route with session ids masked as `:sessionId`, with a path that is not a plain route logged as `:unmatched` and no query string, so a pagination `cursor` cannot appear. It is not sent to Grafana ([`docs/6-observability.md`](docs/6-observability.md) §11.1, L5).
 - **Postgres metrics** are read as `qp_monitor`, a role that can read statistics and no answer table. The `roles` service creates it from `db/init/01-roles.sh` on every `up`.

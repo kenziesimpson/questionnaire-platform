@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { createWriteStream, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
@@ -28,7 +30,7 @@ function passwordsFromEnvironment(): RolePasswords {
   };
 }
 
-async function startContainer(): Promise<{ server: TestDatabaseServer; stop: () => Promise<void> }> {
+async function startContainer(): Promise<{ server: TestDatabaseServer; serverLog: string; stop: () => Promise<void> }> {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE)
     .withDatabase(TEMPLATE_DATABASE)
     .withUsername("bootstrap")
@@ -39,6 +41,15 @@ async function startContainer(): Promise<{ server: TestDatabaseServer; stop: () 
       { source: PG_STAT_STATEMENTS_SCRIPT, target: "/qp-init/pg-stat-statements.sql" },
     ])
     .start();
+  const logDirectory = mkdtempSync(join(tmpdir(), "qp-postgres-log-"));
+  const serverLog = join(logDirectory, "postgres.log");
+  const serverLogFile = createWriteStream(serverLog);
+  (await container.logs()).pipe(serverLogFile);
+  const stop = async () => {
+    await container.stop();
+    serverLogFile.end();
+    rmSync(logDirectory, { recursive: true, force: true });
+  };
   const roles = await container.exec(["sh", "/qp-init/01-roles.sh"], {
     env: {
       QP_OWNER_PASSWORD: containerPasswords.owner,
@@ -49,13 +60,13 @@ async function startContainer(): Promise<{ server: TestDatabaseServer; stop: () 
     },
   });
   if (roles.exitCode !== 0) {
-    await container.stop();
+    await stop();
     throw new Error(`db/init/01-roles.sh failed:\n${roles.output}`);
   }
   const adminUrl = withDatabase(container.getConnectionUri(), "postgres");
   const server: TestDatabaseServer = { adminUrl, passwords: containerPasswords };
   await applyMigrations(withDatabase(withRole(adminUrl, "qp_owner", containerPasswords.owner), TEMPLATE_DATABASE));
-  return { server, stop: async () => void (await container.stop()) };
+  return { server, serverLog, stop };
 }
 
 async function useExistingInstance(adminUrl: string): Promise<TestDatabaseServer> {
@@ -83,9 +94,11 @@ export default async function setup(project: TestProject): Promise<(() => Promis
   const existing = process.env.TEST_DATABASE_URL;
   if (existing !== undefined && existing !== "") {
     project.provide("testDatabaseServer", await useExistingInstance(existing));
+    project.provide("postgresServerLog", "");
     return undefined;
   }
   const started = await startContainer();
   project.provide("testDatabaseServer", started.server);
+  project.provide("postgresServerLog", started.serverLog);
   return started.stop;
 }

@@ -51,8 +51,9 @@ describe("calendar dates", () => {
     expect(addDays(date, days)).toBe(expected);
   });
 
-  it("the date format admits years 0000–0099, so the calendar arithmetic must handle them", () => {
-    for (const date of ["0000-01-01", "0099-12-31"]) expect(Value.Check(IsoDate, date)).toBe(true);
+  it("the date format admits years 0001–0099 and refuses 0000, which Postgres has no date for, so the calendar arithmetic must handle the years it admits", () => {
+    for (const date of ["0001-01-01", "0099-12-31"]) expect(Value.Check(IsoDate, date)).toBe(true);
+    expect(Value.Check(IsoDate, "0000-01-01")).toBe(false);
     expect(dayNumber("0100-01-01") - dayNumber("0099-12-31")).toBe(1);
     expect(dayNumber("0099-12-31")).not.toBe(dayNumber("1999-12-31"));
   });
