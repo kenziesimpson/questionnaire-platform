@@ -71,6 +71,7 @@ services:
       DATABASE_URL_REPORTING: postgres://qp_reporting:${QP_REPORTING_PASSWORD:-qp_reporting}@db:5432/${POSTGRES_DB:-questionnaire_platform}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
+      TELEMETRY_INGEST_EVENTS_PER_SECOND: ${TELEMETRY_INGEST_EVENTS_PER_SECOND:-}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/ready', { signal: AbortSignal.timeout(4000) }).then((response) => process.exit(response.ok ? 0 : 1), () => process.exit(1))"]
       interval: 5s

@@ -341,7 +341,7 @@ sends; `emitDomainEvent` stamps nothing, since the browser SDK routes it into it
 
 ## The ingest
 
-`ingestBatch(events, receivedAt)` is what `POST /api/telemetry` runs
+`ingestBatch(events, receivedAt, capacity?)` is what `POST /api/telemetry` runs
 ([`docs/6-observability.md`](../../docs/6-observability.md) O5, O17, L4). The backend plugin owns the wire contract, the rate
 limit and the body cap; this function owns what is kept. It takes each event as `unknown` and never rejects a batch:
 
@@ -371,6 +371,13 @@ limit and the body cap; this function owns what is kept. It takes each event as 
    or `relayBrowserEvent` for a domain event, which write the same log line and counter as `emitDomainEvent`, then pass the scrub
    at call time and again at export.
 6. Events past `MAX_TELEMETRY_EVENTS` are dropped as `over_limit`.
+7. Given a `capacity` (`createIngestCapacity(eventsPerSecond)`, default `DEFAULT_INGEST_EVENTS_PER_SECOND`, 200), an event that passed step 2 is
+   admitted only while the second's count, kept across batches and addresses in one process, is under the cap; a client log event is
+   admitted under three quarters of the cap and a domain event under all of it, so `session.abandoned` is shed last. A shed event is
+   dropped whole as `over_capacity`, before its fields are read, so it adds no field drop and nothing is logged. The plugin answers
+   `202`, as it does for `over_limit`, and the receipt's `dropped` counts the shed events; a whole-batch `429` is only for the per-address limit. An event that fails steps
+   1 and 2 spends none of the cap. The count is per process, one second at a time; Redis or another shared store is the scale-out
+   path for the per-address limit ([`docs/6-observability.md`](../../docs/6-observability.md) O21), not for this cap.
 
 The ingest never throws into the handler. `ingestBatch` guards each event with `guardedOr`, and `relayLog`, `relayBrowserEvent` and
 `reportIngestDropped` swallow and count their own failures as `internal` drops of `telemetry.scrub.dropped`. A failing sink, meter or hostile
@@ -378,7 +385,7 @@ value drops that event, which is counted in the receipt's `dropped` and never ha
 accepted once its log line is written; a counter that fails after that is an `internal` metric drop, not a dropped event.
 
 Every drop is one increment of `telemetry.ingest.dropped`, labelled `telemetry.ingest_reason` with a member of
-`INGEST_DROP_REASONS` (`malformed`, `unknown_event`, `unknown_field`, `invalid_field`, `invalid_trace`, `over_limit`). Field drops
+`INGEST_DROP_REASONS` (`malformed`, `unknown_event`, `unknown_field`, `invalid_field`, `invalid_trace`, `over_limit`, `over_capacity`). Field drops
 are not event drops: the receipt's `dropped` counts events only. An event's name, timestamp, traceparent and rejected values are
 counted and never logged.
 
@@ -390,7 +397,9 @@ build sends it and stops accepting it only after no deployed build does.
 The plugin around it (`apps/backend/src/modules/telemetry`) answers a batch that is not an envelope, is not JSON or carries a
 `__proto__` or `constructor.prototype` key anywhere as a `400` `request/invalid` problem for the whole batch, since Fastify refuses
 the body before the ingest sees it. A body over 64 KiB is a `413` that the error handler answers as `request/invalid`. The
-per-address rate limit (300 a minute, one bucket per IPv4 address or IPv6 `/64`) is keyed on `request.ip`, and `buildApp` sets
+per-address rate limit (`@fastify/rate-limit`, registered inside the module only: 300 a minute, one bucket per IPv4 address or IPv6 `/64`,
+checked in `onRequest`, so before the body is read, and answered as a `429` `request/rate-limited` problem with a `Retry-After` and no
+`x-ratelimit-*` header) is keyed on `request.ip`, and `buildApp` sets
 `trustProxy: 1` for the one nginx hop, so each browser has its own bucket ([`docs/6-observability.md`](../../docs/6-observability.md)
 O21). The browser must cap its batch bytes below the limit and send a beacon as a `Blob` typed `application/json`, because a plain
 string goes as `text/plain`, which is a `400`.

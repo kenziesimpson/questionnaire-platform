@@ -240,7 +240,7 @@ O19). The rules are the server's rules, applied before anything is queued:
 `POST /api/telemetry` (`modules/telemetry`, `ingestBatch` in `packages/telemetry/src/ingest.ts`) is the one place telemetry
 arrives from outside. It has no database and never logs a body. It accepts an event only if its name is a
 client log event (`client.` and a level from `CLIENT_LOG_LEVELS`) or a `BROWSER_DOMAIN_EVENTS` member, keeps a field only if `judgeBrowserField` (`wire-contract.ts`) finds it on that event's list and `FIELDS` accepts it (`errorStack` also has to pass the
-stricter `isBrowserStack`), and counts every drop in `telemetry.ingest.dropped{reason}`. Before adding a browser event, ask whether the server could emit it itself;
+stricter `isBrowserStack`), and counts every drop in `telemetry.ingest.dropped{reason}`, `over_capacity` among them: past a global cap on events a second the ingest sheds an event whole before reading its fields, client log events first (O21). Before adding a browser event, ask whether the server could emit it itself;
 an event the server owns stays off the allowlist, so a browser cannot move its counter. A client log line carries no message: its
 level is its name. Hole 2 applies in full: the ingest cannot tell a slug-shaped `itemId` or a route from a one-word answer, so a
 browser build must take them from the definition and the route template. Never log or count an ingested name, timestamp,

@@ -8,6 +8,8 @@ export const MAX_TELEMETRY_EVENTS = 50;
 
 export const MAX_TELEMETRY_BODY_BYTES = 65_536;
 
+export const MAX_TELEMETRY_REQUESTS_PER_MINUTE = 300;
+
 export const TelemetryEvent = Type.Object({
   name: Type.String(),
   at: Type.String(),

@@ -4,7 +4,9 @@ import { emitDomainEvent, FIELDS, logger, MAX_FINDINGS, withSpan, type DomainEve
 import { plantThirdPartyTelemetry, type LeakFlow } from "@qp/telemetry/leak-test";
 import { DrizzleQueryError } from "drizzle-orm";
 import { expect } from "vitest";
+import { buildApp } from "../../src/app.js";
 import { SQLSTATE } from "../../src/db/errors.js";
+import { requestLogger } from "../../src/http/request-logger.js";
 import { encodeCursor } from "../../src/db/reporting/cursor.js";
 import { InvariantViolation } from "../../src/invariant.js";
 import { SESSION_ID } from "../http/fixtures.js";
@@ -509,6 +511,40 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
       });
       const plainText = await app.inject({ method: "POST", url, headers: { "content-type": "text/plain" }, payload: sentinel });
       expect([notAnEnvelope, malformed, bareToken, oversized, plainText].map((response) => response.statusCode)).toEqual([400, 400, 400, 400, 400]);
+    },
+  },
+  {
+    name: "telemetry ingest: events shed over the global cap, and a request refused over the per-address limit, each carrying the sentinel",
+    emits: ["client.error", "session.abandoned"],
+    run: async ({ testDatabase }, sentinel) => {
+      const limited = await buildApp({
+        logger: requestLogger("debug"),
+        definition: { database: testDatabase.database("definition") },
+        execution: { database: testDatabase.database("execution") },
+        reporting: { reporting: testDatabase.database("reporting") },
+        telemetry: { rateLimit: { max: 1, windowMs: 60_000 }, eventsPerSecond: 4 },
+      });
+      try {
+        const at = new Date().toISOString();
+        const forged = forgedRegistryContext(sentinel);
+        const events = [
+          ...Array.from({ length: 5 }, () => ({ name: "client.error", at, fields: forged, traceparent: sentinel })),
+          { name: "session.abandoned", at, fields: forged },
+        ];
+        const shed = await limited.inject({ method: "POST", url: telemetryApi.TELEMETRY_PREFIX, payload: { events } });
+        expect(shed.statusCode, "the planted batch must be accepted for the flow to prove anything").toBe(202);
+        expect(shed.json(), "three client errors and the abandonment are kept, two client errors are shed over the cap").toEqual({ accepted: 4, dropped: 2 });
+        const refused = await limited.inject({
+          method: "POST",
+          url: telemetryApi.TELEMETRY_PREFIX,
+          headers: { "content-type": "application/json", "x-request-id": sentinel },
+          payload: `{"events": "${sentinel}`,
+        });
+        expect(refused.statusCode, "the planted request must be refused over the per-address limit for the flow to prove anything").toBe(429);
+        expect(refused.body, "a refusal must not echo the request").not.toContain(sentinel);
+      } finally {
+        await limited.close();
+      }
     },
   },
   {

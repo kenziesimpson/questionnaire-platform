@@ -6,7 +6,7 @@ import { applyHttpDefaults, replyWithProblem } from "./http/problems.js";
 import { definitionModule, type DefinitionModuleOptions } from "./modules/definition/plugin.js";
 import { executionModule, type ExecutionModuleOptions } from "./modules/execution/plugin.js";
 import { reportingModule, type ReportingModuleOptions } from "./modules/reporting/plugin.js";
-import { telemetryModule } from "./modules/telemetry/plugin.js";
+import { telemetryModule, type TelemetryModuleOptions } from "./modules/telemetry/plugin.js";
 
 const TRUSTED_PROXY_HOPS = 1;
 
@@ -19,12 +19,14 @@ export interface AppOptions {
   readonly definition: DefinitionModuleOptions;
   readonly execution: ExecutionModuleOptions;
   readonly reporting: ReportingModuleOptions;
+  readonly telemetry?: TelemetryModuleOptions;
 }
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     ...(options.logger === undefined ? { logger: false } : { loggerInstance: options.logger }),
     logController: new LogController({ disableRequestLogging: (request) => isHealthRequest(request.url) }),
+    requestIdHeader: false,
     genReqId: () => randomUUID(),
     trustProxy: trustNearestProxy,
     frameworkErrors: replyWithProblem,
@@ -39,7 +41,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await app.register(definitionModule, { ...options.definition, prefix: definitionApi.DEFINITION_PREFIX });
   await app.register(executionModule, { ...options.execution, prefix: executionApi.EXECUTION_PREFIX });
   await app.register(reportingModule, { ...options.reporting, prefix: reportingApi.REPORTING_PREFIX });
-  await app.register(telemetryModule, { prefix: telemetryApi.TELEMETRY_PREFIX });
+  await app.register(telemetryModule, { ...options.telemetry, prefix: telemetryApi.TELEMETRY_PREFIX });
 
   return app;
 }

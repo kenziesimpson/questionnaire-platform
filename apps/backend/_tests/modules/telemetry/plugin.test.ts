@@ -1,7 +1,7 @@
 import { PROBLEM_CONTENT_TYPE, problemType, telemetryApi } from "@qp/shared";
 import { installTestTelemetry, type TestTelemetry } from "@qp/telemetry/testing";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { trustNearestProxy } from "../../../src/app.js";
 import { telemetryModule, type TelemetryModuleOptions } from "../../../src/modules/telemetry/plugin.js";
 
@@ -35,6 +35,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   await app?.close();
   app = undefined;
   await telemetry.shutdown();
@@ -158,23 +159,81 @@ describe("POST /api/telemetry", () => {
   });
 
   it("refuses a request over the rate limit with 429, a Retry-After and no ingest, and admits again after the window", async () => {
-    const clock = { now: RECEIVED_AT };
-    const instance = await build({ rateLimit: { max: 2, windowMs: 60_000 }, now: () => clock.now });
+    vi.useFakeTimers({ toFake: ["Date"], now: RECEIVED_AT });
+    const instance = await build({ rateLimit: { max: 2, windowMs: 60_000 } });
     const batch = { events: [{ name: "client.info", at: AT }] };
 
     expect((await post(instance, batch)).statusCode).toBe(202);
     expect((await post(instance, batch)).statusCode).toBe(202);
-    clock.now += 20_000;
+    vi.setSystemTime(RECEIVED_AT + 20_000);
     const limited = await post(instance, batch);
 
     expect(limited.statusCode).toBe(429);
     expect(limited.headers["retry-after"]).toBe("40");
+    expect(limited.headers["cache-control"]).toBe("no-store");
     expect(limited.headers["content-type"]).toContain(PROBLEM_CONTENT_TYPE);
     expect(limited.json()).toMatchObject({ type: problemType("request/rate-limited"), status: 429 });
     expect(telemetry.logs().filter((line) => line.msg === "client.info")).toHaveLength(2);
 
-    clock.now += 40_000;
+    vi.setSystemTime(RECEIVED_AT + 60_000);
     expect((await post(instance, batch)).statusCode).toBe(202);
+  });
+
+  it("sends no x-ratelimit header, on an admitted request or a refused one", async () => {
+    const instance = await build({ rateLimit: { max: 1, windowMs: 60_000 } });
+    const batch = { events: [{ name: "client.info", at: AT }] };
+
+    const responses = [await post(instance, batch), await post(instance, batch)];
+
+    expect(responses.map((response) => response.statusCode)).toEqual([202, 429]);
+    for (const response of responses) {
+      expect(Object.keys(response.headers).filter((name) => name.startsWith("x-ratelimit") || name.startsWith("ratelimit"))).toEqual([]);
+    }
+  });
+
+  it("counts each address on its own", async () => {
+    const instance = await build({ rateLimit: { max: 1, windowMs: 60_000 } });
+    const batch = { events: [{ name: "client.info", at: AT }] };
+    const from = (remoteAddress: string) => instance.inject({ method: "POST", url: INGEST_URL, remoteAddress, payload: batch });
+
+    const statuses = [
+      (await from("203.0.113.5")).statusCode,
+      (await from("203.0.113.6")).statusCode,
+      (await from("203.0.113.5")).statusCode,
+      (await from("203.0.113.6")).statusCode,
+    ];
+
+    expect(statuses).toEqual([202, 202, 429, 429]);
+  });
+
+  it("tracks 10,000 addresses before it forgets the oldest, so a flood of new ones does not free an address that is limited", async () => {
+    const instance = await build({ rateLimit: { max: 1, windowMs: 60_000 } });
+    const batch = { events: [] };
+    const from = async (index: number) =>
+      (await instance.inject({ method: "POST", url: INGEST_URL, remoteAddress: `10.${(index >> 16) & 255}.${(index >> 8) & 255}.${index & 255}`, payload: batch })).statusCode;
+
+    expect(await from(0)).toBe(202);
+    for (let index = 1; index < 10_000; index += 1) await from(index);
+
+    expect(await from(0)).toBe(429);
+  }, 60_000);
+
+  it("shares one bucket across an IPv6 /64, separates other prefixes, and counts an IPv4-mapped address as the IPv4 one", async () => {
+    const instance = await build({ rateLimit: { max: 1, windowMs: 60_000 } });
+    const batch = { events: [{ name: "client.info", at: AT }] };
+    const from = async (remoteAddress: string) => (await instance.inject({ method: "POST", url: INGEST_URL, remoteAddress, payload: batch })).statusCode;
+
+    const statuses = [
+      await from("2001:db8:1:2:aaaa:bbbb:cccc:dddd"),
+      await from("2001:db8:1:2:1111:2222:3333:4444"),
+      await from("2001:0db8:0001:0002::1"),
+      await from("2001:db8:1:3::1"),
+      await from("2001:db8:1:3::"),
+      await from("203.0.113.5"),
+      await from("::ffff:203.0.113.5"),
+    ];
+
+    expect(statuses).toEqual([202, 429, 429, 202, 429, 202, 429]);
   });
 
   it("keys the limit on the forwarded address when the peer is a trusted proxy, so two clients behind it have separate buckets", async () => {
@@ -202,16 +261,47 @@ describe("POST /api/telemetry", () => {
     expect([(await from("203.0.113.5")).statusCode, (await from("203.0.113.6")).statusCode]).toEqual([202, 429]);
   });
 
-  it("rate-limits before it reads the body, so a refused request costs no parse", async () => {
+  it("rate-limits before it reads the body, so a refused request costs no parse, and its refusal echoes and logs nothing of it", async () => {
     const instance = await build({ rateLimit: { max: 0, windowMs: 60_000 } });
 
     const response = await instance.inject({
       method: "POST",
       url: INGEST_URL,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-forwarded-for": LEAK },
       payload: `{"events": "${LEAK}`,
     });
 
     expect(response.statusCode).toBe(429);
+    expect(response.json()).toMatchObject({ type: problemType("request/rate-limited"), status: 429 });
+    expect(response.body).not.toContain(LEAK);
+    expect(JSON.stringify(telemetry.logs())).not.toContain(LEAK);
+    expect(JSON.stringify(await telemetry.metrics())).not.toContain(LEAK);
+  });
+
+  it("sheds client log events past the global cap with 202, keeps session.abandoned, and counts the shed as over capacity", async () => {
+    const instance = await build({ eventsPerSecond: 4 });
+    const abandoned = { name: "session.abandoned", at: AT, fields: { sessionId: SESSION_ID, lastItemId: "itm_02" } };
+    const logEvents = Array.from({ length: 5 }, () => ({ name: "client.info", at: AT }));
+
+    const response = await post(instance, { events: [...logEvents, abandoned] });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual({ accepted: 4, dropped: 2 });
+    expect(telemetry.logs().filter((line) => line.msg === "client.info")).toHaveLength(3);
+    expect(telemetry.logs().filter((line) => line.msg === "session.abandoned")).toHaveLength(1);
+    const dropped = (await telemetry.metrics()).find((metric) => metric.descriptor.name === "telemetry.ingest.dropped");
+    expect(dropped?.dataPoints.map((point) => ({ value: point.value, attributes: point.attributes }))).toContainEqual({
+      value: 2,
+      attributes: { "telemetry.ingest_reason": "over_capacity" },
+    });
+  });
+
+  it("shares the global cap among addresses, so a second address is shed once the first has used the log events of that second", async () => {
+    const instance = await build({ eventsPerSecond: 4 });
+    const batch = { events: Array.from({ length: 3 }, () => ({ name: "client.info", at: AT })) };
+    const from = async (remoteAddress: string) =>
+      (await instance.inject({ method: "POST", url: INGEST_URL, remoteAddress, payload: batch })).json<{ accepted: number }>().accepted;
+
+    expect([await from("203.0.113.5"), await from("203.0.113.6")]).toEqual([3, 0]);
   });
 });

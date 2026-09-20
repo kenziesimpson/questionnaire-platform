@@ -2,6 +2,7 @@ import { context, trace, type SpanContext } from "@opentelemetry/api";
 import { telemetryApi } from "@qp/shared";
 import { relayBrowserEvent } from "./events.js";
 import { guardedOr } from "./guard.js";
+import type { IngestCapacity, IngestEventKind } from "./ingest-capacity.js";
 import { reportIngestDropped } from "./instruments.js";
 import { relayLog } from "./logger.js";
 import { parseTraceparent } from "./trace-context.js";
@@ -55,13 +56,18 @@ function withParent<T>(parent: SpanContext | undefined, fn: () => T): T {
   return parent === undefined ? fn() : context.with(trace.setSpanContext(context.active(), parent), fn);
 }
 
-function ingestEventUnguarded(raw: unknown, receivedAt: number): boolean {
+function kindOf(name: string): IngestEventKind {
+  return clientLogLevelOf(name) === undefined ? "domain" : "log";
+}
+
+function ingestEventUnguarded(raw: unknown, receivedAt: number, capacity: IngestCapacity | undefined): boolean {
   if (!isRecord(raw)) return refused("malformed");
   const { name, at, fields = {}, traceparent } = raw;
   if (typeof name !== "string" || typeof at !== "string" || Number.isNaN(Date.parse(at)) || !isRecord(fields)) {
     return refused("malformed");
   }
   if (browserFieldsOf(name) === undefined) return refused("unknown_event");
+  if (capacity !== undefined && !capacity.admit(kindOf(name), receivedAt)) return refused("over_capacity");
 
   const { kept, unregistered, rejected } = keptFieldsOf(fields, name);
   reportIngestDropped("unknown_field", unregistered);
@@ -73,15 +79,15 @@ function ingestEventUnguarded(raw: unknown, receivedAt: number): boolean {
   return withParent(parent, () => relay(name, stamped));
 }
 
-function ingestEvent(raw: unknown, receivedAt: number): boolean {
-  return guardedOr("log", false, () => ingestEventUnguarded(raw, receivedAt));
+function ingestEvent(raw: unknown, receivedAt: number, capacity: IngestCapacity | undefined): boolean {
+  return guardedOr("log", false, () => ingestEventUnguarded(raw, receivedAt, capacity));
 }
 
-export function ingestBatch(events: readonly unknown[], receivedAt: number): telemetryApi.TelemetryReceipt {
+export function ingestBatch(events: readonly unknown[], receivedAt: number, capacity?: IngestCapacity): telemetryApi.TelemetryReceipt {
   return guardedOr("log", { accepted: 0, dropped: 0 }, () => {
     const considered = events.slice(0, telemetryApi.MAX_TELEMETRY_EVENTS);
     reportIngestDropped("over_limit", events.length - considered.length);
-    const accepted = considered.filter((event) => ingestEvent(event, receivedAt)).length;
+    const accepted = considered.filter((event) => ingestEvent(event, receivedAt, capacity)).length;
     return { accepted, dropped: events.length - accepted };
   });
 }
