@@ -238,13 +238,24 @@ Planned, P2. Each pages or tickets on a symptom a respondent or an operator woul
 | Alert | Signal it reads | Built by |
 | --- | --- | --- |
 | Submit success rate drops | The submit outcome counters | B1 |
-| 5xx rate rises | `http.server.request.duration` by status class | Unassigned: nothing registers HTTP metrics today |
-| p95 latency of the questionnaire definition fetch rises | The same histogram for that route | Unassigned |
+| 5xx rate rises | `traces.span.metrics.calls`, filtered to `http.response.status_code` 500 to 599 (§8.2) | P1 |
+| p95 latency of the questionnaire definition fetch rises | `traces.span.metrics.duration` for that route's `http.route` (§8.2) | P1 |
 | Event-loop lag stays high | `nodejs.eventloop.delay.p99` (seconds; the other delay statistics and `nodejs.eventloop.utilization` sit beside it) | D1 |
 | Requests stay queued for a pool connection | `db.pool.connections.waiting`, one point per `db.pool` | D1 |
 | Fewer than one month of future `response` partitions remain | `monitor.response_partition_months_ahead()`, read as `qp_monitor`; the alert fires on a value below `1` (§14, [[9-database-schema#10.1 `qp_monitor` and the `monitor` schema]]) | D2 |
 
 The last row is the one nothing else would catch: a missing partition fails every submit while every process is up ([[9-database-schema]]).
+
+### 8.2 Request metrics from spans
+
+The SDK's Fastify instrumentation emits spans and no HTTP metrics, so `http.server.request.duration` does not exist. The Collector derives the request metrics instead: its `span_metrics` connector reads the server-kind spans (Fastify's `request` span) on the traces pipeline before tail sampling, so sampling never thins the counts (§10). Each metric carries three dimensions, all registered fields that survive the SDK's export scrub: `http.route` (a template such as `/api/run/sessions/:sessionId`, never a URL), `http.request.method` and `http.response.status_code`.
+
+| Metric (OTLP name) | Type | Dimensions |
+| --- | --- | --- |
+| `traces.span.metrics.calls` | counter, cumulative | `service.name`, `span.name`, `span.kind`, `status.code`, `http.route`, `http.request.method`, `http.response.status_code` |
+| `traces.span.metrics.duration` | histogram in milliseconds; buckets 5, 10, 25, 50, 100, 250, 500 ms, 1, 2.5, 5, 10 s | the same |
+
+A span reports `status.code` `STATUS_CODE_ERROR` on a 5xx and when an error reaches Fastify's `onError` hook, which a thrown error does and a failed schema validation may; a problem response a handler returns, such as a `404` or a `409`, is not an error. A request that matches no route has no `http.route`. LGTM's Prometheus receives these through OTLP and may rename them (`traces_span_metrics_calls_total`, `traces_span_metrics_duration_milliseconds_bucket` is the usual translation); P2 confirms the names in Explore before it writes a rule. The Collector config is `observability/collector.yaml`.
 
 ## 9. Correctness and invariant monitoring
 
@@ -269,8 +280,11 @@ Two things were separated during this discussion and are worth keeping separate:
 
 ## 10. Sampling, retention, cost
 
-- **Tail sampling in the Collector, planned (P1): keep every error trace, every slow trace and 10% of the rest.** The decision is made after the whole trace has arrived, which is the only way to keep a trace *because* it failed or was slow. What counts as slow is P1's to set. A head sampler cannot do this: it decides at the first span, before the outcome exists.
-- Because the Collector decides, the SDK exports every span. Today nothing samples (the SDK default is parent-based always-on) and nothing exports either unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set (§11). Tail sampling needs every span of a trace to reach the same Collector, so a second Collector replica would need trace-id-aware routing in front of it; one Collector is enough here.
+- **Tail sampling in the Collector (P1, shipped): every error trace, every slow trace and 10% of the rest.** The decision is made after the whole trace has arrived, which is the only way to keep a trace *because* it failed or was slow. A head sampler cannot do this: it decides at the first span, before the outcome exists. The `tail_sampling` processor holds a trace for `decision_wait: 10s` and keeps it when any of three policies say so:
+  - `errors`: a span in the trace has status `ERROR`, which `@fastify/otel` sets for a 5xx and when an error reaches Fastify's `onError` hook, and `pg` sets for a failed query.
+  - `slow`: the trace lasted at least `threshold_ms: 1000`, from its earliest span start to its latest span end. A second is well past what a respondent-facing request should take, and it is a bucket boundary of the duration histogram (§8.2). It is one number in `observability/collector.yaml`, to be tuned against real p95s.
+  - `baseline`: 10% of all traces, chosen by hashing the trace id.
+- Because the Collector decides, the SDK exports every span. Today nothing samples (the SDK default is parent-based always-on) and nothing exports either unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set (§11). Tail sampling needs every span of a trace to reach the same Collector, so a second Collector replica would need trace-id-aware routing in front of it; one Collector is enough here. The request metrics (§8.2) are computed before the sampler, so they count every request.
 - Logs are the expensive signal. Domain events at `info` are low-volume by construction; rule-evaluation detail stays at `debug` and off in production.
 - Response *data* retention is a separate question from telemetry retention and is governed by the domain, not by operations.
 
@@ -279,10 +293,29 @@ Two things were separated during this discussion and are worth keeping separate:
 The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the observability stack does not become four more containers a reviewer has to run.
 
 - The SDK is always wired with OTLP exporters, controlled by `OTEL_EXPORTER_OTLP_ENDPOINT`. Unset, the app runs with instrumentation active and export disabled — zero friction for `docker compose up`.
-- A **Compose profile** (`docker compose --profile observability up`) adds two containers (O15): an OTel Collector, and `grafana/otel-lgtm` as the local trace, log and metric store with its UI. Opt-in, so the one-command demo stays one command (O7). **Planned, P1**: none of it exists yet. P1 also passes the OTLP variables through Compose and `.env.example`, gives the backend a Compose healthcheck on `/health/ready`, and adds the nginx access log (§7's masking rules, O13 and O19).
-- How a container's stdout reaches the Collector is open. The SDK has no logs signal: logs leave through pino to stdout only (`packages/telemetry`), so P1 chooses the path that carries them to the store, and V1 checks that a log line and its trace join on `trace_id`.
+- A **Compose profile** (`docker compose --profile observability up`) adds two containers (O15): an OTel Collector (`otel/opentelemetry-collector-contrib`, pinned) and `grafana/otel-lgtm` as the local trace, log and metric store with its UI. Opt-in, so the one-command demo stays one command (O7). Both services carry `profiles: ["observability"]`, and the default `docker compose up` starts exactly what it started before. What P1 shipped:
+  - **The Collector** (`observability/collector.yaml`): an OTLP/HTTP receiver on `4318` for the backend; the `redaction` processor first in every pipeline that carries application data, keeping exactly the attributes in `ALLOWED_ATTRIBUTES` (`packages/telemetry/src/fields.ts`), which a test compares with the YAML (O17); the `span_metrics` connector (§8.2) and tail sampling (§10); the `postgresql` receiver, connecting as `qp_monitor`; and `service.version` stamped from `QP_SERVICE_VERSION` (default `dev`), inserted only where the SDK has not set one (L1 owns the SDK side). It exports to LGTM over OTLP/HTTP. Vendors change here and nowhere else (O9).
+  - **Turning export on**: the backend's `OTEL_EXPORTER_OTLP_ENDPOINT` is empty by default. Set it to `http://collector:4318` in `.env`, and start with `--profile observability`. Compose passes `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` and `LOG_LEVEL` through, and `.env.example` has an Observability block.
+  - **A backend healthcheck** on `/health/ready`, run with `node` (the image has no `curl`). The frontend does not wait for it (`depends_on` stays as it was), because nginx resolves `backend` when it starts and the healthcheck would add a start condition to the default stack.
+  - **The nginx access log** (`deploy/frontend/nginx.conf`, §11.1).
+- **Logs reach the Collector through its `file_log` receiver** (contract with P1), reading Docker's JSON log files under `/var/lib/docker/containers`, read-only. The SDK has no logs signal and does not need one: the Collector parses each line, maps `trace_id` and `span_id` onto the record's trace context so a log line and its trace join, and applies the same redaction. Only containers that carry the `qp_log_service` label are kept (the backend and the frontend, whose value is the `service.name` of their logs); every other container's log file is read and discarded in the receiver before anything is exported, the `db` container's included. A line that is not JSON, or whose message is not a literal, or that is longer than Docker's 16 KiB line split, is dropped rather than exported: `NODE_ENV=development` prints pretty logs, so the dev override's backend contributes traces and metrics but no logs. Caveats: on Docker Desktop the path is inside the Linux VM, where the bind mount works but is unverified here; on Kubernetes the same receiver runs as a DaemonSet over `/var/log/pods`; offsets live in memory, so a Collector restart skips what was written while it was down. Rejected: an SDK logs signal through a pino-to-OTLP bridge, which would duplicate the scrub in a second place. It is the fallback if `file_log` proves unworkable.
 - Database settings that need a restart are not in the profile: `pg_stat_statements` is on in the `db` service always (O16, §14).
 - Hosted: the Collector is the only thing that knows the vendor. Application code never does.
+
+### 11.1 The nginx access log
+
+`deploy/frontend/nginx.conf` writes one JSON line per request to the container's stdout, and nothing else: `msg`, `http.request.method`, `http.route`, `http.response.status_code`, and the `trace_id` and `span_id` of the request's `traceparent` header. Those are registry attribute names, so the Collector's allowlist keeps every one of them. The line has no query string, cookie, referrer, address, user agent or request id. There is no request id: the backend makes its own and does not send it back, so nginx has none to log.
+
+`http.route` is the request path with session ids masked (O13) by `map` blocks over `$request_uri`, so a request that `try_files` rewrites to `index.html` is still logged as the path the client sent:
+
+| Request path | Logged as |
+| --- | --- |
+| `/api/run/sessions/<anything>` and `/api/run/sessions/<anything>/<rest>` | `/api/run/sessions/:sessionId` and `/api/run/sessions/:sessionId/<rest>` |
+| `/api/reporting/questionnaires/<id>/responses/<anything>` and `…/<rest>` | `/api/reporting/questionnaires/<id>/responses/:sessionId` and `…/<rest>` |
+| `/admin/questionnaires/<id>/responses/<anything>` and `…/<rest>` | `/admin/questionnaires/<id>/responses/:sessionId` and `…/<rest>` |
+| any other path | itself, without its query string |
+
+The slot is masked whatever it holds, not only a UUID. The `cursor` parameter (O19) is masked by omission: the query string is never logged, so `cursor` cannot be, and neither can any other parameter. A regular expression over one named parameter misses a repeated or percent-encoded name; leaving the query out cannot. The trace and span id are read out of `traceparent` by a `map` that accepts only a version `00` header of lower-case hex with non-zero ids, so a client cannot put text of its choosing into the log through that header. `tests/nginx-access-log.test.ts` runs the masking rules on sample paths, and asserts the variables the log format may read.
 
 ## 12. Change correlation and synthetics
 

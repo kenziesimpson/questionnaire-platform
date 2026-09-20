@@ -21,6 +21,7 @@ packages/
   telemetry/    The single boundary allowed to import a logging/tracing library
 deploy/
   frontend/     The nginx image that serves both app builds and proxies /api to the backend
+observability/  The OpenTelemetry Collector's configuration, run by the `observability` Compose profile
 docs/           Design doc, scaling notes, implementation plan, ideation
 ```
 
@@ -115,9 +116,25 @@ OpenTelemetry export is off unless you point the backend at an OTLP/HTTP receive
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 npm run dev:backend
 ```
 
-Docker Compose passes neither variable through yet, and the repository ships no receiver, so point the backend at one you run yourself.
+### Run the observability stack
 
-Coming: an OpenTelemetry Collector and an opt-in `observability` Compose profile (P1 in the plan).
+The `observability` Compose profile adds an OpenTelemetry Collector (`observability/collector.yaml`) and Grafana's `grafana/otel-lgtm`, which stores and shows traces, metrics and logs. It is opt-in: `docker compose up` starts none of it.
+
+```bash
+cp .env.example .env
+# in .env: OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+docker compose -f docker-compose.yml --profile observability up --build
+```
+
+- **Grafana:** http://localhost:3001 (user `admin`, password `admin`; the port is `GRAFANA_PORT`). Explore has the traces, the request and database metrics, and the logs of the backend and nginx.
+- **Turning on export:** the backend sends nothing until `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Inside Compose it is `http://collector:4318`; for a backend on the host it is `http://localhost:4318` (the Collector publishes `OTLP_PORT` on `127.0.0.1`). Compose passes `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` and `LOG_LEVEL` to the backend. Set `QP_SERVICE_VERSION` to a commit SHA to stamp each signal with the build; it defaults to `dev`.
+- **Use `-f docker-compose.yml`.** The override in the plain command runs the backend with `NODE_ENV=development`, whose pretty-printed logs the Collector does not read, and serves the apps from Vite instead of nginx, so there is no access log. Traces and metrics flow either way.
+- **What the Collector keeps.** It removes every attribute that is not in the telemetry field registry before anything reaches the store. It keeps every error trace, every trace of a second or more and 10% of the rest, and derives the request-rate and latency metrics from all spans before it samples. Sampling, the redaction and the log path are in [`docs/6-observability.md`](docs/6-observability.md) §8.2, §10 and §11.
+- **Logs** come from Docker's JSON log files (`/var/lib/docker/containers`, mounted read-only), for the backend and the frontend only. On Docker Desktop that path is inside its Linux VM. On Kubernetes the same `file_log` receiver runs as a DaemonSet.
+- **nginx's access log** is JSON and carries the method, the status, the trace context and the route with session ids masked as `:sessionId`. It has no query string, so a pagination `cursor` cannot appear in it. The masked paths are listed in [`docs/6-observability.md`](docs/6-observability.md) §11.1.
+- **Postgres metrics** are read as `qp_monitor`, a role that can read statistics and no answer table. The `roles` service creates it from `db/init/01-roles.sh` on every `up`.
+
+CI builds the default stack but not this profile; a person running the command above is the check for the profile itself.
 
 ## Useful scripts
 
