@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CallerAttributes, QueuedEvent } from "../../src/browser/events.js";
 import { routeLogsToQueue } from "../../src/browser/logging.js";
 import { createEventQueue, type EventQueueOptions } from "../../src/browser/queue.js";
-import { startBrowserTracing, stopBrowserTracing } from "../../src/browser/tracing.js";
+import { injectTraceHeaders } from "../../src/browser/trace-headers.js";
 import { toWireEvent } from "../../src/browser/wire.js";
 import { emitDomainEvent, logger, withSpan } from "../../src/index.js";
 import { configureLogging, resetLogging, type LogRecord } from "../../src/logger.js";
 import { forgedModuleAttributes } from "../faults.js";
-import { SESSION_ID } from "../fixtures.js";
+import { SESSION_ID, STAMPED_TRACEPARENT } from "../fixtures.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
 
@@ -57,6 +57,7 @@ describe("createEventQueue: what is queued", () => {
         {
           level: "info",
           at: expect.any(String),
+          traceparent: STAMPED_TRACEPARENT,
           message: "session abandoned",
           attributes: { "questionnaire.session_id": SESSION_ID, "questionnaire.last_item_id": "itm_03", module: "events" },
         },
@@ -230,7 +231,7 @@ describe("createEventQueue: enqueue, the form for app code", () => {
     queue.flush();
 
     expect(batches[0]).toEqual([
-      { level: "info", at: expect.any(String), message: "session abandoned", attributes: { "questionnaire.session_id": SESSION_ID } },
+      { level: "info", at: expect.any(String), traceparent: STAMPED_TRACEPARENT, message: "session abandoned", attributes: { "questionnaire.session_id": SESSION_ID } },
     ]);
   });
 
@@ -516,10 +517,6 @@ describe("createEventQueue: flushOnExit", () => {
 });
 
 describe("createEventQueue: what each event is stamped with when it is queued", () => {
-  afterEach(async () => {
-    await stopBrowserTracing();
-  });
-
   it("stamps the time of the enqueue, read from the injected clock, not the time of the flush", () => {
     const times = [Date.parse("2026-09-19T10:00:00.000Z"), Date.parse("2026-09-19T10:00:07.500Z")];
     const { queue, batches } = queueWith({ now: () => times.shift() ?? 0 });
@@ -552,9 +549,9 @@ describe("createEventQueue: what each event is stamped with when it is queued", 
     expect(batches[0]?.[0]?.at).toBe("2026-09-19T12:34:56.789Z");
   });
 
-  it("stamps the traceparent of the active span, and no traceparent when there is none", async () => {
-    startBrowserTracing();
+  it("stamps every event with the page's trace id and a fresh span id, whether or not a span is active", async () => {
     const { queue, batches } = queueWith();
+    const pageTraceId = injectTraceHeaders().traceparent?.split("-")[1];
 
     await withSpan("session.submit", { sessionId: SESSION_ID }, async () => {
       queue.enqueueRecord(info("inside"));
@@ -562,9 +559,14 @@ describe("createEventQueue: what each event is stamped with when it is queued", 
     queue.enqueueRecord(info("outside"));
     queue.flush();
 
-    const [inside, outside] = batches.flat();
-    expect(inside?.traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/);
-    expect(outside).not.toHaveProperty("traceparent");
+    const stamped = batches.flat().map((event) => event.traceparent?.split("-") ?? []);
+    expect(stamped).toHaveLength(2);
+    for (const [version, traceId, spanId, flags] of stamped) {
+      expect([version, flags]).toEqual(["00", "00"]);
+      expect(traceId).toBe(pageTraceId);
+      expect(spanId).toMatch(/^[0-9a-f]{16}$/);
+    }
+    expect(stamped[0]?.[2]).not.toBe(stamped[1]?.[2]);
   });
 
   it("marks a record as a browser domain event only when emitDomainEvent wrote it, never by its module attribute or its message", () => {

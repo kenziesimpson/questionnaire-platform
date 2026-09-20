@@ -12,7 +12,7 @@ const TRACEPARENT_SHAPE = new RegExp(
   `^${TRACEPARENT_VERSION}-([0-9a-f]{${TRACE_ID_LENGTH}})-([0-9a-f]{${SPAN_ID_LENGTH}})-([0-9a-f]{${TRACE_FLAGS_LENGTH}})$`,
 );
 
-const ALL_ZERO = /^0+$/;
+export const ALL_ZERO = /^0+$/;
 
 const BYTE_VALUES = 256;
 

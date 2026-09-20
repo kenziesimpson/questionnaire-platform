@@ -1,20 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { QueuedEvent } from "../../src/browser/events.js";
 import { startBrowserTelemetry, type BrowserTelemetry } from "../../src/browser/start.js";
-import { stopBrowserTracing } from "../../src/browser/tracing.js";
 import { injectTraceHeaders } from "../../src/browser/trace-headers.js";
-import { emitDomainEvent, logger, withSpan, type LogLevel } from "../../src/index.js";
+import { emitDomainEvent, logger, type LogLevel } from "../../src/index.js";
 import { currentLogging } from "../../src/logger.js";
-import { SESSION_ID } from "../fixtures.js";
+import { SESSION_ID, STAMPED_TRACEPARENT } from "../fixtures.js";
 import { FakeWindow } from "./page-fakes.js";
 
 const log = logger("execution");
 
 const running: BrowserTelemetry[] = [];
 
-afterEach(async () => {
+afterEach(() => {
   for (const telemetry of running.splice(0)) telemetry.stop();
-  await stopBrowserTracing();
 });
 
 function started(overrides: { debug?: (record: { level: LogLevel; message: string }) => void; beforeExit?: () => void } = {}) {
@@ -45,10 +43,11 @@ describe("startBrowserTelemetry", () => {
     telemetry.queue.flush();
 
     expect(sent).toEqual([
-      { level: "info", at: expect.any(String), message: "session submitted", attributes: { "questionnaire.session_id": SESSION_ID, module: "execution" } },
+      { level: "info", at: expect.any(String), traceparent: STAMPED_TRACEPARENT, message: "session submitted", attributes: { "questionnaire.session_id": SESSION_ID, module: "execution" } },
       {
         level: "info",
         at: expect.any(String),
+        traceparent: STAMPED_TRACEPARENT,
         event: "session.abandoned",
         message: "session.abandoned",
         attributes: { "questionnaire.session_id": SESSION_ID, "questionnaire.last_item_id": "itm_03", module: "events" },
@@ -177,15 +176,15 @@ describe("startBrowserTelemetry", () => {
     expect(currentLogging()).toEqual(before);
   });
 
-  it("does not start tracing: inside a span there is no traceparent until the app starts it", async () => {
-    started();
-    let headers: Record<string, string> = { unset: "unset" };
+  it("stamps what it sends with the page's trace id, though nothing else started: no tracer, no span", () => {
+    const { page, beaconed, telemetry } = started();
+    const pageTraceId = injectTraceHeaders().traceparent?.split("-")[1];
 
-    await withSpan("browser.request", {}, async () => {
-      headers = injectTraceHeaders();
-    });
+    log.info("session submitted", { sessionId: SESSION_ID });
+    page.dispatch("pagehide");
+    telemetry.stop();
 
-    expect(headers).toEqual({});
+    expect(beaconed.map((event) => event.traceparent?.split("-")[1])).toEqual([pageTraceId]);
   });
 
   it("starts once: a second call returns the running handle and adds no listeners, and a stopped one can start again", () => {

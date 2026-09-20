@@ -46,6 +46,7 @@ processors:
   redaction:
     allow_all_keys: false
     allowed_keys:
+      - client.trace_id
       - db.constraint
       - db.name
       - db.namespace

@@ -82,7 +82,7 @@ describe("patching a driver that was loaded before the instrumentation started",
     expect(traceId).toMatch(/^[0-9a-f]{32}$/);
   });
 
-  it("puts traceparent alone in the SQL comment when the inbound request carried a hostile tracestate", async () => {
+  it("puts the statement's own traceparent alone in the SQL comment when the inbound request carried a hostile tracestate, and never the caller's trace id", async () => {
     const { driver, sent, FakeClient } = fakeDriver();
     telemetry = installTestTelemetry({ autoInstrumentation: true, loadedDatabaseDriver: driver });
     const traceId = "0af7651916cd43dd8448eb211c80319c";
@@ -94,7 +94,8 @@ describe("patching a driver that was loaded before the instrumentation started",
     await context.with(inbound, () => new FakeClient().query("SELECT $1::text", [LEAK]));
 
     const [statement] = sent;
-    expect(statement?.text).toMatch(new RegExp(`^SELECT \\$1::text /\\*traceparent='00-${traceId}-[0-9a-f]{16}-01'\\*/$`));
+    expect(statement?.text).toMatch(/^SELECT \$1::text \/\*traceparent='00-[0-9a-f]{32}-[0-9a-f]{16}-01'\*\/$/);
+    expect(statement?.text).not.toContain(traceId);
     expect(sent.map((received) => received.text).join("\n")).not.toContain("tracestate");
     expect(sent.map((received) => received.text).join("\n")).not.toContain(LEAK);
     expect(statement?.values).toEqual([LEAK]);

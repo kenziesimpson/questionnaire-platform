@@ -2,7 +2,7 @@ import { isDomainEventRecord } from "../logger.js";
 import { NO_DROPS, type DropCounts } from "../scrub.js";
 import { DROP_REASONS, type DropReason } from "../vocabulary.js";
 import { domainEventsFirst, callerRecord, scrubbedEvent, type CallerEvent, type EventRecord, type QueuedEvent } from "./events.js";
-import { activeTraceparent } from "./trace-headers.js";
+import { pageTraceparent } from "./trace-headers.js";
 
 const EVENT_DROP_REASONS = ["overflow", "undelivered", "internal", "level"] as const;
 export type EventDropReason = (typeof EVENT_DROP_REASONS)[number];
@@ -131,7 +131,7 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
     try {
       const scrubbed = scrubbedEvent(record, screenNow(), {
         at: new Date(now()).toISOString(),
-        traceparent: activeTraceparent(),
+        traceparent: pageTraceparent(),
         isDomainEvent: isDomainEventRecord(record),
       });
       addDropped(droppedFields, scrubbed.dropped);

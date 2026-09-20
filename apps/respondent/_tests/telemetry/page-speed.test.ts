@@ -1,6 +1,7 @@
 import { createEventQueue, routeLogsToQueue, type QueuedEvent } from "@qp/telemetry/browser";
 import { afterEach, describe, expect, it } from "vitest";
 import { reportPageLoad, type PagePerformance } from "../../src/telemetry/page-speed";
+import { STAMPED_TRACEPARENT } from "../fixtures";
 
 const ROUTE = "/q/:questionnaireId";
 
@@ -38,6 +39,7 @@ describe("reportPageLoad", () => {
       {
         level: "info",
         at: expect.any(String),
+        traceparent: STAMPED_TRACEPARENT,
         event: "page.loaded",
         message: "page.loaded",
         attributes: { "http.route": ROUTE, "questionnaire.duration_ms": 1235, module: "events" },

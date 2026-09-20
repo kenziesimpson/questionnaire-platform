@@ -11,7 +11,7 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const GRAFANA_DIRECTORY = resolve(repoRoot, "observability/grafana");
 const DASHBOARDS_DIRECTORY = resolve(GRAFANA_DIRECTORY, "dashboards");
 
-const DASHBOARD_TITLES = ["Admin and authoring", "Client", "Database", "Respondent funnel", "Service health"];
+const DASHBOARD_TITLES = ["Admin and authoring", "Client", "Client page view", "Database", "Respondent funnel", "Service health"];
 
 const ALERT_TITLES = [
   "Submit success rate drops",
@@ -31,6 +31,8 @@ const NO_DATA_STATES = ["OK", "Alerting", "NoData"];
 const PROMETHEUS = "prometheus";
 
 const LOKI = "loki";
+
+const TEMPO = "tempo";
 
 const PROVISIONING_DIRECTORY = "/otel-lgtm/grafana/conf/provisioning";
 
@@ -104,6 +106,7 @@ const eventsSource = read(resolve(repoRoot, "packages/telemetry/src/events.ts"))
 const instrumentsSource = read(resolve(repoRoot, "packages/telemetry/src/instruments.ts"));
 const vocabularySource = read(resolve(repoRoot, "packages/telemetry/src/vocabulary.ts"));
 const wireContractSource = read(resolve(repoRoot, "packages/telemetry/src/wire-contract.ts"));
+const backendConfigSource = read(resolve(repoRoot, "apps/backend/src/config.ts"));
 
 function labelOfField(field: string): string {
   const entry = Object.entries(FIELDS).find(([name]) => name === field);
@@ -295,7 +298,7 @@ const LOG_STREAM_LABELS = ["service_name"];
 
 const LOG_BUILT_IN_LABELS = ["detected_level"];
 
-const STAMPED_ATTRIBUTES = ["module", "telemetry.source", "telemetry.event_age_ms", "trace_id", "span_id"];
+const STAMPED_ATTRIBUTES = ["module", "telemetry.source", "telemetry.event_age_ms", "trace_id", "span_id", FIELDS.clientTraceId.attribute];
 
 function fieldNamesIn(block: string): string[] {
   return [...block.matchAll(/"(\w+)"/g)].map((match) => match[1] ?? "");
@@ -385,7 +388,7 @@ describe("the Prometheus queries that read what the ingest drops", () => {
 });
 
 describe("the dashboards", () => {
-  it("are the five the design asks for, one file each", () => {
+  it("are the six the design asks for, one file each", () => {
     expect(dashboards.map(({ board }) => textAt(board, "title")).sort()).toEqual(DASHBOARD_TITLES);
   });
 
@@ -396,7 +399,7 @@ describe("the dashboards", () => {
       const ids = listAt(board, "panels").map((panel) => (isRecord(panel) ? panel.id : undefined));
       expect(new Set(ids).size, file).toBe(ids.length);
       walk(board, (node) => {
-        if (isRecord(node.datasource)) expect(["prometheus", "loki"], file).toContain(node.datasource.uid);
+        if (isRecord(node.datasource)) expect([PROMETHEUS, LOKI, TEMPO], file).toContain(node.datasource.uid);
       });
     }
   });
@@ -463,6 +466,71 @@ describe("the dashboards", () => {
     for (const series of ["questionnaire_sessions_started_total", "questionnaire_sessions_completed_total", "questionnaire_sessions_abandoned_total"]) {
       expect(expressions).toContain(series);
     }
+  });
+});
+
+describe("the client page view dashboard", () => {
+  const CLIENT_TRACE_ATTRIBUTE = FIELDS.clientTraceId.attribute;
+  const CLIENT_TRACE_LABEL = CLIENT_TRACE_ATTRIBUTE.replaceAll(".", "_");
+  const BACKEND_SERVICE = /OTEL_SERVICE_NAME\)\s*\?\?\s*"([^"]+)"/.exec(backendConfigSource)?.[1] ?? "";
+  const pageView = dashboards.find(({ board }) => textAt(board, "title") === "Client page view");
+  const variables = listAt(recordAt(pageView?.board, "templating"), "list");
+
+  function panelTitled(title: string): unknown {
+    return listAt(pageView?.board, "panels").find((panel) => isRecord(panel) && panel.title === title);
+  }
+
+  function targetOf(panel: unknown): Record<string, unknown> {
+    const target = listAt(panel, "targets")[0];
+    if (!isRecord(target)) throw new Error("the panel has no query");
+    return target;
+  }
+
+  it("finds the backend's service name in its configuration, so the log query is not a hand-typed guess", () => {
+    expect(BACKEND_SERVICE).toMatch(/^qp-/);
+  });
+
+  it("has one text variable for the client trace id, whose default is not a valid id and so matches nothing", () => {
+    expect(variables).toHaveLength(1);
+    const [only] = variables;
+    expect(textAt(only, "type")).toBe("textbox");
+    expect(textAt(only, "name")).toBe(CLIENT_TRACE_LABEL);
+    const fallback = textAt(recordAt(only, "current"), "value");
+    expect(FIELDS.clientTraceId.accepts(fallback), "the default must not be a real id").toBe(false);
+    expect(textAt(only, "query")).toBe(fallback);
+  });
+
+  it("finds the page's backend traces with a TraceQL query on the span attribute the request span carries, in the Tempo data source the image provisions", () => {
+    const traces = panelTitled("Backend traces of this page view");
+    const target = targetOf(traces);
+    expect(recordAt(traces, "datasource").uid).toBe(TEMPO);
+    expect(recordAt(target, "datasource").uid).toBe(TEMPO);
+    expect(textAt(target, "queryType")).toBe("traceql");
+    expect(textAt(target, "query")).toBe(`{ span.${CLIENT_TRACE_ATTRIBUTE} = "$${CLIENT_TRACE_LABEL}" }`);
+    expect(ALLOWED_ATTRIBUTES).toContain(CLIENT_TRACE_ATTRIBUTE);
+  });
+
+  it("reads the backend's log lines for the same id, through the structured-metadata label the attribute becomes", () => {
+    const logs = panelTitled("Log lines of this page view");
+    const target = targetOf(logs);
+    expect(recordAt(logs, "datasource").uid).toBe(LOKI);
+    expect(textAt(target, "expr")).toBe(`{service_name="${BACKEND_SERVICE}"} | ${CLIENT_TRACE_LABEL}="$${CLIENT_TRACE_LABEL}"`);
+  });
+
+  it("is reached from the client dashboard's error panels through panel links, which Grafana's provisioned JSON allows", () => {
+    const client = dashboards.find(({ board }) => textAt(board, "title") === "Client");
+    const linked = listAt(client?.board, "panels").filter((panel) => isRecord(panel) && Array.isArray(panel.links)).map((panel) => textAt(panel, "title"));
+    expect(linked).toEqual(expect.arrayContaining(["Client errors", "Client warnings and errors", "Client errors by error type", "Client errors by screen", "Client warnings and errors, as logged"]));
+    for (const panel of listAt(client?.board, "panels")) {
+      for (const link of isRecord(panel) && Array.isArray(panel.links) ? panel.links : []) {
+        expect(textAt(link, "url").startsWith(`/d/${textAt(pageView?.board, "uid")}/`), textAt(panel, "title")).toBe(true);
+      }
+    }
+  });
+
+  it("is never a metric label and so appears in no Prometheus query or alert, since every page view has its own id", () => {
+    expect(FIELDS.clientTraceId.bounded).toBe(false);
+    for (const query of [...dashboardQueries(), ...alertQueries()]) expect(query.expression, query.source).not.toContain(CLIENT_TRACE_LABEL);
   });
 });
 

@@ -45,6 +45,7 @@ const DB_OPERATION = /^[A-Za-z_]{1,32}$/;
 const HOST_NAME = /^[A-Za-z0-9_.-]{1,255}$/;
 const HEX_TRACE_ID = new RegExp(`^[0-9a-f]{${TRACE_ID_LENGTH}}$`);
 const HEX_SPAN_ID = new RegExp(`^[0-9a-f]{${SPAN_ID_LENGTH}}$`);
+const CLIENT_TRACE_ID = new RegExp(`^(?!0{${TRACE_ID_LENGTH}}$)[0-9a-f]{${TRACE_ID_LENGTH}}$`);
 
 function matching(attribute: string, expression: RegExp, bounded: boolean): FieldDefinition<string> {
   return {
@@ -127,6 +128,7 @@ export const FIELDS = {
   pool: oneOf("db.pool", DATABASE_POOLS),
   errorStack: { attribute: "error.stack", bounded: false, accepts: isStackTrace },
   signal: oneOf("process.signal", SIGNALS),
+  clientTraceId: matching("client.trace_id", CLIENT_TRACE_ID, false),
   source: oneOf("telemetry.source", EVENT_SOURCES),
   eventAgeMs: quantity("telemetry.event_age_ms"),
 } as const satisfies Record<string, FieldDefinition<unknown>>;
@@ -138,7 +140,7 @@ export type CountField = (typeof COUNT_FIELDS)[number];
 
 export type FieldValue<K extends FieldName> = (typeof FIELDS)[K] extends FieldDefinition<infer V> ? V : never;
 
-type CallerFieldName = Exclude<FieldName, "errorStack">;
+type CallerFieldName = Exclude<FieldName, "errorStack" | "clientTraceId">;
 
 export type TelemetryContext = { readonly [K in CallerFieldName]?: FieldValue<K> | null };
 

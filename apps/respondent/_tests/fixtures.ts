@@ -1,3 +1,4 @@
+import { expect } from "vitest";
 import { type Receipt, type Session } from "@qp/shared";
 import { INTAKE_QUESTIONNAIRE_ID, intakeDefinition } from "@qp/shared/demo";
 
@@ -5,6 +6,7 @@ export const SESSION_ID = "4f9c2a7e-1b3d-4e8f-a6c5-9d0b1e2f3a4b";
 export const STALE_SESSION_ID = "0b0b0b0b-1b3d-4e8f-a6c5-9d0b1e2f3a4b";
 export const OTHER_QUESTIONNAIRE_ID = "01a0950e-9999-7aaa-8bbb-cccccccccccc";
 export const ANSWER_SENTINEL = "SENTINEL-answer-value-7f3e";
+export const STAMPED_TRACEPARENT = expect.stringMatching(/^00-[0-9a-f]{32}-[0-9a-f]{16}-00$/);
 
 export const inProgressSession: Session = {
   sessionId: SESSION_ID,

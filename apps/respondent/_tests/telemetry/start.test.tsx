@@ -9,7 +9,7 @@ import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/app";
 import { reportRenderError, startRespondentTelemetry } from "../../src/telemetry/start";
-import { ANSWER_SENTINEL, inProgressSession, intakeV1, receipt, SESSION_ID, STALE_SESSION_ID } from "../fixtures";
+import { ANSWER_SENTINEL, inProgressSession, intakeV1, receipt, SESSION_ID, STALE_SESSION_ID, STAMPED_TRACEPARENT } from "../fixtures";
 
 const intakePath = `/q/${INTAKE_QUESTIONNAIRE_ID}`;
 const sessionsUrl = urlOf(executionApi.EXECUTION_PREFIX, executionApi.createSession);
@@ -94,6 +94,7 @@ describe("startRespondentTelemetry: page speed", () => {
       {
         level: "info",
         at: expect.any(String),
+        traceparent: STAMPED_TRACEPARENT,
         event: "page.loaded",
         message: "page.loaded",
         attributes: { "http.route": "/q/:questionnaireId", "questionnaire.duration_ms": 1234, module: "events" },
@@ -173,6 +174,7 @@ describe("startRespondentTelemetry: the abandonment beacon", () => {
       {
         level: "info",
         at: expect.any(String),
+        traceparent: STAMPED_TRACEPARENT,
         event: "session.abandoned",
         message: "session.abandoned",
         attributes: { "questionnaire.session_id": SESSION_ID, "questionnaire.last_item_id": "itm_04", "http.route": "/q/:questionnaireId", module: "events" },

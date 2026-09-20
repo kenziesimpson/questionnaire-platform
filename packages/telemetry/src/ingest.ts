@@ -1,11 +1,11 @@
-import { context, trace, type SpanContext } from "@opentelemetry/api";
+import { context } from "@opentelemetry/api";
 import { telemetryApi } from "@qp/shared";
+import { clientTraceIdOf, withClientTrace } from "./client-trace.js";
 import { relayBrowserEvent } from "./events.js";
 import { guardedOr } from "./guard.js";
 import type { IngestCapacity, IngestEventKind } from "./ingest-capacity.js";
 import { reportIngestDropped } from "./instruments.js";
 import { relayLog } from "./logger.js";
-import { parseTraceparent } from "./trace-context.js";
 import { clientLogEventOf, clientLogLevelOf, EVENT_SOURCES, type IngestDropReason } from "./vocabulary.js";
 import { browserDomainEventOf, browserFieldsOf, judgeBrowserField } from "./wire-contract.js";
 
@@ -13,11 +13,6 @@ const BROWSER_SOURCE: (typeof EVENT_SOURCES)[number] = "browser";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function traceparentOf(value: unknown): SpanContext | undefined {
-  const parsed = parseTraceparent(value);
-  return parsed === undefined ? undefined : { ...parsed, isRemote: true };
 }
 
 interface KeptFields {
@@ -52,8 +47,8 @@ function relay(name: string, fields: Record<string, unknown>): boolean {
   return domainEvent !== undefined && relayBrowserEvent(domainEvent, fields);
 }
 
-function withParent<T>(parent: SpanContext | undefined, fn: () => T): T {
-  return parent === undefined ? fn() : context.with(trace.setSpanContext(context.active(), parent), fn);
+function withClientTraceId<T>(clientTraceId: string | undefined, fn: () => T): T {
+  return context.with(withClientTrace(context.active(), clientTraceId), fn);
 }
 
 function kindOf(name: string): IngestEventKind {
@@ -72,11 +67,11 @@ function ingestEventUnguarded(raw: unknown, receivedAt: number, capacity: Ingest
   const { kept, unregistered, rejected } = keptFieldsOf(fields, name);
   reportIngestDropped("unknown_field", unregistered);
   reportIngestDropped("invalid_field", rejected);
-  const parent = traceparentOf(traceparent);
-  if (traceparent !== undefined && parent === undefined) reportIngestDropped("invalid_trace");
+  const clientTraceId = clientTraceIdOf(traceparent);
+  if (traceparent !== undefined && clientTraceId === undefined) reportIngestDropped("invalid_trace");
 
   const stamped = { ...kept, source: BROWSER_SOURCE, eventAgeMs: Math.max(0, receivedAt - Date.parse(at)) };
-  return withParent(parent, () => relay(name, stamped));
+  return withClientTraceId(clientTraceId, () => relay(name, stamped));
 }
 
 function ingestEvent(raw: unknown, receivedAt: number, capacity: IngestCapacity | undefined): boolean {

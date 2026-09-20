@@ -171,7 +171,14 @@
         "y": 0,
         "w": 4,
         "h": 4
-      }
+      },
+      "links": [
+        {
+          "title": "Client page view",
+          "url": "/d/qp-client-page-view/client-page-view?${__url_time_range}",
+          "targetBlank": false
+        }
+      ]
     },
     {
       "type": "stat",
@@ -486,7 +493,14 @@
         "y": 12,
         "w": 12,
         "h": 8
-      }
+      },
+      "links": [
+        {
+          "title": "Client page view",
+          "url": "/d/qp-client-page-view/client-page-view?${__url_time_range}",
+          "targetBlank": false
+        }
+      ]
     },
     {
       "type": "timeseries",
@@ -581,7 +595,14 @@
         "y": 20,
         "w": 12,
         "h": 8
-      }
+      },
+      "links": [
+        {
+          "title": "Client page view",
+          "url": "/d/qp-client-page-view/client-page-view?${__url_time_range}",
+          "targetBlank": false
+        }
+      ]
     },
     {
       "type": "timeseries",
@@ -629,7 +650,14 @@
         "y": 20,
         "w": 12,
         "h": 8
-      }
+      },
+      "links": [
+        {
+          "title": "Client page view",
+          "url": "/d/qp-client-page-view/client-page-view?${__url_time_range}",
+          "targetBlank": false
+        }
+      ]
     },
     {
       "type": "timeseries",
@@ -729,7 +757,7 @@
     {
       "type": "logs",
       "title": "Client warnings and errors, as logged",
-      "description": "The ingest's log lines for browser warnings and errors: the error type, the frames and the screen, no message. Open a record's trace_id to reach the request that carried it.",
+      "description": "The ingest's log lines for browser warnings and errors: the error type, the frames and the screen, no message. Each line carries the client_trace_id of the page that reported it: copy it into the Client page view dashboard to see the page's requests and their traces.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -757,7 +785,14 @@
         "y": 36,
         "w": 24,
         "h": 10
-      }
+      },
+      "links": [
+        {
+          "title": "Client page view",
+          "url": "/d/qp-client-page-view/client-page-view?${__url_time_range}",
+          "targetBlank": false
+        }
+      ]
     },
     {
       "type": "text",

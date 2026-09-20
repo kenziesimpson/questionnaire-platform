@@ -26,8 +26,7 @@ Three layers hold it here:
 | Import | Use it for | Loads |
 | --- | --- | --- |
 | `@qp/telemetry` | `logger`, `withSpan`, `emitDomainEvent`, `watchPool`, the field registry and its types | `@opentelemetry/api` only; safe for a browser bundle |
-| `@qp/telemetry/browser` | `createEventQueue`, `createTransport`, `startBrowserTelemetry`, `installErrorCapture`, `injectTraceHeaders`, `afterFirstPaint`: the browser SDK | the core, `@opentelemetry/api`; no Node built-in, `pino`, `./node`, `./testing`, `./leak-test` or `@opentelemetry/sdk-trace-web` |
-| `@qp/telemetry/browser-tracing` | `startBrowserTracing`, `stopBrowserTracing`: the web tracer provider, kept out of `./browser` so an app ships it only when it loads this entry point with a dynamic `import()` | `@opentelemetry/api`, `@opentelemetry/sdk-trace-web` |
+| `@qp/telemetry/browser` | `createEventQueue`, `createTransport`, `startBrowserTelemetry`, `installErrorCapture`, `injectTraceHeaders`, `afterFirstPaint`: the browser SDK | the core, `@opentelemetry/api`; no Node built-in, `pino`, `./node`, `./testing`, `./leak-test` or any `@opentelemetry/sdk-*` package |
 | `@qp/telemetry/node` | `startTelemetry`: starts the SDK, pino and the auto-instrumentation; `runningTelemetry`: the handle it returned, until that handle shuts down | the Node SDK, exporters, pino |
 | `@qp/telemetry/testing` | `installTestTelemetry`: in-memory exporters for tests | the Node SDK |
 | `@qp/telemetry/leak-test` | `LEAK_SENTINEL`, `runLeakFlow`, `expectCleanRun`, `exposuresOf`, `expectEmitted`, `plantThirdPartyTelemetry`, `plantThirdPartyCounter`: the sentinel leak test's detector, runner and assertions | the Node SDK |
@@ -59,15 +58,8 @@ afterFirstPaint(() => {
   });
 }, window);
 
-if (tracingIsEnabled) {
-  const { startBrowserTracing } = await import("@qp/telemetry/browser-tracing");
-  startBrowserTracing();
-}
-
-await withSpan("browser.request", { method: "GET", route }, async () => {
-  const headers = injectTraceHeaders({ accept: "application/json" });
-  return fetch(url, { headers });
-});
+const headers = injectTraceHeaders({ accept: "application/json" });
+await fetch(url, { headers });
 ```
 
 | Export | What it does |
@@ -78,8 +70,7 @@ await withSpan("browser.request", { method: "GET", route }, async () => {
 | `routeLogsToQueue(queue, { debug? })` | Points `logger(...)` and `emitDomainEvent` at the queue, and returns a function that restores the sink and level that were configured before it, not a cleared one (and leaves alone a sink something else configured since). `debug` never reaches the queue: it goes to the optional `debug` function, which an app passes only in a development build |
 | `flushOnPageHide(queue, window, beforeExit?)` | `flushOnExit()` on `pagehide` and when `visibilitychange` finds the page hidden. `beforeExit` runs first, under the never-throw guard, so an event it emits, such as `session.abandoned`, is in the first batch handed to the beacon; it runs on every hide, so it must be idempotent |
 | `installErrorCapture(queue, window)`, `captureError(queue, kind, error)` | An `error` and an `unhandledrejection` listener, and the same capture for an error boundary. Records the error's class name and its stack frames only. Installing twice on one page adds no second listener |
-| `injectTraceHeaders(headers?)` | The `traceparent` of the active span added to a copy of the headers, which may be a plain record, a `Headers` or an array of `[name, value]` pairs (a repeated name is joined with `, `). It always returns a plain record. With no active span the headers come back without any `traceparent`, so a stale one is never propagated. No `instrumentation-fetch` and no patching of global `fetch` (O12): the app's one `fetch` wrapper calls `injectTraceHeaders` by hand, inside a `withSpan("browser.request", …)` |
-| `startBrowserTracing()`, `stopBrowserTracing()` (from `@qp/telemetry/browser-tracing`) | A web tracer provider with a synchronous context manager. Loaded with a dynamic `import()` behind an explicit switch, so `./browser` and a build that does not use tracing never contain `sdk-trace-web`. Nothing else starts it: `startBrowserTelemetry` does not |
+| `injectTraceHeaders(headers?)` | `traceparent` added to a copy of the headers, which may be a plain record, a `Headers` or an array of `[name, value]` pairs (a repeated name is joined with `, `). It always returns a plain record and always adds the header: `00-<page trace id>-<fresh 16-hex span id>-00`. The page trace id is 32 hex digits, never zero, drawn once per page load with `crypto.getRandomValues` and kept in a module variable, so it is in memory only and never in storage, a cookie or a URL; the span id is drawn for each call. A `traceparent` already present is replaced, in any case. Without `crypto`, or if it throws, the headers come back without one and a `span` drop is counted. The backend records the id as `client.trace_id` and never continues it as a trace (O24). No `instrumentation-fetch`, no tracer and no patching of global `fetch` (O12): the app's one `fetch` wrapper calls `injectTraceHeaders` by hand |
 | `afterFirstPaint(start, window)` | Runs `start` in a `requestIdleCallback` after `load`, or a timeout after `load` where there is none; returns a cancel function |
 | `startBrowserTelemetry({ page, ...queue options, debug?, beforeExit? })` | The queue, log routing, page-hide flush and error capture in one call; `stop()` undoes them, hands what is queued to `beacon`, restores the logging that was configured before it, and closes the queue, so nothing is sent afterwards. A second call while one is running returns the running handle. It does not start tracing |
 
@@ -90,9 +81,8 @@ Rules the code holds:
 - **An error is its class name and its frames, never its message.** `stackFramesOf` still decides whether the stack lines up with the message and keeps only frame-shaped lines; the queue then rewrites every frame of any `error.stack` it is given, from `captureError`, the logger or a caller alike. The location becomes the last path segment's script file name, `index-3f9a.js:10:20`, or `anonymous.js` for anything else, so no page URL, session id or query string survives. The function name is kept only if it is an identifier path (`Object.<anonymous>`, `async Promise.all`, `new Screen`, no interior underscore or space) of at most 100 characters and is otherwise `anonymous`. What counts as a safe frame is defined once, in `src/frame-shape.ts`, and the rewriter and the ingest's validator both use it: a file name past 80 characters becomes `anonymous.js`, a position past seven digits or a line past 200 characters becomes a fixed placeholder frame, and a stack is cut to 40 frames, so a stack the SDK produces is always one the ingest accepts. That is a shape check, so a one-word lower-case function name derived from an answer would pass; never build one from an answer. Stack frames in another browser's format (`fn@url:1:2`) do not line up, so those errors carry a type and no frames. The capture never reads an error event's `message`, `filename` or position.
 - **The queue never blocks and never throws.** It holds at most `maxPending` events and drops the oldest, counting `overflow`; one `send` is in flight at a time; a batch whose `send` rejects or throws, or a beacon that returns `false`, is dropped and counted `undelivered`; anything the queue cannot handle is counted `internal`.
 - **Never captured:** session replay, DOM or element text (a clicked option's label is an answer), URLs, query strings, cursors, request or response bodies.
-- **Browser-safe by construction.** `_tests/browser.test.ts` reads the entry point's import graph and fails on a Node built-in, `pino`, `./node`, `./testing`, `./leak-test` or any package beyond `@opentelemetry/api` and `@qp/shared`; it also fails if the graph reaches `sdk-trace-web`. The tracing entry point's graph is held to `@opentelemetry/api`, `sdk-trace-web` and `@qp/shared` (its guard reaches the scrub), and `apps/respondent/_tests/main.test.ts` fails if the respondent's static graph reaches either the web tracer or the tracing entry point.
-- **The page is injected.** No module reads `window`, `document` or `navigator`; the caller hands over `window` (a `PageWindow`) and its own `beacon`, so the tests run in the package's Node environment against fakes in `_tests/browser/page-fakes.ts`.
-- **Limitation.** The context manager is synchronous: `injectTraceHeaders` sees the active span only when called before the first `await` inside `withSpan`. The apps' one `fetch` wrapper builds its headers before it awaits anything.
+- **Browser-safe by construction.** `_tests/browser.test.ts` reads the entry point's import graph and fails on a Node built-in, `pino`, `./node`, `./testing`, `./leak-test`, the pipeline, the exporters, the span processor or any package beyond `@opentelemetry/api` and `@qp/shared`; it also fails if the graph reaches an `@opentelemetry/sdk-*` package or a tracing file. `apps/respondent/_tests/main.test.ts` holds the respondent's static graph to the same.
+- **The page is injected.** No module reads `window` or `document`; the caller hands over `window` (a `PageWindow`) and a transport, so the tests run in the package's Node environment against fakes in `_tests/browser/page-fakes.ts`. The two globals the SDK does read are `crypto`, for the page trace id, and, inside `browserTransport()` only, `fetch` and `navigator.sendBeacon`, each looked up when used and guarded so that a page without one degrades to no header, an undelivered batch or a beacon that is refused.
 - **`stats()` is client-side only.** `sent`, `beaconed` and the drop counts describe this tab's queue and never reach the server, so nothing on the server can chart beacon delivery.
 
 ## Write a log line
@@ -143,6 +133,7 @@ context key with an attribute name, a runtime check and a `bounded` flag.
 | `source` | `telemetry.source` | `browser`; the ingest stamps it on what a browser sent, a server-native line carries none, and a browser cannot set it | yes |
 | `eventAgeMs` | `telemetry.event_age_ms` | a finite number; the ingest stamps the time between an event's own timestamp and its receipt, and a browser cannot set it | no |
 | `errorStack` | `error.stack` | stack frames only; set from the `Error` argument, not by callers | no |
+| `clientTraceId` | `client.trace_id` | 32 lower-case hex digits, not all zero; the trace id of a valid inbound `traceparent`, set by the propagator and the ingest and never by a caller (it is not in `TelemetryContext`); on the root span of a request and on every log record written while it runs; never a metric label | no |
 
 An id field takes a UUID or a slug, not "any token", because a one-word answer, a hyphenated phrase
 or a date passes a token check. A slug-shaped answer in `itemId` and a lower-case word as a route
@@ -237,7 +228,7 @@ find is counted too, through `reportDropped`.
 await withSpan("session.submit", { sessionId }, async () => submit());
 ```
 
-- `SpanName` is derived from `SPAN_NAMES` (`browser.request`, the browser's span around one API call, never exported; `questionnaire.create`, `questionnaire.edit_draft`, `questionnaire.open_draft`, `questionnaire.publish`,
+- `SpanName` is derived from `SPAN_NAMES` (`questionnaire.create`, `questionnaire.edit_draft`, `questionnaire.open_draft`, `questionnaire.publish`,
   `questionnaire.retire`, `reporting.list_sessions`, `reporting.session_detail`, `rule.evaluate`, `session.submit`,
   `telemetry.ingest`); a new span is one more member of that array.
   The backend wraps a submit in `session.submit` and its answer evaluation in `rule.evaluate`, each questionnaire lifecycle
@@ -362,8 +353,8 @@ limit and the body cap; this function owns what is kept. It takes each event as 
    characters, function names of at most 100). The browser SDK's `frames.ts` builds what it emits from the same definition, so the
    two cannot drift, and a test holds every frame the browser shape accepts inside the server's. The file-name slot still accepts any `name.js` of up to 80 characters, since hashed bundle names contain
    underscores.
-4. An optional `traceparent` (`00-<32 hex>-<16 hex>-<2 hex>`, parsed by `parseTraceparent` in `trace-context.ts`, beside the `formatTraceparent` the SDK writes it with) puts the event's log line under the browser's trace and span. An
-   invalid one is dropped as `invalid_trace`. Without one, the line takes the trace of the request that carried it.
+4. An optional `traceparent` (`00-<32 hex>-<16 hex>-<2 hex>`, parsed by `parseTraceparent` in `trace-context.ts`, beside the `formatTraceparent` the SDK writes it with) is the page's trace id: its trace id, when valid, becomes `clientTraceId` (`client.trace_id`) on the event's log line, through the same private context key the propagator uses (`client-trace.ts`), and its span id, flags and any tracestate are dropped. The line is under the ingest request's own trace, never the browser's, and an event with no valid `traceparent` has no client trace id (it does not take the request's). An
+   invalid one is dropped as `invalid_trace` and the event kept.
 5. The event is re-emitted with `source: "browser"` and `eventAgeMs`, through `relayLog` for a client log line (module `browser`)
    or `relayBrowserEvent` for a domain event, which write the same log line and counter as `emitDomainEvent`, then pass the scrub
    at call time and again at export.
@@ -422,7 +413,7 @@ and by test. It is the one home of that mapping; `_tests/browser/wire-contract.l
 - `at` is stamped when the event is queued, from the queue's `now` option (`Date.now` by default), so the server's `eventAgeMs` is the
   age of the event and not of its batch. It is the client's clock: a clock that runs behind gives an age that is too large, and one
   that runs ahead reads as 0, since the server never stamps a negative age. The age is a log field only and drives no counter or alert.
-  `traceparent` is the active span's, formatted by `formatTraceparent`, and is absent when no valid span is active.
+  `traceparent` is the page's, `00-<page trace id>-<fresh span id>-00` from `pageTraceparent()` in `browser/trace-headers.ts`, on every event whether or not a span exists; it is absent only where `crypto` is unavailable.
 - `toEnvelopes(events, maxBytes?)` returns `{ events }` envelopes of at most `MAX_TELEMETRY_EVENTS` events and `maxBytes` bytes of UTF-8 JSON
   (`MAX_TELEMETRY_BODY_BYTES` from `@qp/shared` by default), splitting into several when a batch is larger. Browser domain events (`session.abandoned`, `page.loaded`) come
   first. A beacon passes `BEACON_BODY_BUDGET_BYTES` (half of `MAX_TELEMETRY_BODY_BYTES`, 32 KiB) so that one envelope never uses the whole of `sendBeacon`'s roughly 64 KiB
@@ -434,8 +425,7 @@ and by test. It is the one home of that mapping; `_tests/browser/wire-contract.l
 
 `trace-context.ts` has no imports and holds the `traceparent` version and field widths, `formatTraceparent` and `parseTraceparent`, so
 the header the SDK writes and the field the ingest reads cannot drift; `_tests/trace-context.test.ts` round-trips one through the other.
-`injectTraceHeaders` (in `browser/trace-headers.ts`, which imports only `@opentelemetry/api`), `startBrowserTracing` and `stopBrowserTracing` (in `browser/tracing.ts`, the one file that imports `sdk-trace-web`) run under `guarded`, `guardedOr` and `guardedAsync` (the two global disables each under their own guard), and a
-`startBrowserTracing` that fails to register its context manager unregisters the tracer provider it had registered.
+`ALL_ZERO` is the one rejection of an all-zero id, used by the parser and by the browser's id generator. `injectTraceHeaders` and `pageTraceparent` (in `browser/trace-headers.ts`, which imports no OpenTelemetry package) run under `guardedOr`.
 
 ## Sinks
 
@@ -470,7 +460,7 @@ The real sink is pino, created in `pipeline.ts`: JSON to stdout, or `pino-pretty
 
 ### Log records
 
-pino writes each line to stdout, exactly as before. When an endpoint is configured the logger's sink also emits an OpenTelemetry log record from the same record, after the call-time scrub (`log-records.ts`): the level is the severity (`DEBUG`, `INFO`, `WARN`, `ERROR`), the literal message is the body, the registered fields are the attributes, and the active span's context is the record's trace context (`trace_id` and `span_id` are not repeated as attributes). A `BatchLogRecordProcessor` (a `SimpleLogRecordProcessor` under test) sends it through `scrubbingLogExporter` (`exporters.ts`), which mirrors the span and metric exporters: the attributes pass through `scrubAttributes(…, "log")` again, a severity text outside the four names is dropped, a body that does not match `LOG_MESSAGE_SHAPE` (`^[A-Za-z][A-Za-z0-9 ._:,/-]{0,127}$`, in `vocabulary.ts`) is replaced by `unnamed` and counted as an `invalid` log drop, and a batch it cannot scrub is failed and counted as one `internal` drop, never thrown. The shape is a shape check: a one-word answer passes it, so the message stays a compile-time literal (`LiteralMessage`) and nothing builds one from a value. `installTestTelemetry().logRecords()` returns the records the exporter received.
+pino writes each line to stdout, exactly as before. When an endpoint is configured the logger's sink also emits an OpenTelemetry log record from the same record, after the call-time scrub (`log-records.ts`): the level is the severity (`DEBUG`, `INFO`, `WARN`, `ERROR`), the literal message is the body, the registered fields are the attributes, and the active span's context is the record's trace context (`trace_id` and `span_id` are not repeated as attributes; `client.trace_id` is one, since it is not the record's trace). A `BatchLogRecordProcessor` (a `SimpleLogRecordProcessor` under test) sends it through `scrubbingLogExporter` (`exporters.ts`), which mirrors the span and metric exporters: the attributes pass through `scrubAttributes(…, "log")` again, a severity text outside the four names is dropped, a body that does not match `LOG_MESSAGE_SHAPE` (`^[A-Za-z][A-Za-z0-9 ._:,/-]{0,127}$`, in `vocabulary.ts`) is replaced by `unnamed` and counted as an `invalid` log drop, and a batch it cannot scrub is failed and counted as one `internal` drop, never thrown. The shape is a shape check: a one-word answer passes it, so the message stays a compile-time literal (`LiteralMessage`) and nothing builds one from a value. `installTestTelemetry().logRecords()` returns the records the exporter received.
 
 ### The `--import` preload
 
@@ -494,8 +484,8 @@ comment `/*traceparent='00-<trace id>-<span id>-01'*/` naming its own span, and 
 parameters are never put on a span. The comment carries `traceparent` and nothing else, and the barrier is on the extract side. The instrumentation
 builds the comment from the span's own context with a private W3C propagator that writes `tracestate` too; it is not the global propagator, so
 nothing registered on inject reaches it. What keeps a caller's `tracestate` out is that no span in the process carries one: the pipeline registers
-`TraceparentOnlyPropagator` (`src/trace-propagator.ts`) as the SDK's propagator, its extract discards `tracestate`, and `@fastify/otel` extracts an
-inbound request through the global propagator, so the request span and every span under it has none. Its inject is defensive only, and it drops
+`TraceparentOnlyPropagator` (`src/trace-propagator.ts`) as the SDK's propagator, its extract sets no remote span context at all (it keeps only the validated trace id of the header, as the client trace id, O24), and `@fastify/otel` extracts an
+inbound request through the global propagator, so the request span is the root of a trace of its own and neither it nor any span under it has a caller's `tracestate` or trace id. Its inject is defensive only, and it drops
 `baggage`, which nothing here uses. A span created under a context that did not come through that extract would bypass the barrier. Postgres shows the comment in `pg_stat_activity` and its log, and drops it when it
 normalises a statement, so `pg_stat_statements` does not split one statement by trace. A span exports only `db.system.name`,
 `db.namespace`, `server.address` and `server.port`; `db.query.text` is never exported and an error's message never reaches the span.
@@ -599,14 +589,13 @@ The flows live with the code they exercise. The backend's registry is
 | File | Contents |
 | --- | --- |
 | `src/index.ts` | The core entry point's exports |
-| `src/browser.ts`, `src/browser/` | The browser entry point and its parts: `queue.ts`, `events.ts` (the queued event and its scrub), `errors.ts`, `frames.ts` (the stack-frame rewrite), `lifecycle.ts`, `logging.ts`, `idle.ts`, `trace-headers.ts` (`injectTraceHeaders`, the active `traceparent`), `wire.ts` (the queue's events as ingest envelopes, and their encodings), `transport.ts` (`createTransport`, `browserTransport`), `start.ts`, `page.ts` (the structural types for `window`) |
-| `src/browser-tracing.ts`, `src/browser/tracing.ts` | The tracing entry point and the web tracer provider behind it; the only files that import `sdk-trace-web` |
+| `src/browser.ts`, `src/browser/` | The browser entry point and its parts: `queue.ts`, `events.ts` (the queued event and its scrub), `errors.ts`, `frames.ts` (the stack-frame rewrite), `lifecycle.ts`, `logging.ts`, `idle.ts`, `trace-headers.ts` (`injectTraceHeaders`, the page trace id and `pageTraceparent`), `wire.ts` (the queue's events as ingest envelopes, and their encodings), `transport.ts` (`createTransport`, `browserTransport`), `start.ts`, `page.ts` (the structural types for `window`) |
 | `src/fields.ts` | `FIELDS`, `TelemetryContext`, the infrastructure allowlist, `OUTCOMES` |
 | `src/vocabulary.ts` | Constants shared by more than one module: the instrumentation scope, signal kinds, drop reasons, log modules and the attribute names the pipeline writes about itself |
 | `src/scrub.ts` | `scrubContext`, `scrubAttributes` |
 | `src/instrument-allowlist.ts` | Which instrument metrics an instrumentation may export at all (`isExportedInstrument`), and the names it lists |
 | `src/ambient-signals.ts` | What the leak test does not count as a flow's own telemetry: `isAmbientMetric`, `isDatabaseSpan`, `isDatabaseMetric` |
-| `src/trace-propagator.ts` | `TraceparentOnlyPropagator` |
+| `src/trace-propagator.ts` | `TraceparentOnlyPropagator`: extract stores the validated client trace id and sets no remote span context; inject is `traceparent` alone |
 | `src/database-instrumentation.ts` | `DatabaseInstrumentation`, `DATABASE_INSTRUMENTATION_CONFIG`, `LoadedDatabaseDriver` |
 | `src/pool-metrics.ts` | `watchPool`, `POOL_METRICS`, `startPoolGauges` (pipeline only, behind `guarded`), `PoolCounts`, `PoolName` |
 | `src/guard.ts` | `guarded`, `guardedOr`, `guardedAsync`: run a telemetry action, swallow a failure and count it as `internal` |
@@ -617,7 +606,9 @@ The flows live with the code they exercise. The backend's registry is
 | `src/events.ts` | `DOMAIN_EVENTS` (each event's name, payload, counter and counter labels), `DomainEvent`, `emitDomainEvent`, `relayBrowserEvent` |
 | `src/ingest.ts` | `ingestBatch`: the `/api/telemetry` ingest's event allowlist, field filter, trace context and drop counting, behind the never-throw guard |
 | `src/wire-contract.ts` | What a browser may send: `BROWSER_DOMAIN_EVENTS`, the closed field list of each event behind `browserFieldsOf`, `browserDomainEventOf`, `judgeBrowserField` and `keepsFromBrowser`. The ingest reads it and `browser/wire.ts` writes to it. Imports no Node module, so the browser entry can use it |
-| `src/trace-context.ts` | `formatTraceparent`, `parseTraceparent` and the `traceparent` field widths. No imports |
+| `src/trace-context.ts` | `formatTraceparent`, `parseTraceparent`, `ALL_ZERO` and the `traceparent` field widths. No imports |
+| `src/client-trace.ts` | The private context key for the client trace id: `clientTraceIdOf` (a `traceparent` to its 32-hex trace id, or nothing), `withClientTrace`, `startingTrace`, `activeClientTraceId` |
+| `src/client-trace-processor.ts` | `ClientTraceSpanProcessor`: puts `client.trace_id` on the root span started under a context that carries one (Node side only) |
 | `src/frame-shape.ts` | The one definition of a safe stack frame: its pattern pieces, caps, placeholders, `isSafeFunctionName`, `isSafeScriptFile`, `isSafePosition`, `BROWSER_STACK_FRAME`, `SERVER_STACK_FRAME` and `isBrowserStack`. No imports, so the browser entry can use it |
 | `src/instruments.ts` | The counter and histogram primitives, the session-duration histogram, the scrub drop counter and the ingest drop counter; each swallows and counts its own failure |
 | `src/exporters.ts` | The scrubbing decorators for span, metric and log exporters |

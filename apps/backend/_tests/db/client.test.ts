@@ -63,7 +63,7 @@ describe("openDatabase: the pg instrumentation on a pool", () => {
     expect(result.rows[0]?.query).toContain(`/*traceparent='00-${traceId}-${spanId}-01'*/`);
   });
 
-  it("puts traceparent alone in the comment when the request that issued the statement carried a hostile tracestate", async () => {
+  it("puts the statement's own traceparent alone in the comment when the request that issued it carried a hostile tracestate, and never the caller's trace id", async () => {
     telemetry = installTestTelemetry({ autoInstrumentation: true, loadedDatabaseDriver: pg });
     const pool = testDatabase.pool("execution");
     const app = Fastify();
@@ -85,7 +85,9 @@ describe("openDatabase: the pg instrumentation on a pool", () => {
 
     const { query } = response.json<{ query: string }>();
     expect(response.statusCode).toBe(200);
-    expect(query).toMatch(new RegExp(`/\\*traceparent='00-${INBOUND_TRACE_ID}-[0-9a-f]{16}-01'\\*/$`));
+    expect(query).toMatch(/\/\*traceparent='00-[0-9a-f]{32}-[0-9a-f]{16}-01'\*\/$/);
+    expect(query).not.toContain(INBOUND_TRACE_ID);
+    expect(query).not.toContain(INBOUND_SPAN_ID);
     expect(query).not.toContain("tracestate");
     expect(query).not.toContain(HOSTILE_VALUE);
     expect(JSON.stringify(telemetry.spans())).not.toContain(HOSTILE_VALUE);

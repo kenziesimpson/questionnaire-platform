@@ -278,7 +278,7 @@ describe("with the real SDK and its Fastify instrumentation", () => {
   let handle: TelemetryHandle;
   let instrumented: FastifyInstance;
 
-  function exportedSpans(): { name: string; traceId: string; parentSpanId?: string }[] {
+  function exportedSpans(): { name: string; traceId: string; parentSpanId?: string; attributes?: { key: string; value: { stringValue?: string } }[] }[] {
     return exported
       .filter((body) => body.startsWith("/v1/traces"))
       .flatMap((body) => JSON.parse(body.slice(body.indexOf("\n") + 1)).resourceSpans)
@@ -327,7 +327,7 @@ describe("with the real SDK and its Fastify instrumentation", () => {
     await instrumented.close();
   });
 
-  it("continues the browser's trace from an incoming traceparent and answers a 500 with that trace id", async () => {
+  it("starts a trace of its own for an incoming traceparent, answers a 500 with that trace id, and records the browser's trace id as client.trace_id", async () => {
     const response = await instrumented.inject({
       method: "GET",
       url: `/sessions/${LEAK}?cursor=${LEAK}`,
@@ -336,9 +336,12 @@ describe("with the real SDK and its Fastify instrumentation", () => {
     await handle.flush();
 
     expect(response.statusCode).toBe(500);
-    expect(response.json().detail).toBe(BROWSER_TRACE_ID);
     const requestSpan = exportedSpans().find((span) => span.name === "request");
-    expect(requestSpan).toMatchObject({ traceId: BROWSER_TRACE_ID, parentSpanId: BROWSER_SPAN_ID });
+    expect(response.json().detail).toMatch(TRACE_ID);
+    expect(response.json().detail).not.toBe(BROWSER_TRACE_ID);
+    expect(requestSpan?.traceId).toBe(response.json().detail);
+    expect(requestSpan?.parentSpanId ?? "").toBe("");
+    expect(requestSpan?.attributes).toContainEqual({ key: "client.trace_id", value: { stringValue: BROWSER_TRACE_ID } });
     expect(JSON.stringify(requestSpan)).toContain("session.not-marked-submitted");
   });
 

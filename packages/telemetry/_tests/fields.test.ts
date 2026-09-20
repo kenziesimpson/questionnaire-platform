@@ -31,3 +31,46 @@ describe("the count fields", () => {
     expect(result.dropped.unbounded).toBe(3);
   });
 });
+
+describe("the client trace id", () => {
+  const VALID = "0af7651916cd43dd8448eb211c80319c";
+
+  it("is client.trace_id, and is accepted only as 32 lower-case hex digits that are not all zero", () => {
+    expect(FIELDS.clientTraceId.attribute).toBe("client.trace_id");
+    expect(FIELDS.clientTraceId.accepts(VALID)).toBe(true);
+    const refused = [
+      "",
+      "0".repeat(32),
+      VALID.toUpperCase(),
+      VALID.slice(1),
+      `${VALID}0`,
+      `${VALID}\n`,
+      ` ${VALID}`,
+      "g".repeat(32),
+      "LEAK_DIABETES_8F3A",
+      `00-${VALID}-b7ad6b7169203331-01`,
+      "a".repeat(4096),
+      7,
+      null,
+      undefined,
+      [VALID],
+      { traceId: VALID },
+    ];
+    for (const value of refused) expect(FIELDS.clientTraceId.accepts(value), String(value)).toBe(false);
+  });
+
+  it("is never a metric label, since every page view has its own", () => {
+    expect(FIELDS.clientTraceId.bounded).toBe(false);
+    const result = scrubAttributes({ "client.trace_id": VALID }, "metric");
+    expect(result.attributes).toEqual({});
+    expect(result.dropped.unbounded).toBe(1);
+  });
+
+  it("is kept on a span and a log record, and dropped when it is not 32 hex digits", () => {
+    expect(scrubAttributes({ "client.trace_id": VALID }, "span").attributes).toEqual({ "client.trace_id": VALID });
+    expect(scrubAttributes({ "client.trace_id": VALID }, "log").attributes).toEqual({ "client.trace_id": VALID });
+    const forged = scrubAttributes({ "client.trace_id": "LEAK_DIABETES_8F3A" }, "log");
+    expect(forged.attributes).toEqual({});
+    expect(forged.dropped.invalid).toBe(1);
+  });
+});

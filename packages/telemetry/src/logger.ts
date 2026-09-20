@@ -1,5 +1,6 @@
 import { trace } from "@opentelemetry/api";
-import { stackFramesOf, type TelemetryContext } from "./fields.js";
+import { activeClientTraceId } from "./client-trace.js";
+import { FIELDS, stackFramesOf, type TelemetryContext } from "./fields.js";
 import { guarded, guardedOr } from "./guard.js";
 import { reportDropped } from "./instruments.js";
 import { scrubAttributes, scrubContext, type ScrubbedAttributes } from "./scrub.js";
@@ -58,7 +59,11 @@ function isBelowThreshold(level: LogLevel): boolean {
 
 function correlation(): Record<string, string> {
   const context = trace.getActiveSpan()?.spanContext();
-  return context === undefined ? {} : { [LOG_ATTRIBUTES.traceId]: context.traceId, [LOG_ATTRIBUTES.spanId]: context.spanId };
+  const clientTraceId = activeClientTraceId();
+  return {
+    ...(context === undefined ? {} : { [LOG_ATTRIBUTES.traceId]: context.traceId, [LOG_ATTRIBUTES.spanId]: context.spanId }),
+    ...(clientTraceId === undefined ? {} : { [FIELDS.clientTraceId.attribute]: clientTraceId }),
+  };
 }
 
 const domainEventRecords = new WeakSet<object>();

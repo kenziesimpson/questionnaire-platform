@@ -1,6 +1,5 @@
-import { isSpanContextValid, trace } from "@opentelemetry/api";
 import { guardedOr } from "../guard.js";
-import { formatTraceparent, TRACEPARENT_HEADER } from "../trace-context.js";
+import { ALL_ZERO, formatTraceparent, SPAN_ID_LENGTH, TRACE_ID_LENGTH, TRACEPARENT_HEADER } from "../trace-context.js";
 
 type HeaderPairs = readonly (readonly [string, string])[];
 
@@ -11,6 +10,14 @@ interface HeaderMap {
 export type HeadersInput = Readonly<Record<string, string>> | HeaderPairs | HeaderMap;
 
 const HEADER_VALUE_SEPARATOR = ", ";
+
+const NOT_SAMPLED = 0;
+
+const HEX_DIGITS_PER_BYTE = 2;
+
+const HEX_RADIX = 16;
+
+let pageTraceId: string | undefined;
 
 function isPairs(headers: HeadersInput): headers is HeaderPairs {
   return Array.isArray(headers);
@@ -41,15 +48,28 @@ function withoutTraceparent(headers: HeadersInput): Record<string, string> {
   return Object.fromEntries([...merged.values()].map(({ name, value }) => [name, value]));
 }
 
-export function activeTraceparent(): string | undefined {
-  return guardedOr<string | undefined>("span", undefined, () => {
-    const active = trace.getActiveSpan()?.spanContext();
-    return active === undefined || !isSpanContextValid(active) ? undefined : formatTraceparent(active.traceId, active.spanId, active.traceFlags);
-  });
+function randomHex(length: number): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(length / HEX_DIGITS_PER_BYTE));
+  return Array.from(bytes, (byte) => byte.toString(HEX_RADIX).padStart(HEX_DIGITS_PER_BYTE, "0")).join("");
+}
+
+function randomId(length: number): string {
+  let id = randomHex(length);
+  while (ALL_ZERO.test(id)) id = randomHex(length);
+  return id;
+}
+
+function pageTrace(): string {
+  pageTraceId ??= randomId(TRACE_ID_LENGTH);
+  return pageTraceId;
+}
+
+export function pageTraceparent(): string | undefined {
+  return guardedOr<string | undefined>("span", undefined, () => formatTraceparent(pageTrace(), randomId(SPAN_ID_LENGTH), NOT_SAMPLED));
 }
 
 export function injectTraceHeaders(headers: HeadersInput = {}): Record<string, string> {
-  const traceparent = activeTraceparent();
+  const traceparent = pageTraceparent();
   const others = withoutTraceparent(headers);
   return traceparent === undefined ? others : { ...others, [TRACEPARENT_HEADER]: traceparent };
 }

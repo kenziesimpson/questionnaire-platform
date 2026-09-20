@@ -216,10 +216,11 @@ O19). The rules are the server's rules, applied before anything is queued:
 - `debug` is never queued. An app may pass a `debug` function to `routeLogsToQueue` in a development
   build only.
 - No session replay, DOM capture, `instrumentation-fetch` or patched global `fetch` (O12). The app's
-  one `fetch` wrapper calls `injectTraceHeaders`, which adds a `traceparent` and nothing else, inside a
-  `browser.request` span named by method and route template. The web tracer is not in `./browser`: an app
-  loads `@qp/telemetry/browser-tracing` with a dynamic `import()` behind a build switch, and a test fails if
-  its static graph reaches `sdk-trace-web`.
+  one `fetch` wrapper calls `injectTraceHeaders`, which adds a `traceparent` and nothing else: the page's
+  trace id and a fresh span id (`00-<page id>-<span id>-00`). The page id is one random id per page load from
+  `crypto.getRandomValues`, kept in memory and never in storage, a cookie or a URL, and the queue stamps every event
+  with it. The browser creates no span and ships no tracer: a test fails if its graph reaches an
+  `@opentelemetry/sdk-*` package.
 - The browser reports only what the server cannot see: `session.abandoned` (the session id and the last
   definition item id, emitted from the page-hide hook, once per session, only for a session in progress and
   not submitted) and `page.loaded` (a route template and a duration). Neither can carry an answer; a new
@@ -243,8 +244,24 @@ client log event (`client.` and a level from `CLIENT_LOG_LEVELS`) or a `BROWSER_
 stricter `isBrowserStack`), and counts every drop in `telemetry.ingest.dropped{reason}`, `over_capacity` among them: past a global cap on events a second the ingest sheds an event whole before reading its fields, client log events first (O21). Before adding a browser event, ask whether the server could emit it itself;
 an event the server owns stays off the allowlist, so a browser cannot move its counter. A client log line carries no message: its
 level is its name. Hole 2 applies in full: the ingest cannot tell a slug-shaped `itemId` or a route from a one-word answer, so a
-browser build must take them from the definition and the route template. Never log or count an ingested name, timestamp,
-traceparent or rejected value.
+browser build must take them from the definition and the route template. Never log or count an ingested name, timestamp
+or rejected value, and that includes the value of a `traceparent` that fails validation: it is dropped and counted as
+`invalid_trace`, never logged. A valid one is logged on purpose, but only its trace id, as `client.trace_id`.
+
+**The trust boundary for a trace id.** A `traceparent`, whether a request's header or an ingested event's field, is
+input from an unauthenticated client and is never trusted as a trace context. `TraceparentOnlyPropagator.extract` and
+`ingestBatch` read it with the one parser in `trace-context.ts` (`parseTraceparent`: version `00`, 32-hex trace id and
+16-hex span id, neither all zero) and keep only the trace id, as `clientTraceId` (`client.trace_id`, O24). The caller's
+flags, span id, `tracestate` and `baggage` are read for shape and dropped, no remote span context is ever set, so the request
+starts a new trace with the backend's own ids and the default sampler decides. The id lives in a private context key
+(`client-trace.ts`) and reaches a signal in three places only: the root span of the request (a `SpanProcessor`), every log
+record written while the request runs (`correlation()` in the logger) and, for an ingested event, that event's own line. It is a
+registered field that is never a metric label (`bounded: false`) and is not in `TelemetryContext`, so a caller cannot pass it
+to `logger` or `withSpan`; its shape (32 lower-case hex digits, not zero) cannot carry a word. A change that makes any of
+these true again fails a leak flow: a hostile `traceparent` (the sentinel in every position, oversized, non-hex, all zero)
+must yield no `clientTraceId`, and a valid one must never become a parent, a sampling decision or a `tracestate`. A hostile
+trace header can otherwise reach `pg_stat_activity` and the Postgres log through the SQL comment, which is why the
+propagator's extract, not its inject, is the barrier (`docs/6-observability.md` §14, layer 2).
 
 ## Never in telemetry
 
@@ -323,6 +340,10 @@ Flows built so far, in `flows.ts`:
 - The execution module's submit, rejection, past-cutoff, skipped-item and replay paths.
 - The `/api/telemetry` ingest: a batch with the sentinel in a field, a nested object, an event name, a timestamp and a
   traceparent, and batches refused as not an envelope.
+- Trace context: a `traceparent` with the sentinel in every position (trace id, span id, flags, version), oversized, non-hex,
+  all zero and bare, sent as the header of real reporting requests beside a sentinel `tracestate` and `baggage`, and as the
+  field of every event of a batch under a sentinel header. Every request is answered and every event accepted; the unit tests of
+  the propagator and the ingest assert that none of them yields a `clientTraceId`.
 - The definition routes: the sentinel in a title, a prompt and an option label, through a stale save, a refused publish, a
   publish and a retirement; and a publish refused for more items than `MAX_FINDINGS`, where the per-item lines are capped and
   the per-code events and outcome carry the totals.
@@ -331,7 +352,7 @@ Flows built so far, in `flows.ts`:
   then the `view_response` audit row: one for the detail read, none for the list, no sentinel in it (O14, O20). Reads refused at
   the edge with the sentinel in a path, a query or a cursor built around it, and reads of a session that does not exist; and a
   read carrying a `traceparent` whose `tracestate` and `baggage` hold the sentinel, followed by the admin's failure report through
-  the ingest under that trace.
+  the ingest with the browser's trace id as the client trace id.
 
 - The respondent's browser paths: a typed answer, an error and a rejection carrying the sentinel, and a resumed session's stored
   answers, checked in the sent batches and the beacon bodies; the abandonment beacon; the SDK's own flow (`packages/telemetry/_tests/browser/`)

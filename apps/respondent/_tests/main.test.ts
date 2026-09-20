@@ -9,16 +9,11 @@ const TELEMETRY_ROOT = resolve(APP_ROOT, "../../packages/telemetry/src/");
 
 const ENTRY = resolve(APP_ROOT, "src/main.tsx");
 
-const TRACING_MODULE = resolve(APP_ROOT, "src/telemetry/tracing.ts");
-
 const STATIC_SPECIFIER = /(?:\bfrom|\bimport)\s*"([^"]+)"/g;
-
-const DYNAMIC_SPECIFIER = /\bimport\s*\(\s*"([^"]+)"\s*\)/g;
 
 const TELEMETRY_ENTRIES: Readonly<Record<string, string>> = {
   "@qp/telemetry": "index.ts",
   "@qp/telemetry/browser": "browser.ts",
-  "@qp/telemetry/browser-tracing": "browser-tracing.ts",
 };
 
 interface Graph {
@@ -78,22 +73,14 @@ describe("the respondent's import graph", () => {
     );
   });
 
-  it("never reaches the web tracer provider or the tracing entry point, so a build without tracing ships neither", () => {
-    expect(graph.packages).not.toContain("@opentelemetry/sdk-trace-web");
-    expect(graph.packages).not.toContain("@qp/telemetry/browser-tracing");
-    expect(graph.files.has(resolve(TELEMETRY_ROOT, "browser-tracing.ts"))).toBe(false);
-    expect(graph.files.has(resolve(TELEMETRY_ROOT, "browser/tracing.ts"))).toBe(false);
-    expect(graph.files.has(TRACING_MODULE)).toBe(true);
-  });
-
-  it("reaches the tracing entry point only through the dynamic import in src/telemetry/tracing.ts", () => {
-    const dynamic = [...graph.files].filter((file) => specifiersIn(file, DYNAMIC_SPECIFIER).includes("@qp/telemetry/browser-tracing"));
-
-    expect(dynamic).toEqual([TRACING_MODULE]);
+  it("reaches no tracer provider, no span exporter and no tracing entry point: the browser mints trace ids by hand and creates no span", () => {
+    expect([...graph.packages].filter((name) => name.startsWith("@opentelemetry/sdk-"))).toEqual([]);
+    expect([...graph.packages].filter((name) => name.includes("tracing"))).toEqual([]);
+    expect([...graph.files].filter((file) => file.includes("tracing"))).toEqual([]);
   });
 
   it("reaches no Node-only telemetry module", () => {
-    for (const nodeOnly of ["node.ts", "testing.ts", "leak-test.ts", "pipeline.ts", "exporters.ts", "log-records.ts"]) {
+    for (const nodeOnly of ["node.ts", "testing.ts", "leak-test.ts", "pipeline.ts", "exporters.ts", "log-records.ts", "client-trace-processor.ts"]) {
       expect(graph.files.has(resolve(TELEMETRY_ROOT, nodeOnly))).toBe(false);
     }
     expect([...graph.packages].filter((name) => name === "pino" || name.startsWith("@opentelemetry/sdk-node"))).toEqual([]);
