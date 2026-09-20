@@ -1,4 +1,4 @@
-import { IsoDateTime, PositiveInt, problemType, strict } from "@qp/shared";
+import { IsoDateTime, PositiveInt, Uuid, problemType, strict } from "@qp/shared";
 import Fastify, { type FastifyInstance } from "fastify";
 import Type from "typebox";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -27,6 +27,7 @@ beforeAll(async () => {
     { schema: { body: Type.Object({ closesAt: IsoDateTime, note: Type.Optional(Type.String()) }, strict) } },
     async (request) => ({ closesAt: request.body.closesAt }),
   );
+  app.get<{ Params: { id: string } }>("/records/:id", { schema: { params: Type.Object({ id: Uuid }, strict) } }, async (request) => ({ id: request.params.id }));
   await app.ready();
 });
 
@@ -132,5 +133,38 @@ describe("requestValidatorCompiler", () => {
     expect(response.statusCode).toBe(400);
     expect(response.json().errors).toEqual([{ pointer: "/body", code: "schema/pattern" }]);
     expect(response.body).not.toContain("LEAK_KEY");
+  });
+
+  describe("a request the schema refuses is still refused with the null-character check in front of the validator", () => {
+    it("answers a path parameter that is not a uuid with 400 and does not reach the handler", async () => {
+      const response = await app.inject({ method: "GET", url: "/records/not-a-uuid" });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().errors).toEqual([{ pointer: "/params/id", code: "schema/format" }]);
+    });
+
+    it("answers an integer over its maximum with 400", async () => {
+      const response = await postThing("/things/2147483648", { count: 1 });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it("answers an additional body property with 400", async () => {
+      const response = await postThing("/things/2", { count: 1, extra: true });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it("answers a null character with 400", async () => {
+      const response = await app.inject({ method: "PUT", url: "/moments", payload: { closesAt: "2026-10-01T00:00:00Z", note: "a" + String.fromCharCode(0) } });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it("still answers a valid request with 200", async () => {
+      const response = await app.inject({ method: "GET", url: "/records/0f8fad5b-d9cb-469f-a165-70867728950e" });
+
+      expect(response.statusCode).toBe(200);
+    });
   });
 });

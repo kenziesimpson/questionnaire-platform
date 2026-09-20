@@ -74,6 +74,23 @@ function digits(count: number): string {
   return Array.from({ length: count }, () => Math.floor(Math.random() * 10)).join("");
 }
 
+function year(): string {
+  return String(1000 + Math.floor(Math.random() * 9000));
+}
+
+function monthAndDay(months: readonly string[]): string {
+  const month = months[Math.floor(Math.random() * months.length)] ?? "01";
+  return `${month}-${String(1 + Math.floor(Math.random() * 28)).padStart(2, "0")}`;
+}
+
+const ROUTE_MONTHS_OF_YEAR_ZERO = ["01", "02", "03", "04", "05", "06"];
+
+const CONTROL_MONTHS_OF_YEAR_ZERO = ["07", "08", "09", "10", "11", "12"];
+
+function fraction(): string {
+  return `.${digits(12)}`;
+}
+
 function encodedCursor(token: string): string {
   return Buffer.from(`forward|started|desc|${token}|${token}`, "utf8").toString("base64url");
 }
@@ -123,10 +140,10 @@ function typedColumnAttempts(sessionId: string): Attempt[] {
       true,
       int4(4),
     ),
-    attempt("a date answer in the year 0000", (token) => submitDate(token), true, "0000-03-04"),
-    attempt("a date answer that is not a calendar day", (token) => submitDate(token), true, "2031-02-30"),
-    attempt("a date answer with a month of 13", (token) => submitDate(token), true, "2032-13-14"),
-    attempt("a date answer in the year 10000", (token) => submitDate(token), true, "10000-01-02"),
+    attempt("a date answer in the year 0000", (token) => submitDate(token), true, `0000-${monthAndDay(ROUTE_MONTHS_OF_YEAR_ZERO)}`),
+    attempt("a date answer that is not a calendar day", (token) => submitDate(token), true, `${year()}-02-30`),
+    attempt("a date answer with a month of 13", (token) => submitDate(token), true, `${year()}-13-${monthAndDay(["01"]).slice(3)}`),
+    attempt("a date answer in the year 10000", (token) => submitDate(token), true, `1${digits(5)}-01-02`),
     attempt(
       "a decimal answer longer than 64 characters",
       (token) => ({
@@ -137,9 +154,9 @@ function typedColumnAttempts(sessionId: string): Attempt[] {
       true,
       `9${digits(64)}`,
     ),
-    attempt("a close time in the year 0000", (token) => closesAt(token), true, "0000-07-08T00:00:00Z"),
-    attempt("a close time that is not a calendar day", (token) => closesAt(token), true, "2031-02-30T00:00:00Z"),
-    attempt("a close time with a leap second", (token) => closesAt(token), true, "2031-06-30T23:59:60Z"),
+    attempt("a close time in the year 0000", (token) => closesAt(token), true, `0000-${monthAndDay(ROUTE_MONTHS_OF_YEAR_ZERO)}T00:00:00${fraction()}Z`),
+    attempt("a close time that is not a calendar day", (token) => closesAt(token), true, `${year()}-02-30T00:00:00${fraction()}Z`),
+    attempt("a close time with a leap second", (token) => closesAt(token), true, `${year()}-06-30T23:59:60${fraction()}Z`),
     attempt("a text answer with a null character", (token) => ({
       method: "POST",
       url: executionUrl(`/sessions/${sessionId}/submit`),
@@ -327,7 +344,7 @@ describe.skipIf(!serverLogCaptured)("the Postgres server log, and the values tha
   });
 
   it("control: a date in the year 0000 sent to Postgres over a pooled connection is in the ERROR line, so the routes above are refused before it can be", async () => {
-    const value = "0000-05-06";
+    const value = `0000-${monthAndDay(CONTROL_MONTHS_OF_YEAR_ZERO)}`;
     const client = await testDatabase.connect("execution");
 
     const failure = await failureOf(client, "SELECT $1::date", [value]);
@@ -335,6 +352,33 @@ describe.skipIf(!serverLogCaptured)("the Postgres server log, and the values tha
 
     expect(failure.message).toContain(value);
     expect(linesMentioning(log, `"${value}"`).some((line) => line.includes("ERROR:") && line.includes("date/time field value out of range"))).toBe(true);
+  });
+
+  it("control: a calendar-invalid timestamp sent to Postgres over a pooled connection is in the ERROR line, so the close-time routes above are refused before it can be", async () => {
+    const value = `${year()}-02-30T00:00:00${fraction()}Z`;
+    const client = await testDatabase.connect("execution");
+
+    const failure = await failureOf(client, "SELECT $1::timestamptz", [value]);
+    const log = await readPostgresLogAfterBarrier(testDatabase);
+
+    expect(failure.message).toContain(value);
+    expect(linesMentioning(log, `"${value}"`).some((line) => line.includes("ERROR:") && line.includes("date/time field value out of range"))).toBe(true);
+  });
+
+  it("control: the Invalid Date a leap second makes is an error when Postgres is handed it, so the close-time routes above are refused before a 500", async () => {
+    const client = await testDatabase.connect("execution");
+
+    const failure = await failureOf(client, "SELECT $1::timestamptz", [new Date("2031-06-30T23:59:60Z")]);
+
+    expect(failure.code).toBe("22007");
+  });
+
+  it("control: a decimal beyond what numeric can hold is an error when sent to Postgres, so the length bound is what keeps a long one from being a 500", async () => {
+    const client = await testDatabase.connect("execution");
+
+    const failure = await failureOf(client, "SELECT $1::numeric", ["9".repeat(131_073)]);
+
+    expect(failure.code).toBe("22003");
   });
 
   it("control: a null character sent to Postgres over a pooled connection is an error, so validation is what keeps it from being a 500", async () => {

@@ -29,14 +29,21 @@ function pointerToNulIn(root: unknown): string | undefined {
   return undefined;
 }
 
+function errorsOf(validate: object): FastifySchemaValidationError[] {
+  return "errors" in validate && Array.isArray(validate.errors) ? validate.errors : [];
+}
+
 function refusingNul(compiler: FastifySchemaCompiler<unknown>): FastifySchemaCompiler<unknown> {
   return (route) => {
     const validate = compiler(route);
     return (data) => {
       const at = pointerToNulIn(data);
-      if (at === undefined) return validate(data);
-      const error: FastifySchemaValidationError = { keyword: "pattern", instancePath: at, schemaPath: "#/nul", params: {}, message: "must not contain a null character" };
-      return { error: [error] };
+      if (at !== undefined) {
+        const error: FastifySchemaValidationError = { keyword: "pattern", instancePath: at, schemaPath: "#/nul", params: {}, message: "must not contain a null character" };
+        return { error: [error] };
+      }
+      const outcome = validate(data);
+      return outcome === false ? { error: errorsOf(validate) } : outcome;
     };
   };
 }
