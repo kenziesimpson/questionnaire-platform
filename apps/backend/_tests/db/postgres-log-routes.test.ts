@@ -402,7 +402,7 @@ describe.skipIf(!serverLogCaptured)("the Postgres server log, and the values tha
     const log = await readPostgresLogAfterBarrier(testDatabase);
 
     expect(response.json()).toEqual({ failed: true });
-    const traceId = telemetry.spans().find((span) => span.name === "request")?.spanContext().traceId ?? "";
+    const traceId = telemetry.spans().filter((span) => span.name === "request").at(-1)?.spanContext().traceId ?? "";
     expect(traceId, "the request span is the root of a backend trace").toMatch(/^[0-9a-f]{32}$/);
     expect(traceId).not.toBe(callerTraceId);
     const statements = linesMentioning(log, traceId).filter((line) => line.includes("STATEMENT:"));

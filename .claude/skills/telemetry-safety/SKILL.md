@@ -245,7 +245,8 @@ stricter `isBrowserStack`), and counts every drop in `telemetry.ingest.dropped{r
 an event the server owns stays off the allowlist, so a browser cannot move its counter. A client log line carries no message: its
 level is its name. Hole 2 applies in full: the ingest cannot tell a slug-shaped `itemId` or a route from a one-word answer, so a
 browser build must take them from the definition and the route template. Never log or count an ingested name, timestamp
-or rejected value.
+or rejected value, and that includes the value of a `traceparent` that fails validation: it is dropped and counted as
+`invalid_trace`, never logged. A valid one is logged on purpose, but only its trace id, as `client.trace_id`.
 
 **The trust boundary for a trace id.** A `traceparent`, whether a request's header or an ingested event's field, is
 input from an unauthenticated client and is never trusted as a trace context. `TraceparentOnlyPropagator.extract` and
