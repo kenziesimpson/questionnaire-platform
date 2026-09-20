@@ -431,7 +431,7 @@ Lint rule: L10, which PR 1 introduced, extends to e2e.
 
 - Use a YAML anchor for the database environment variables that the `db` and `roles` services both declare.
 - Remove the initdb mount and the `QP_*_PASSWORD` variables from the `db` service. The `roles` service becomes the only path that provisions roles (#60).
-- Update [[9-database-schema]] §11 and [[2-design-doc#13.1 Local / prototype (Docker Compose)]] to match.
+- Update [[9-database-schema]] §11 and [[2-design-doc#Compose services]] to match.
 
 ### Phase F — Docs and conventions
 

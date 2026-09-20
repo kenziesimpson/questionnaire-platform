@@ -557,7 +557,7 @@ Every index below exists for a named query or a named invariant. Nothing is inde
 | `questionnaire_one_draft` | the one-draft invariant; not an access path |
 | `questionnaire_version_number` | version lookup by number, and uniqueness of it |
 | `qv_addressable` | §3.1's published-only foreign keys |
-| `vqi_reverse` | "which published versions contain question X" ([[2-design-doc#12. Database]] §12.1) |
+| `vqi_reverse` | "which published versions contain question X" ([[2-design-doc#Authoring vs published]]) |
 | `qvo_one_freeform` | at most one freeform option per question version |
 | `session` PK | resume — `GET /sessions/:sessionId`, a point lookup |
 | `session_by_version` | "sessions started against version N", for the republish story and analytics |
@@ -569,7 +569,7 @@ Every index below exists for a named query or a named invariant. Nothing is inde
 
 Deliberately **not** indexed:
 
-- **No GIN index on `snapshot`.** Access is whole-document by construction ([[2-design-doc#12. Database]] §12.1), and `version_question_index` exists precisely so the one query that would want a GIN index does not need one.
+- **No GIN index on `snapshot`.** Access is whole-document by construction ([[2-design-doc#Authoring vs published]]), and `version_question_index` exists precisely so the one query that would want a GIN index does not need one.
 - **No index on `closes_at`.** It is compared on a row already fetched by primary key, never used to filter a scan, and the questionnaire count is in the dozens.
 - **No index on `question.archived_at`.** Same reason: the bank is small and the picker reads all of it.
 

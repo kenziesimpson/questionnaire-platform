@@ -5,27 +5,29 @@
 
 ## 1. Overview
 
-The Dynamic Questionnaire Platform lets an admin author reusable, versioned questions into versioned questionnaires with conditional branching over prior answers, then publish and retire them, and lets a respondent complete a published questionnaire through a form that reveals only the questions their own answers make applicable. The two roles work against different halves of the same system: admins operate an authoring UI over drafts and published version history — creating and reusing questions, wiring branching predicates, publishing — while respondents work against exactly one pinned published version, answering, branching, and resuming a session they left incomplete. The end-to-end workflow this prototype demonstrates is the one the brief grades directly: an admin publishes a medical-condition questionnaire whose yes/no answer determines whether two follow-up questions appear, a respondent completes it down each branch, the admin then publishes a second version that changes one question without disturbing what version one's already-collected responses meant, and both versions stay independently interpretable afterward.
+The dynamic questionnaire platform enables the creation of reusable, versioned questions and questionnaires with branching and lifecycle management, as well as tracking responses.
+
+There are two halves of the system; admin and respondent. The admin view is responsible for creating, editing, and managing the questions and questionnaires, and the respondent view is responsible for answering the questionnaires. Each aspect has its own service. They are both behind an nginx proxy, and are separate to unlock untethered scalability.
+
+Once a user has started responding, they are able to resume from the same browser for the next 7 days, and the version of the questionnaire that they're responding to becomes pinned. Even if the phrasing of questions or answers is changed, the questions/answers themselves are associated between versions, allowing for the interpretability of questions answered across versions.
 
 ## 2. Goals
 
-- **Prove the full authoring-to-response loop end to end.** An admin creates, edits, publishes and retires questionnaires built from reusable, versioned questions with conditional branching; a respondent completes a published version, branches correctly, and resumes an interrupted session. This is the brief's required-capabilities checklist and the "working behavior" review dimension in one loop — running, not merely described.
-- **Make immutability a database guarantee, not a house rule.** A published questionnaire version, and the question versions it pins, never change once published, and a collected response stays interpretable against the version it was gathered under — enforced by a trigger and a test that bypasses the API ([[#6. Versioning & Immutability]]) rather than left to application discipline.
-- **Give the definition/execution boundary a mechanical answer.** `/api/definition/*` and `/api/run/*` are separate modules with no cross-imports, separate database roles, and exactly one immutable artifact crossing the line ([[#9. API / Service Boundary]]) — the brief's named "clear service/API boundary" capability, checkable without trusting a naming convention.
-- **Ship the mandatory branching demo with tests, not a walkthrough.** The yes/no → conditional-follow-up scenario, and the version-2 publish that must not disturb version-1 responses, are both covered by automated tests ([[#15. Testing]]) — the brief asks specifically for versioning and conditional navigation to be tested "above all."
-- **Model the domain so the hard cases are unrepresentable, not merely validated.** Branch cycles, forward references, a draft leaking into execution, and an invalid answer shape are all closed by the format and the schema ([[#7. Branching Rules]], [[#12. Database]]) rather than caught at runtime — what the brief's "domain design" dimension is judged on.
-- **Record every material decision with what it cost.** The Decisions Log ([[#17. Decisions Log]]) carries each choice against its rejected alternatives; "decision quality" is graded against that record, not against the finished architecture alone.
-- **State what does not ship, and why, with a production path for each.** Auth, multi-tenancy, HIPAA, localization and the checkpoint endpoint are named in [[#4. Out of Scope]] and [[#19. Future Work]] instead of left implicit — "production thinking" is graded on the plan for what is missing as much as on what is built.
-- **Keep the design doc readable front to back, in one sitting.** Depth lives in the numbered docs it links to; this document stays the index a reviewer actually finishes, which is what the "communication" dimension asks for.
+- **A working end-to-end loop.** An admin can create, edit, publish and retire questionnaires built from reusable questions. A respondent can complete a published questionnaire, follow the correct branch, and resume an interrupted session.
+- **Published versions never change.** Once published, a questionnaire version and the question versions it pins are immutable. This is enforced by the database, not just the application ([[#6. Versioning & Immutability]]).
+- **Responses stay meaningful across versions.** Every response is tied to the version it was collected under. Questions and options keep stable ids, so answers can be compared across versions even when wording changes.
+- **Invalid states can't be built.** Rules may only reference earlier questions, so cycles and dead ends are impossible rather than detected. The same approach applies to drafts reaching respondents and to malformed answers ([[#7. Branching Rules]], [[#12. Database]]).
+- **Authoring and answering are separate.** Definition and execution are separate modules with separate database roles. Only the published snapshot crosses between them ([[#9. API / Service Boundary]]).
+- **Versioning and branching are proven by tests.** This includes the required medical-condition demo and its second version ([[#15. Testing]]).
+- **Every tradeoff is written down.** Decisions carry their rejected alternatives ([[#17. Decisions Log]]). Anything not built has a stated reason and a production path ([[#4. Out of Scope]], [[#19. Future Work]]).
 
 ## 3. Constraints
 
-*Hard limits we are designing within: time, single developer, must be runnable with one command, published versions immutable, etc.*
-
-- **Nothing is deleted; things are hidden.** A general principle rather than a per-entity rule: questionnaires retire via `closes_at` ([[#8. Sessions & Responses]] §8.1), questions are archived rather than removed, question versions are append-only, and published snapshots and collected responses are immutable. Most of the design had already converged on this independently — stating it explicitly is what makes that coherent rather than coincidental, and it is the rule to apply when a new entity's lifecycle comes up. The risk being avoided is data loss, and in this domain the data is someone's medical history. See Decisions Log #15.
-  - **Known exception: erasure on request.** A production system under GDPR or HIPAA must be able to remove a specific respondent's data. That is a separate, explicitly invoked, audited capability — never something normal operation does — and the distinction is what keeps "nothing is deleted" true as an operational statement. Out of scope for the prototype; see [[#19. Future Work]].
-  - Archival ([[3-scaling#3. Problem: response ingest vs. reads]] §3.6) moves old partitions to cold storage. That is movement, not deletion, and stays inside the principle.
-- **Prefer the simple, out-of-the-box thing.** Where two designs deliver materially the same guarantee, take the one with less bespoke machinery: stock tooling over hand-rolled, generated migrations over custom SQL, application validation over a database object built only to hold it. This is one developer against a deadline, and every custom object is something a reviewer has to read and a future agent has to keep in sync. It does **not** override the invariants above — where the data layer is the *stated* enforcement point (Decisions Log #17, #24), the custom object earns its place and the rule becomes that it is written down and tested instead. The distinction is between machinery that carries a guarantee we are claiming, and machinery that closes a shape nothing can produce. See Decisions Log #33; first applied in #34.
+- **Limited time.** The original deadline was one week, so a complete end-to-end slice came first. An extension later made room for scale work ([[#16. Scale & Growth]]).
+- **Runs with one command.** `docker compose up` builds, migrates, seeds and serves the whole stack, and `npm test` runs every test suite. Any design that needs a second step to run was rejected ([[#13. Deployment]]).
+- **Published versions are immutable.** This is a hard requirement from the assignment brief. Anything that edits a published questionnaire, or a question it pins, is out ([[#6. Versioning & Immutability]]).
+- **Nothing is deleted.** Questionnaires retire, questions are archived, question versions are only ever added, and snapshots and responses never change. Any new entity follows the same rule. The one exception is erasure on request under GDPR or HIPAA, which would be a separate, audited capability and is not built ([[#19. Future Work]]). Decisions Log #15.
+- **Prefer the simple, out-of-the-box option.** When two designs give the same guarantee, choose the one with less custom machinery. This never weakens an invariant the database is meant to enforce: in that case, the custom object stays and is documented and tested. Decisions Log #33.
 
 ## 4. Out of Scope
 
@@ -43,239 +45,327 @@ There are no edges between questions. Order is the list index, and the next ques
 
 Five response types — `text`, `single_choice`, `multiple_choice`, `number`, `date`. There is no `yes_no` type: a yes/no question is a `single_choice` with two options, created by an editor template seeding the reserved ids `yes` / `no` with editable labels, so the same question can be phrased True / False without becoming a different kind of thing. Two identity guarantees carry the versioning story: **option ids are stable across question versions**, and **number answers are stored with their unit**. Both exist so that revising a question cannot retroactively change what an earlier response meant.
 
-A published version serializes to a single JSONB document carrying its own `formatVersion` ([[#12. Database]] §12.1).
+A published version serializes to a single JSONB document carrying its own `formatVersion` ([[#Authoring vs published]]).
 
 See Decisions Log #6, #11, #12, #36 (which supersedes #10).
 
 ## 6. Versioning & Immutability
 
 > **Detail: [[5-questionnaire-format#6. Versioning mechanics]].**
-
-**Questionnaires.** At most one draft at a time, enforced by a partial unique index rather than application logic. **Publishing promotes the draft row in place** to version *N*; the next draft is an explicit copy of the latest published version. A published version is never edited.
-
-**Questions.** Append-only, with no draft state on the bank: every save writes a new immutable `question_version` row, so saving *is* publishing. A stable `questionId` carries identity across revisions, and a questionnaire item pins a `questionVersion` at the moment the question is added and keeps it, so a draft never shifts under its author. Questions are archived, never deleted ([[#3. Constraints]]).
-
-**Responses** store `questionId` — what you aggregate on — alongside `questionVersion` (what you render with), the questionnaire version, and option ids. The version is derivable from the snapshot; storing it anyway keeps a response interpretable without loading the definition it was collected under. The line stops at the version pointer: prompt text is not copied onto responses.
-
-Immutability is enforced in three layers: a database trigger rejecting `UPDATE` on published rows — that is the guarantee — a `409` from the authoring API for a usable error, and a test that drives the update straight at the database so the guarantee cannot silently regress behind a service-layer refactor.
-
-The published snapshot carries a `formatVersion` and is upgraded **in memory at read time**; stored bytes are never rewritten. Immutability here means the bytes, not merely the meaning — the stored document is the record of what a respondent was actually shown.
+### Questionnaires
+- At most one draft at a time, enforced by a partial unique index.
+- Publishing turns the draft row into version *N* in place.
+- The next draft starts as an explicit copy of the latest published version.
+- A published version is never edited.
+### Questions
+- Questions are append-only and have no draft state: every save writes a new, immutable `question_version` row, so saving *is* publishing.
+- A stable `questionId` keeps a question's identity across revisions.
+- An item pins the `questionVersion` it had when it was added and keeps it, so a draft never changes under its author.
+- Questions are archived, never deleted ([[#3. Constraints]]).
+### Responses
+- Each response stores:
+  - `questionId`, which is what you aggregate on.
+  - `questionVersion`, which is what you render with.
+  - The questionnaire version.
+  - The option ids or the value.
+- Storing the version means a response can be read without loading the definition it was collected under.
+- Prompt text is not copied onto responses. The snapshot holds it.
+### Enforcement
+- **Database trigger.** It rejects `UPDATE` and `DELETE` on published rows. This is the actual guarantee.
+- **API `409`.** Gives authors a usable error.
+- **Direct-to-database test.** It keeps the guarantee from quietly breaking behind a service-layer refactor.
+- **Snapshots are never rewritten.** Each carries a `formatVersion` and is upgraded in memory when read. The stored bytes are the record of what the respondent actually saw.
 
 See Decisions Log #7, #8, #13, #14.
 
 ## 7. Branching Rules
 
 > **Detail: [[5-questionnaire-format#4. Branching rules]] and [[5-questionnaire-format#5. Publish-time validation]].**
-
-Each item carries an optional `visibleWhen` predicate: a **single level** of `all` / `any` over conditions **typed per response type**, so an invalid comparison such as a date against a number is unrepresentable in the shared package rather than a runtime error class. A condition names an **`itemId`** — a placement, not a reusable question — and may reference only items at a lower index, so "is it earlier?" always has exactly one answer. A question may be placed at most once per version, which keeps `question_id` a sound aggregation key (Decisions Log #41).
-
-Next question is the first unanswered item whose predicate is true; completion is running off the end of the list. A condition on a question that was not shown evaluates to `false` for every operator, negative ones included — a condition means *the referenced item is shown and its answer exists and satisfies the operator*. Text conditions are `{ op: "answered", value: boolean }`; `value: false` is the one case that holds without an answer, and only while the item is shown.
-
-**Cycles and deadlock are not detected, they are unrepresentable.** Forward-only references make a cycle unconstructible, and falling off the end of the list is always available as a terminal state. Publish-time validation therefore covers forward references, satisfiability and referential integrity. Satisfiability is checked exactly, by domain intersection — affordable precisely because composition is flat.
-
-One evaluator in the shared package, used by both the client (rendering) and the server (submit-time authority).
+### Predicates
+- Each item can have a `visibleWhen` predicate. It is one level of `all` / `any` over a list of conditions.
+- Conditions are typed per response type, so an invalid comparison (such as a date against a number) can't be written.
+- A condition names an `itemId` (a placement), not a reusable question.
+- A condition can only reference earlier items.
+- A question appears at most once per version, so `questionId` stays a sound key for aggregating (Decisions Log #41).
+### Evaluation
+- The next question is the first unanswered item whose predicate is true. The questionnaire is complete when the list runs out.
+- A condition on a question that wasn't shown is `false` for every operator, including negative ones.
+- The client (for rendering) and the server (on submit, where it has the final say) use the same evaluator from the shared package.
+### Cycles and deadlock
+- These aren't detected, because they can't be built.
+- References only point backwards, so a cycle is impossible.
+- The end of the list is always reachable, so a respondent can't get stuck.
+### Publish-time validation
+- Rejects forward references.
+- Checks that each predicate can be satisfied, exactly, by intersecting the answer ranges its conditions allow. A single level of `all` / `any` keeps this cheap.
+- Checks that every referenced item and option exists.
 
 See Decisions Log #6, #9.
 
 ## 8. Sessions & Responses
 
 > **Detail: [[7-application-boundary#5. Execution API]].**
+### Lifecycle
+- A session goes from `in_progress` to `submitted`. There are no other states.
+- Abandonment isn't a state. It's a session that never submitted, and analytics picks it up from the session record ([[6-observability#4. Domain events]]).
+- Resume works because the browser holds the partial answers and the server holds the version pin.
+### No checkpoint endpoint
+- Respondents are anonymous, so the session id is kept in the same browser storage as the answers. Anything that loses the answers also loses the id needed to fetch a server copy.
+- Resuming on another device needs an identity, not a write path.
+- Client domain events already record where a session stopped.
+- This is deferred, not rejected, and adding it later won't break anything. See [[7-application-boundary#9.7 A debounced checkpoint endpoint]].
+### Republishing mid-session
+- A session pins its version when it starts, and every later read returns that version.
+- The execution API has no route that returns the current version of a questionnaire ([[7-application-boundary#5.2 There is no unpinned definition read]]).
+- So sessions already running never see a new publish, and sessions started after it do. No coordination or migration is needed.
+### Submit
+- Submitting is the only write, and the server's answer is final.
+- The server re-evaluates the path against the pinned definition. It accepts the submission only if:
+  - every visible required item is answered
+  - every answer belongs to a visible item
+  - every value meets its question version's constraints
+  - `closes_at` hasn't passed
+- The whole submission is saved in one transaction or rejected.
+### Idempotency
+- The session itself is the idempotency key, so there's no separate key table.
+- Submit locks the session row. If the session was already submitted, a digest of the answers decides the result:
+  - Same answers: the original receipt is replayed, so a network retry is safe.
+  - Different answers: `409`, rather than silently overwriting someone's medical history.
+- This also catches the same form submitted from two browser tabs, which a key supplied by the client would miss.
+### Retirement
+- Retirement belongs to the questionnaire, not a version. Published versions stay readable so old responses can still be rendered.
+- One nullable `closes_at` covers every case:
 
-**Lifecycle** is `in_progress → submitted` and nothing else. Abandonment is not a state; it is the absence of a submit, inferred from the session record for analytics ([[6-observability#4. Domain events]]) rather than written by a process that has to decide when to give up. Resume works because the session id is durable and the session pins its version at creation: the browser holds the partial answers, the server holds the pin.
-
-**There is no checkpoint endpoint.** A debounced `PUT /sessions/:id/progress` was part of the design until late and is deliberately out. With respondents anonymous, the session id is a bearer capability held in the same browser storage as the partial answers, so every scenario that loses the answers loses the id that would fetch them back — the server-side copy is unreachable in precisely the cases it exists for. Genuine cross-device resume needs an identity to key on, not a write path. The operational half of its value — *where* a session stopped, not merely that it did — is already carried by client-emitted domain events ([[6-observability#4. Domain events]]). Deferred rather than rejected, and additive when it returns: [[9-database-schema#12. Open questions]] holds the table shape. See [[7-application-boundary#9.7 A debounced checkpoint endpoint]] and Decisions Log #25.
-
-**Republish while sessions are in flight is a non-event.** A session pins its version when it starts, every later read returns that version, and the execution API has no route that resolves "the current version of questionnaire X" ([[7-application-boundary#5.2 There is no unpinned definition read]]). A new publish is therefore invisible to every session already running and visible to every session started afterwards, with no coordination, no polling and no migration of in-flight state.
-
-**Submit is the single write and the server is the authority.** It re-evaluates the reachable path with the shared rule engine against the pinned definition, and accepts only if every visible required item is answered, every submitted answer belongs to an item visible on the computed path, every value satisfies its question version's constraints, and `closes_at` has not passed. All-or-nothing in one transaction — partial acceptance would leave a session in a state the model does not have.
-
-**Idempotency uses the session as the key**, not a separate idempotency-key table: a duplicate submit is always a retry of the same session. Submit locks the session row, and if it is already submitted a stored digest over the canonicalized answers decides between replaying the original receipt and returning `409`. A network retry is safe; a genuine second submission of *different* answers is an error rather than a silent overwrite of someone's medical history. This also catches the two-tabs case that a client-supplied key would miss.
-
-See Decisions Log #19.
-
-### 8.1 Questionnaire lifecycle and retirement
-
-Retirement is a property of the **questionnaire**, not of a version. Retiring never un-publishes a version: every published version stays readable so historical responses can still be rendered against the definition they were collected under.
-
-The two lifecycles the product needs — questionnaires that run indefinitely, and questionnaires that close on a date — collapse into **one nullable `closes_at` timestamp**:
-
-| Lifecycle | Representation |
+| Lifecycle | `closes_at` |
 | --- | --- |
-| Ongoing | `closes_at IS NULL` |
-| Scheduled close | `closes_at` set to a future date |
-| Retired now | `closes_at` set to `now()` |
+| Ongoing | `NULL` |
+| Scheduled close | future date |
+| Retired now | `now()` |
 
-One field and one comparison, rather than a status enum plus a date that can drift out of agreement with each other.
+- Past `closes_at`, starting and submitting are both rejected, and the respondent sees a "responses closed" page.
+- This is a **hard cutoff**: a session started before the close but submitted after it is also rejected, so the respondent loses their work.
+- A per-questionnaire `cutoffMode: 'hard' | 'soft'` is the likely fix. It's deferred ([[#18. Open Questions]] §3).
 
-**Behaviour past `closes_at`:** starting a session and submitting one are both rejected, and the respondent app renders a "responses closed" page rather than a raw error. This is a **hard cutoff** — a session started before the close but submitted after it is rejected too.
-
-That is the strict choice and it has a real cost: a respondent can lose completed work through no fault of their own. The alternative, a **soft cutoff** admitting any session that started before `closes_at`, is kinder but leaves the close date open-ended for an unbounded window. The likely resolution is a per-questionnaire `cutoffMode: 'hard' | 'soft'` defaulting to hard. Deferred — [[#18. Open Questions]] §3 and [[3-scaling#8. Open questions]].
+See Decisions Log #15, #18, #19, #25, #29, #37.
 
 ## 9. API / Service Boundary
 
 > **Detail: [[7-application-boundary]].**
+### The boundary
+- The two sides don't share code, models or tables. The only thing passed between them is the immutable `PublishedDefinition` snapshot ([[5-questionnaire-format#3. Serialization]]).
+- The definition side produces snapshots, and the execution side consumes them.
+- The execution side never reads a draft, never looks up a `questionId` in the question bank, and never joins to an authoring table.
+### Three representations
 
-The brief grades "a clear application or service boundary ... that separates questionnaire definition from questionnaire execution", and the easy way to fail it is to ship a URL prefix — two route groups over one service layer and one set of models, where the separation is a naming convention a reviewer has to take on trust.
+| Representation | Side | Shape |
+| --- | --- | --- |
+| `QuestionnaireDraft` | Definition only | Normalized, mutable, may be invalid |
+| `PublishedDefinition` | Crosses the boundary | Immutable, self-contained |
+| `Session` + `Response` | Execution only | Pinned to a version |
+### Enforcement
+- **Modules.** Fastify plugins are encapsulated and can't import each other. An ESLint zone rule enforces this.
+- **Types.** The wire types in `@qp/shared` give the execution side no way to name a draft.
+- **Database roles.**
+  - `qp_execution` reads only published versions, through a view. It has no access to drafts or the question bank.
+  - `qp_definition` has no access to `response`, so the authoring API can't be used to reach answers.
+### Routes
+- `/api/definition/*` covers the question bank, drafts, publish, retire, version history and snapshot inspection.
+- `/api/run/*` has three routes: start a session, resume it, and submit it. The client evaluates branching itself, so there's no next-question call.
+- The execution API has no unpinned definition read ([[#8. Sessions & Responses]]). Admin preview and version history are on the definition API.
+### Conventions
+- Every non-2xx response is an RFC 9457 `problem+json` body. Its `type` comes from a fixed list in `@qp/shared`.
+- Status codes:
+  - `400`: schema failure only. It always means a client bug, so it's worth alerting on.
+  - `409`: conflicts with current state.
+  - `422`: well-formed but invalid for the domain.
+- Each route has one TypeBox schema, and its TypeScript type is inferred from it. The frontend imports the same types.
+- Error bodies never echo a submitted answer. They name the item and the rule it broke.
+### Access model
+- Auth is out of scope ([[#4. Out of Scope]]), but the model is defined.
+- **Authors:** one plugin-wide hook covers `/api/definition/*`, so new routes are protected by default.
+- **Respondents:** anonymous. The session id is a random value that acts as the credential, so it's kept out of URLs and `Referer` headers.
+### Topology
+- There are two plugins in one process now, and they can become two services later.
+- The main reason to split is security. The authoring API could then be kept off the public internet, and an attack through the respondent API couldn't reach authoring tables.
+- The boundary doesn't depend on a network hop, so splitting is a deployment change ([[7-application-boundary#8.3 What we do now to keep the split cheap]]).
 
-**The boundary is an artifact, not a route prefix.** Exactly one object crosses it, the immutable `PublishedDefinition` snapshot ([[5-questionnaire-format#3. Serialization]]), and the dependency runs one way: the definition side produces snapshots, the execution side consumes them and nothing else. Execution never reads a draft, never resolves a `questionId` against the question bank, never joins to an authoring table. That is affordable only because the snapshot is already self-contained by construction ([[#12. Database]] §12.1) — the storage decision was made for read performance, and a clean cut between the halves is the property being cashed in here.
-
-**Three representations, each on one side of the line.** `QuestionnaireDraft` (definition only — normalized, mutable, may be invalid), **`PublishedDefinition`** (crosses; immutable, self-contained), `Session` + `Response` (execution only, pinned to a version). Execution code accepts only the middle one.
-
-**Enforced in three places, none of which is the URL.** Encapsulated Fastify plugins with no cross-imports, an ESLint zone rule reusing the pattern already chosen for the telemetry boundary; wire types in `@qp/shared` that give execution no way to *name* a draft; and two database roles, where `qp_execution` has no grant on any authoring table and `qp_definition` has **no grant on `response`** — the authoring surface is not a back door into answer data. The barrier is therefore something Postgres enforces rather than something the service layer promises, and "are the halves actually separate?" has a mechanical answer instead of an architectural claim.
-
-**Two route groups.** `/api/definition/*` owns the question bank, drafts, publish, retire, version history and snapshot inspection. `/api/run/*` owns sessions and submission, and is deliberately three routes — the client holds the whole definition and evaluates branching locally, so there is no next-question round trip to design. **The execution API has no unpinned definition read:** fetching a definition is inseparable from starting a session, which is what makes version drift mid-session unrepresentable rather than handled ([[#8. Sessions & Responses]]). Admin preview and version history live on the definition API instead, where the audience, the addressing and the access model are all different.
-
-**Conventions.** RFC 9457 `application/problem+json` on every non-2xx, with `type` slugs from a closed union in `@qp/shared` so they are exhaustive on the client and cannot be invented at a call site. `400` is schema failure only — so a `400` is always a client bug and never a user mistake, which makes it a usable alerting signal; `409` means the request conflicts with current state; `422` means well-formed but domain-invalid. Validation is one TypeBox schema per route with the TypeScript type inferred from it, so a route's declared contract and its handler cannot disagree, and the frontend imports the same types. **Error bodies never echo a submitted answer** — a `422` names the item and the rule it broke, never the value — extending the telemetry redaction rule ([[#14. Observability]]) to the one other place it is easy to lose.
-
-**Access model** (auth itself is out of scope, [[#4. Out of Scope]]): authors authenticate against `/api/definition/*` through a single plugin-wide hook, so a new definition route is protected by default and forgetting is not one of the available mistakes; respondents are anonymous and the session id is a bearer capability, which makes it a cryptographically random id, kept out of `Referer` headers and query strings and never rendered to anyone else.
-
-**Topology:** two encapsulated plugins in one process now, two services later — chiefly for security, since the authoring API then need not be routable from the public internet at all, and a vulnerability reached through the unauthenticated respondent surface lands in a process that cannot touch authoring tables. Because the boundary is enforced by module graph, types and grants rather than by a network hop, that split is a deployment change rather than a rewrite; [[7-application-boundary#8.3 What we do now to keep the split cheap]] lists what the prototype does to keep it that way.
-
-See Decisions Log #17, #18, #19, #20, #21.
+See Decisions Log #17, #18, #19, #20, #21, #48.
 
 ## 10. Frontend
 
-> **Detail: [[10-frontend]].** Summary only here.
+> **Detail: [[10-frontend]].**
+### Structure
+- React + TypeScript via Vite, built as two apps: `apps/respondent` and `apps/admin`.
+- `packages/ui` is shared by both. It holds the component primitives and the questionnaire renderer.
+- The two apps can import from each other only through that package, and the respondent bundle contains no admin code.
+- Deploying the two apps separately later is a deployment change ([[3-scaling#6. Future improvement: split the frontends]]).
+### Respondent
+- One URL, `/q/:questionnaireId`. A state machine drives it through starting, form, submitted, closed and not-found.
+- All visible items render on one page. Each answer re-evaluates every predicate, so items appear and disappear in place.
+- Partial answers are saved in `localStorage`, including answers to hidden items. At submit, they're filtered to the visible set with the same engine the server uses.
+- On landing, the app resumes a stored session if there is one before starting a new one.
+- After a successful submit, the app clears the answers but keeps the session id, so reopening the link shows the receipt.
+### Admin
+- There are five screens: questionnaire list, draft editor, question bank, version history and preview.
+- The question bank has its own screen so it's clear that questions are reused across questionnaires.
+- Questions can also be created and edited inside the draft editor. Editing there re-pins that item to the new version.
+- The predicate editor is a flat list of condition rows. It offers only earlier questions and only operators that are valid for the question's type.
+- The question editor's controls do the same for its cross-field constraint rules. For example, a max can't be set below its min.
+- A question's response type is locked after its first save, in both the dialog and the server.
+### Authoring concurrency
+- Add-item requests carry the `questionVersion` the author saw. The server doesn't resolve "current".
+- Two authors editing one question at the same time is allowed. Questions are append-only, so no version is lost, and a lost edit can't reach a snapshot or a response.
+### Accessibility
+- Accessibility is designed in from the start, because the domain is medical.
+- Radix handles focus management in dialogs and gives controls the right semantics.
+- dnd-kit provides keyboard reordering and announcements.
+- An `aria-live` region announces questions as they appear.
+- What's covered and what's excluded is in [[10-frontend#7. Accessibility]].
+### Libraries
+- The respondent app stays light. The admin app uses libraries where it caches server data or does conventional editing.
 
-**Decision:** React + TypeScript via Vite, as **two applications** — `apps/respondent` and `apps/admin` — served by one nginx container, with a shared `packages/ui` holding the component primitives and the questionnaire renderer. See Decisions Log #1, #27.
+| | Admin | Respondent |
+| --- | --- | --- |
+| Routing | TanStack Router (code-based) | N/A |
+| Server data | TanStack Query | plain `fetch` |
+| Forms | none | TanStack Form |
+| Reordering | dnd-kit | N/A |
+| Styling | Tailwind v4, shadcn/Radix | Tailwind v4, shadcn/Radix |
+### Deployment
+- One nginx container serves both apps: respondent at `/`, admin at `/admin/`.
+- It reverse-proxies `/api` to the backend, standing in for a production ingress ([[#13. Deployment]]).
+- Static assets can move to a CDN later without code changes.
 
-Two apps rather than one, because the eventual split into separately deployed frontends ([[3-scaling#6. Future improvement: split the frontends]]) is then a deployment change and the boundary between them is package resolution rather than a lint rule. The respondent bundle carries no admin code, which is the frontend echo of the argument for splitting the services ([[#19. Future Work]]).
-
-**Respondent experience.** One URL, `/q/:questionnaireId`, and a state machine behind it — starting, form, submitted, closed, not-found. **All currently visible items render on one page**, and answering re-evaluates every predicate so items appear and disappear in place. That makes answer pruning something the respondent watches happen rather than something that occurs off-screen, which matters because submit rejects answers to items not on the recomputed path. Partial answers live in `localStorage` including answers to hidden items; the visible set is filtered once, at submit, using the same engine call the server runs. On landing the app looks for a stored session and resumes it before considering a new one. A successful submit clears the stored answers but keeps the session id, so reopening the link shows the receipt again rather than a blank form. See Decisions Log #28, #29, #70–#73.
-
-**Admin experience.** Five screens — questionnaire list, draft editor, question bank, version history, preview. The question bank keeps its own screen because reuse is a graded capability and a screen showing one question used by three questionnaires demonstrates it; questions can also be created and edited from inside the draft editor, where **editing re-pins that item** to the new version so an edit cannot silently do nothing. The predicate editor is a flat list of condition rows — the honest UI for a single level of `all` / `any` — and it offers only earlier questions and only operators valid for the referenced question's type, so forward references and mistyped comparisons are unrepresentable rather than rejected. The question editor does the same for the cross-field constraint rules, and a question's response type is locked after its first save, on the server as well as in the dialog. See Decisions Log #30, #58, #61.
-
-**Authoring concurrency.** Add-item requests carry the `questionVersion` the client displayed rather than resolving "current" server-side, so an author pins what they read. Two authors editing one question concurrently is accepted and documented rather than guarded: append-only loses no version, and because pinning is always explicit, a lost authoring edit cannot reach a published snapshot or change what a response means. See Decisions Log #31.
-
-**Accessibility** is treated like answer redaction — designed in rather than audited afterwards, because the domain is medical. Radix primitives carry dialog focus management and control semantics, dnd-kit supplies a keyboard sensor and announcements for reordering, and the one gap the single-page model creates — dynamically revealed questions being silent to screen readers — is closed with an `aria-live` region. [[10-frontend#7. Accessibility]] states what is committed and what is explicitly not.
-
-**Libraries** follow one rule: the respondent app stays dependency-light and imperative, the admin app takes tooling where it has cached server state or conventional editing. TanStack Router (code-based) and TanStack Query in admin; plain `fetch` and TanStack Form in respondent; dnd-kit for reordering; Tailwind v4 with shadcn/Radix primitives in both. See Decisions Log #32.
-
-Deployment shape: both apps build into one tree — respondent at the root, admin under `/admin/` — served by one nginx container, built from `deploy/frontend/`, that reverse-proxies `/api` to the backend as a stand-in for a production ingress (see [[#13. Deployment]]). Assets can move to a CDN later without code changes.
+See Decisions Log #1, #27, #28, #29, #30, #31, #32, #58, #61, #70–#73.
 
 ## 11. Backend
+### Stack
+- Node LTS, Fastify and TypeScript.
+- Fastify has request validation built in (TypeBox), a strong plugin ecosystem, and `@fastify/otel` for tracing.
+- API types are shared with the frontend through `@qp/shared`.
+### Modules
+- There are two encapsulated Fastify plugins:
+  - `modules/definition`: question bank, drafts, publish, retire and version history.
+  - `modules/execution`: sessions and submit.
+- Each has its own routes, schemas and repositories. Neither imports the other.
+- Each has its own connection pool, bound to its own database role.
+- `@qp/shared` holds the wire types and the one rule engine both sides use.
+- It's one process today and can become two services later ([[#9. API / Service Boundary]], [[7-application-boundary#3. Enforcing the boundary below the type system]]).
+### Transactions and concurrency
+- Publish and submit each run in one transaction.
+- Draft edits carry an `If-Match` ETag. A stale edit gets `409` instead of overwriting another tab's changes.
+- Respondents only touch their own session rows.
+- Submit locks its session row (`SELECT ... FOR UPDATE`), so duplicate submits run one after the other ([[7-application-boundary#5.4 Submit: authority, validation, idempotency]]).
 
-**Decision:** Node LTS + Fastify + TypeScript. See Decisions Log #2, #3.
-
-- Rationale: lightweight, schema-based request validation built in (JSON Schema / TypeBox), first-class plugin ecosystem including `@fastify/otel` for observability later, and a mature Node-compat surface so plugins and instrumentation "just work".
-- API types shared with the frontend through a common workspace package.
-- **Module layout:** two encapsulated Fastify plugins — `modules/definition` (bank, drafts, publish, retire, history) and `modules/execution` (sessions, submit) — each with its own routes, schemas and repository layer, no cross-imports, and its own connection pool bound to its own database role. `@qp/shared` holds the wire types and the single rule-engine implementation both sides use. One process today, two services when it earns it — see [[#9. API / Service Boundary]] and [[7-application-boundary#3. Enforcing the boundary below the type system]].
-- **Transactions and concurrency:** publish is one transaction and the only multi-table write. Concurrent admin edits to a draft are resolved with an `If-Match` ETag over the draft, returning `409` rather than clobbering a second tab. Concurrent respondents touch disjoint session rows, and submit takes `SELECT ... FOR UPDATE` on its own session so a duplicate submit is serialized rather than raced ([[7-application-boundary#5.4 Submit: authority, validation, idempotency]]).
+See Decisions Log #2, #3, #21, #43.
 
 ## 12. Database
 
 > **Detail: [[9-database-schema]].** Summary only here.
+### Stack
+- PostgreSQL, accessed through Drizzle ORM and the `pg` driver. `drizzle-kit` generates SQL migrations, which are committed.
+- Postgres gives us transactions for publish and submit, JSONB for snapshots, and native partitioning for response history.
+- Drizzle keeps the schema in TypeScript and stays close enough to SQL for partitioning and `SELECT ... FOR UPDATE`.
+- Each backend pool is an in-process `pg` pool. In production, PgBouncer in transaction mode goes in front.
+### Schemas
+| Schema | Holds |
+| --- | --- |
+| `definition` | Question bank, questionnaires and their versions, draft items, `version_question_index` |
+| `execution` | `session`, `response` |
+| `audit` | One append-only `event` table |
 
-**Decision:** PostgreSQL, accessed via Drizzle ORM over the `pg` (node-postgres) driver, with `drizzle-kit` generating SQL migration files. See Decisions Log #4.
+- Grants are set per schema, so they follow the definition/execution boundary.
+### Authoring vs published
+- Authoring uses normalized tables, where each question, option and placed item is its own row, linked by foreign keys. The database rejects broken references, edits touch only the rows they change, and "which questionnaires use this question?" is a simple query.
+- Each published version is one immutable JSONB snapshot, written in the publish transaction.
+- A respondent needs the whole definition once per session. One row serves that. Being immutable, it can also be cached forever.
+- Question content is duplicated on purpose, in the bank and in every snapshot that used it. That way a later edit to a question can't change a published version.
+- `version_question_index` answers "which published versions contain question X?" It's derived from the snapshots and can be rebuilt.
+### Invariants in the database
+| Invariant | How |
+| --- | --- |
+| A draft can't be referenced | `version` is null on drafts, so composite foreign keys match only published rows. A session can't pin a draft. |
+| Published versions can't change | Triggers reject `UPDATE` and `DELETE` on published rows, and `INSERT` of a row that's already published. Draft items are checked against their parent's status with a locking read. |
+| Question versions are append-only | Triggers reject every `UPDATE` and `DELETE`. |
+| An invalid answer can't be stored | `response` has a typed column per response type, under one check constraint. |
+| Responses can't change | `qp_execution` has only `SELECT, INSERT` on `response`. A response's version must match its session's pinned version. |
+### Roles and grants
+| Role | Can | Can't |
+| --- | --- | --- |
+| `qp_definition` | Read and write `definition`. Delete draft items. Write audit rows through `audit.record`. | Touch `execution` at all, or read `audit.event` |
+| `qp_execution` | Read published versions through a view. Write `session`. Insert into `response`. | Read drafts, or update or delete responses |
+| `qp_owner` | Own every object and run migrations | Access `audit` |
+| `audit_owner` | Own `audit` | Log in |
 
-- Rationale: Postgres gives transactions for publish operations, JSONB for storing immutable published definitions, and native partitioning for response-history growth. Drizzle keeps the schema in TypeScript, emits readable/committed SQL migrations, and stays close enough to SQL for partitioning, JSONB queries and `SELECT ... FOR UPDATE`.
-- Connection pooling: `pg` pool in-process for the prototype; PgBouncer (or a managed pooler) in transaction mode is the first scaling step, and the trigger is the fifth backend process rather than a replica count (#78).
-- Driver is swappable (e.g. Drizzle's `bun-sql` adapter) if the runtime ever moves to Bun.
-- Schema: three schemas — `definition`, `execution`, `audit` — so the grant barrier below is structural rather than a per-table list to maintain. Entities, constraints, triggers and the ERD are in [[9-database-schema]]; §12.2 summarises the shape.
-- Read/write characteristics: the two halves have opposite profiles. Definition tables are small (dozens of rows), written rarely and transactionally — a lost publish is a correctness failure, not a throughput one — and read almost entirely out of the in-process snapshot cache, so steady-state definition reads approach zero database work per session. `response` is large, append-only and written in one burst per completed session, with analytics reads that tolerate replication lag. `session` is the only contended row and it is contended only with itself.
-- Indexing strategy: every index serves a named query or a named invariant, listed in [[9-database-schema#7. Indexing strategy]]. Notably absent: no GIN index over `snapshot` — access is whole-document and `version_question_index` covers the one query that would want it.
-- Audit trail: an `audit` schema in the same instance, owned by a dedicated `audit_owner` role and written only through a `SECURITY DEFINER` function that appends. `qp_definition` holds no privilege on the table at all — not even `SELECT` — so append-only is a database guarantee rather than a convention, and the wrapper function is the same single repository entry point the outbox would later swap in behind. The audit write joins the publish transaction. Extracting it to a separate database or its own service later goes via a transactional outbox — kept cheap by design, not built now. See [[6-observability#5.1 Isolation — separate schema with a restricted role]].
-- Application roles: `qp_definition` and `qp_execution`, both distinct from the migration role that owns the schema. `qp_execution` has no grant on any authoring table; `qp_definition` has no grant on `response`. The definition/execution boundary ([[#9. API / Service Boundary]]) is therefore enforced by Postgres grants and not only by module structure. Detail: [[7-application-boundary#3.2 Database grants]].
+- Roles are created by `db/init/01-roles.sh`, never by a migration.
+### Audit
+- Authoring actions write to `audit.event` in the same transaction as the change.
+- The only way in is `audit.record`, a `SECURITY DEFINER` function, so the log is append-only by grant.
+- Moving it to its own database later would go through a transactional outbox. That isn't built.
+### Partitioning and indexes
+- `response` is range-partitioned monthly on `created_at`.
+- `created_at` is set to the session's `submitted_at`, so all of a session's rows land in one partition.
+- There's no default partition, so old partitions can be detached without locking the table.
+- Every index serves a named query or invariant. There's no GIN index on `snapshot`, because it's always read whole.
+### Concurrency
+| Row lock | Taken by | Prevents |
+| --- | --- | --- |
+| Questionnaire | Publish, create draft, retire | A new draft copied from a stale version, which silently reverts a publish |
+| Question | Saving a question | Two saves computing the same version number |
+| Session | Submit | Duplicate submits racing each other |
 
-### 12.1 Authoring is normalized; published is a snapshot
-
-Two representations of the same questionnaire, with publish as the seam between them. See Decisions Log #7.
-
-**Authoring side — normalized rows.** Question bank, question versions, questionnaire drafts and draft items are ordinary relational tables. This is where foreign keys, partial edits and the reuse query ("which questionnaires use this question?") need to work naturally.
-
-**Published side — one JSONB document per version.** Publishing runs in a single transaction: read the normalized draft, run the [[5-questionnaire-format#5. Publish-time validation]] validations, serialize to JSONB, flip the row to `published`. The result is read whole and never partially updated.
-
-Why the split:
-
-- The client fetches the entire definition once per session ([[3-scaling#2. Load model (what actually hits the backend)]]), so the read pattern is "give me all of it" — exactly what one row satisfies and what a four-way join plus row assembly does badly, on every session start.
-- A `(questionnaire, version)` document is immutable, so it can be served with `ETag` and `Cache-Control: immutable` and held compiled in an in-process cache that never needs invalidating ([[3-scaling#4. Problem: hot definition reads]]).
-- Immutability is enforced on one row in one table instead of being spread across item, option and rule tables.
-
-**The duplication is the point, not an accident.** Question content exists both in the bank row and inside every snapshot that used it. That redundancy is what immutability *means* here: a published version cannot be disturbed by a later edit to the question it was built from.
-
-**Reverse lookups get a derived side-table.** "Which published versions contain question X?" is the query a snapshot makes awkward. Rather than lean on a GIN index over the document, publish also writes rows into a thin `version_question_index` mapping version to question version ids. The snapshot stays authoritative; the side-table is a derived index that can be rebuilt from the snapshots at any time.
-
-**On JSONB specifically.** `jsonb` parses on write into a decomposed binary form — key order and whitespace are not preserved, duplicate keys collapse, writes are slightly slower, reads and operators much faster. It is a queryable document type (`->`, `->>`, `@>`, `?`, GIN indexes), not merely a blob type; we use it in a blob-like way because our access pattern is whole-document. Documents above roughly 2 KB are TOASTed out-of-line, and the binary layout means reading one field from a TOASTed document generally de-TOASTs all of it — irrelevant here for the same reason, and a further argument for the side-table over a GIN index.
-
-### 12.2 Schema shape
-
-> Full DDL, triggers, grants and alternatives in [[9-database-schema]].
-
-**`definition`** holds the question bank (`question`, `question_version`, `question_version_option`),
-questionnaires and their versions (`questionnaire`, `questionnaire_version`), the draft items
-(`questionnaire_item`) and the derived `version_question_index`. **`execution`** holds `session` and
-`response`. **`audit`** holds one append-only table nothing can reach directly.
-
-Four invariants live in the data layer rather than in service code, which is what makes them survive a
-refactor:
-
-- **A draft is structurally unreferenceable.** `version` is NULL exactly when a row is a draft, so a
-  unique constraint on `(questionnaire_id, id, version)` lets any composite foreign key from `NOT NULL`
-  columns match only published rows. A session cannot pin a draft and a questionnaire cannot point at
-  another questionnaire's version — both are foreign key violations, not application checks.
-- **Published rows reject `UPDATE` and `DELETE`, and cannot be inserted.** §6.4 specifies the `UPDATE`
-  trigger; `DELETE` needs the same guard for the same reason, and an `INSERT` of a row already `published`
-  is refused, so a published version exists only by promoting a draft. Draft items are guarded against
-  their parent's status with a locking read, because the naive version of that trigger races a concurrent
-  publish and lets the snapshot and the item rows disagree.
-- **An invalid answer shape cannot be stored.** `response` uses typed columns per response type — option
-  ids as a GIN-indexed array, `numeric` plus its unit, a bare `date` — under one check constraint, so
-  "a single-choice answer with no choice" is unrepresentable rather than merely rejected upstream.
-- **Collected responses are immutable and the audit log is append-only, both by grant.**
-  `qp_execution` has `SELECT, INSERT` on `response` and nothing else, and a response's version must be
-  its session's pinned version. The only `DELETE` any application role holds is `qp_definition` on draft
-  items. `qp_execution` reads questionnaire versions through a published-only view, never the base table.
-  This is [[#3. Constraints]] enforced where the brief asks for it rather than asserted.
-
-`response` is range-partitioned monthly on `created_at`, which is set explicitly to the session's
-`submitted_at` rather than defaulted — so a session's rows are provably co-located and the idempotent
-replay read prunes to one partition. There is no `DEFAULT` partition: it would block
-`DETACH ... CONCURRENTLY` outright and turn archival into an `ACCESS EXCLUSIVE` operation on the hot
-table.
-
-Concurrency control is three row locks, one each on the questionnaire row (publish vs. create-draft),
-the question row (two concurrent edits racing on `version = max + 1`) and the session row (submit).
-The middle case of the three is the only one that corrupts state rather than erroring, and it silently
-loses a published version — [[9-database-schema#5. Concurrency control]].
-
-See Decisions Log #23, #24.
+See Decisions Log #4, #7, #23, #24, #39, #45, #46, #48, #49, #78.
 
 ## 13. Deployment
-
-**Decision:** Each component deployed as its own container — frontend, backend, database — orchestrated with Docker Compose for local development and the prototype demo. Long-term target is Kubernetes with the same three-way split. See Decisions Log #5.
-
-### 13.1 Local / prototype (Docker Compose)
-
-| Service | Image / role | Notes |
+### Compose services
+| Service | What it does | Starts after |
 | --- | --- | --- |
-| `frontend` | nginx serving both Vite production builds, built from `deploy/frontend/Dockerfile` | Respondent at `/` and admin at `/admin/`, each with its own SPA fallback ([[10-frontend#2.2 URL structure and the nginx front]]). Reverse-proxies `/api/*` to `backend` so the browser stays single-origin (no CORS, no build-time API URL). |
-| `backend` | Node LTS + Fastify | Stateless; config entirely from env vars. `depends_on` the `migrate` service completing successfully. |
-| `migrate` | One-shot: `drizzle-kit migrate` + demo-questionnaire seed | Runs after `roles` exits 0. |
-| `roles` | One-shot: `db/init/01-roles.sh` | Runs after `db` is healthy, exits 0. The only path that creates or updates roles — see below. |
-| `db` | `postgres:16` | `pg_isready` healthcheck; named volume for persistence. |
+| `db` | `postgres:16-alpine`, with a named volume | — |
+| `roles` | One-shot. Runs `db/init/01-roles.sh` to create or update the database roles | `db` is healthy |
+| `migrate` | One-shot. Runs migrations, creates the coming months' `response` partitions and seeds the demo questionnaire | `roles` exits 0 |
+| `backend` | Node LTS and Fastify. Stateless | `migrate` exits 0 |
+| `frontend` | nginx serving both Vite builds: respondent at `/`, admin at `/admin/` | `backend` |
+### Running it
+- `docker compose up` builds, migrates, seeds and serves the whole stack.
+- Compose has defaults for every setting, so it boots without a `.env`. The defaults are obviously not secrets. A real deployment gets its credentials from a secret store.
+- Postgres listens on `127.0.0.1` only. `psql` works from the host, but the database isn't reachable from the network.
+### Configuration
+- Configuration is environment variables only, with a committed `.env.example`. No secrets go in images.
+- There are three connection strings:
+  - `DATABASE_URL_OWNER` for `migrate`
+  - `DATABASE_URL_DEFINITION` for the backend's definition pool
+  - `DATABASE_URL_EXECUTION` for the backend's execution pool
+- There's no plain `DATABASE_URL`, so code that reads it fails instead of silently picking a role.
+- Only the `roles` service creates roles, never a migration.
+### Migrations
+- Migrations run in their own one-shot service, not at backend startup. If they ran at startup, two backend replicas would race to migrate.
+- The backend doesn't start until `migrate` succeeds, so it never serves against an old schema.
+### Reverse proxy
+- nginx proxies `/api` to the backend, so the browser sees a single origin. That means no CORS and no API URL built into the bundle.
+- In production, an ingress or load balancer does the routing, and a CDN serves the static files.
+### Dev loop
+- `docker compose up` automatically merges in `docker-compose.override.yml`. The override mounts the source and swaps in dev servers:
+  - Vite for the respondent app on port 5173
+  - Vite for the admin app on port 5174
+  - `tsx watch` for the backend
+- `docker compose -f docker-compose.yml up` skips the override and runs the production images.
+- Vite polls for file changes, because macOS bind mounts can miss change events. If a backend change is missed, restart the `backend` container.
+### Kubernetes
+The same split, with these changes:
 
-- One command for a reviewer: `docker compose up` builds and runs the production-shaped stack, seeded with the medical-condition demo questionnaire.
-- Configuration: environment variables only, with a committed `.env.example`. No secrets in images.
-- **Three connection strings, not one.** `DATABASE_URL_OWNER` (the `migrate` service), `DATABASE_URL_DEFINITION` and `DATABASE_URL_EXECUTION` (the backend's two pools). The unsuffixed `DATABASE_URL` is deliberately not defined, so a stray `process.env.DATABASE_URL` fails loudly instead of silently selecting a role; `TEST_DATABASE_URL` keeps the unsuffixed form and is owner-level ([[8-testing#4. Postgres for integration tests — Testcontainers]]). Roles are created by `db/init/01-roles.sh`, never by a migration, and only ever by the `roles` service — the `db` service does not mount `db/init` — [[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]].
-- **Postgres binds to loopback.** The `db` service publishes `127.0.0.1:${POSTGRES_PORT}:5432` rather than all interfaces, so `psql` from the host still works while the database holding medical answers is not reachable from the network.
-- **Compose defaults let the stack boot without a `.env`,** which is a deliberate trade for "one command to run" and is the reason the committed defaults are obviously non-secret. Stated in the README rather than left as an accident; a real deployment supplies all five credentials from a secret store.
-- Redis (from ideation notes) intentionally not included until a concrete need (session cache, rate limiting) appears — see Future Work.
+| Compose | Kubernetes |
+| --- | --- |
+| nginx routes `/api` and `/` | An ingress controller does the routing |
+| nginx serves the built apps | A CDN in front of object storage |
+| `backend` | A Deployment, scaled by an HPA |
+| `migrate` | A Job that must succeed before the new backend rolls out |
+| `db` | Managed Postgres |
+| Environment variables | ConfigMaps and Secrets, with the same three connection strings |
 
-**Reverse proxy — a stand-in for the production edge.** The nginx in the frontend container is filling a role that a production system fills elsewhere: in Kubernetes the ingress controller (nginx/Envoy/Traefik) routes `/api` → backend and `/` → frontend, and on a cloud platform the load balancer or CDN does the same path-based routing. The *principle* — single origin for the browser, path-based routing in front of the app — is permanent; only the implementation moves. Static assets likewise move to a CDN/object storage in production, leaving the ingress to route only. Keeping the proxy avoids CORS config, `SameSite` cookie issues and a build-time API URL baked into the bundle.
+- Still open: the image registry and the rollout strategy (rolling or blue/green). Whichever we pick must keep the rule that no backend runs against a schema older than it expects.
+- Also open: liveness and readiness probes, and how roles get created on managed Postgres ([[#18. Open Questions]] #18, #19).
 
-**Migrations have a dedicated owner.** Something must run `drizzle-kit migrate` and the seed before the API serves traffic. Options considered: (a) backend runs migrations at startup — simple, but with >1 replica both race to migrate, and schema changes become coupled to app restarts; (b) run manually — fails "one command" and repeatability; (c) a dedicated one-shot process. We use (c): the `migrate` service gates the backend via `depends_on: condition: service_completed_successfully`, giving a deterministic boot order (db healthy → schema + seed → API) that works with any number of backend replicas. In Kubernetes this becomes a Job that must succeed before the new backend rollout, which is also how a release protects published questionnaires (see [[#16. Scale & Growth]]).
-
-**Dev loop / hot reload.** `docker-compose.override.yml` is auto-merged by `docker compose up` and is committed but local-only in effect. It changes two things per app service: the command (`frontend` → two Vite dev servers, respondent on 5173 and admin on 5174, `backend` → `tsx watch`) and bind mounts of the source directories. Vite pushes changes to the browser via HMR; `tsx` restarts the API. The base file is untouched, so a production build or CI run (`docker compose -f docker-compose.yml up`) gets real multi-stage images with no dev tooling. *Known issue, anticipated up front:* file-change events through bind mounts on macOS can be sluggish or missed, so the Vite config enables its built-in `server.watch.usePolling` from the start rather than waiting to hit it. `tsx watch` has no polling flag (it uses its own native watcher, not chokidar); it relies on Docker Desktop's VirtioFS event propagation, which is generally reliable — if a backend edit is ever missed, restarting the `backend` container is the fallback.
-
-### 13.2 Long-term (Kubernetes)
-
-Same three-way split as [[#13.1 Local / prototype (Docker Compose)]], on a different substrate — Decisions Log #5 already commits to Kubernetes, so what follows is what changes, not a new decision.
-
-- **`frontend` and `backend` become Deployments + Services**, one-for-one with the compose services; `db` moves to a managed Postgres instance rather than an in-cluster StatefulSet, buying durability, backups and failover instead of reimplementing them.
-- **nginx's two jobs split apart.** Routing becomes the ingress controller's job — `/api` → backend, `/` → frontend, the path-based rule [[#13.1 Local / prototype (Docker Compose)]] already states as the permanent principle — and serving the built assets moves to a CDN in front of object storage, leaving the ingress to route only, exactly as that section anticipates.
-- **`migrate` becomes a Job that must succeed before the new backend rolls out** — the same deterministic boot order the compose service already gives, enforced by the scheduler instead of `depends_on`, and the mechanism that keeps a release from serving traffic against a schema it doesn't support ([[#16. Scale & Growth]]).
-- **Backend scales via HPA** instead of a fixed replica count; config moves from compose env vars to ConfigMaps and Secrets, still the same three connection strings ([[#13.1 Local / prototype (Docker Compose)]]); `/health/live` and `/health/ready` ([[6-observability#8. SLOs and alerting]]) back the liveness and readiness probes, readiness in particular what stops a pod taking traffic before its migrations have landed.
-- **Image build, registry and rollout strategy (rolling vs. blue/green) are the one piece left open.** Whichever is chosen has to preserve the guarantee the migrate Job already gives — no backend version live against a schema, or a published-definition shape, it predates.
+See Decisions Log #5, #39, #60.
 
 ## 14. Observability
 
@@ -313,9 +403,9 @@ Same three-way split as [[#13.1 Local / prototype (Docker Compose)]], on a diffe
 | Area | Approach |
 | --- | --- |
 | Read traffic | Client fetches the whole published definition once per session and evaluates branching locally with the shared engine ([[#7. Branching Rules]]), so concurrency load is almost entirely a cacheable fetch, not server computation. `Cache-Control: public, max-age=<long>, immutable` plus an `ETag` per `(questionnaire, version)` make that fetch cacheable at every layer because a published version never changes; each backend replica also holds a compiled in-process cache keyed the same way, with the mutable `questionnaire → current version` pointer on a short TTL. A CDN in front of the respondent app and a shared Redis L2 cache are the next two levers, triggered by replica count and cache cold-starts respectively — not built until then. Detail: [[3-scaling#4. Problem: hot definition reads]]. |
-| Data growth | `response` is append-only and range-partitioned monthly on `created_at`, set explicitly to the session's `submitted_at` so a session's rows are provably co-located ([[#12. Database]] §12.2); there is no `DEFAULT` partition, so a missed rollover fails loudly instead of blocking `DETACH ... CONCURRENTLY` later. Every index ties to a named query or invariant ([[9-database-schema#7. Indexing strategy]]) — notably no GIN index over the JSONB snapshot, since access is whole-document and the derived `version_question_index` already serves the one reverse lookup that would want it. Archival detaches older partitions to cold/columnar storage on a per-questionnaire retention policy once volume warrants it — movement, not deletion ([[#3. Constraints]]). Detail: [[3-scaling#3. Problem: response ingest vs. reads]]. |
+| Data growth | `response` is append-only and range-partitioned monthly on `created_at`, set explicitly to the session's `submitted_at` so a session's rows are provably co-located ([[#Partitioning and indexes]]); there is no `DEFAULT` partition, so a missed rollover fails loudly instead of blocking `DETACH ... CONCURRENTLY` later. Every index ties to a named query or invariant ([[9-database-schema#7. Indexing strategy]]) — notably no GIN index over the JSONB snapshot, since access is whole-document and the derived `version_question_index` already serves the one reverse lookup that would want it. Archival detaches older partitions to cold/columnar storage on a per-questionnaire retention policy once volume warrants it — movement, not deletion ([[#3. Constraints]]). Detail: [[3-scaling#3. Problem: response ingest vs. reads]]. |
 | Reliability | Submit is idempotent on the session via a stored digest over the canonicalized answers (Decisions Log #19, #37): a network retry replays the original receipt, a genuine second submission of different answers gets `409`, and acceptance is all-or-nothing in one transaction, so there is no partially-saved session to recover. Postgres MVCC means writes don't block reads; the real risk under load is resource contention, so respondent reads and admin/analytics reads are isolated by path, with a read replica taking cross-session queries off the primary once volume warrants it. The failure mode the design is built around is a lost acknowledged submission — why the ingest queue that appears once write volume saturates the primary must be durable (Redis Streams with AOF and ack-after-commit, at minimum) rather than fire-and-forget. Detail: [[3-scaling#3. Problem: response ingest vs. reads]]. |
-| Change control | Published questionnaire versions and question versions are immutable and append-only ([[#6. Versioning & Immutability]]), so a schema migration only ever adds — it never has to reconcile a definition that changed under it, and a response's meaning stays pinned to the version it was collected against. `drizzle-kit` generates committed, reviewable SQL migrations; roles are created by `db/init/01-roles.sh`, never inside a migration, keeping a schema change and an access-control change two different reviews ([[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]). In Kubernetes a migrate Job must succeed before the new backend rolls out ([[#13.2 Long-term (Kubernetes)]]) — the same guarantee compose already gives: a release never serves traffic against a schema, or a `formatVersion`, it predates. |
+| Change control | Published questionnaire versions and question versions are immutable and append-only ([[#6. Versioning & Immutability]]), so a schema migration only ever adds — it never has to reconcile a definition that changed under it, and a response's meaning stays pinned to the version it was collected against. `drizzle-kit` generates committed, reviewable SQL migrations; roles are created by `db/init/01-roles.sh`, never inside a migration, keeping a schema change and an access-control change two different reviews ([[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]). In Kubernetes a migrate Job must succeed before the new backend rolls out ([[#Kubernetes]]) — the same guarantee compose already gives: a release never serves traffic against a schema, or a `formatVersion`, it predates. |
 | Operations | First-priority signals: RED per endpoint, Node saturation (event loop lag, `pg` pool waits), and domain events for session drop-off. Respondent answers are structurally excluded from telemetry. Audit trail in the database, not the log pipeline. SLOs, alerting and backup verification deliberately deferred. Detail in [[6-observability]]. |
 
 ## 17. Decisions Log
@@ -442,7 +532,7 @@ Ordered roughly by what blocks what.
 
 1. **The v2 demo change — resolved** (Decisions Log #26). Version 2 relabels `opt_hyperten` on `qst_which_condition` from "Hypertension" to "High blood pressure (hypertension)" and changes nothing else; the option id is unchanged, so v1 and v2 responses aggregate together while each renders through its own pinned `questionVersion`. Worked delta and the rejected alternatives in [[5-questionnaire-format#3.1 Version 2 — the demo change]].
 2. **Formatting subtypes for `text`** — email, phone, regex patterns. Deliberately pinned rather than rejected; we want these, just not before the vertical slice is complete. Also listed in [[#19. Future Work]].
-3. **In-flight sessions at retirement.** The hard cutoff ships now ([[#8.1 Questionnaire lifecycle and retirement]]). Whether `cutoffMode: 'hard' | 'soft'` becomes a per-questionnaire setting is undecided. Also in [[3-scaling#8. Open questions]].
+3. **In-flight sessions at retirement.** The hard cutoff ships now ([[#Retirement]]). Whether `cutoffMode: 'hard' | 'soft'` becomes a per-questionnaire setting is undecided. Also in [[3-scaling#8. Open questions]].
 4. **Snapshot format support window.** How many past `formatVersion`s the loader commits to upgrading from, and what triggers dropping support for one.
 5. **Pages / sections.** Deferred, not rejected — [[5-questionnaire-format#1. The model]] states the constraint any future design must respect.
 6. **Checkpoint endpoint — resolved: deferred** (Decisions Log #25). `PUT /sessions/:id/progress` does not ship. The session id is a bearer capability living in the same browser storage as the partial answers, so the server-side copy is unreachable in the cases that would need it, and the operational half is already covered by domain events. Now carried as [[#19. Future Work]] rather than an open question; the table shape is in [[9-database-schema#12. Open questions]] so it stays additive. Reasoning: [[7-application-boundary#9.7 A debounced checkpoint endpoint]].
@@ -463,6 +553,10 @@ Ordered roughly by what blocks what.
 16. **Two authoring bugs, one partly brought into Wave 3** (Decisions Log #65, #75). [gh#17](https://github.com/kenziesimpson/questionnaire-platform/issues/17): a question archived after it is placed in a draft blocked every `PUT /draft` for that questionnaire, with no unarchive to recover. **Fixed in Wave 3 by #75:** archiving gates new placements only, so an existing placement no longer blocks saves or publish, and the draft editor shows no archived state. Still deferred: an unarchive route, the picker showing archived questions already placed in the open draft, and whether archiving warns about open drafts. Until the picker change, an archived question removed from a draft cannot be put back. [gh#15](https://github.com/kenziesimpson/questionnaire-platform/issues/15): a taken `key` returns `500`, and `key` has no reader, so it may be removed rather than mapped to a `409`.
 
 17. **"Start over" on a resumed respondent session — punted** (Decisions Log #74, [gh#35](https://github.com/kenziesimpson/questionnaire-platform/issues/35)). `RespondentStart` draws the button; Wave 3 does not build it. When it is built it clears the answers and keeps the same session, since a new session would leave two in progress for one respondent.
+
+18. **Kubernetes health probes** ([gh#91](https://github.com/kenziesimpson/questionnaire-platform/issues/91)). The backend has only `/health`, which doesn't check the database. Kubernetes needs `/health/live` for liveness and `/health/ready` for readiness ([[6-observability#8. SLOs and alerting]]). Not needed until the [[#Kubernetes]] deployment is built.
+
+19. **Creating roles on managed Postgres** ([gh#92](https://github.com/kenziesimpson/questionnaire-platform/issues/92)). In Compose the `roles` service runs `db/init/01-roles.sh` against the `db` container. Managed Postgres has no such container, and its admin user usually isn't a superuser. Options: infrastructure code, a setup Job running the same script, or the provider's IAM auth. Whichever wins must stay the only path that creates roles.
 
 ## 19. Future Work
 

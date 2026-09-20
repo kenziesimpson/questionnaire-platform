@@ -155,7 +155,7 @@ Contents: actor, action (`publish` / `retire` / `edit_draft`), target (questionn
 
 The mechanism landed stronger than this section originally described. Narrowing grants on the application role to `INSERT` and `SELECT` was the first form, and it works; it was superseded by one that costs the same and gives more (Decisions Log #24, [[9-database-schema#9.1 A dedicated role, inside the publish transaction]]). `audit_owner` owns the table and the function, has no login, and `qp_definition` holds **zero** privilege on `audit.event` — not `INSERT`, not even `SELECT`. Append-only stops being "a role that was only granted `INSERT`" and becomes "a table no application role can reach at all, behind one function that only appends".
 
-That second property is the reason this beats a separate database today. Publishing already runs as a single transaction ([[2-design-doc#12.1 Authoring is normalized; published is a snapshot]]); a separate database would put the audit write outside it:
+That second property is the reason this beats a separate database today. Publishing already runs as a single transaction ([[2-design-doc#Authoring vs published]]); a separate database would put the audit write outside it:
 
 > Publishing version 3 and recording "user X published version 3" become two operations that can fail independently — so a publish can succeed with no audit record, which is precisely the failure an audit log exists to prevent.
 
@@ -194,7 +194,7 @@ The rule: **high-cardinality identifiers live in traces and logs; metrics carry 
 - Candidate SLIs: availability and p95 latency of questionnaire delivery; submission success rate; publish success rate.
 - Alert on **symptoms and error-budget burn**, not causes. Nobody should be paged for CPU; they should be paged because respondents can't submit.
 - Distinguish paging alerts (user-visible, needs action now) from ticketing alerts (degradation, handle in hours).
-- Health endpoints are separate from metrics and needed regardless: `/health/live` (process up) and `/health/ready` (DB reachable, migrations applied) feed the Kubernetes probes stubbed in [[2-design-doc#13. Deployment]] §13.2.
+- Health endpoints are separate from metrics and needed regardless: `/health/live` (process up) and `/health/ready` (DB reachable, migrations applied) feed the Kubernetes probes in [[2-design-doc#Kubernetes]]. Only `/health` exists today ([gh#91](https://github.com/kenziesimpson/questionnaire-platform/issues/91)).
 - Backups are listed under Operations in the brief: backup success/age needs to be a monitored metric, and a restore drill is the only evidence a backup works. Deferred with SLOs.
 
 ## 9. Correctness and invariant monitoring
@@ -211,7 +211,7 @@ A class of failure produces **HTTP 200 with a plausible-looking body**. No excep
 
 One metric is worth adding **now** rather than deferring, because it measures the cost of a decision already taken:
 
-- `questionnaire.sessions.rejected_past_cutoff` — sessions started before `closes_at` and submitted after it, i.e. respondents who lost completed work to the hard cutoff ([[2-design-doc#8.1 Questionnaire lifecycle and retirement]]). That count is the whole argument for or against making `cutoffMode` configurable, and right now that open question would be settled on intuition instead.
+- `questionnaire.sessions.rejected_past_cutoff` — sessions started before `closes_at` and submitted after it, i.e. respondents who lost completed work to the hard cutoff ([[2-design-doc#Retirement]]). That count is the whole argument for or against making `cutoffMode` configurable, and right now that open question would be settled on intuition instead.
 
 Two things were separated during this discussion and are worth keeping separate:
 

@@ -93,7 +93,7 @@ timezone case becomes a unit test with no clock to mock.
 
 ## 3. Serialization
 
-A published version is stored as a single JSONB document ([[2-design-doc#12. Database]] §12.1) and served to the client whole, once per session. The document carries its own `formatVersion` (§6.5).
+A published version is stored as a single JSONB document ([[2-design-doc#Authoring vs published]]) and served to the client whole, once per session. The document carries its own `formatVersion` (§6.5).
 
 ```json
 {
@@ -231,7 +231,7 @@ One evaluator, two callers: the client renders the next question with it, the se
 
 ## 5. Publish-time validation
 
-Run inside the transaction that snapshots the version ([[2-design-doc#12. Database]] §12.1).
+Run inside the transaction that snapshots the version ([[2-design-doc#Authoring vs published]]).
 
 ### 5.1 Why cycles and deadlock are not on this list
 

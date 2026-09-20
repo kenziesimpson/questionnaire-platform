@@ -1,7 +1,7 @@
 # Application Boundary — Detailed Design
 
 > Detail doc for [[2-design-doc#9. API / Service Boundary]]. The design doc carries the condensed version; this is the full endpoint surface, the conventions, the access model and the reasoning behind them.
-> Related: [[5-questionnaire-format]] (what crosses the boundary), [[2-design-doc#12. Database]] §12.1 (the storage split the boundary mirrors), [[3-scaling]] (load model), [[6-observability]] (the redaction rule that also applies to error bodies).
+> Related: [[5-questionnaire-format]] (what crosses the boundary), [[2-design-doc#Authoring vs published]] (the storage split the boundary mirrors), [[3-scaling]] (load model), [[6-observability]] (the redaction rule that also applies to error bodies).
 
 ## 1. What the boundary is for
 
@@ -25,7 +25,7 @@ The same questionnaire has three shapes over its life. Naming all three, and kee
 
 This is affordable only because of the storage decision already made (Decisions Log #7): the published snapshot is self-contained by construction. The snapshot was chosen for read performance and single-row immutability; that it also makes the definition/execution boundary a clean cut is the property being cashed in here. A normalized published form would have forced execution to read authoring tables to render anything, and the boundary would have been fiction.
 
-The redundancy is the same redundancy §12.1 already defends. A published version cannot be disturbed by a later edit to the question it was built from — and, now, cannot be *reached* by the half of the system that does the editing.
+The redundancy is the same redundancy [[2-design-doc#Authoring vs published]] already defends. A published version cannot be disturbed by a later edit to the question it was built from — and, now, cannot be *reached* by the half of the system that does the editing.
 
 ### 2.1 What execution is structurally denied
 
