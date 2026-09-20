@@ -1,12 +1,12 @@
 import { executionApi } from "@qp/shared";
 import { INTAKE_QUESTIONNAIRE_ID } from "@qp/shared/demo";
+import { browserTransport } from "@qp/telemetry/browser";
 import { FakeServer, jsonReply, networkFailure, urlOf } from "@qp/ui/testing";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/app";
-import { browserTransport } from "../../src/api/telemetry-transport";
 import { partialsKey } from "../../src/storage/partials";
 import { startRespondentTelemetry } from "../../src/telemetry/start";
 import { ANSWER_SENTINEL, inProgressSession, intakeV1, SESSION_ID } from "../fixtures";

@@ -1,12 +1,12 @@
+import { ErrorBoundary } from "@qp/ui/error-boundary";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createQueryClient } from "./api/query-client";
 import { App } from "./app";
 import { ErrorFallback } from "./components/error-fallback";
 import { createAppRouter } from "./router";
-import { TelemetryErrorBoundary } from "./telemetry/error-boundary";
 import { routeTemplateOf } from "./telemetry/screen";
-import { startAdminTelemetry } from "./telemetry/start";
+import { reportRenderError, startAdminTelemetry } from "./telemetry/start";
 import { startTracingWhenEnabled } from "./telemetry/tracing";
 import "./index.css";
 
@@ -21,8 +21,8 @@ startAdminTelemetry({ page: window, screen: () => routeTemplateOf(router) });
 
 createRoot(root).render(
   <StrictMode>
-    <TelemetryErrorBoundary fallback={<ErrorFallback />}>
+    <ErrorBoundary fallback={<ErrorFallback />} onError={reportRenderError}>
       <App queryClient={queryClient} router={router} />
-    </TelemetryErrorBoundary>
+    </ErrorBoundary>
   </StrictMode>,
 );

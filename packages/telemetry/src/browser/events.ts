@@ -1,7 +1,7 @@
 import { FIELDS } from "../fields.js";
 import type { LiteralMessage, LogRecord } from "../logger.js";
 import { scrubAttributes, type DropCounts } from "../scrub.js";
-import { CLIENT_LOG_LEVELS, LOG_ATTRIBUTES, type ClientLogLevel } from "../vocabulary.js";
+import { BROWSER_MESSAGE_SHAPE, CLIENT_LOG_LEVELS, LOG_ATTRIBUTES, UNNAMED, type ClientLogLevel } from "../vocabulary.js";
 import { browserDomainEventOf, type BrowserDomainEvent } from "../wire-contract.js";
 import { safeFrames } from "./frames.js";
 
@@ -37,10 +37,6 @@ interface ScrubbedEvent {
   readonly dropped: DropCounts;
 }
 
-const UNNAMED_MESSAGE = "unnamed";
-
-const MESSAGE_SHAPE = /^[a-z][a-z0-9 ._:-]{0,79}$/;
-
 function isClientLogLevel(level: string): level is ClientLogLevel {
   return CLIENT_LOG_LEVELS.some((known) => known === level);
 }
@@ -62,7 +58,7 @@ export function scrubbedEvent(input: EventRecord, screen: string | undefined, st
     screen === undefined || screenAttribute in attributes ? attributes : { ...attributes, [screenAttribute]: screen },
     "log",
   );
-  const message = typeof input.message === "string" && MESSAGE_SHAPE.test(input.message) ? input.message : undefined;
+  const message = typeof input.message === "string" && BROWSER_MESSAGE_SHAPE.test(input.message) ? input.message : undefined;
   const dropped = { ...scrubbed.dropped, invalid: scrubbed.dropped.invalid + (message === undefined ? 1 : 0) };
   const { level } = input;
   if (!isClientLogLevel(level)) return { event: undefined, dropped };
@@ -70,7 +66,7 @@ export function scrubbedEvent(input: EventRecord, screen: string | undefined, st
   return {
     event: {
       level,
-      message: message ?? UNNAMED_MESSAGE,
+      message: message ?? UNNAMED,
       attributes: scrubbed.attributes,
       at: stamp.at,
       ...(domainEvent === undefined ? {} : { event: domainEvent }),

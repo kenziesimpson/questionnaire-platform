@@ -1,5 +1,5 @@
 import { isDomainEventRecord } from "../logger.js";
-import type { DropCounts } from "../scrub.js";
+import { NO_DROPS, type DropCounts } from "../scrub.js";
 import { DROP_REASONS, type DropReason } from "../vocabulary.js";
 import { domainEventsFirst, callerRecord, scrubbedEvent, type CallerEvent, type EventRecord, type QueuedEvent } from "./events.js";
 import { activeTraceparent } from "./trace-headers.js";
@@ -53,7 +53,7 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
   const now = options.now ?? Date.now;
   const pending: QueuedEvent[] = [];
   const droppedEvents: Record<EventDropReason, number> = { overflow: 0, undelivered: 0, internal: 0, level: 0 };
-  const droppedFields: Record<DropReason, number> = { unknown: 0, invalid: 0, unbounded: 0, internal: 0 };
+  const droppedFields: Record<DropReason, number> = { ...NO_DROPS };
   let sent = 0;
   let beaconed = 0;
   let inFlight = false;

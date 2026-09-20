@@ -7,7 +7,7 @@ export type { PageDocument, PageEvent, PageEvents, PageListener, PageWindow } fr
 export { createEventQueue, type EventDropReason, type EventQueue, type EventQueueOptions, type QueueStats } from "./browser/queue.js";
 export { startBrowserTelemetry, type BrowserTelemetry, type BrowserTelemetryOptions } from "./browser/start.js";
 export { injectTraceHeaders, type HeadersInput } from "./browser/trace-headers.js";
-export { createTransport, type Transport, type TransportOptions } from "./browser/transport.js";
+export { browserTransport, createTransport, type Transport, type TransportOptions } from "./browser/transport.js";
 export {
   BEACON_BODY_BUDGET_BYTES,
   toBeaconBlob,

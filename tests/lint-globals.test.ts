@@ -15,6 +15,7 @@ describe("L16 — fetch only in API client modules", () => {
     ["a respondent session module", "apps/respondent/src/session/example.ts"],
     ["packages/ui", "packages/ui/src/questionnaire/example.ts"],
     ["the backend", "apps/backend/src/modules/definition/example.ts"],
+    ["the SDK's other browser modules", "packages/telemetry/src/browser/queue.ts"],
     ["an app test", "apps/admin/_tests/example.test.ts"],
     ["an e2e spec", "e2e/specs/tier-1/example.spec.ts"],
   ])("rejects fetch in %s", async (_, filePath) => {
@@ -28,6 +29,7 @@ describe("L16 — fetch only in API client modules", () => {
   it.each([
     ["the admin API client", "apps/admin/src/api/client.ts"],
     ["the respondent API client", "apps/respondent/src/api/request.ts"],
+    ["the SDK's browser transport", "packages/telemetry/src/browser/transport.ts"],
     ["the e2e fixtures", "e2e/fixtures/api/example.ts"],
     ["the e2e stack helpers", "e2e/stack/example.ts"],
   ])("allows fetch in %s", async (_, filePath) => {
@@ -58,6 +60,7 @@ describe("L16 — fetch only in API client modules", () => {
     ["window.fetch", 'export const load = () => window.fetch("/api");'],
   ])("allows %s in the modules that own the transport", async (_, code) => {
     expect(await restrictedGlobals("apps/admin/src/api/client.ts", code)).toEqual([]);
+    expect(await restrictedGlobals("packages/telemetry/src/browser/transport.ts", code)).toEqual([]);
     expect(await restrictedGlobals("e2e/stack/example.ts", code)).toEqual([]);
   });
 });
@@ -76,6 +79,11 @@ describe("L16 and L17 share no-restricted-globals without switching each other o
   it("lets the API clients keep fetch while still confining localStorage", async () => {
     expect(await reads("apps/admin/src/api/client.ts", FETCH)).toEqual([]);
     expect(await reads("apps/admin/src/api/client.ts", STORE)).toHaveLength(1);
+  });
+
+  it("lets the SDK's browser transport keep fetch while still confining localStorage", async () => {
+    expect(await reads("packages/telemetry/src/browser/transport.ts", FETCH)).toEqual([]);
+    expect(await reads("packages/telemetry/src/browser/transport.ts", STORE)).toHaveLength(1);
   });
 
   it("lets the persistence seam keep localStorage while still confining fetch", async () => {

@@ -1,7 +1,7 @@
+import { browserTransport } from "@qp/telemetry/browser";
 import { stubFetch } from "@qp/ui/testing";
 import { screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { browserTransport } from "../../../src/api/telemetry-transport";
 import { routeTemplateOf } from "../../../src/telemetry/screen";
 import { QUESTIONNAIRE_ID } from "../../support/builders";
 import { renderAppAt } from "../../support/render-app";

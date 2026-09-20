@@ -9,9 +9,7 @@ import { reportDropped } from "./instruments.js";
 import { oneDropped, scrubAttributes, type ScrubbedAttributes } from "./scrub.js";
 import { LOG_SEVERITIES } from "./log-records.js";
 import { isSpanName } from "./spans.js";
-import { LOG_MESSAGE_SHAPE, UNNAMED_LOG_MESSAGE, type SignalKind } from "./vocabulary.js";
-
-const UNNAMED_SPAN = "unnamed";
+import { LOG_MESSAGE_SHAPE, UNNAMED, type SignalKind } from "./vocabulary.js";
 
 const FASTIFY_SPAN_PREFIXES = [
   "onRequest",
@@ -80,7 +78,7 @@ function exportedNameOf(name: string): string {
   const verb = name.startsWith(PG_QUERY_SPAN_PREFIX) ? pgVerbOf(name.slice(PG_QUERY_SPAN_PREFIX.length)) : undefined;
   if (verb !== undefined) return `${PG_QUERY_SPAN_PREFIX}${verb}`;
   reportDropped("span", oneDropped("unknown"));
-  return UNNAMED_SPAN;
+  return UNNAMED;
 }
 
 function cleaned(attributes: unknown, kind: SignalKind): ScrubbedAttributes {
@@ -191,7 +189,7 @@ const scrubbedScopes = new WeakMap<object, LogScope>();
 function exportedLogBody(body: ReadableLogRecord["body"]): string {
   if (typeof body === "string" && LOG_MESSAGE_SHAPE.test(body)) return body;
   reportDropped("log", oneDropped("invalid"));
-  return UNNAMED_LOG_MESSAGE;
+  return UNNAMED;
 }
 
 function exportedLogScope(scope: LogScope): LogScope {

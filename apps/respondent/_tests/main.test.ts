@@ -69,7 +69,6 @@ describe("the respondent's import graph", () => {
         "src/app.tsx",
         "src/api/request.ts",
         "src/telemetry/start.ts",
-        "src/telemetry/error-boundary.tsx",
         "browser.ts",
         "browser/queue.ts",
         "browser/trace-headers.ts",

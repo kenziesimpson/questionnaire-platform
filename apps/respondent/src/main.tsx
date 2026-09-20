@@ -1,10 +1,10 @@
+import { ErrorBoundary } from "@qp/ui/error-boundary";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app";
 import "./index.css";
 import { EntryFailedScreen } from "./screens/terminal-screens";
-import { TelemetryErrorBoundary } from "./telemetry/error-boundary";
-import { startRespondentTelemetry } from "./telemetry/start";
+import { reportRenderError, startRespondentTelemetry } from "./telemetry/start";
 import { startTracingWhenEnabled } from "./telemetry/tracing";
 
 const root = document.getElementById("root");
@@ -15,8 +15,8 @@ startRespondentTelemetry({ page: window, performance, pathname: window.location.
 
 createRoot(root).render(
   <StrictMode>
-    <TelemetryErrorBoundary fallback={<EntryFailedScreen />}>
+    <ErrorBoundary fallback={<EntryFailedScreen />} onError={reportRenderError}>
       <App />
-    </TelemetryErrorBoundary>
+    </ErrorBoundary>
   </StrictMode>,
 );

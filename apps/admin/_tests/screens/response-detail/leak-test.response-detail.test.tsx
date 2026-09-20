@@ -1,6 +1,6 @@
+import { browserTransport } from "@qp/telemetry/browser";
 import { act, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { browserTransport } from "../../../src/api/telemetry-transport";
 import { queryKeys } from "../../../src/api/query-keys";
 import { routeTemplateOf } from "../../../src/telemetry/screen";
 import { QUESTIONNAIRE_ID } from "../../support/builders";

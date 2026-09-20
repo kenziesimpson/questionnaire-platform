@@ -12,7 +12,7 @@ export interface ScrubResult {
 
 const UNEXPORTED_SPAN_ATTRIBUTES: ReadonlySet<string> = new Set(["db.query.text"]);
 
-const NO_DROPS: DropCounts = { unknown: 0, invalid: 0, unbounded: 0, internal: 0 };
+export const NO_DROPS: DropCounts = { unknown: 0, invalid: 0, unbounded: 0, internal: 0 };
 
 export function oneDropped(reason: DropReason): DropCounts {
   return { ...NO_DROPS, [reason]: 1 };

@@ -43,16 +43,12 @@ separate entry points, so the browser-safe `.` entry never loads them.
 
 ## Browser
 
-`@qp/telemetry/browser` is the browser half of decisions O5, O8, O11, O12, O17 and O19 ([`docs/6-observability.md`](../../docs/6-observability.md) §6). The queue knows nothing of the wire: it takes a `send` and a `beacon`. `createTransport` builds both for the `/api/telemetry` ingest from the app's own `fetch` and `navigator.sendBeacon`, so the one place an app names either is its API client.
+`@qp/telemetry/browser` is the browser half of decisions O5, O8, O11, O12, O17 and O19 ([`docs/6-observability.md`](../../docs/6-observability.md) §6). The queue knows nothing of the wire: it takes a `send` and a `beacon`. `browserTransport()` builds both for the `/api/telemetry` ingest from the page's global `fetch` and `navigator.sendBeacon`, looked up when a batch is sent and inert where either is missing, so an app names neither; `createTransport` takes them as arguments for a caller that has its own.
 
 ```ts
-import { afterFirstPaint, createTransport, injectTraceHeaders, startBrowserTelemetry } from "@qp/telemetry/browser";
+import { afterFirstPaint, browserTransport, injectTraceHeaders, startBrowserTelemetry } from "@qp/telemetry/browser";
 
-const transport = createTransport({
-  url: "/api/telemetry",
-  fetch: (url, init) => fetch(url, init),
-  sendBeacon: (url, data) => navigator.sendBeacon(url, data),
-});
+const transport = browserTransport();
 
 afterFirstPaint(() => {
   startBrowserTelemetry({
@@ -78,6 +74,7 @@ await withSpan("browser.request", { method: "GET", route }, async () => {
 | --- | --- |
 | `createEventQueue({ send, beacon, screen?, now?, maxPending?, batchSize?, flushIntervalMs? })` | A bounded queue of `{ level, message, attributes }` events. `enqueue({ level, message, attributes })` is the form for app code: the message is a literal (`LiteralMessage`, as in `logger`), the level is not `debug`, and the attributes cannot name `error.stack` or `module`, and a `module` an app passes anyway is discarded. `enqueueRecord` takes a plain record and is for `routeLogsToQueue` and `captureError`. Both scrub before they queue and never throw; `flush()` sends through `send`; `flushOnExit()` hands everything left to `beacon`; `close()` stops the timer and every later send, and ignores later events; `stats()` reports `pending`, `sent` (delivered by `send`), `beaconed` (accepted by `beacon`) and every drop |
 | `createTransport({ url, fetch, sendBeacon })` | The queue's `send` and `beacon` for the ingest, built on `toEnvelopes`, `toFetchInit` and `toBeaconBlob`, so there is one mapping. `send` posts one `application/json` envelope at a time, in order, and rejects on a non-2xx answer or a failed `fetch`, which the queue counts `undelivered`; a batch over the body cap goes as several posts. `beacon` splits under `BEACON_BODY_BUDGET_BYTES`, hands `sendBeacon` a `Blob` typed `application/json` for each envelope and is true only if the browser accepted every one. `fetch` and `sendBeacon` are arguments, so the SDK reads no browser global |
+| `browserTransport()` | `createTransport` bound to `/api/telemetry`, the global `fetch` and `navigator.sendBeacon`. Each is read from the global when a batch is sent, so a test stub is seen; without a `fetch` a `send` rejects (the queue counts the batch `undelivered`), and without a `navigator.sendBeacon` a `beacon` is false and throws nothing. This file is the one module outside an app's `src/api/` that the lint rule lets name `fetch` |
 | `routeLogsToQueue(queue, { debug? })` | Points `logger(...)` and `emitDomainEvent` at the queue, and returns a function that restores the sink and level that were configured before it, not a cleared one (and leaves alone a sink something else configured since). `debug` never reaches the queue: it goes to the optional `debug` function, which an app passes only in a development build |
 | `flushOnPageHide(queue, window, beforeExit?)` | `flushOnExit()` on `pagehide` and when `visibilitychange` finds the page hidden. `beforeExit` runs first, under the never-throw guard, so an event it emits, such as `session.abandoned`, is in the first batch handed to the beacon; it runs on every hide, so it must be idempotent |
 | `installErrorCapture(queue, window)`, `captureError(queue, kind, error)` | An `error` and an `unhandledrejection` listener, and the same capture for an error boundary. Records the error's class name and its stack frames only. Installing twice on one page adds no second listener |
@@ -88,7 +85,7 @@ await withSpan("browser.request", { method: "GET", route }, async () => {
 
 Rules the code holds:
 
-- **The browser scrubs before anything is queued.** An event keeps only registry attributes, through the same `scrubAttributes(…, "log")` the pino formatter and exporters run. An unknown or ill-shaped field is dropped and counted in `stats().droppedFields`; the event stays (O17). A message that is not a lower-case literal shape (`^[a-z][a-z0-9 ._:-]{0,79}$`) is replaced by `unnamed`. That is a shape check: a lower-case token passes it, as it does the server's message.
+- **The browser scrubs before anything is queued.** An event keeps only registry attributes, through the same `scrubAttributes(…, "log")` the pino formatter and exporters run. An unknown or ill-shaped field is dropped and counted in `stats().droppedFields`; the event stays (O17). A message that is not a lower-case literal shape (`BROWSER_MESSAGE_SHAPE`, `^[a-z][a-z0-9 ._:-]{0,79}$`) is replaced by `unnamed`. That is a shape check: a lower-case token passes it, as it does the server's message. `vocabulary.ts` builds the browser shape and the export shape (`LOG_MESSAGE_SHAPE`) from the same character classes and the one `UNNAMED` placeholder, and a test holds every message the browser accepts inside the export shape, which the Collector's filter carries.
 - **A screen is a route template**, supplied by the caller and accepted only if the `route` field accepts it (O19). A URL, a query string, a cursor or free text is dropped.
 - **An error is its class name and its frames, never its message.** `stackFramesOf` still decides whether the stack lines up with the message and keeps only frame-shaped lines; the queue then rewrites every frame of any `error.stack` it is given, from `captureError`, the logger or a caller alike. The location becomes the last path segment's script file name, `index-3f9a.js:10:20`, or `anonymous.js` for anything else, so no page URL, session id or query string survives. The function name is kept only if it is an identifier path (`Object.<anonymous>`, `async Promise.all`, `new Screen`, no interior underscore or space) of at most 100 characters and is otherwise `anonymous`. What counts as a safe frame is defined once, in `src/frame-shape.ts`, and the rewriter and the ingest's validator both use it: a file name past 80 characters becomes `anonymous.js`, a position past seven digits or a line past 200 characters becomes a fixed placeholder frame, and a stack is cut to 40 frames, so a stack the SDK produces is always one the ingest accepts. That is a shape check, so a one-word lower-case function name derived from an answer would pass; never build one from an answer. Stack frames in another browser's format (`fn@url:1:2`) do not line up, so those errors carry a type and no frames. The capture never reads an error event's `message`, `filename` or position.
 - **The queue never blocks and never throws.** It holds at most `maxPending` events and drops the oldest, counting `overflow`; one `send` is in flight at a time; a batch whose `send` rejects or throws, or a beacon that returns `false`, is dropped and counted `undelivered`; anything the queue cannot handle is counted `internal`.
@@ -357,13 +354,13 @@ limit and the body cap; this function owns what is kept. It takes each event as 
    list and its value passes the field's check. Everything else, the server-owned fields (`constraint`, `invariant`, `errorCode`,
    `requestId`, `problem`, `pool`, `signal`, `status`, `source`, `eventAgeMs` and the rest), is dropped, counted as
    `unknown_field` or `invalid_field`, and the rest of the event is kept. `errorStack` is held to a stricter shape than the
-   registry's own (`fields.ts` keeps its lax `STACK_FRAME`, the shape of a stack the server captures from its own errors, where a frame's
-   location is an absolute path or a URL, and `frame-shape.ts` is the strict shape of a stack that arrives from a browser, where a
+   registry's own (`frame-shape.ts` keeps its lax `SERVER_STACK_FRAME`, the shape of a stack the server captures from its own errors, where a frame's
+   location is an absolute path or a URL, and `BROWSER_STACK_FRAME`, beside it, is the strict shape of a stack that arrives from a browser, where a
    location is a bare script file. They differ because the two are captured differently: tightening the server's shape would refuse every
    server stack, and loosening the browser's would admit any path a client chose to send): every line must be a frame with an identifier-path function name and a bare script file with line and column, or
    an `<anonymous>` or `native` marker (`BROWSER_STACK_FRAME` and `isBrowserStack` in `frame-shape.ts`, at most 40 lines of 200
    characters, function names of at most 100). The browser SDK's `frames.ts` builds what it emits from the same definition, so the
-   two cannot drift. The file-name slot still accepts any `name.js` of up to 80 characters, since hashed bundle names contain
+   two cannot drift, and a test holds every frame the browser shape accepts inside the server's. The file-name slot still accepts any `name.js` of up to 80 characters, since hashed bundle names contain
    underscores.
 4. An optional `traceparent` (`00-<32 hex>-<16 hex>-<2 hex>`, parsed by `parseTraceparent` in `trace-context.ts`, beside the `formatTraceparent` the SDK writes it with) puts the event's log line under the browser's trace and span. An
    invalid one is dropped as `invalid_trace`. Without one, the line takes the trace of the request that carried it.
@@ -602,7 +599,7 @@ The flows live with the code they exercise. The backend's registry is
 | File | Contents |
 | --- | --- |
 | `src/index.ts` | The core entry point's exports |
-| `src/browser.ts`, `src/browser/` | The browser entry point and its parts: `queue.ts`, `events.ts` (the queued event and its scrub), `errors.ts`, `frames.ts` (the stack-frame rewrite), `lifecycle.ts`, `logging.ts`, `idle.ts`, `trace-headers.ts` (`injectTraceHeaders`, the active `traceparent`), `wire.ts` (the queue's events as ingest envelopes, and their encodings), `transport.ts` (`createTransport`), `start.ts`, `page.ts` (the structural types for `window`) |
+| `src/browser.ts`, `src/browser/` | The browser entry point and its parts: `queue.ts`, `events.ts` (the queued event and its scrub), `errors.ts`, `frames.ts` (the stack-frame rewrite), `lifecycle.ts`, `logging.ts`, `idle.ts`, `trace-headers.ts` (`injectTraceHeaders`, the active `traceparent`), `wire.ts` (the queue's events as ingest envelopes, and their encodings), `transport.ts` (`createTransport`, `browserTransport`), `start.ts`, `page.ts` (the structural types for `window`) |
 | `src/browser-tracing.ts`, `src/browser/tracing.ts` | The tracing entry point and the web tracer provider behind it; the only files that import `sdk-trace-web` |
 | `src/fields.ts` | `FIELDS`, `TelemetryContext`, the infrastructure allowlist, `OUTCOMES` |
 | `src/vocabulary.ts` | Constants shared by more than one module: the instrumentation scope, signal kinds, drop reasons, log modules and the attribute names the pipeline writes about itself |
@@ -621,7 +618,7 @@ The flows live with the code they exercise. The backend's registry is
 | `src/ingest.ts` | `ingestBatch`: the `/api/telemetry` ingest's event allowlist, field filter, trace context and drop counting, behind the never-throw guard |
 | `src/wire-contract.ts` | What a browser may send: `BROWSER_DOMAIN_EVENTS`, the closed field list of each event behind `browserFieldsOf`, `browserDomainEventOf`, `judgeBrowserField` and `keepsFromBrowser`. The ingest reads it and `browser/wire.ts` writes to it. Imports no Node module, so the browser entry can use it |
 | `src/trace-context.ts` | `formatTraceparent`, `parseTraceparent` and the `traceparent` field widths. No imports |
-| `src/frame-shape.ts` | The one definition of a safe stack frame: its pattern pieces, caps, placeholders, `isSafeFunctionName`, `isSafeScriptFile`, `isSafePosition`, `BROWSER_STACK_FRAME` and `isBrowserStack`. No imports, so the browser entry can use it |
+| `src/frame-shape.ts` | The one definition of a safe stack frame: its pattern pieces, caps, placeholders, `isSafeFunctionName`, `isSafeScriptFile`, `isSafePosition`, `BROWSER_STACK_FRAME`, `SERVER_STACK_FRAME` and `isBrowserStack`. No imports, so the browser entry can use it |
 | `src/instruments.ts` | The counter and histogram primitives, the session-duration histogram, the scrub drop counter and the ingest drop counter; each swallows and counts its own failure |
 | `src/exporters.ts` | The scrubbing decorators for span, metric and log exporters |
 | `src/log-records.ts` | The sink decorator that also emits an OpenTelemetry log record, and the level-to-severity map |

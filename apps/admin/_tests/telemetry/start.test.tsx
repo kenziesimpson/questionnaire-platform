@@ -1,19 +1,21 @@
 import type { PageDocument, PageWindow } from "@qp/telemetry/browser";
+import { ErrorBoundary } from "@qp/ui/error-boundary";
 import { stubFetch } from "@qp/ui/testing";
-import { screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reportQueryFailure } from "../../src/telemetry/report";
 import { routeTemplateOf } from "../../src/telemetry/screen";
-import { startAdminTelemetry } from "../../src/telemetry/start";
+import { reportRenderError, startAdminTelemetry } from "../../src/telemetry/start";
 import { QUESTIONNAIRE_ID } from "../support/builders";
 import { renderAppAt } from "../support/render-app";
 import { sessionIdOf } from "../support/reporting";
-import { leakHandler, recordingTransport, startedTelemetry } from "../support/telemetry";
+import { ANSWER_SENTINEL, leakHandler, recordingTransport, startedTelemetry } from "../support/telemetry";
 
 const stops: (() => void)[] = [];
 
 afterEach(() => {
   for (const stop of stops.splice(0)) stop();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -64,5 +66,47 @@ describe("startAdminTelemetry", () => {
     window.dispatchEvent(new Event("pagehide"));
 
     expect(beaconed).toHaveLength(1);
+  });
+});
+
+function Boom({ message }: { readonly message: string }): never {
+  throw new TypeError(message);
+}
+
+describe("the shared error boundary reporting through reportRenderError", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  it("renders the fallback and reports the component error's class, frames and route template, never its message", () => {
+    const { transport, beaconed } = recordingTransport();
+    stops.push(startedTelemetry({ screen: () => "/questionnaires/$questionnaireId/responses/$sessionId", transport }).stop);
+
+    render(
+      <ErrorBoundary fallback={<p>fallback</p>} onError={reportRenderError}>
+        <Boom message={ANSWER_SENTINEL} />
+      </ErrorBoundary>,
+    );
+    window.dispatchEvent(new Event("pagehide"));
+
+    expect(screen.getByText("fallback")).toBeInTheDocument();
+    expect(beaconed).toHaveLength(1);
+    expect(beaconed[0]).toMatchObject({
+      level: "error",
+      message: "render error",
+      attributes: { "error.type": "TypeError", "http.route": "/questionnaires/$questionnaireId/responses/$sessionId" },
+    });
+    expect(beaconed[0]?.attributes["error.stack"]).toMatch(/^ {4}at /);
+    expect(JSON.stringify(beaconed)).not.toContain(ANSWER_SENTINEL);
+  });
+
+  it("still renders the fallback when telemetry has not started", () => {
+    render(
+      <ErrorBoundary fallback={<p>fallback</p>} onError={reportRenderError}>
+        <Boom message={ANSWER_SENTINEL} />
+      </ErrorBoundary>,
+    );
+
+    expect(screen.getByText("fallback")).toBeInTheDocument();
   });
 });

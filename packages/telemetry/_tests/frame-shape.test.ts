@@ -14,6 +14,7 @@ import {
   NAME_PART,
   POSITION,
   SCRIPT_FILE,
+  SERVER_STACK_FRAME,
 } from "../src/frame-shape.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
@@ -41,6 +42,34 @@ describe("BROWSER_STACK_FRAME", () => {
     "at fn (x.js:1:1)",
     "     at fn (x.js:1:1)",
   ])("rejects %j", (line) => {
+    expect(BROWSER_STACK_FRAME.test(line)).toBe(false);
+  });
+});
+
+const BROWSER_FRAMES = [
+  "    at render (index.js:1:2)",
+  "    at Object.render (index-Ab3_x.mjs:10:20)",
+  "    at async new App.load (chunk-1.js:5:6)",
+  "    at render (<anonymous>)",
+  "    at anonymous (native)",
+  "    at index.js:3:4",
+];
+
+const NODE_FRAMES = [
+  "    at Object.render (/app/dist/server/render.js:10:20)",
+  "    at Module._compile (node:internal/modules/cjs/loader:1554:14)",
+  "    at file:///app/dist/index.js:3:4",
+  "    at new Foo (/app/node_modules/pkg/lib/foo.cjs:1:1)",
+];
+
+describe("the server and browser stack-frame grammars", () => {
+  it.each(BROWSER_FRAMES)("the server accepts every frame the browser accepts: %j", (line) => {
+    expect(BROWSER_STACK_FRAME.test(line)).toBe(true);
+    expect(SERVER_STACK_FRAME.test(line)).toBe(true);
+  });
+
+  it.each(NODE_FRAMES)("the server is looser on purpose, because a Node frame carries an absolute path or a scheme: %j", (line) => {
+    expect(SERVER_STACK_FRAME.test(line)).toBe(true);
     expect(BROWSER_STACK_FRAME.test(line)).toBe(false);
   });
 });
