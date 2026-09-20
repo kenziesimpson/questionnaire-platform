@@ -1,5 +1,6 @@
 export { emitDomainEvent, type DomainEvent } from "./events.js";
 export {
+  DATABASE_POOLS,
   FIELDS,
   OUTCOMES,
   type FieldName,
@@ -8,6 +9,7 @@ export {
   type TelemetryContext,
 } from "./fields.js";
 export { ingestBatch } from "./ingest.js";
+export { watchPool, type PoolCounts, type PoolName } from "./pool-metrics.js";
 export { LOG_LEVELS, logger, type LiteralMessage, type LogLevel, type Logger, type LogMethod } from "./logger.js";
 export { scrubAttributes, scrubContext, type DropCounts, type ScrubResult } from "./scrub.js";
 export { problemTelemetry } from "./problem-telemetry.js";

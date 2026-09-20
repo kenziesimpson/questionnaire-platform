@@ -15,6 +15,7 @@ export interface RecordedMeasurement {
 export interface MeterFaults {
   readonly failing?: readonly string[];
   readonly unavailable?: boolean;
+  readonly failingGauges?: boolean;
 }
 
 export function installFaultyMeter(faults: MeterFaults = {}): RecordedMeasurement[] {
@@ -37,6 +38,11 @@ export function installFaultyMeter(faults: MeterFaults = {}): RecordedMeasuremen
       },
     }),
   );
+  if (faults.failingGauges === true) {
+    vi.spyOn(meter, "createObservableGauge").mockImplementation(() => {
+      throw new Error("gauge failed");
+    });
+  }
   vi.spyOn(metrics, "getMeter").mockImplementation(() => {
     if (faults.unavailable === true) throw new Error("meter unavailable");
     return meter;

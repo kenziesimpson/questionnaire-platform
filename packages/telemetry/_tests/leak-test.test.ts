@@ -215,20 +215,20 @@ describe("leak-test runner: runLeakFlow", () => {
 });
 
 describe("leak-test assertion: expectCleanRun", () => {
-  const clean = { exposures: [], observed: { log: 1, span: 0, metric: 0 }, internalDrops: 0, spanNames: [], logMessages: [] };
+  const clean = { exposures: [], observed: { log: 1, span: 0, metric: 0 }, internalDrops: 0, spanNames: [], metricNames: [], logMessages: [] };
 
   it("passes a run that emitted telemetry and leaked nothing", () => {
     expect(() => expectCleanRun("clean", clean)).not.toThrow();
   });
 
   it("throws a plain Error naming the flow, the signal and the leaking item", () => {
-    const leaky = { exposures: [{ signal: "span" as const, name: "GET" }], observed: { log: 0, span: 1, metric: 0 }, internalDrops: 0, spanNames: ["GET"], logMessages: [] };
+    const leaky = { exposures: [{ signal: "span" as const, name: "GET" }], observed: { log: 0, span: 1, metric: 0 }, internalDrops: 0, spanNames: ["GET"], metricNames: [], logMessages: [] };
 
     expect(() => expectCleanRun("leaky flow", leaky)).toThrow(/TELEMETRY LEAK TEST FAILED: "leaky flow".*span: GET/);
   });
 
   it("throws for a run that emitted nothing, so a silent flow cannot pass", () => {
-    const silent = { exposures: [], observed: { log: 0, span: 0, metric: 0 }, internalDrops: 0, spanNames: [], logMessages: [] };
+    const silent = { exposures: [], observed: { log: 0, span: 0, metric: 0 }, internalDrops: 0, spanNames: [], metricNames: [], logMessages: [] };
 
     expect(() => expectCleanRun("silent flow", silent)).toThrow(/TELEMETRY LEAK TEST VACUOUS: "silent flow"/);
   });

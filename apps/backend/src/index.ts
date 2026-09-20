@@ -13,9 +13,9 @@ if (!telemetry.preloaded) {
   log.warn("started without the telemetry preload, so requests and queries are not traced");
 }
 
-const definition = openDatabase(databaseUrl("definition"));
-const execution = openDatabase(databaseUrl("execution"));
-const reporting = openDatabase(databaseUrl("reporting"));
+const definition = openDatabase(databaseUrl("definition"), { pool: "definition" });
+const execution = openDatabase(databaseUrl("execution"), { pool: "execution" });
+const reporting = openDatabase(databaseUrl("reporting"), { pool: "reporting" });
 
 const app = await buildApp({
   logger: requestLogger(config.logLevel),

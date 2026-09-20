@@ -25,7 +25,7 @@ Three layers hold it here:
 
 | Import | Use it for | Loads |
 | --- | --- | --- |
-| `@qp/telemetry` | `logger`, `withSpan`, `emitDomainEvent`, the field registry and its types | `@opentelemetry/api` only; safe for a browser bundle |
+| `@qp/telemetry` | `logger`, `withSpan`, `emitDomainEvent`, `watchPool`, the field registry and its types | `@opentelemetry/api` only; safe for a browser bundle |
 | `@qp/telemetry/browser` | `createEventQueue`, `startBrowserTelemetry`, `installErrorCapture`, `injectTraceHeaders`, `afterFirstPaint`: the browser SDK | the core, `@opentelemetry/api`, `@opentelemetry/sdk-trace-web`; no Node built-in, `pino`, `./node`, `./testing` or `./leak-test` |
 | `@qp/telemetry/node` | `startTelemetry`: starts the SDK, pino and the auto-instrumentation; `runningTelemetry`: the handle it returned, until that handle shuts down | the Node SDK, exporters, pino |
 | `@qp/telemetry/testing` | `installTestTelemetry`: in-memory exporters for tests | the Node SDK |
@@ -165,7 +165,10 @@ Drops are counted in the `telemetry.scrub.dropped` counter, labelled by signal (
 
 Infrastructure attributes are a small allowlist of safe OpenTelemetry names an instrumentation
 attaches on its own (`db.system`, `server.port`, `fastify.type`, …). `url.path`, `url.full`,
-`db.statement`, request bodies and exception messages are deliberately absent.
+`db.statement`, `db.query.text`, request bodies and exception messages are deliberately absent.
+`db.query.text` is the one attribute dropped from a span without a count, because every `pg` query
+span carries it and a count would put a constant floor under `telemetry.scrub.dropped`; it is still
+counted `unknown` on a log line or a metric.
 
 ### Where it runs
 
@@ -173,7 +176,7 @@ attaches on its own (`db.system`, `server.port`, `fastify.type`, …). `url.path
 | --- | --- | --- |
 | Call time | `logger.ts`, `spans.ts`, `instruments.ts` | The caller's context, through `scrubContext` |
 | Log output | the pino `formatters.log` hook in `pipeline.ts` | The final object, through `scrubAttributes(…, "log")` |
-| Export time | `exporters.ts` | Every span's name, attributes, events and links, and every metric data point, before they reach OTLP |
+| Export time | `exporters.ts` | Every span's name, attributes, events and links, and every metric data point, before they reach OTLP; and which metrics an instrumentation may export at all (see "Database and runtime telemetry") |
 
 The export-time layer is the one that catches what the types cannot see: a third-party
 instrumentation attaching a request body, or an exception event carrying a message.
@@ -229,8 +232,10 @@ The exporter applies the same list to every span it sees. A declared name and an
 the names the instrumentations produce pass: `request`; `<hook> - <name>` for a Fastify lifecycle
 hook, `handler` or `notFoundHandler`, where the name is a camel-case identifier (including
 `anonymous`) or the plugin fallback `fastify -> @fastify/otel`; `pg.query`, `pg.query:<verb>` for a
-closed list of SQL verbs, `pg.connect` and `pg-pool.connect`. The database slot of
-`pg.query:<verb> <db>` is dropped from the exported name. Any other name is exported as `unnamed`, and
+closed list of SQL verbs, `pg.connect` and `pg-pool.connect`. The exporter takes the first whitespace-delimited word after
+`pg.query:` (the instrumentation cuts at the first space, so a statement that continues on a new line, like `TRUNCATE` followed by
+a newline, leaves the newline in the name) and exports it only if it is on the list; the rest, including the database slot of
+`pg.query:<verb> <db>`, is dropped from the exported name. Any other name is exported as `unnamed`, and
 the span, its parent link and its scrubbed attributes are kept, so the trace stays whole. That costs one
 `span/unknown` drop per such span, which is how a new instrumentation shows up. Name route handlers and
 hook functions: an anonymous one is named after its plugin. A one-word lower-case camel-case name in the
@@ -421,7 +426,8 @@ The real sink is pino, created in `pipeline.ts`: JSON to stdout, or `pino-pretty
 1. Resets the global OpenTelemetry registrations and the instrument cache.
 2. Points the logger at the pino sink.
 3. If `autoInstrumentation` is on, registers the ESM loader hook.
-4. Builds a `NodeSDK` with `FastifyOtelInstrumentation` and `PgInstrumentation`.
+4. Builds a `NodeSDK` with `FastifyOtelInstrumentation`, the database instrumentation and `RuntimeNodeInstrumentation` when `autoInstrumentation` is on.
+5. Starts the connection-pool gauges.
 
 | Option | Effect |
 | --- | --- |
@@ -429,7 +435,7 @@ The real sink is pino, created in `pipeline.ts`: JSON to stdout, or `pino-pretty
 | `otlpEndpoint` unset or empty | Nothing is exported. Spans are still recorded, so logs carry trace ids |
 | `autoInstrumentation: false` | No loader hook and no instrumentations; for tests |
 
-`installTestTelemetry({ autoInstrumentation: true })` starts the Fastify and `pg` instrumentations without the loader hook, which is enough for Fastify to be traced under test and lets the export-time scrub see real instrumentation output.
+`installTestTelemetry({ autoInstrumentation: true })` starts the same three instrumentations without the loader hook, which is enough for Fastify to be traced under test and lets the export-time scrub see real instrumentation output. It does not patch `pg`: the driver is imported before the instrumentation starts, so a test that needs query spans passes the driver it already loaded, `installTestTelemetry({ autoInstrumentation: true, loadedDatabaseDriver: pg })`.
 
 The SDK has no logs signal: logs leave through pino only.
 
@@ -446,6 +452,61 @@ node --import ./dist/instrumentation.js dist/index.js
 only place `process.env` is read) and calls `startTelemetry`. `npm start`, `npm run dev` and the backend `Dockerfile` all use it. A process
 started without it has no auto-instrumentation: `src/index.ts` finds no `runningTelemetry()`, starts telemetry itself so
 logs and manual spans still work, and logs a warning.
+
+## Database and runtime telemetry
+
+**Query spans and the SQL comment.** `DatabaseInstrumentation` (`src/database-instrumentation.ts`) is `@opentelemetry/instrumentation-pg`
+with `DATABASE_INSTRUMENTATION_CONFIG`: `addSqlCommenterCommentToQueries` on, so each statement leaves the process with a trailing
+comment `/*traceparent='00-<trace id>-<span id>-01'*/` naming its own span, and `enhancedDatabaseReporting` off, so bound
+parameters are never put on a span. The comment carries `traceparent` and nothing else, and the barrier is on the extract side. The instrumentation
+builds the comment from the span's own context with a private W3C propagator that writes `tracestate` too; it is not the global propagator, so
+nothing registered on inject reaches it. What keeps a caller's `tracestate` out is that no span in the process carries one: the pipeline registers
+`TraceparentOnlyPropagator` (`src/trace-propagator.ts`) as the SDK's propagator, its extract discards `tracestate`, and `@fastify/otel` extracts an
+inbound request through the global propagator, so the request span and every span under it has none. Its inject is defensive only, and it drops
+`baggage`, which nothing here uses. A span created under a context that did not come through that extract would bypass the barrier. Postgres shows the comment in `pg_stat_activity` and its log, and drops it when it
+normalises a statement, so `pg_stat_statements` does not split one statement by trace. A span exports only `db.system.name`,
+`db.namespace`, `server.address` and `server.port`; `db.query.text` is never exported and an error's message never reaches the span.
+
+**`patchLoaded`.** The instrumentation hooks a module when it is first `require`d, which never happens under test for a driver an earlier
+import already loaded, and only once per process. `patchLoaded(driver)` applies the instrumentation's own patch functions to the
+`Client` and `Pool` the caller hands over, and `disable()` (which the pipeline calls at shutdown) undoes it, so every flow gets a
+fresh patch against the driver the app under test uses. The pipeline only does this when `loadedDatabaseDriver` is given, and only
+tests give it; production keeps the module hooks and the `--import` preload. `patchLoaded` patches `pg`'s JavaScript `Client` and `pg-pool`, not `pg.native`
+(the `pg-native` binding), so the gate is blind to a query issued through it; the repo does not use it.
+
+**Pool gauges.** `watchPool(pool, counts)` registers a pool under one of the bounded `pool` field's values (`definition`,
+`execution`, `reporting`) and returns a function that stops watching it. `openDatabase` calls it with `pool.totalCount`,
+`idleCount` and `waitingCount` when it is given a `pool`, and sets `application_name` to `qp-backend:<pool>`. The pipeline creates
+three observable gauges that read the registered pools when metrics are collected, whether the pool was opened before or after
+telemetry started:
+
+| Metric | Label | Reads |
+| --- | --- | --- |
+| `db.pool.connections.total` | `db.pool` | connections the pool holds, idle or in use |
+| `db.pool.connections.idle` | `db.pool` | connections not in use |
+| `db.pool.connections.waiting` | `db.pool` | requests queued for a connection |
+
+`@opentelemetry/instrumentation-pg`'s own pool metrics carry the pool's host, port and database, which are the same for all three pools,
+so they cannot tell them apart.
+
+**Event-loop lag.** `RuntimeNodeInstrumentation` exports `nodejs.eventloop.delay.{min,max,mean,stddev,p50,p90,p99}` (seconds) and
+`nodejs.eventloop.utilization`, none with a label. The delay gauges report nothing until the loop has been sampled five times.
+
+**Which instrument metrics leave the process.** `instrument-allowlist.ts` lists them. The exporter keeps only `db.client.operation.duration`
+from the `pg` scope and only the event-loop metrics from the runtime scope; `db.client.connection.count` and
+`db.client.connection.pending_requests` (labelled by pool name and state) and the runtime's GC, heap-space, resource and event-loop-time
+metrics carry labels that are not on the allowlist, so they are dropped whole rather than exported with their labels stripped. A scope
+that is not listed passes unchanged, its labels scrubbed as always. `db.client.operation.duration` keeps `db.operation.name`,
+`db.namespace`, `server.address` and `server.port`; its `db.operation.name` is normalised the way the span name is (the statement's first
+whitespace-delimited word if it is on the verb list, else `OTHER`), so the label is a closed set. An `error.type` that is a SQLSTATE such as
+`22P02` is not a class name, so that label is dropped and counted `invalid`: every failing query adds one `metric/invalid` drop to
+`telemetry.scrub.dropped`.
+
+**What the leak test counts as a flow's own telemetry.** The pool gauges and the event-loop metrics exist because the process is running, and
+the `pg` spans and `db.client.operation.duration` exist because a flow touched the database, not because the path it targets emitted
+anything. `ambient-signals.ts` names them (`isAmbientMetric`, `isDatabaseSpan`, `isDatabaseMetric`) and `runLeakFlow` leaves them out of
+`observed`, so a flow that emits nothing of its own still fails as vacuous even when it queries the database. A flow whose subject is the
+database sets `observesDatabase: true` to count them; only the backend's `database:` flow does.
 
 ## Testing
 
@@ -486,14 +547,16 @@ const { exposures, observed } = await runLeakFlow(flow, world);
 
 | Export | Returns |
 | --- | --- |
-| `runLeakFlow(flow, world, options?)` | Installs test telemetry (`options.autoInstrumentation` turns on the Fastify and `pg` instrumentations), runs the flow, and returns `exposures` (signal and name of each leak), `observed` (how many logs, spans and metrics the flow emitted, not counting `telemetry.scrub.dropped`), `internalDrops` (how many telemetry calls failed and were swallowed) and `spanNames` (the exported span names). Fastify's instrumentation only patches an app created after it starts, so a flow that needs real spans builds its app inside `run`. It shuts the pipeline down even when the flow throws |
+| `runLeakFlow(flow, world, options?)` | Installs test telemetry (`options.autoInstrumentation` turns on the Fastify, database and runtime instrumentations; `options.loadedDatabaseDriver` patches the `pg` the app already loaded), runs the flow, and returns `exposures` (signal and name of each leak), `observed` (how many logs, spans and metrics the flow emitted, not counting `telemetry.scrub.dropped` or the ambient pool and event-loop metrics), `internalDrops` (how many telemetry calls failed and were swallowed), `spanNames` (the exported span names) and `metricNames` (the exported metric names). Fastify's instrumentation only patches an app created after it starts, so a flow that needs real spans builds its app inside `run`. It shuts the pipeline down even when the flow throws |
 | `expectCleanRun(name, run, sentinel?, options?)` | Throws a plain `Error` if the run has an exposure, if the flow emitted nothing, or if a telemetry call in it failed and was swallowed (`run.internalDrops` above zero, reason `internal`); `options.allowInternalDrops` opts a flow that forces such a failure on purpose out of the last check. The `telemetry.scrub.dropped` counter is not counted as the flow's own telemetry |
 | `expectEmitted(name, run, messages)` | Throws a plain `Error` if the run did not write a log line for each of these messages (`run.logMessages`), so a flow that declares `emits` fails as vacuous when the code it was written for did not run |
 | `plantThirdPartyTelemetry(sentinel)` | Emits spans, one named for the sentinel, and a counter carrying the sentinel the way a third-party instrumentation would, to exercise the export-time scrub |
 | `plantThirdPartyCounter(labels)` | Emits a counter with exactly these labels, so a negative control can put a shaped value on a bounded metric label |
 | `exposuresOf(telemetry)` | Every log line, span and metric whose serialised form contains the sentinel, keys included, in any case |
 
-`pg` spans do not appear under test: the driver is imported before the instrumentation starts and there is no loader hook, so it is not patched.
+`pg` spans appear under test when the flow's world hands the loaded driver to `runLeakFlow` (the backend's `runOnLeakApp` does), so a
+sentinel bound as a SQL parameter, or echoed in a driver error message, is checked against the query spans, their attributes and the
+`db.client.operation.duration` labels.
 
 The flows live with the code they exercise. The backend's registry is
 `apps/backend/_tests/leak-test/flows.ts`; `npm run test:leak-test` runs it and CI gates on it.
@@ -507,6 +570,11 @@ The flows live with the code they exercise. The backend's registry is
 | `src/fields.ts` | `FIELDS`, `TelemetryContext`, the infrastructure allowlist, `OUTCOMES` |
 | `src/vocabulary.ts` | Constants shared by more than one module: the instrumentation scope, signal kinds, drop reasons, log modules and the attribute names the pipeline writes about itself |
 | `src/scrub.ts` | `scrubContext`, `scrubAttributes` |
+| `src/instrument-allowlist.ts` | Which instrument metrics an instrumentation may export at all (`isExportedInstrument`), and the names it lists |
+| `src/ambient-signals.ts` | What the leak test does not count as a flow's own telemetry: `isAmbientMetric`, `isDatabaseSpan`, `isDatabaseMetric` |
+| `src/trace-propagator.ts` | `TraceparentOnlyPropagator` |
+| `src/database-instrumentation.ts` | `DatabaseInstrumentation`, `DATABASE_INSTRUMENTATION_CONFIG`, `LoadedDatabaseDriver` |
+| `src/pool-metrics.ts` | `watchPool`, `POOL_METRICS`, `startPoolGauges` (pipeline only, behind `guarded`), `PoolCounts`, `PoolName` |
 | `src/guard.ts` | `guarded`, `guardedOr`, `guardedAsync`: run a telemetry action, swallow a failure and count it as `internal` |
 | `src/logger.ts` | `logger`, `LOG_LEVELS`, `LiteralMessage`, the sink and threshold, and `logDomainEvent` with `isDomainEventRecord`, which mark the records `emitDomainEvent` writes |
 | `src/spans.ts` | `withSpan`, `SPAN_NAMES`, `SpanName`, `activeTraceId`, `annotateActiveSpan` |

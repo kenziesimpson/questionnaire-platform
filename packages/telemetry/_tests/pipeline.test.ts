@@ -139,6 +139,7 @@ describe("the exporter allowlist", () => {
     "pg.query",
     "pg.query:SELECT",
     "pg.query:BEGIN",
+    "pg.query:RESET",
     "pg.connect",
     "pg-pool.connect",
   ])("exports the auto-instrumented span name %s unchanged", (name) => {
@@ -149,6 +150,13 @@ describe("the exporter allowlist", () => {
 
   it.each([
     ["pg.query:SELECT qp", "pg.query:SELECT"],
+    ["pg.query:SELECT * FROM t", "pg.query:SELECT"],
+    ["pg.query:TRUNCATE\n qp_test_1", "pg.query:TRUNCATE"],
+    ["pg.query:TRUNCATE\n", "pg.query:TRUNCATE"],
+    ["pg.query:SELECT\t1 qp_test_1", "pg.query:SELECT"],
+    ["pg.query:CREATE qp_test_1", "pg.query:CREATE"],
+    ["pg.query:ALTER qp_test_1", "pg.query:ALTER"],
+    ["pg.query:DROP qp_test_1", "pg.query:DROP"],
     ["pg.query:INSERT questionnaire_platform", "pg.query:INSERT"],
     [`pg.query:SELECT ${LEAK}`, "pg.query:SELECT"],
     [`pg.query:SELECT ${LEAK.toLowerCase()}`, "pg.query:SELECT"],
@@ -170,10 +178,12 @@ describe("the exporter allowlist", () => {
     "handler - two words",
     "handler - fastify -> @fastify/cors",
     "GET /sessions/abc",
-    "pg.query:SELECT * FROM t",
     `pg.query:${LEAK}`,
     `pg.query:${LEAK.toLowerCase()}`,
     "pg.query:select",
+    "pg.query:SELECTED qp",
+    "pg.query:GRANT qp",
+    "pg.query:\nSELECT",
     "pg.query:UNKNOWNVERB",
     `pg.query:${LEAK}\n`,
     "",
@@ -394,5 +404,33 @@ describe("annotateActiveSpan", () => {
   it("does nothing outside a span", () => {
     install();
     expect(() => annotateActiveSpan({ sessionId: SESSION_ID })).not.toThrow();
+  });
+});
+
+describe("the runtime instrumentation", () => {
+  const EVENT_LOOP_SETTLE_MS = 300;
+
+  it("exports the event-loop delay and utilization with no label, and no other runtime metric", async () => {
+    telemetry = installTestTelemetry({ autoInstrumentation: true });
+    await new Promise((resolve) => setTimeout(resolve, EVENT_LOOP_SETTLE_MS));
+
+    const all = await telemetry.metrics();
+
+    const names = all.map((metric) => metric.descriptor.name);
+    expect(names).toEqual(expect.arrayContaining(["nodejs.eventloop.utilization", "nodejs.eventloop.delay.p99", "nodejs.eventloop.delay.max"]));
+    expect(names.filter((name) => name.startsWith("v8js."))).toEqual([]);
+    expect(names).not.toContain("nodejs.eventloop.time");
+    const p99 = all.find((metric) => metric.descriptor.name === "nodejs.eventloop.delay.p99");
+    expect(p99?.dataPoints.map((point) => point.attributes)).toEqual([{}]);
+    expect(await telemetry.internalDrops()).toBe(0);
+  });
+
+  it("is not registered without auto-instrumentation", async () => {
+    telemetry = installTestTelemetry();
+    await new Promise((resolve) => setTimeout(resolve, EVENT_LOOP_SETTLE_MS));
+
+    const names = (await telemetry.metrics()).map((metric) => metric.descriptor.name);
+
+    expect(names.filter((name) => name.startsWith("nodejs."))).toEqual([]);
   });
 });

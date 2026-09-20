@@ -1,5 +1,6 @@
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, inject } from "vitest";
+import { POOL_ROLES } from "../../src/config.js";
 import { openDatabase, type Database, type DatabaseHandle } from "../../src/db/client.js";
 import { ROLE_NAMES, TEMPLATE_DATABASE, withDatabase, withRole, type ApplicationRole } from "./server.js";
 
@@ -7,6 +8,7 @@ export interface TestDatabase {
   url(role: ApplicationRole): string;
   connect(role: ApplicationRole): Promise<pg.Client>;
   database(role: ApplicationRole): Database;
+  pool(role: ApplicationRole): pg.Pool;
   readAuditEvents(): Promise<AuditEventRow[]>;
   readAuditTraceIds(): Promise<AuditTraceRow[]>;
 }
@@ -64,14 +66,14 @@ export function useTestDatabase(): TestDatabase {
     await Promise.all(open.map((client) => client.end().catch(() => undefined)));
   };
 
-  const database = (role: ApplicationRole) => {
+  const handleFor = (role: ApplicationRole) => {
     const existing = handles.get(role);
     if (existing !== undefined) {
-      return existing.db;
+      return existing;
     }
-    const handle = openDatabase(url(role), { maxConnections: CONNECTIONS_PER_POOL });
+    const handle = openDatabase(url(role), { maxConnections: CONNECTIONS_PER_POOL, pool: POOL_ROLES.find((known) => known === role) });
     handles.set(role, handle);
-    return handle.db;
+    return handle;
   };
 
   const connectAsOwner = async () => {
@@ -124,7 +126,8 @@ export function useTestDatabase(): TestDatabase {
   return {
     url,
     connect,
-    database,
+    database: (role) => handleFor(role).db,
+    pool: (role) => handleFor(role).pool,
     readAuditEvents: () =>
       withAuditOwner(async (owner) => {
         const result = await owner.query<AuditEventRow>(

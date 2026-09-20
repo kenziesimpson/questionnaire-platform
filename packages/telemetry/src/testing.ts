@@ -1,10 +1,13 @@
 import { Writable } from "node:stream";
 import { AggregationTemporality, InMemoryMetricExporter, type MetricData } from "@opentelemetry/sdk-metrics";
 import { InMemorySpanExporter, type ReadableSpan } from "@opentelemetry/sdk-trace";
+import type { LoadedDatabaseDriver } from "./database-instrumentation.js";
 import { DROPPED_COUNTER } from "./instruments.js";
 import type { LogLevel } from "./logger.js";
 import { startPipeline } from "./pipeline.js";
 import { SCRUB_ATTRIBUTES } from "./vocabulary.js";
+
+export type { LoadedDatabaseDriver } from "./database-instrumentation.js";
 
 export interface TestTelemetry {
   spans(): readonly ReadableSpan[];
@@ -18,6 +21,7 @@ export interface TestTelemetry {
 export interface TestTelemetryOptions {
   readonly logLevel?: LogLevel;
   readonly autoInstrumentation?: boolean;
+  readonly loadedDatabaseDriver?: LoadedDatabaseDriver;
 }
 
 export function internalDropCount(flushed: readonly MetricData[]): number {
@@ -59,6 +63,7 @@ export function installTestTelemetry(options: TestTelemetryOptions = {}): TestTe
     synchronousExport: true,
     autoInstrumentation: options.autoInstrumentation ?? false,
     loaderHook: false,
+    loadedDatabaseDriver: options.loadedDatabaseDriver,
   });
 
   const flushedMetrics = async (): Promise<readonly MetricData[]> => {

@@ -52,5 +52,6 @@ function startPipelineFor(options: TelemetryOptions): TelemetryHandle {
     synchronousExport: false,
     autoInstrumentation: options.autoInstrumentation,
     loaderHook: options.autoInstrumentation,
+    loadedDatabaseDriver: undefined,
   });
 }

@@ -23,7 +23,7 @@ and decision O2. Error bodies are covered by the same rule
 | 1 — one boundary | `packages/telemetry`, plus the `telemetryOnly` rule in `eslint.config.mjs` | Any other workspace importing `pino`, `pino-*`, `@opentelemetry/*` or `@fastify/otel` | Nothing else writes telemetry, so this is the whole surface |
 | 1 — closed registry | `FIELDS` in `packages/telemetry/src/fields.ts` | An unknown context key, at compile time via `TelemetryContext` | A known key holding the wrong content — see below |
 | 1 — the scrub | `packages/telemetry/src/scrub.ts`, at call time in `logger.ts`, `spans.ts` and, for counter labels, `events.ts` (`labelsOf`), and again at export time in `exporters.ts` and the pino formatter in `pipeline.ts` | Unregistered keys, values failing their `accepts` check, free text, objects, a `Sensitive`, unbounded attributes on a metric, a span name outside `SPAN_NAMES` or the instrumentations' shapes, a logger module outside `LOG_MODULES`. Drops, and telemetry's own swallowed failures (reason `internal`), are counted in `telemetry.scrub.dropped{signal,reason}`, never by key | A value that passes its field's shape check |
-| 2 — the leak test | `apps/backend/_tests/leak-test/`, `packages/telemetry/_tests/leak-test.test.ts`, `packages/telemetry/_tests/browser/leak-test.browser.test.ts` (the browser queue, beacon and error capture) | A planted `LEAK_SENTINEL` reaching any exported span, metric data point or pino line, on any registered flow, with Fastify's instrumentation on and the app built after it, so the export-time scrub sees real `request` and handler spans, plus a planted third-party span and counter. Removing the exporter scrub fails the gate, on a real-app flow as well as the planted one | A code path no flow runs, which is why extending it is mandatory. The holes listed below. `pg` spans, which never appear under test: `pg` is imported before the instrumentation starts and there is no loader hook, so the driver is not patched and no query span is produced. The pino formatter in `pipeline.ts`, which runs the same function as the call-time scrub and cannot be reached separately; only `packages/telemetry/_tests/pipeline.test.ts` covers it |
+| 2 — the leak test | `apps/backend/_tests/leak-test/`, `packages/telemetry/_tests/leak-test.test.ts`, `packages/telemetry/_tests/browser/leak-test.browser.test.ts` (the browser queue, beacon and error capture) | A planted `LEAK_SENTINEL` reaching any exported span, metric data point or pino line, on any registered flow, with Fastify's instrumentation on and the app built after it, so the export-time scrub sees real `request` and handler spans, plus a planted third-party span and counter. Removing the exporter scrub fails the gate, on a real-app flow as well as the planted one | A code path no flow runs, which is why extending it is mandatory. The holes listed below. The pino formatter in `pipeline.ts`, which runs the same function as the call-time scrub and cannot be reached separately; only `packages/telemetry/_tests/pipeline.test.ts` covers it |
 | 3 — CI as the gate | the `leak-test` job, displayed as "Response telemetry leak test", in `.github/workflows/ci.yml` | A red leak test turns that job red on the PR | Nothing locally. There is no pre-commit hook yet, so CI is the only gate |
 
 Layer 4, the advisory agent review on the PR, is documented and not built. Layer 5 is this file.
@@ -75,8 +75,9 @@ These are real and not fixed. The leak test's negative controls in
    `preValidation` or `preHandler`), and the name is a camel-case identifier (`[a-z][A-Za-z0-9]*`,
    which includes `anonymous`) or the literal plugin fallback `fastify -> @fastify/otel`; and
    `pg.query`, `pg.query:<verb>` with the verb from a closed list, `pg.connect` and `pg-pool.connect`.
-   The database slot of `pg.query:<verb> <db>` is never exported: the exporter rewrites it to
-   `pg.query:<verb>`, so a planted `pg.query:SELECT <sentinel>` in any case is clean. What remains is
+   Whatever follows the verb in `pg.query:<verb> <rest>` is never exported: the exporter takes the first
+   whitespace-delimited word and rewrites the name to `pg.query:<verb>` if it is on the closed list, so a planted
+   `pg.query:SELECT <sentinel>` in any case is clean. What remains is
    the `<name>` slot: a one-word lower-case camel-case name such as `handler - diabetes` passes, and
    the exporter cannot tell it from a function name. Function names are source identifiers, not data.
    The leak test plants the sentinel in a handler slot in upper and lower case, and both are rejected
@@ -252,6 +253,10 @@ traceparent or rejected value.
 - URLs, query strings and pagination cursors. `http.route` only. The responses-list `cursor` encodes
   a session id, which is exactly why (O13, O19).
 - Free text of any kind: option labels, question prompts, other-text, questionnaire titles.
+- A caller's `tracestate` or `baggage`. The `pg` instrumentation copies a span's trace state into every statement's SQL comment, which Postgres
+  shows in `pg_stat_activity` and its log, through a private propagator that ignores what we register. The barrier is the extract side of the
+  pipeline's `TraceparentOnlyPropagator`, which discards `tracestate` on the way in, so no span carries one. Keep inbound context coming
+  through the global propagator's extract.
 - A whole `req`, `res` or `err` object, and any spread of a caller-supplied object.
 
 ## Extending the leak test — the standing rule
@@ -277,8 +282,9 @@ drives the real path — a real request through `app.inject`, a real stored row,
 
 - **Assert your own plant took.** Check the status code, the stored row, the response body. A flow
   whose plant silently failed passes vacuously and proves nothing.
-- **A flow that emits no telemetry fails** with `TELEMETRY LEAK TEST VACUOUS`, and so does a flow in which a telemetry call failed and was swallowed (`run.internalDrops`, reason `internal`): the drop counter is not the flow's own telemetry. If your path is silent,
-  the flow is testing the wrong thing.
+- **A flow that emits no telemetry fails** with `TELEMETRY LEAK TEST VACUOUS`, and so does a flow in which a telemetry call failed and was swallowed (`run.internalDrops`, reason `internal`): the drop counter is not the flow's own telemetry. Neither are the pool and event-loop gauges, the `pg` spans and `db.client.operation.duration`: a flow
+  that queries the database but whose target path emits nothing is still vacuous, because `observed` leaves them out unless the flow sets `observesDatabase: true`,
+  which only a flow about the database itself should. If your path is silent, the flow is testing the wrong thing.
 - **Run it against the instrumented pipeline, and build the app after it starts.** Fastify's
   instrumentation patches an app only if it is installed before `Fastify()` runs, so an app built
   earlier produces no spans at all. `runOnLeakApp(testDatabase, flow, { autoInstrumentation: true })`
@@ -286,7 +292,7 @@ drives the real path — a real request through `app.inject`, a real stored row,
   installed telemetry, and closes it afterwards. `run.spanNames` lists the exported span names;
   `leak-test.test.ts` asserts a real `request` and `handler - handler` appear, so the gate cannot go blind
   again. `leak-test-mutation.test.ts` removes the export-time scrub and asserts the real-app `500 path`
-  flow then fails on a Fastify span. `pg` spans still do not appear under test (see the ladder). `plantThirdPartyTelemetry(sentinel)` from
+  flow then fails on a Fastify span. `runOnLeakApp` also hands the `pg` the app loaded to the pipeline (`loadedDatabaseDriver`), which patches its `Client` and `Pool` for the length of the flow, so query spans, their attributes and the `db.client.operation.duration` labels are under the gate; a flow that binds the sentinel as a SQL parameter is covered by every flow that writes or reads through the database. `plantThirdPartyTelemetry(sentinel)` from
   `@qp/telemetry/leak-test` adds a span and a counter carrying the sentinel in `url.path`, a body
   attribute, an exception and a status message, the way an instrumentation would.
 - **Real-path flows plant the bare sentinel.** Forged-input flows, which prove the scrub drops what
@@ -312,6 +318,7 @@ Flows built so far, in `flows.ts`:
 - The definition routes: the sentinel in a title, a prompt and an option label, through a stale save, a refused publish, a
   publish and a retirement; and a publish refused for more items than `MAX_FINDINGS`, where the per-item lines are capped and
   the per-code events and outcome carry the totals.
+- The database: the sentinel bound as a parameter on a client and on a pool, in statements that succeed and in statements the driver rejects with the value in its message, under the `pg` instrumentation.
 - The reporting reads: a stored sentinel answer read back through the list, with a real and a forged cursor, and the detail,
   then the `view_response` audit row: one for the detail read, none for the list, no sentinel in it (O14, O20).
 

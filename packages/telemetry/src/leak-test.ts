@@ -1,6 +1,7 @@
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
+import { isAmbientMetric, isDatabaseMetric, isDatabaseSpan } from "./ambient-signals.js";
 import { DROPPED_COUNTER } from "./instruments.js";
-import { installTestTelemetry, internalDropCount } from "./testing.js";
+import { installTestTelemetry, internalDropCount, type LoadedDatabaseDriver } from "./testing.js";
 import type { SignalKind } from "./vocabulary.js";
 
 export const LEAK_SENTINEL = "LEAK_DIABETES_8F3A";
@@ -27,12 +28,14 @@ export interface LeakExposure {
 export interface LeakFlow<World> {
   readonly name: string;
   readonly emits?: readonly string[];
+  readonly observesDatabase?: boolean;
   run(world: World, sentinel: string): Promise<void>;
 }
 
 export interface LeakRunOptions {
   readonly sentinel?: string;
   readonly autoInstrumentation?: boolean;
+  readonly loadedDatabaseDriver?: LoadedDatabaseDriver;
 }
 
 export interface LeakRun {
@@ -40,6 +43,7 @@ export interface LeakRun {
   readonly observed: Readonly<Record<SignalKind, number>>;
   readonly internalDrops: number;
   readonly spanNames: readonly string[];
+  readonly metricNames: readonly string[];
   readonly logMessages: readonly string[];
 }
 
@@ -86,19 +90,27 @@ export async function runLeakFlow<World>(
   options: LeakRunOptions = {},
 ): Promise<LeakRun> {
   const sentinel = options.sentinel ?? LEAK_SENTINEL;
-  const telemetry = installTestTelemetry({ autoInstrumentation: options.autoInstrumentation ?? false });
+  const telemetry = installTestTelemetry({
+    autoInstrumentation: options.autoInstrumentation ?? false,
+    loadedDatabaseDriver: options.loadedDatabaseDriver,
+  });
   try {
     await flow.run(world, sentinel);
     const flushed = await telemetry.metrics();
+    const countsDatabase = flow.observesDatabase === true;
     return {
       exposures: await exposuresOf({ logs: telemetry.logs, spans: telemetry.spans, metrics: async () => flushed }, sentinel),
       observed: {
         log: telemetry.logs().length,
-        span: telemetry.spans().length,
-        metric: flushed.filter((metric) => metric.descriptor.name !== DROPPED_COUNTER).length,
+        span: telemetry.spans().filter((span) => countsDatabase || !isDatabaseSpan(span.name)).length,
+        metric: flushed.filter((metric) => {
+          const name = metric.descriptor.name;
+          return name !== DROPPED_COUNTER && !isAmbientMetric(name) && (countsDatabase || !isDatabaseMetric(name));
+        }).length,
       },
       internalDrops: internalDropCount(flushed),
       spanNames: telemetry.spans().map((span) => span.name),
+      metricNames: flushed.map((metric) => metric.descriptor.name),
       logMessages: telemetry.logs().map(messageOf),
     };
   } finally {

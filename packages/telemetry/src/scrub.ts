@@ -10,6 +10,8 @@ export interface ScrubResult {
   readonly dropped: DropCounts;
 }
 
+const UNEXPORTED_SPAN_ATTRIBUTES: ReadonlySet<string> = new Set(["db.query.text"]);
+
 const NO_DROPS: DropCounts = { unknown: 0, invalid: 0, unbounded: 0, internal: 0 };
 
 export function oneDropped(reason: DropReason): DropCounts {
@@ -56,6 +58,7 @@ function scrubbedAttributes(input: unknown, kind: SignalKind): ScrubResult {
   const dropped = { ...NO_DROPS };
   for (const [key, value] of entriesOf(input)) {
     if (value === undefined || value === null) continue;
+    if (kind === "span" && UNEXPORTED_SPAN_ATTRIBUTES.has(key)) continue;
     const definition = definitionOfAttribute(key);
     if (definition === undefined) {
       dropped.unknown += 1;

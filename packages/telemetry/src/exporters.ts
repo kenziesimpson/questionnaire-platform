@@ -2,6 +2,8 @@ import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
 import { DataPointType, type DataPoint, type MetricData, type PushMetricExporter, type ResourceMetrics } from "@opentelemetry/sdk-metrics";
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace";
 import { guardedOr } from "./guard.js";
+import { isExportedInstrument } from "./instrument-allowlist.js";
+import { PG_QUERY_SPAN_PREFIX, PG_SPANS_EXPORTED_AS_WRITTEN } from "./pg-span-names.js";
 import { reportDropped } from "./instruments.js";
 import { oneDropped, scrubAttributes, type ScrubbedAttributes } from "./scrub.js";
 import { isSpanName } from "./spans.js";
@@ -37,7 +39,11 @@ const PG_COMMANDS = [
   "ROLLBACK",
   "SAVEPOINT",
   "RELEASE",
+  "CREATE",
+  "ALTER",
+  "DROP",
   "SET",
+  "RESET",
   "SHOW",
   "CALL",
   "EXPLAIN",
@@ -51,17 +57,26 @@ const PG_COMMANDS = [
 const EXPORTED_AS_WRITTEN: readonly RegExp[] = [
   /^request$/,
   new RegExp(`^(?:${FASTIFY_SPAN_PREFIXES.join("|")}) - (?:[a-z][A-Za-z0-9]{0,63}|${FASTIFY_PLUGIN_NAME_FALLBACK})$`),
-  new RegExp(`^pg\\.query(?::(?:${PG_COMMANDS.join("|")}))?$`),
-  /^pg\.connect$/,
-  /^pg-pool\.connect$/,
 ];
 
-const PG_QUERY_WITH_DATABASE = new RegExp(`^pg\\.query:(${PG_COMMANDS.join("|")}) \\S{1,63}$`);
+const PG_VERB = new RegExp(`^(${PG_COMMANDS.join("|")})(?:\\s|$)`);
+
+const OPERATION_LABEL = "db.operation.name";
+
+const OTHER_OPERATION = "OTHER";
+
+function pgVerbOf(text: string): string | undefined {
+  return PG_VERB.exec(text)?.[1];
+}
+
+function operationLabelOf(value: unknown): unknown {
+  return typeof value === "string" ? (pgVerbOf(value) ?? OTHER_OPERATION) : value;
+}
 
 function exportedNameOf(name: string): string {
-  if (isSpanName(name) || EXPORTED_AS_WRITTEN.some((shape) => shape.test(name))) return name;
-  const command = PG_QUERY_WITH_DATABASE.exec(name)?.[1];
-  if (command !== undefined) return `pg.query:${command}`;
+  if (isSpanName(name) || PG_SPANS_EXPORTED_AS_WRITTEN.includes(name) || EXPORTED_AS_WRITTEN.some((shape) => shape.test(name))) return name;
+  const verb = name.startsWith(PG_QUERY_SPAN_PREFIX) ? pgVerbOf(name.slice(PG_QUERY_SPAN_PREFIX.length)) : undefined;
+  if (verb !== undefined) return `${PG_QUERY_SPAN_PREFIX}${verb}`;
   reportDropped("span", oneDropped("unknown"));
   return UNNAMED_SPAN;
 }
@@ -117,7 +132,8 @@ export function scrubbingSpanExporter(delegate: SpanExporter): SpanExporter {
 }
 
 function scrubbedPoint<T>(point: DataPoint<T>): DataPoint<T> {
-  return { ...point, attributes: cleaned(point.attributes, "metric") };
+  const labels = Object.fromEntries(Object.entries(point.attributes).map(([key, value]) => [key, key === OPERATION_LABEL ? operationLabelOf(value) : value]));
+  return { ...point, attributes: cleaned(labels, "metric") };
 }
 
 function scrubbedMetric(metric: MetricData): MetricData {
@@ -136,10 +152,12 @@ function scrubbedMetric(metric: MetricData): MetricData {
 function scrubbedMetrics(resourceMetrics: ResourceMetrics): ResourceMetrics {
   return {
     resource: resourceMetrics.resource,
-    scopeMetrics: resourceMetrics.scopeMetrics.map((scope) => ({
-      scope: scope.scope,
-      metrics: scope.metrics.map(scrubbedMetric),
-    })),
+    scopeMetrics: resourceMetrics.scopeMetrics
+      .map((scope) => ({
+        scope: scope.scope,
+        metrics: scope.metrics.filter((metric) => isExportedInstrument(scope.scope.name, metric.descriptor.name)).map(scrubbedMetric),
+      }))
+      .filter((scope) => scope.metrics.length > 0),
   };
 }
 
