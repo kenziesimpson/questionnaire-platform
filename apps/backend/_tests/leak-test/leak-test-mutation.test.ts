@@ -8,6 +8,8 @@ const EXPORTERS = fileURLToPath(new URL("../../../../packages/telemetry/dist/exp
 
 const REAL_APP_FLOW = "500 path";
 
+const DATABASE_FLOW = "database:";
+
 beforeEach(() => {
   vi.resetModules();
   vi.doMock(EXPORTERS, async (importOriginal) => ({
@@ -38,5 +40,18 @@ describe("TELEMETRY LEAK TEST mutation check: with the export-time scrub removed
     expect(new Set(run.exposures.map((exposure) => exposure.signal))).toEqual(new Set(["span"]));
     expect(run.exposures.map((exposure) => exposure.name)).toContain("request");
     expect(() => expectCleanRun(flow.name, run)).toThrow(/TELEMETRY LEAK TEST FAILED/);
+  });
+
+  it("detects the sentinel in a pg span the driver's instrumentation produced, so the pg path is under the gate", async () => {
+    const { LEAK_FLOWS } = await import("./flows.js");
+    const { runOnLeakApp } = await import("./harness.js");
+    const flow = LEAK_FLOWS.find((candidate) => candidate.name.startsWith(DATABASE_FLOW));
+    expect(flow, "the pg flow this check runs must still be registered").toBeDefined();
+    if (flow === undefined) return;
+
+    const run = await runOnLeakApp(testDatabase, flow, { autoInstrumentation: true });
+
+    expect(run.spanNames.some((name) => name.startsWith("pg.query:"))).toBe(true);
+    expect(run.exposures.some((exposure) => exposure.signal === "span" && exposure.name.startsWith("pg.query:"))).toBe(true);
   });
 });

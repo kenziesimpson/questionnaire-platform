@@ -1,6 +1,7 @@
 import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
 import { DataPointType, type DataPoint, type MetricData, type PushMetricExporter, type ResourceMetrics } from "@opentelemetry/sdk-metrics";
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace";
+import { isExportedInstrument } from "./ambient-metrics.js";
 import { guardedOr } from "./guard.js";
 import { reportDropped } from "./instruments.js";
 import { oneDropped, scrubAttributes, type ScrubbedAttributes } from "./scrub.js";
@@ -136,10 +137,12 @@ function scrubbedMetric(metric: MetricData): MetricData {
 function scrubbedMetrics(resourceMetrics: ResourceMetrics): ResourceMetrics {
   return {
     resource: resourceMetrics.resource,
-    scopeMetrics: resourceMetrics.scopeMetrics.map((scope) => ({
-      scope: scope.scope,
-      metrics: scope.metrics.map(scrubbedMetric),
-    })),
+    scopeMetrics: resourceMetrics.scopeMetrics
+      .map((scope) => ({
+        scope: scope.scope,
+        metrics: scope.metrics.filter((metric) => isExportedInstrument(scope.scope.name, metric.descriptor.name)).map(scrubbedMetric),
+      }))
+      .filter((scope) => scope.metrics.length > 0),
   };
 }
 

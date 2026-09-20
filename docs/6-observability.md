@@ -64,8 +64,9 @@ RED per endpoint comes free from the HTTP instrumentation (`http.server.request.
 
 **Saturation metrics** — the real early-warning signals under load, none of which any framework emits by default:
 
-- Event loop lag, heap usage, GC pause — via `@opentelemetry/instrumentation-runtime-node`. Event loop lag is the single best "Node is in trouble" signal and it moves before latency does.
-- `pg` pool state: `totalCount`, `idleCount`, `waitingCount` exposed as gauges. `waitingCount > 0` sustained means the pool, not the database, is the bottleneck — an important distinction because the fixes differ (pool size vs. query tuning vs. replicas).
+- Event loop lag, via `@opentelemetry/instrumentation-runtime-node` (D1): the gauges `nodejs.eventloop.delay.min`, `.max`, `.mean`, `.stddev`, `.p50`, `.p90` and `.p99`, in seconds with no label, and `nodejs.eventloop.utilization`. Event loop lag is the single best "Node is in trouble" signal and it moves before latency does. The delay gauges report nothing until the loop has been sampled five times. Heap usage and GC pause are not exported: the instrumentation labels them by heap space and GC kind, which are not on the attribute allowlist, so the exporter drops those metrics whole (`ambient-metrics.ts`). Exporting them means allowlisting closed label sets first.
+- `pg` pool state (D1): the gauges `db.pool.connections.total`, `db.pool.connections.idle` and `db.pool.connections.waiting`, one point per pool, labelled `db.pool` (`definition`, `execution`, `reporting`). They are observable gauges that read each pool's `totalCount`, `idleCount` and `waitingCount` when metrics are collected, registered by `watchPool` from `openDatabase`. `waiting > 0` sustained means the pool, not the database, is the bottleneck — an important distinction because the fixes differ (pool size vs. query tuning vs. replicas). The `pg` instrumentation's own pool metrics are dropped: they are labelled by host, port and database, which are the same for all three pools.
+- `db.client.operation.duration` (D1), the `pg` instrumentation's histogram of statement durations in seconds, labelled `db.operation.name` (the statement's first word, upper-cased), `db.namespace`, `server.address` and `server.port`.
 
 ### 2.3 Logs
 
@@ -232,15 +233,15 @@ The rule: **high-cardinality identifiers live in traces and logs; metrics carry 
 
 ### 8.1 The six alerts
 
-Planned, P2. Each pages or tickets on a symptom a respondent or an operator would feel, and each reads a signal that a lane must build. The registered instrumentations today are Fastify's and `pg`'s (`packages/telemetry/src/pipeline.ts`), so the three rows marked unassigned still need an owner before P2. Thresholds and routing are P2's to set; O10 fixes the list.
+Planned, P2. Each pages or tickets on a symptom a respondent or an operator would feel, and each reads a signal that a lane must build. The registered instrumentations are Fastify's, `pg`'s and runtime-node's (`packages/telemetry/src/pipeline.ts`), so the rows still marked unassigned need an owner before P2. Thresholds and routing are P2's to set; O10 fixes the list.
 
 | Alert | Signal it reads | Built by |
 | --- | --- | --- |
 | Submit success rate drops | The submit outcome counters | B1 |
 | 5xx rate rises | `http.server.request.duration` by status class | Unassigned: nothing registers HTTP metrics today |
 | p95 latency of the questionnaire definition fetch rises | The same histogram for that route | Unassigned |
-| Event-loop lag stays high | The runtime-node instrumentation's event-loop delay | Unassigned: that instrumentation is not registered |
-| Requests stay queued for a pool connection | The pool `waitingCount` gauge, per pool | D1 |
+| Event-loop lag stays high | `nodejs.eventloop.delay.p99` (seconds; the other delay statistics and `nodejs.eventloop.utilization` sit beside it) | D1 |
+| Requests stay queued for a pool connection | `db.pool.connections.waiting`, one point per `db.pool` | D1 |
 | Fewer than one month of future `response` partitions remain | A `monitor.*` gauge read as `qp_monitor` (§14) | D2 |
 
 The last row is the one nothing else would catch: a missing partition fails every submit while every process is up ([[9-database-schema]]).
@@ -338,14 +339,14 @@ The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the ob
 
 | Layer | What it answers | State | PR |
 | --- | --- | --- | --- |
-| 1. App to database: `pg` spans and pool metrics | Which query in which request was slow, and is a pool the bottleneck | `pg` client spans exist (T0a); the pool gauges are planned | D1 |
-| 2. SQL-comment trace ids and `application_name` | Which trace issued a query that Postgres shows me, and which pool ran it | Planned | D1 |
+| 1. App to database: `pg` spans and pool metrics | Which query in which request was slow, and is a pool the bottleneck | Shipped: `pg` client spans (T0a), `db.client.operation.duration` and the `db.pool.connections.*` gauges | D1 |
+| 2. SQL-comment trace ids and `application_name` | Which trace issued a query that Postgres shows me, and which pool ran it | Shipped | D1 |
 | 3. Postgres's own stats: `pg_stat_statements` | Which statement shapes cost the most, across all traces | Planned | D2 |
 | 4. Domain gauges: the `monitor.*` schema read as `qp_monitor` | Is the data still healthy: partitions remaining, and the invariants of §9 when they are built | Planned | D2 |
 
-**1. Spans and pool metrics.** The `pg` instrumentation is already started by `startTelemetry` (T0a), and its span names, `pg.query:<verb>`, `pg.connect` and `pg-pool.connect`, are on the exporter's closed list. `db.statement` is not on the attribute allowlist, so no SQL text exports. D1 extends the instrumentation and adds the pool gauges of §2.2 (`totalCount`, `idleCount`, `waitingCount`), labelled by the bounded `pool` field, which the health probes already use. `waitingCount` is the signal behind the pool alert (§8.1).
+**1. Spans and pool metrics.** The `pg` instrumentation is started by `startTelemetry` (T0a), and its span names, `pg.query:<verb>`, `pg.connect` and `pg-pool.connect`, are on the exporter's closed list. A span exports `db.system.name`, `db.namespace`, `server.address` and `server.port`. The statement text is on the span as `db.query.text`, which is not on the attribute allowlist, so no SQL text exports; the scrub drops that one attribute from a span without counting it, since every query span carries it. D1 adds the pool gauges of §2.2, `db.pool.connections.total`, `.idle` and `.waiting`, labelled by the bounded `pool` field, which the health probes already use, and registers `instrumentation-runtime-node` for the event-loop metrics. `db.pool.connections.waiting` is the signal behind the pool alert (§8.1). The exporter keeps only `db.client.operation.duration` from the `pg` instrumentation and only the event-loop metrics from runtime-node, because their other metrics carry labels that are not on the allowlist.
 
-**2. Trace ids in SQL, and `application_name`.** D1 puts the trace id into a comment on each query, so a statement seen in `pg_stat_activity` or the Postgres log maps back to its trace, and sets `application_name` once per pool, so the same views show which role's pool ran it. The comment carries the trace id only. Postgres normalises a statement without its comments, so the comment does not split one statement into many in layer 3.
+**2. Trace ids in SQL, and `application_name`.** D1 turns on the instrumentation's `addSqlCommenterCommentToQueries`, so each statement carries a trailing comment `/*traceparent='00-<trace id>-<span id>-01'*/` naming its own span. A statement seen in `pg_stat_activity` or the Postgres log maps back to its trace. `openDatabase` sets `application_name` to `qp-backend:<pool>` for each of the three pools (`definition`, `execution`, `reporting`), so the same views show which role's pool ran it; the owner's migration and seed connections carry none. The comment carries the trace and span ids only. Postgres normalises a statement without its comments, so the comment does not split one statement into many in layer 3. A statement that already contains `--` or `/*` gets no comment (a limit of the instrumentation); the backend's SQL has none.
 
 **3. `pg_stat_statements`.** On in the `db` service by default (O16): it needs `shared_preload_libraries`, so turning it on later means a restart. It stores each statement with its constants replaced by placeholders, so it holds no value. `listSessions` joins the review of the slowest statements (O20): it is the one paged read over `execution.session`, and a regression shows there first.
 
@@ -357,10 +358,10 @@ The prototype must stay one command ([[2-design-doc#13. Deployment]]), so the ob
 | --- | --- | --- | --- |
 | Parameter logging | A statement logged by duration or error with its `parameters:` line, in the Postgres log | `log_parameter_max_length=0`. The on-error variant defaults to `0` and stays there | D2 |
 | Error `DETAIL` lines | A constraint failure quotes the value or the whole row (`Key (…)=(…) already exists`, `Failing row contains (…)`), which for a `response` check names the answer | `log_error_verbosity=terse`, which drops `DETAIL`, `HINT`, `QUERY` and `CONTEXT` from the log | D2 |
-| Bound parameters on a span | The `pg` instrumentation's `enhancedDatabaseReporting` option records the parameter values on the span | It stays off. The export scrub drops any attribute outside the registry as a second guard | D1 |
+| Bound parameters on a span | The `pg` instrumentation's `enhancedDatabaseReporting` option records the parameter values on the span | Shipped: it stays off (`DATABASE_INSTRUMENTATION_CONFIG`, asserted by a test). The export scrub drops any attribute outside the registry as a second guard | D1 |
 | Error message, in the application | A `pg` error's message can carry a value (`invalid input syntax for type uuid: "…"`) | Already shipped: an error is recorded as its class name and stack frames, never its message (O8) | T0a |
 | Error message, in the Postgres log | The same primary message is written to the server log, and `terse` does not remove it | Not removed by configuration. Request validation runs before a value is bound, which keeps most malformed input from reaching a cast. V1 plants a value and searches the Postgres log for it | V1 |
 | SQL text in a span | `db.statement` | Never exported: it is not on the attribute allowlist | T0a |
-| The leak test cannot see `pg` | `pg` spans do not appear under test today, because the driver loads before the instrumentation | D1 runs the leak flows with the `pg` instrumentation on and plants the sentinel as a SQL parameter (a questionnaire title, an answer), and asserts no `pg` span, attribute or metric label carries it | D1 |
+| The leak test cannot see `pg` | `pg` spans did not appear under test, because the driver loads before the instrumentation | Shipped: the leak harness hands the driver the app loaded to the pipeline, which patches it (`patchLoaded`), so every flow runs with the `pg` instrumentation on. The sentinel is a SQL parameter in the definition flows (a questionnaire title) and the submit flows (an answer), and a `database:` flow binds it in statements that succeed and in statements the driver rejects with the value in its message, which the span's status message carries before the exporter drops it. A mutation test removes the export scrub and shows the gate then fails on a `pg` span | D1 |
 
 The Postgres-log rows are outside the application's pipeline, so the scrub cannot help there: only the configuration, and V1's test of Postgres's own log, stand between a value and that file.

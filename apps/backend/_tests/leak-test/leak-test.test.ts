@@ -68,6 +68,36 @@ describe("TELEMETRY LEAK (CI gate): the pipeline it runs is the instrumented one
   });
 });
 
+describe("TELEMETRY LEAK (CI gate): the pipeline it runs patches the pg driver the app loaded", () => {
+  it("exports pg query and pool connect spans under recognised names, the operation-duration histogram and each pool's gauges", async () => {
+    const run = await runFlow({
+      name: "real statements on a pool and a client",
+      run: async (world) => {
+        await world.testDatabase.pool("execution").query("SELECT 1");
+        await (await world.testDatabase.connect("reporting")).query("SELECT 1");
+      },
+    });
+
+    expect(run.spanNames).toEqual(expect.arrayContaining(["pg.query:SELECT", "pg-pool.connect", "pg.connect"]));
+    expect(run.spanNames).not.toContain("unnamed");
+    expect(run.metricNames).toEqual(
+      expect.arrayContaining([
+        "db.client.operation.duration",
+        "db.pool.connections.total",
+        "db.pool.connections.idle",
+        "db.pool.connections.waiting",
+      ]),
+    );
+  });
+
+  it("does not count the ambient pool gauges as a flow's own metrics", async () => {
+    const run = await runFlow({ name: "a flow that emits nothing", run: async () => undefined });
+
+    expect(run.metricNames).toContain("db.pool.connections.total");
+    expect(run.observed.metric).toBe(0);
+  });
+});
+
 interface NegativeControl {
   readonly name: string;
   readonly detectedIn: readonly SignalKind[];

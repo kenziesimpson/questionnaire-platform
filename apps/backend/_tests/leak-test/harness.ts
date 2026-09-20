@@ -1,5 +1,6 @@
 import { runLeakFlow, type LeakFlow, type LeakRun, type LeakRunOptions } from "@qp/telemetry/leak-test";
 import type { FastifyInstance } from "fastify";
+import pg from "pg";
 import { buildApp } from "../../src/app.js";
 import { requestLogger } from "../../src/http/request-logger.js";
 import type { TestDatabase } from "../db/fixtures.js";
@@ -49,5 +50,5 @@ export function runOnLeakApp(
       }
     },
   };
-  return runLeakFlow(buildsItsOwnApp, undefined, options);
+  return runLeakFlow(buildsItsOwnApp, undefined, { loadedDatabaseDriver: pg, ...options });
 }

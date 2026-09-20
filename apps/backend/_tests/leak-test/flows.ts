@@ -170,6 +170,27 @@ export const LEAK_FLOWS: readonly BackendLeakFlow[] = [
     },
   },
   {
+    name: "database: the sentinel as a bound parameter of statements pg's instrumentation traces, on a client and on a pool, that succeed and that fail with the value in the driver's message",
+    run: async (world, sentinel) => {
+      const client = await world.testDatabase.connect("execution");
+      const pool = world.testDatabase.pool("reporting");
+
+      const echoed = await client.query<{ echoed: string }>("SELECT $1::text AS echoed", [sentinel]);
+      const pooled = await pool.query<{ echoed: string }>({ text: "SELECT $1::text AS echoed", values: [sentinel] });
+      expect([echoed.rows[0]?.echoed, pooled.rows[0]?.echoed], "the sentinel must reach the database as a bound parameter").toEqual([sentinel, sentinel]);
+
+      const failures = [
+        await client.query("SELECT $1::uuid", [sentinel]).then(() => undefined, (error: unknown) => error),
+        await pool.query({ text: "SELECT $1::integer", values: [sentinel] }).then(() => undefined, (error: unknown) => error),
+      ];
+      for (const failure of failures) {
+        expect(failure, "the statement must fail").toBeInstanceOf(Error);
+        const message = failure instanceof Error ? failure.message : "";
+        expect(message, "the driver must echo the planted value in its message for the flow to prove anything").toContain(sentinel);
+      }
+    },
+  },
+  {
     name: "emitDomainEvent: payloads with the sentinel in closed-list fields, numbers and unknown keys",
     run: async (_world, sentinel) => {
       const ids = { sessionId: withWhitespace(sentinel), itemId: withWhitespace(sentinel), questionId: withWhitespace(sentinel) };

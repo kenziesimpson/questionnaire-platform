@@ -396,3 +396,31 @@ describe("annotateActiveSpan", () => {
     expect(() => annotateActiveSpan({ sessionId: SESSION_ID })).not.toThrow();
   });
 });
+
+describe("the runtime instrumentation", () => {
+  const EVENT_LOOP_SETTLE_MS = 300;
+
+  it("exports the event-loop delay and utilization with no label, and no other runtime metric", async () => {
+    telemetry = installTestTelemetry({ autoInstrumentation: true });
+    await new Promise((resolve) => setTimeout(resolve, EVENT_LOOP_SETTLE_MS));
+
+    const all = await telemetry.metrics();
+
+    const names = all.map((metric) => metric.descriptor.name);
+    expect(names).toEqual(expect.arrayContaining(["nodejs.eventloop.utilization", "nodejs.eventloop.delay.p99", "nodejs.eventloop.delay.max"]));
+    expect(names.filter((name) => name.startsWith("v8js."))).toEqual([]);
+    expect(names).not.toContain("nodejs.eventloop.time");
+    const p99 = all.find((metric) => metric.descriptor.name === "nodejs.eventloop.delay.p99");
+    expect(p99?.dataPoints.map((point) => point.attributes)).toEqual([{}]);
+    expect(await telemetry.internalDrops()).toBe(0);
+  });
+
+  it("is not registered without auto-instrumentation", async () => {
+    telemetry = installTestTelemetry();
+    await new Promise((resolve) => setTimeout(resolve, EVENT_LOOP_SETTLE_MS));
+
+    const names = (await telemetry.metrics()).map((metric) => metric.descriptor.name);
+
+    expect(names.filter((name) => name.startsWith("nodejs."))).toEqual([]);
+  });
+});

@@ -97,6 +97,17 @@ describe("scrubAttributes: the exporter allowlist", () => {
     expect(result.dropped.unknown).toBe(5);
   });
 
+  it("drops the statement text a database instrumentation puts on a span without counting it, and counts it anywhere else", () => {
+    const attributes = { "db.query.text": `SELECT '${LEAK}'`, "db.namespace": "questionnaire_platform" };
+
+    expect(scrubAttributes(attributes, "span")).toEqual({
+      attributes: { "db.namespace": "questionnaire_platform" },
+      dropped: { unknown: 0, invalid: 0, unbounded: 0, internal: 0 },
+    });
+    expect(scrubAttributes(attributes, "log").dropped.unknown).toBe(1);
+    expect(scrubAttributes(attributes, "metric").dropped.unknown).toBe(1);
+  });
+
   it("drops a registered attribute whose value is free text or the wrong type", () => {
     const result = scrubAttributes(
       { "questionnaire.session_id": `two words ${LEAK}`, "http.route": "no-leading-slash", "db.system": 7 },

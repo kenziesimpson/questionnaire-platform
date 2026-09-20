@@ -2,16 +2,18 @@ import { register } from "node:module";
 import { FastifyOtelInstrumentation } from "@fastify/otel";
 import { context, metrics, propagation, trace } from "@opentelemetry/api";
 import type { Instrumentation } from "@opentelemetry/instrumentation";
-import { PgInstrumentation } from "@opentelemetry/instrumentation-pg";
+import { RuntimeNodeInstrumentation } from "@opentelemetry/instrumentation-runtime-node";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import { PeriodicExportingMetricReader, type PushMetricExporter } from "@opentelemetry/sdk-metrics";
 import { BatchSpanProcessor, NoopSpanProcessor, SimpleSpanProcessor, type SpanExporter, type SpanProcessor } from "@opentelemetry/sdk-trace";
 import pino, { type DestinationStream } from "pino";
 import pretty from "pino-pretty";
+import { DatabaseInstrumentation, type LoadedDatabaseDriver } from "./database-instrumentation.js";
 import { scrubbingMetricExporter, scrubbingSpanExporter } from "./exporters.js";
 import { reportDropped, resetInstruments } from "./instruments.js";
 import { configureLogging, resetLogging, type LogLevel, type LogSink } from "./logger.js";
+import { startPoolGauges } from "./pool-metrics.js";
 import { scrubAttributes } from "./scrub.js";
 
 const LOADER_HOOK = "@opentelemetry/instrumentation/hook.mjs";
@@ -28,6 +30,7 @@ export interface PipelineOptions {
   readonly synchronousExport: boolean;
   readonly autoInstrumentation: boolean;
   readonly loaderHook: boolean;
+  readonly loadedDatabaseDriver: LoadedDatabaseDriver | undefined;
 }
 
 export interface TelemetryHandle {
@@ -92,9 +95,11 @@ export function startPipeline(options: PipelineOptions): TelemetryHandle {
           }),
         ];
 
-  const instrumentations: Instrumentation[] = options.autoInstrumentation
-    ? [new FastifyOtelInstrumentation({ registerOnInitialization: true }), new PgInstrumentation()]
-    : [];
+  const database = options.autoInstrumentation ? new DatabaseInstrumentation() : undefined;
+  const instrumentations: Instrumentation[] =
+    database === undefined
+      ? []
+      : [new FastifyOtelInstrumentation({ registerOnInitialization: true }), database, new RuntimeNodeInstrumentation()];
 
   const sdk = new NodeSDK({
     resource: resourceFromAttributes({ "service.name": options.serviceName }),
@@ -105,6 +110,8 @@ export function startPipeline(options: PipelineOptions): TelemetryHandle {
     instrumentations,
   });
   sdk.start();
+  startPoolGauges();
+  if (options.loadedDatabaseDriver !== undefined) database?.patchLoaded(options.loadedDatabaseDriver);
 
   return {
     exporting: { traces: options.traceExporter !== undefined, metrics: options.metricExporter !== undefined },
