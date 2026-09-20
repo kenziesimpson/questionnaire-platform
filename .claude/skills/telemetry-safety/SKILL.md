@@ -178,6 +178,8 @@ from it. The payload's fields should all be registry fields, but nothing enforce
 `.claude/skills/constants/SKILL.md` rather than restating the shape here. `emitDomainEvent` writes
 the log line and increments the counter in one call so the two cannot drift.
 
+Per-request emission is capped at `MAX_FINDINGS` (20). A request with more findings than that emits one log-only line per finding up to the cap; the real total travels as `findingCount` and `omittedCount` (whole-number registry fields, log line only, never labels) on the outcome event, and a counter that must be exact is driven by one per-code event carrying `findingCount` through `countBy`, never by the capped per-item lines.
+
 **Metric.** Counter and histogram instruments live in `packages/telemetry/src/instruments.ts` and
 are deliberately not exported from `@qp/telemetry`; application code reaches metrics through
 `emitDomainEvent`. Labels must be `bounded` fields — the export-time scrub drops an unbounded

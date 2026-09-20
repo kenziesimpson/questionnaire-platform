@@ -1,7 +1,7 @@
 import { DRAFT_ITEM_CODES, problem, QUESTION_RULE_CODES, SUBMISSION_ITEM_CODES, type Problem } from "@qp/shared";
 import { describe, expect, it } from "vitest";
 import { problemTelemetry, scrubContext } from "../src/index.js";
-import { PROBLEM_CODES, SCHEMA_CODES } from "../src/problems.js";
+import { findingTotals, MAX_FINDINGS, PROBLEM_CODES, SCHEMA_CODES, tallyCodes } from "../src/problems.js";
 
 const LEAK = "LEAK_DIABETES_8F3A";
 
@@ -115,6 +115,34 @@ describe("problemTelemetry", () => {
   it("lists every question rule, draft item, submission item and schema code once", () => {
     expect(new Set(PROBLEM_CODES).size).toBe(PROBLEM_CODES.length);
     expect(PROBLEM_CODES).toEqual(expect.arrayContaining([...QUESTION_RULE_CODES, ...DRAFT_ITEM_CODES, ...SUBMISSION_ITEM_CODES, "schema/other"]));
+  });
+});
+
+describe("findingTotals", () => {
+  it("reports every finding and none omitted up to the cap", () => {
+    expect(findingTotals(0)).toEqual({ findingCount: 0, omittedCount: 0 });
+    expect(findingTotals(1)).toEqual({ findingCount: 1, omittedCount: 0 });
+    expect(findingTotals(MAX_FINDINGS)).toEqual({ findingCount: MAX_FINDINGS, omittedCount: 0 });
+  });
+
+  it("reports the findings past the cap as omitted", () => {
+    expect(findingTotals(MAX_FINDINGS + 1)).toEqual({ findingCount: MAX_FINDINGS + 1, omittedCount: 1 });
+    expect(findingTotals(35)).toEqual({ findingCount: 35, omittedCount: 35 - MAX_FINDINGS });
+  });
+});
+
+describe("tallyCodes", () => {
+  it("counts each distinct code across every finding, in order of first appearance", () => {
+    const codes = ["answer/required", "answer/unknown-item", "answer/required", "answer/required", "answer/unknown-item"] as const;
+    expect([...tallyCodes(codes)]).toEqual([
+      ["answer/required", 3],
+      ["answer/unknown-item", 2],
+    ]);
+  });
+
+  it("counts past the cap and returns nothing for no findings", () => {
+    expect([...tallyCodes(Array.from({ length: 120 }, () => "answer/unknown-item" as const))]).toEqual([["answer/unknown-item", 120]]);
+    expect(tallyCodes([]).size).toBe(0);
   });
 });
 

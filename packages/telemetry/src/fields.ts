@@ -17,6 +17,8 @@ export type Outcome = (typeof OUTCOMES)[number];
 
 const HTTP_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] as const;
 
+const MAX_COUNT = 1_000_000;
+
 const SIGNALS = ["SIGINT", "SIGTERM"] as const;
 
 const DATABASE_POOLS = ["definition", "execution", "reporting"] as const;
@@ -61,6 +63,14 @@ function quantity(attribute: string): FieldDefinition<number> {
   return { attribute, bounded: false, accepts: (value): value is number => typeof value === "number" && Number.isFinite(value) };
 }
 
+function count(attribute: string): FieldDefinition<number> {
+  return {
+    attribute,
+    bounded: false,
+    accepts: (value): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_COUNT,
+  };
+}
+
 function statusCode(attribute: string): FieldDefinition<number> {
   return {
     attribute,
@@ -101,6 +111,8 @@ export const FIELDS = {
   elapsedSeconds: quantity("questionnaire.elapsed_seconds"),
   durationMs: quantity("questionnaire.duration_ms"),
   questionCount: quantity("questionnaire.question_count"),
+  findingCount: count("questionnaire.finding_count"),
+  omittedCount: count("questionnaire.omitted_count"),
   requestId: matching("http.request.id", UUID, false),
   method: oneOf("http.request.method", HTTP_METHODS),
   route: matching("http.route", ROUTE, true),

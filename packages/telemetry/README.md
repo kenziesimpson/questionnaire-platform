@@ -116,6 +116,7 @@ context key with an attribute name, a runtime check and a `bounded` flag.
 | `sessionId`, `questionnaireId`, `questionnaireVersionId`, `questionId`, `requestId` | `questionnaire.session_id`, `questionnaire.id`, … | a UUID (`UUID_PATTERN` from `@qp/shared`) | no |
 | `itemId`, `lastItemId` | `questionnaire.item_id`, `questionnaire.last_item_id` | an author-chosen slug (`SLUG_PATTERN` from `@qp/shared`) | no |
 | `questionnaireVersion`, `elapsedSeconds`, `durationMs`, `questionCount`, `responseTimeMs` | `questionnaire.version`, … | a finite number | no |
+| `findingCount`, `omittedCount` | `questionnaire.finding_count`, `questionnaire.omitted_count` | a whole number from 0 to 1,000,000: the real number of findings a refused request had, and how many of them were not logged one by one | no |
 | `questionType`, `outcome`, `reason`, `method`, `signal` | `questionnaire.question_type`, … | a member of a closed list | yes |
 | `status` | `http.response.status_code` | an integer from 100 to 599 | yes |
 | `route` | `http.route` | a route template: `/`, or lower-case literal segments and `:name`, `$name`, `{name}` or `*` parameters, with no query string or fragment | yes |
@@ -265,25 +266,41 @@ type and its counter name on one entry. `DomainEvent` and the counter lookup are
 table, so adding an event is one entry.
 
 ```ts
-"session.answer_rejected": event<{ sessionId: string; itemId: string | null; questionId: string | null; reason: SubmissionItemCode }>(
+"session.answers_rejected": event<{ sessionId: string; reason: SubmissionItemCode; findingCount: number }>(
   "questionnaire.answers.rejected",
-  { labels: ["reason"] },
+  { labels: ["reason"], countBy: "findingCount" },
 ),
 ```
+
+`countBy` names a numeric payload field, checked against the event's payload type, and the counter adds that field's value
+instead of 1. A value the field does not accept (a fraction, a negative, text, a missing one) adds nothing and is counted as
+an internal drop (`telemetry.scrub.dropped`, reason `internal`); it never throws. `logOnly<P>()` defines an event with a log
+line and no counter.
+
+A request that fails many items emits its per-item lines up to `MAX_FINDINGS` (20, in `src/problems.ts`) and no more.
+Those per-item events (`session.answer_rejected`, `questionnaire.publish_rejected`) are `logOnly`, so they never touch a
+counter. The counter is driven by one event per distinct code (`session.answers_rejected`,
+`questionnaire.publish_items_rejected`) whose `findingCount` is the real number of findings with that code, so the counter's
+total equals the number of findings and nothing counts twice. `tallyCodes` builds those per-code counts and `findingTotals`
+builds the pair the outcome event carries: `session.submit_finished` and `questionnaire.publish_finished` add `findingCount`
+(the real total) and `omittedCount` (findings past the cap, 0 up to 20) to their log line when the outcome is
+`rejected_validation`. They are numbers on the log line and never metric labels.
 
 | Event | Counter |
 | --- | --- |
 | `questionnaire.created`, `.published`, `.retired` | `questionnaire.created`, `.published`, `.retired`; `retired` means a close time was set or moved, not a version retired |
-| `questionnaire.publish_finished` | `questionnaire.publish.total`, labelled by `outcome` |
-| `questionnaire.publish_rejected` | `questionnaire.publish.rejections`, labelled by `problemCode`, a draft item code |
+| `questionnaire.publish_finished` | `questionnaire.publish.total`, labelled by `outcome`; `findingCount` and `omittedCount` ride on the line for a validation refusal |
+| `questionnaire.publish_rejected` | none: a log line per refused item, at most `MAX_FINDINGS` per publish |
+| `questionnaire.publish_items_rejected` | `questionnaire.publish.rejections`, labelled by `problemCode`, a draft item code, adding `findingCount` (one event per distinct code) |
 | `questionnaire.draft_conflict` | `questionnaire.draft.conflicts` |
 | `reporting.responses_listed`, `reporting.response_viewed` | `questionnaire.responses.listed`, `questionnaire.responses.viewed` |
 | `session.started`, `.resumed`, `.abandoned`, `.completed` | `questionnaire.sessions.started`, `.resumed`, `.abandoned`, `.completed` |
 | `session.question_answered` | `questionnaire.answers.accepted`, labelled by `questionType` |
-| `session.answer_rejected` | `questionnaire.answers.rejected`, labelled by `reason`; `itemId` and `questionId` are `null` for an unknown item key, which came from the respondent; the backend emits at most `MAX_FINDINGS` (20) per submit |
+| `session.answer_rejected` | none: a log line per rejection, at most `MAX_FINDINGS` (20) per submit; `itemId` and `questionId` are `null` for an unknown item key, which came from the respondent |
+| `session.answers_rejected` | `questionnaire.answers.rejected`, labelled by `reason`, adding `findingCount` (one event per distinct reason) |
 | `session.item_skipped` | `questionnaire.items.skipped` |
 | `session.rejected_past_cutoff` | `questionnaire.sessions.rejected_past_cutoff` |
-| `session.submit_finished` | `questionnaire.submissions`, labelled by `outcome` (`accepted`, `replayed`, `rejected_validation`, `rejected_conflict`, `failed`); `questionnaireId` and `questionnaireVersion` are `null` for `failed`, which is known only by the session id |
+| `session.submit_finished` | `questionnaire.submissions`, labelled by `outcome` (`accepted`, `replayed`, `rejected_validation`, `rejected_conflict`, `failed`); `questionnaireId` and `questionnaireVersion` are `null` for `failed`, which is known only by the session id; `findingCount` and `omittedCount` ride on the line for a validation refusal |
 
 `session.completed` also records `questionnaire.session.duration`, a histogram in milliseconds with explicit bucket boundaries from one second to a day.
 Counters carry bounded labels only, named per event in its `labels`. The ingest stamps `source: "browser"` on the ones a browser
@@ -490,7 +507,7 @@ The flows live with the code they exercise. The backend's registry is
 | `src/guard.ts` | `guarded`, `guardedOr`, `guardedAsync`: run a telemetry action, swallow a failure and count it as `internal` |
 | `src/logger.ts` | `logger`, `LOG_LEVELS`, `LiteralMessage`, the sink and threshold, and `logDomainEvent` with `isDomainEventRecord`, which mark the records `emitDomainEvent` writes |
 | `src/spans.ts` | `withSpan`, `SPAN_NAMES`, `SpanName`, `activeTraceId`, `annotateActiveSpan` |
-| `src/problems.ts` | `projectProblem`, `PROBLEM_CODES`, `SCHEMA_CODES`, `MAX_FINDINGS` |
+| `src/problems.ts` | `projectProblem`, `PROBLEM_CODES`, `SCHEMA_CODES`, `MAX_FINDINGS`, `findingTotals`, `tallyCodes` |
 | `src/problem-telemetry.ts` | `problemTelemetry`: `projectProblem` behind the never-throw guard |
 | `src/events.ts` | `DOMAIN_EVENTS` (each event's name, payload, counter and counter labels), `DomainEvent`, `emitDomainEvent`, `relayBrowserEvent` |
 | `src/ingest.ts` | `ingestBatch`: the `/api/telemetry` ingest's event allowlist, field filter, trace context and drop counting, behind the never-throw guard |

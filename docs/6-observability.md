@@ -52,13 +52,13 @@ RED per endpoint comes free from the HTTP instrumentation (`http.server.request.
 - `questionnaire.sessions.started` (counter)
 - `questionnaire.sessions.completed` (counter)
 - `questionnaire.sessions.resumed` (counter)
-- `questionnaire.answers.rejected` (counter, by `reason`; at most 20 per submit)
+- `questionnaire.answers.rejected` (counter, by `reason`; exact: it adds the number of rejections per reason, however many the submit had)
 - `questionnaire.answers.accepted` (counter, by `questionType`)
 - `questionnaire.items.skipped` (counter)
 - `questionnaire.submissions` (counter, by `outcome`: `accepted`, `replayed`, `rejected_validation`, `rejected_conflict`, `failed`)
 - `questionnaire.sessions.rejected_past_cutoff` (counter; see §9)
 - `questionnaire.publish.total` (counter, by outcome: `accepted`, `rejected_validation`, `rejected_conflict`, `failed`)
-- `questionnaire.publish.rejections` (counter, by draft item code; at most 20 per publish)
+- `questionnaire.publish.rejections` (counter, by draft item code; exact: it adds the number of refused items per code, however many the publish named)
 - `questionnaire.draft.conflicts` (counter: a draft save or publish refused because the draft had changed)
 - `questionnaire.session.duration` (histogram in milliseconds, with explicit buckets from one second to a day)
 
@@ -144,20 +144,24 @@ Request telemetry tells us the API returned 200. It does not tell us that 40% of
 | `questionnaire.created` | A questionnaire created, with its first draft; opening the next draft of an existing questionnaire (`open_draft`) creates a draft too and emits nothing | questionnaire id |
 | `questionnaire.published` | Version published; emitted after the publish transaction commits, so a rolled-back publish emits nothing | questionnaire id, version |
 | `questionnaire.retired` | A close time set or moved: every `PUT` of a non-null `closesAt` (`retire` in the audit trail), including one that only changes the date; clearing it is `reopen` and emits nothing | questionnaire id |
-| `questionnaire.publish_finished` | A publish decided: accepted, rejected for validation, rejected as stale, or failed | questionnaire id, outcome |
-| `questionnaire.publish_rejected` | One per item a refused publish names, at most 20 per publish | questionnaire id, item id, draft item code |
+| `questionnaire.publish_finished` | A publish decided: accepted, rejected for validation, rejected as stale, or failed | questionnaire id, outcome; for a validation refusal also `findingCount` (every item the refusal names) and `omittedCount` (how many were not logged one by one; 0 up to 20) |
+| `questionnaire.publish_rejected` | One per item a refused publish names, at most 20 per publish; a log line only, it moves no counter | questionnaire id, item id, draft item code |
+| `questionnaire.publish_items_rejected` | One per distinct draft item code a refused publish names, whatever the number of items; drives `questionnaire.publish.rejections` | questionnaire id, draft item code, `findingCount` (items with that code) |
 | `questionnaire.draft_conflict` | A draft save or publish refused because the draft had changed | questionnaire id |
 | `session.started` | Respondent begins | session id, questionnaire id, version |
 | `session.resumed` | Incomplete session reopened | + elapsed since the session started (the server keeps no last-activity time) |
 | `session.question_answered` | Answer accepted | + question id, question type |
-| `session.answer_rejected` | Validation failure; one per item code, at most 20 per submit; item and question id are absent for an unknown item key, which the respondent chose | + question id, reason (never the value) |
+| `session.answer_rejected` | Validation failure; one per rejection, at most 20 per submit; a log line only, it moves no counter; item and question id are absent for an unknown item key, which the respondent chose | + question id, reason (never the value) |
+| `session.answers_rejected` | One per distinct rejection reason in a refused submit, whatever the number of rejections; drives `questionnaire.answers.rejected` | session id, reason, `findingCount` (rejections with that reason) |
 | `session.item_skipped` | A visibility predicate evaluated false and hid an item | + item id, question id |
 | `session.rejected_past_cutoff` | A submit refused because the questionnaire had closed | session id, questionnaire id, version |
-| `session.submit_finished` | A submit decided: accepted, replayed, rejected for validation, rejected for a conflict, or failed | + outcome |
+| `session.submit_finished` | A submit decided: accepted, replayed, rejected for validation, rejected for a conflict, or failed | + outcome; for a validation refusal also `findingCount` and `omittedCount` |
 | `reporting.responses_listed` | An admin lists a questionnaire's sessions; no audit row | questionnaire id |
 | `reporting.response_viewed` | An admin opens a session's answers; the `view_response` audit row is written in the same transaction | questionnaire id, session id |
 | `session.abandoned` | Inactivity threshold passed, or tab closed | + last question id |
 | `session.completed` | Submitted | + duration, question count |
+
+A request that fails many items would otherwise emit one line per item, so per-item lines are capped at `MAX_FINDINGS` (20, one constant in `@qp/telemetry`) and the counters never read them. The indicator for a capped request is the pair of numbers on the outcome event, `findingCount` (the real total) and `omittedCount` (findings past the cap, 0 when there are 20 or fewer), and the per-code events carry each code's real count, which is what the two rejection counters add. Both numbers are registry fields that accept only whole numbers, so they cannot carry text, and they are never metric labels (O6).
 
 `session.abandoned` and `session.item_skipped` are the two that make the drop-off question answerable — the reason the design keeps a server-side session record at all ([[2-design-doc#8. Sessions & Responses]]). `session.item_skipped` carries no separate predicate id: predicates have no identity of their own, so the item they hid is what names which predicate fired ([[2-design-doc#17. Decisions Log]] #41).
 

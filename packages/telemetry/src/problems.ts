@@ -31,6 +31,21 @@ type ProblemCode = (typeof PROBLEM_CODES)[number];
 
 export const MAX_FINDINGS = 20;
 
+export interface FindingTotals {
+  readonly findingCount: number;
+  readonly omittedCount: number;
+}
+
+export function findingTotals(findingCount: number): FindingTotals {
+  return { findingCount, omittedCount: Math.max(0, findingCount - MAX_FINDINGS) };
+}
+
+export function tallyCodes<C extends string>(codes: readonly C[]): ReadonlyMap<C, number> {
+  const tally = new Map<C, number>();
+  for (const code of codes) tally.set(code, (tally.get(code) ?? 0) + 1);
+  return tally;
+}
+
 function knownCode(code: string): ProblemCode | undefined {
   return PROBLEM_CODES.find((known) => known === code) ?? (code.startsWith("schema/") ? "schema/other" : undefined);
 }

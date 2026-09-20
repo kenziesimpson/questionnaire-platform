@@ -249,16 +249,34 @@ describe("questionnaire.published", () => {
     expect(await metricPoints("questionnaire.publish.total")).toEqual([
       { value: 1, attributes: { "questionnaire.outcome": "rejected_validation" } },
     ]);
+    expect(eventLines("questionnaire.publish_items_rejected")).toMatchObject([
+      { [QUESTIONNAIRE]: created.questionnaireId, "problem.code": "predicate/forward-reference", "questionnaire.finding_count": 1 },
+    ]);
+    expect(eventLines("questionnaire.publish_finished")).toMatchObject([
+      { [QUESTIONNAIRE]: created.questionnaireId, "questionnaire.outcome": "rejected_validation", "questionnaire.finding_count": 1, "questionnaire.omitted_count": 0 },
+    ]);
     expect(spanNamed("questionnaire.publish")?.attributes).toMatchObject({ "questionnaire.outcome": "rejected_validation" });
+  });
+
+  it("carries no finding totals on an outcome that is not a validation refusal", async () => {
+    const draft = await aDraftWithOneItem(testDatabase.database("definition"));
+    const instance = await buildApp();
+
+    const response = await publish(instance, draft.questionnaireId, draft);
+
+    expect(response.statusCode).toBe(201);
+    expect(eventLines("questionnaire.publish_finished")).toHaveLength(1);
+    expect(eventLines("questionnaire.publish_finished")[0]).not.toHaveProperty("questionnaire.finding_count");
+    expect(eventLines("questionnaire.publish_finished")[0]).not.toHaveProperty("questionnaire.omitted_count");
   });
 });
 
 describe("a publish refused for more items than the findings cap", () => {
-  it("emits at most MAX_FINDINGS publish_rejected events and counts as many, though the problem names every item", async () => {
+  async function draftOfUnresolvedItems(count: number) {
     const db = testDatabase.database("definition");
     const created = await createQuestionnaire(db, { key: null, name: "Many", title: "Many", ...actor });
     const items: DraftItem[] = [];
-    for (let index = 0; index < MAX_FINDINGS + 5; index += 1) {
+    for (let index = 0; index < count; index += 1) {
       const question = await createQuestion(db, { key: null, content: yesNo, ...actor });
       items.push({
         itemId: `itm_${index}`,
@@ -269,15 +287,48 @@ describe("a publish refused for more items than the findings cap", () => {
       });
     }
     const draft = await saveDraft(db, created.questionnaireId, await theOpenDraft(db, created.questionnaireId), items);
+    return { questionnaireId: created.questionnaireId, draft };
+  }
+
+  it("emits at most MAX_FINDINGS publish_rejected events but counts every item, and reports the total and the omitted count on the outcome", async () => {
+    const { questionnaireId, draft } = await draftOfUnresolvedItems(MAX_FINDINGS + 15);
     const instance = await buildApp();
 
-    const response = await publish(instance, created.questionnaireId, draft);
+    const response = await publish(instance, questionnaireId, draft);
 
     expect(response.statusCode).toBe(422);
-    expect(response.json<{ items: unknown[] }>().items).toHaveLength(MAX_FINDINGS + 5);
+    expect(response.json<{ items: unknown[] }>().items).toHaveLength(MAX_FINDINGS + 15);
+    expect(eventLines("questionnaire.publish_rejected")).toHaveLength(MAX_FINDINGS);
+    const points = (await metricPoints("questionnaire.publish.rejections")) ?? [];
+    expect(points.reduce((total, point) => total + Number(point.value), 0)).toBe(MAX_FINDINGS + 15);
+    const codes = eventLines("questionnaire.publish_items_rejected");
+    expect(codes.map((line) => Number(line["questionnaire.finding_count"]))).toEqual(points.map((point) => Number(point.value)));
+    expect(await metricPoints("questionnaire.publish.total")).toEqual([
+      { value: 1, attributes: { "questionnaire.outcome": "rejected_validation" } },
+    ]);
+    expect(eventLines("questionnaire.publish_finished")).toMatchObject([
+      {
+        [QUESTIONNAIRE]: questionnaireId,
+        "questionnaire.outcome": "rejected_validation",
+        "questionnaire.finding_count": MAX_FINDINGS + 15,
+        "questionnaire.omitted_count": 15,
+      },
+    ]);
+  });
+
+  it("reports no omitted items when exactly the findings cap is refused, and logs every one", async () => {
+    const { questionnaireId, draft } = await draftOfUnresolvedItems(MAX_FINDINGS);
+    const instance = await buildApp();
+
+    const response = await publish(instance, questionnaireId, draft);
+
+    expect(response.statusCode).toBe(422);
     expect(eventLines("questionnaire.publish_rejected")).toHaveLength(MAX_FINDINGS);
     const points = (await metricPoints("questionnaire.publish.rejections")) ?? [];
     expect(points.reduce((total, point) => total + Number(point.value), 0)).toBe(MAX_FINDINGS);
+    expect(eventLines("questionnaire.publish_finished")).toMatchObject([
+      { "questionnaire.finding_count": MAX_FINDINGS, "questionnaire.omitted_count": 0 },
+    ]);
   });
 });
 
