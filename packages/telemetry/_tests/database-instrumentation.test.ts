@@ -95,8 +95,10 @@ describe("patching a driver that was loaded before the instrumentation started",
 
     const [statement] = sent;
     expect(statement?.text).toMatch(new RegExp(`^SELECT \\$1::text /\\*traceparent='00-${traceId}-[0-9a-f]{16}-01'\\*/$`));
-    expect(JSON.stringify(sent)).not.toContain("tracestate");
-    expect(JSON.stringify([sent, telemetry.spans()])).not.toContain(LEAK);
+    expect(sent.map((received) => received.text).join("\n")).not.toContain("tracestate");
+    expect(sent.map((received) => received.text).join("\n")).not.toContain(LEAK);
+    expect(statement?.values).toEqual([LEAK]);
+    expect(JSON.stringify(telemetry.spans())).not.toContain(LEAK);
   });
 
   it("traces a connection taken from the pool under the pool connect span name", async () => {

@@ -1,5 +1,6 @@
 import { trace, type Context, type TextMapGetter, type TextMapSetter } from "@opentelemetry/api";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
+import { TRACEPARENT_HEADER } from "./trace-context.js";
 
 function withoutTraceState(context: Context): Context {
   const spanContext = trace.getSpanContext(context);
@@ -17,6 +18,6 @@ export class TraceparentOnlyPropagator extends W3CTraceContextPropagator {
   }
 
   override fields(): string[] {
-    return ["traceparent"];
+    return [TRACEPARENT_HEADER];
   }
 }

@@ -92,4 +92,3 @@ describe("starting the pool gauges", () => {
     expect(internalDropsOf(recorded)).toEqual(["metric"]);
   });
 });
-

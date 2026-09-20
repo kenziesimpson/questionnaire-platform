@@ -178,4 +178,3 @@ describe("the operation label of the pg duration metric", () => {
     expect(exportedOperation(operation)).toBe(exported);
   });
 });
-

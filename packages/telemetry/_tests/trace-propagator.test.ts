@@ -1,4 +1,6 @@
-import { context, createTraceState, propagation, ROOT_CONTEXT, trace } from "@opentelemetry/api";
+import { context, createTraceState, defaultTextMapGetter, propagation, ROOT_CONTEXT, trace } from "@opentelemetry/api";
+import { W3CTraceContextPropagator } from "@opentelemetry/core";
+import { addSqlCommenterComment } from "@opentelemetry/sql-common";
 import { afterEach, describe, expect, it } from "vitest";
 import { installTestTelemetry, type TestTelemetry } from "../src/testing.js";
 import { TraceparentOnlyPropagator } from "../src/trace-propagator.js";
@@ -71,3 +73,32 @@ describe("the propagator the pipeline registers", () => {
     expect(propagator.extract(ROOT_CONTEXT, {}, { keys: () => [], get: () => undefined })).toBe(ROOT_CONTEXT);
   });
 });
+
+describe("the barrier that keeps a caller's tracestate out of the SQL comment", () => {
+  const inboundCarrier = { traceparent: `00-${TRACE_ID}-${SPAN_ID}-01`, tracestate: HOSTILE_TRACESTATE };
+
+  function commentFor(extracted: ReturnType<typeof propagation.extract>): string {
+    const span = context.with(extracted, () => trace.getTracer("probe").startSpan("query"));
+    span.end();
+    return addSqlCommenterComment(span, "SELECT 1");
+  }
+
+  it("holds: a span started under a context the registered propagator extracted gives a comment with traceparent alone", () => {
+    telemetry = installTestTelemetry();
+
+    const commented = commentFor(propagation.extract(ROOT_CONTEXT, inboundCarrier));
+
+    expect(commented).toMatch(new RegExp(`^SELECT 1 /\\*traceparent='00-${TRACE_ID}-[0-9a-f]{16}-01'\\*/$`));
+    expect(commented).not.toContain("tracestate");
+    expect(commented).not.toContain("vendor");
+  });
+
+  it("is the extract side, because the comment is built by the instrumentation's own propagator: a stock W3C extract puts tracestate in it", () => {
+    telemetry = installTestTelemetry();
+
+    const commented = commentFor(new W3CTraceContextPropagator().extract(ROOT_CONTEXT, inboundCarrier, defaultTextMapGetter));
+
+    expect(commented).toContain("tracestate=");
+  });
+});
+

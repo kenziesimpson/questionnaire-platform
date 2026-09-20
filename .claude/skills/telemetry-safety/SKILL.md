@@ -253,6 +253,10 @@ traceparent or rejected value.
 - URLs, query strings and pagination cursors. `http.route` only. The responses-list `cursor` encodes
   a session id, which is exactly why (O13, O19).
 - Free text of any kind: option labels, question prompts, other-text, questionnaire titles.
+- A caller's `tracestate` or `baggage`. The `pg` instrumentation copies a span's trace state into every statement's SQL comment, which Postgres
+  shows in `pg_stat_activity` and its log, through a private propagator that ignores what we register. The barrier is the extract side of the
+  pipeline's `TraceparentOnlyPropagator`, which discards `tracestate` on the way in, so no span carries one. Keep inbound context coming
+  through the global propagator's extract.
 - A whole `req`, `res` or `err` object, and any spread of a caller-supplied object.
 
 ## Extending the leak test — the standing rule

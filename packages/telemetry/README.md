@@ -458,10 +458,12 @@ logs and manual spans still work, and logs a warning.
 **Query spans and the SQL comment.** `DatabaseInstrumentation` (`src/database-instrumentation.ts`) is `@opentelemetry/instrumentation-pg`
 with `DATABASE_INSTRUMENTATION_CONFIG`: `addSqlCommenterCommentToQueries` on, so each statement leaves the process with a trailing
 comment `/*traceparent='00-<trace id>-<span id>-01'*/` naming its own span, and `enhancedDatabaseReporting` off, so bound
-parameters are never put on a span. The comment carries `traceparent` and nothing else. The instrumentation copies the whole W3C carrier
-into it, so the pipeline registers `TraceparentOnlyPropagator` (`src/trace-propagator.ts`) as the SDK's propagator: it extracts and injects
-`traceparent` only, and an inbound `tracestate`, which a caller controls and can make hundreds of bytes long, is never read, so it reaches no
-span, no outgoing header and no statement. It also drops `baggage`, which nothing here uses. Postgres shows the comment in `pg_stat_activity` and its log, and drops it when it
+parameters are never put on a span. The comment carries `traceparent` and nothing else, and the barrier is on the extract side. The instrumentation
+builds the comment from the span's own context with a private W3C propagator that writes `tracestate` too; it is not the global propagator, so
+nothing registered on inject reaches it. What keeps a caller's `tracestate` out is that no span in the process carries one: the pipeline registers
+`TraceparentOnlyPropagator` (`src/trace-propagator.ts`) as the SDK's propagator, its extract discards `tracestate`, and `@fastify/otel` extracts an
+inbound request through the global propagator, so the request span and every span under it has none. Its inject is defensive only, and it drops
+`baggage`, which nothing here uses. A span created under a context that did not come through that extract would bypass the barrier. Postgres shows the comment in `pg_stat_activity` and its log, and drops it when it
 normalises a statement, so `pg_stat_statements` does not split one statement by trace. A span exports only `db.system.name`,
 `db.namespace`, `server.address` and `server.port`; `db.query.text` is never exported and an error's message never reaches the span.
 

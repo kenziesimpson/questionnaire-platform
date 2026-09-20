@@ -3,6 +3,7 @@ import { DataPointType, type DataPoint, type MetricData, type PushMetricExporter
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace";
 import { guardedOr } from "./guard.js";
 import { isExportedInstrument } from "./instrument-allowlist.js";
+import { PG_QUERY_SPAN_PREFIX, PG_SPANS_EXPORTED_AS_WRITTEN } from "./pg-span-names.js";
 import { reportDropped } from "./instruments.js";
 import { oneDropped, scrubAttributes, type ScrubbedAttributes } from "./scrub.js";
 import { isSpanName } from "./spans.js";
@@ -56,14 +57,9 @@ const PG_COMMANDS = [
 const EXPORTED_AS_WRITTEN: readonly RegExp[] = [
   /^request$/,
   new RegExp(`^(?:${FASTIFY_SPAN_PREFIXES.join("|")}) - (?:[a-z][A-Za-z0-9]{0,63}|${FASTIFY_PLUGIN_NAME_FALLBACK})$`),
-  /^pg\.query$/,
-  /^pg\.connect$/,
-  /^pg-pool\.connect$/,
 ];
 
 const PG_VERB = new RegExp(`^(${PG_COMMANDS.join("|")})(?:\\s|$)`);
-
-const PG_QUERY_PREFIX = "pg.query:";
 
 const OPERATION_LABEL = "db.operation.name";
 
@@ -78,9 +74,9 @@ function operationLabelOf(value: unknown): unknown {
 }
 
 function exportedNameOf(name: string): string {
-  if (isSpanName(name) || EXPORTED_AS_WRITTEN.some((shape) => shape.test(name))) return name;
-  const verb = name.startsWith(PG_QUERY_PREFIX) ? pgVerbOf(name.slice(PG_QUERY_PREFIX.length)) : undefined;
-  if (verb !== undefined) return `${PG_QUERY_PREFIX}${verb}`;
+  if (isSpanName(name) || PG_SPANS_EXPORTED_AS_WRITTEN.includes(name) || EXPORTED_AS_WRITTEN.some((shape) => shape.test(name))) return name;
+  const verb = name.startsWith(PG_QUERY_SPAN_PREFIX) ? pgVerbOf(name.slice(PG_QUERY_SPAN_PREFIX.length)) : undefined;
+  if (verb !== undefined) return `${PG_QUERY_SPAN_PREFIX}${verb}`;
   reportDropped("span", oneDropped("unknown"));
   return UNNAMED_SPAN;
 }
