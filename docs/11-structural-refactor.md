@@ -79,7 +79,7 @@ Dotted arrows mean the order to merge in; they don't block starting work.
 
 - **`eslint.config.mjs`.** Most PRs add a rule to it. After PR 0, each rule is its own named block appended to the list, so a conflict means keeping both blocks.
   After PR 0b, `restrict()` also carries L7's library patterns, so a block scoped inside `apps/admin`, `apps/respondent` or `packages/ui/src/primitives` builds its patterns with `restrictOutside(<that home>, …)`; `restrict()` there would ban the home its own libraries live in.
-- **The Decisions Log in [[2-design-doc#17. Decisions Log]].** New rows are numbered in merge order (§5), so the PR that merges second renumbers its row.
+- **The Decisions Log in [[12-decisions-log]].** New rows are numbered in merge order (§5), so the PR that merges second renumbers its row.
 - **[[8-testing#7. Test case enumeration]].** Rows are grouped per workspace, so parallel PRs edit different parts of the table.
 
 ### Phase A — Foundations
@@ -121,7 +121,7 @@ This is items 1 and 2 of the audit's first tier.
 
 - **Request helpers.** Add `packages/shared/src/api/request.ts` with `routePath`, `routeSearch`, `successSchemaOf` and `RequestParts<R>`. It must be transport-free: shared builds with `types: []`, so `fetch`, `Headers` and `URLSearchParams` are not available there.
 - **Route types and ETag check.** Move the route-success helpers into `packages/shared/src/api/route.ts`: `SuccessStatus` comes from `apps/backend/src/http/routes.ts`, the only one of them that lived there, and `RouteWith`/`SuccessBody` come from admin's `src/api/client.ts`. Add `isDraftEtagFor` to `packages/shared/src/api/etag.ts`.
-- **Problem parser.** Add `problemFromWire(wire)` to `packages/shared/src/problems.ts`, driven by a value-level extension table, reading against a permissive envelope so an unknown code is distinguishable from a malformed body. Export the code guards and one item-error schema factory. **Amended:** the plan called for an `{ unknownCodes: "drop" | "reject" }` policy, on the premise that admin drops unknown codes today. It does not — `apps/admin/src/api/problem-error.ts` and `apps/respondent/src/api/request.ts` both opened with the same `Value.Check(ProblemDetails, body)` and both rejected. The parser therefore has one behaviour, refusing a body it does not fully understand, which is what both consumers already did ([[2-design-doc#17. Decisions Log]] #81).
+- **Problem parser.** Add `problemFromWire(wire)` to `packages/shared/src/problems.ts`, driven by a value-level extension table, reading against a permissive envelope so an unknown code is distinguishable from a malformed body. Export the code guards and one item-error schema factory. **Amended:** the plan called for an `{ unknownCodes: "drop" | "reject" }` policy, on the premise that admin drops unknown codes today. It does not — `apps/admin/src/api/problem-error.ts` and `apps/respondent/src/api/request.ts` both opened with the same `Value.Check(ProblemDetails, body)` and both rejected. The parser therefore has one behaviour, refusing a body it does not fully understand, which is what both consumers already did ([[12-decisions-log]] #81).
 - **Consumers.** Admin (`src/api/client.ts`, `src/api/problem-error.ts`), respondent (`src/api/request.ts`, `src/api/problems.ts`) and e2e (`fixtures/api/api-exchange.ts`, `specs/tier-3/support/authoring.ts`) switch to the shared helpers. Each consumer keeps only its policy: admin throws `ProblemError` and checks the ETag, respondent returns an outcome union, e2e sends through Playwright.
 - **Admin cleanup.** Delete admin's builders for the execution-only slugs.
 - **Admin type tests.** The `@ts-expect-error` type tests in admin must still fail to compile without the directive; they are the regression net.
@@ -223,7 +223,7 @@ This PR follows PR 3 and covers `src/db/definition`.
 
 **Move errors and remove redundant fields**
 - Move `http/database-errors.ts` to `db/errors.ts` with one `SQLSTATE` table. The test harness and `modules/definition/errors.ts` import it.
-- Remove the fields that only the seed or tests use from production outcome types: `draftVersionId` on `replaceDraft`, the duplicates on the publish outcome, and `draftVersionId`/`draftRevision` on `CreatedQuestionnaire`. The seed's hardcoded-id option ([[2-design-doc#17. Decisions Log]] #35) stays, renamed to say what it is for.
+- Remove the fields that only the seed or tests use from production outcome types: `draftVersionId` on `replaceDraft`, the duplicates on the publish outcome, and `draftVersionId`/`draftRevision` on `CreatedQuestionnaire`. The seed's hardcoded-id option ([[12-decisions-log]] #35) stays, renamed to say what it is for.
 - Delete `RESPONSE_TYPE_VALUES`, which nothing uses, and stop exporting the other names nothing imports.
 
 **Decide and document**

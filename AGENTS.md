@@ -7,7 +7,7 @@ Instructions for coding agents working in this repository.
 - `.claude/skills/questionnaire-assignment/SKILL.md` — scope, quality bar and the decisions already made.
 - `.claude/skills/database/SKILL.md` — before touching schema, migrations, repositories or seeds.
 - `docs/4-implementation-plan.md` — the build plan. Its **Standing rules** and **Stop and ask** sections are binding. Its **File ownership** section is deprecated; see [[11-structural-refactor#2. File ownership during the pass]] for current ownership.
-- `docs/2-design-doc.md` — the design index and the Decisions Log. Never invent a decision; if a load-bearing one is missing, stop and ask.
+- `docs/2-design-doc.md` — the design index; `docs/12-decisions-log.md` — the Decisions Log. Never invent a decision; if a load-bearing one is missing, stop and ask.
 - `docs/11-structural-refactor.md` — the conventions a structural-refactor pass established across the repo, and the lint rules (§4.1) that keep them enforced. Several are repeated below; consult it directly when a rule's exact reach is unclear.
 - `.claude/skills/telemetry-safety/SKILL.md` — before adding or changing a log line, span, metric, domain event or telemetry field, and for extending the sentinel leak test, which every PR that adds a code path touching answers or telemetry must do.
 

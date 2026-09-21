@@ -167,31 +167,31 @@ const appLibraries = [
     home: "apps/admin",
     group: ["@tanstack/react-query", "@tanstack/react-query/*"],
     message:
-      "TanStack Query holds admin's cached server state ([[2-design-doc#17. Decisions Log]] #32). The respondent app makes three uncached calls through fetch and takes no query library.",
+      "TanStack Query holds admin's cached server state ([[12-decisions-log]] #32). The respondent app makes three uncached calls through fetch and takes no query library.",
   },
   {
     home: "apps/admin",
     group: ["@tanstack/react-router", "@tanstack/react-router/*"],
     message:
-      "TanStack Router routes apps/admin ([[2-design-doc#17. Decisions Log]] #32). The respondent app is one URL and routes nothing.",
+      "TanStack Router routes apps/admin ([[12-decisions-log]] #32). The respondent app is one URL and routes nothing.",
   },
   {
     home: "apps/admin",
     group: ["@dnd-kit/*"],
     message:
-      "dnd-kit reorders draft items and question options in apps/admin ([[2-design-doc#17. Decisions Log]] #32). Nothing else in the repository drags.",
+      "dnd-kit reorders draft items and question options in apps/admin ([[12-decisions-log]] #32). Nothing else in the repository drags.",
   },
   {
     home: "apps/respondent",
     group: ["@tanstack/react-form", "@tanstack/react-form/*"],
     message:
-      "TanStack Form carries the respondent's per-field validation and touched state ([[2-design-doc#17. Decisions Log]] #32). Admin's two hard forms are shaped at runtime and take no form library.",
+      "TanStack Form carries the respondent's per-field validation and touched state ([[12-decisions-log]] #32). Admin's two hard forms are shaped at runtime and take no form library.",
   },
   {
     home: "packages/ui/src/primitives",
     group: ["radix-ui", "radix-ui/*"],
     message:
-      "Radix is reached through the shared primitives in packages/ui/src/primitives ([[2-design-doc#17. Decisions Log]] #32). Apps import @qp/ui so both get one component set.",
+      "Radix is reached through the shared primitives in packages/ui/src/primitives ([[12-decisions-log]] #32). Apps import @qp/ui so both get one component set.",
   },
 ];
 
@@ -214,7 +214,7 @@ const theUiPrimitivesHome = "packages/ui/src/primitives";
 const lucideReactHomes = [theIconsModule, theUiPrimitivesHome];
 
 const lucideReactMessage =
-  "Icons come only from lucide, through @qp/ui/icons ([[2-design-doc#17. Decisions Log]] #85). A primitive that needs one directly may still import lucide-react itself ([[11-structural-refactor]] L2).";
+  "Icons come only from lucide, through @qp/ui/icons ([[12-decisions-log]] #85). A primitive that needs one directly may still import lucide-react itself ([[11-structural-refactor]] L2).";
 
 const lucideReactOutsideItsHomes = { group: ["lucide-react", "lucide-react/*"], message: lucideReactMessage };
 
@@ -267,7 +267,7 @@ const sharedVocabularyNames = [
 const sharedVocabulary = ["TSTypeAliasDeclaration", "VariableDeclarator", "FunctionDeclaration"].map((declaration) => ({
   selector: `${declaration}[id.name=/^(${sharedVocabularyNames.join("|")})$/]`,
   message:
-    "This name is shared vocabulary, declared once in packages/shared/src/domain or packages/shared/src/primitives.ts. Import it from @qp/shared; a local copy drifts, as the three definitions of the \"other\" option did ([[2-design-doc#17. Decisions Log]] #82).",
+    "This name is shared vocabulary, declared once in packages/shared/src/domain or packages/shared/src/primitives.ts. Import it from @qp/shared; a local copy drifts, as the three definitions of the \"other\" option did ([[12-decisions-log]] #82).",
 }));
 
 const syntaxOutsideTheRoutePathHelper = [...doubleAssertions, routePathLiteral, unnamedReExport];
@@ -361,7 +361,7 @@ const stackRelativeImportHasJsExtension = ["ImportDeclaration", "ExportNamedDecl
 }));
 
 const connectionConstructionMessage =
-  "Connections come from one constructor: `openDatabase` in apps/backend/src/db/client.ts, which is where pool sizing lands ([[2-design-doc#17. Decisions Log]] #77). Constructing a pg client or pool directly bypasses it. Where a raw connection is genuinely needed — connecting to another database in order to create one — disable it with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>";
+  "Connections come from one constructor: `openDatabase` in apps/backend/src/db/client.ts, which is where pool sizing lands ([[12-decisions-log]] #77). Constructing a pg client or pool directly bypasses it. Where a raw connection is genuinely needed — connecting to another database in order to create one — disable it with a reason: // eslint-disable-next-line no-restricted-syntax -- <reason>";
 
 const connectionConstruction = [
   {

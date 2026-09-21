@@ -49,7 +49,7 @@ changed, not the decision:
 | #58 — the question editor's constraint fields per type, with the six cross-field rules unrepresentable in the controls rather than reported after a save | `QuestionFields` |
 | #58 — the options-authoring widget: drag to reorder, generated option ids shown and locked, freeform marked on its row; the Yes / No template is required | `AdminQuestionEditor` |
 
-Both were the open items in [[2-design-doc#20. Pending UI experimentation]], which is now empty.
+Both were the open items in the design doc's former Pending UI experimentation section, since removed.
 
 **Not yet redrawn:** `AdminDraftEditor`'s publish-checks rail shows each finding's problem code, and its
 Question 5 finding reports `draft/question-archived` on a question already placed. #76 hides codes from

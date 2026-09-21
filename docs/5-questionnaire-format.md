@@ -3,8 +3,8 @@
 > The detailed design for how a questionnaire, its questions and its rules are represented,
 > validated and versioned. [[2-design-doc#5. Questionnaire Format]], [[2-design-doc#6. Versioning & Immutability]]
 > and [[2-design-doc#7. Branching Rules]] carry the condensed version; this doc is the depth behind them.
-> Decisions are recorded in [[2-design-doc#17. Decisions Log]] #6–#12. Anything still undecided is
-> tracked in [[2-design-doc#18. Open Questions]], not here.
+> Decisions are recorded in [[12-decisions-log]] #6–#12. Anything still undecided is
+> tracked in [[2-design-doc#17. Open Questions]], not here.
 
 ## 1. The model
 
@@ -25,7 +25,7 @@ Five response types. Constraints belong to the question version and compile into
 
 | Type | Constraints | Notes |
 | --- | --- | --- |
-| `text` | `minLength`, `maxLength`, `multiline` | `multiline` distinguishes short answer from long form. Format subtypes (email, phone, regex) are deferred — [[2-design-doc#18. Open Questions]] §2. |
+| `text` | `minLength`, `maxLength`, `multiline` | `multiline` distinguishes short answer from long form. Format subtypes (email, phone, regex) are deferred ([[2-design-doc#18. Future Work]]). |
 | `single_choice` | `options` (at least one), optional freeform `other` | Exactly one selection. |
 | `multiple_choice` | `options` (at least one), `minSelections`, `maxSelections`, optional freeform `other` | `minSelections` of 1 or more is how "required, pick at least one" is expressed. |
 | `number` | `numberKind` (`integer` or `float`, required), `min`, `max`, `unit` | `unit` is a display label; conversion between compatible units is future work. Answers are exact decimal strings, stored in canonical form (trailing fractional zeros and point stripped, `-0` → `0`), so `integer` accepts `72.0` as `72` — [[7-application-boundary#5.4 Submit: authority, validation, idempotency]]. |
@@ -37,7 +37,7 @@ supports it — as a `single_choice` question with two options, which is what it
 are editable like any others, so the same question can read True / False or Agree / Disagree without
 becoming a different kind of thing. A distinct type bought a duplicated operator set, a second branch in the
 response shape constraint and a `display` render hint, and cost the author the ability to phrase the
-question — see [[2-design-doc#17. Decisions Log]] #36, superseding #10.
+question — see [[12-decisions-log]] #36, superseding #10.
 
 The reserved ids `yes` and `no` are an **editor convention, not a guarantee**, unlike `other` (§2.3). A template-created question aggregates
 across questionnaires on `yes` / `no`; a two-option question assembled by hand does not. That is the same
@@ -58,7 +58,7 @@ A stored answer is `{ value, unit }`, not a bare number. A later version that sw
 
 A choice question may mark a trailing option as freeform. The answer then has two parts — the selected option ids (one being `other`) and an `otherText` string — so the stored shape for every choice question carries an optional `otherText`, validated with the same length rules as a `text` question.
 
-**The id `other` is reserved for the freeform option, in both directions.** A freeform option must have the id `other` (`question/freeform-not-other`), and an option with the id `other` must be freeform (`question/other-not-freeform`). Saving a question that breaks either rule is `400 request/invalid`, and the `freeform_exactly_when_other` check holds the same rule in the database ([[9-database-schema#3.2 The question bank]]). The validator, the renderer and the admin editor all find the option through `freeformOptionOf` in `@qp/shared` ([[2-design-doc#17. Decisions Log]] #82, #83).
+**The id `other` is reserved for the freeform option, in both directions.** A freeform option must have the id `other` (`question/freeform-not-other`), and an option with the id `other` must be freeform (`question/other-not-freeform`). Saving a question that breaks either rule is `400 request/invalid`, and the `freeform_exactly_when_other` check holds the same rule in the database ([[9-database-schema#3.2 The question bank]]). The validator, the renderer and the admin editor all find the option through `freeformOptionOf` in `@qp/shared` ([[12-decisions-log]] #82, #83).
 
 **Rules may test whether `other` was selected; they may not match against the text.** Kept deliberately simple: text matching in rules is fragile and there is no version-stable identity to match on. If `otherText` ever needs to drive a branch, the likely shape is a promotion workflow — an admin converts a recurring freeform answer into a real option in the next version — rather than string matching in the rule engine. Noted as a possible future change, not a current limitation to design around.
 
@@ -88,7 +88,7 @@ The asymmetry is the whole argument. A strict UTC comparison *blocks a correct a
 respondent stuck; the tolerance *accepts a date at most one day beyond true* on a field where someone is
 recalling a diagnosis from years ago. An outage against a rounding error in data quality.
 
-Recorded as provisional rather than settled: [[2-design-doc#18. Open Questions]] §14 carries the alternative
+Recorded as provisional rather than settled: [[2-design-doc#17. Open Questions]] §6 carries the alternative
 — having the client submit its UTC offset and validating exactly — for revisiting if there is time.
 
 **Implementation rider, either way.** The constraint evaluator in `@qp/shared` takes `today` as a parameter
@@ -171,7 +171,7 @@ A published version is stored as a single JSONB document ([[2-design-doc#Authori
 
 This is **version 1** of the seeded demo questionnaire. `itm_02` and `itm_03` are skipped entirely when the first question is answered `no`, and both paths converge on `itm_04` with no merge edge anywhere.
 
-`questionId` is a uuid because a question is a row in the bank rather than a key inside the document (§2 of [[9-database-schema#2. Conventions]]); `itemId` and `optionId` stay authored slugs for the opposite reason. The four ids above are the ones the seed inserts — **the seed hardcodes them rather than generating them**, so a uuid copied out of this document queries the running database ([[2-design-doc#17. Decisions Log]] #35). Their `question.key` slugs, in item order, are `qst_has_condition`, `qst_which_condition`, `qst_diagnosed_on` and `qst_pharmacy`, and the questionnaire's is `qnr_intake`; the prose below refers to them by key.
+`questionId` is a uuid because a question is a row in the bank rather than a key inside the document (§2 of [[9-database-schema#2. Conventions]]); `itemId` and `optionId` stay authored slugs for the opposite reason. The four ids above are the ones the seed inserts — **the seed hardcodes them rather than generating them**, so a uuid copied out of this document queries the running database ([[12-decisions-log]] #35). Their `question.key` slugs, in item order, are `qst_has_condition`, `qst_which_condition`, `qst_diagnosed_on` and `qst_pharmacy`, and the questionnaire's is `qnr_intake`; the prose below refers to them by key.
 
 Note that `qst_which_condition` sits at `questionVersion` 3 inside questionnaire version 1. Question versions and questionnaire versions are independent series — the question was revised twice in the bank before this questionnaire ever added it, and the item pinned whatever was current at that moment (§6.2).
 
@@ -190,7 +190,7 @@ The reason this is the change worth shipping is that it puts a collected respons
 - **Aggregation is unaffected.** v1 and v2 responses both count toward `opt_hyperten`, and "how many respondents reported hypertension" spans both versions with no mapping table.
 - **Rendering stays version-correct.** The v1 response renders "Hypertension" and the v2 response renders "High blood pressure (hypertension)", because each resolves its label through the `questionVersion` it stored.
 
-A design that copied labels onto responses, or that reissued option ids on edit, fails one of those two — and would look completely fine until someone ran the report. That is the failure this demo is built to make visible. See [[2-design-doc#17. Decisions Log]] #26.
+A design that copied labels onto responses, or that reissued option ids on edit, fails one of those two — and would look completely fine until someone ran the report. That is the failure this demo is built to make visible. See [[12-decisions-log]] #26.
 
 Two changes were considered and left out. Rewording a prompt exercises the same mechanism, but the "meaning unchanged" claim is softer, since most rewordings worth making do shift the question slightly. Adding options, or adding a new conditional item, is monotone: nothing collected under v1 is at risk, so a passing test proves nothing was ever in danger. A predicate change also lives on the *item*, not the question, so it would not touch the append-only question-version mechanism the brief's "changes one question" points at — it is used instead as an integration fixture ([[8-testing#6. Test data and fixtures]]).
 
@@ -203,7 +203,7 @@ Each item carries an optional `visibleWhen` predicate: a **single level** of boo
     visibleWhen: { all: [ <condition>, ... ] }
     visibleWhen: { any: [ <condition>, ... ] }
 
-**A condition names an `itemId`, not a `questionId`** ([[2-design-doc#17. Decisions Log]] #41). An item is a placement, and "an earlier answer" is a property of the placement rather than of the reusable question — which is also the only reading that stays unambiguous if a question were ever placed twice. The condition's type still comes from the question: the referenced item pins a `questionVersion`, and that version's `type` is the discriminant (§4.2).
+**A condition names an `itemId`, not a `questionId`** ([[12-decisions-log]] #41). An item is a placement, and "an earlier answer" is a property of the placement rather than of the reusable question — which is also the only reading that stays unambiguous if a question were ever placed twice. The condition's type still comes from the question: the referenced item pins a `questionVersion`, and that version's `type` is the discriminant (§4.2).
 
 Nesting is not supported. One `all` or `any` over a flat list satisfies the brief's requirement for rules over *one or more* previous responses, and keeps both the admin rule editor and the validator comprehensible — a nested tree needs a recursive editor UI and recursive explanation for expressiveness this domain has not asked for. It also has a concrete payoff in §5.2: flat composition is what makes exact satisfiability checking affordable.
 
@@ -281,7 +281,7 @@ The worst case is exponential in the number of `any` disjuncts along a closure. 
 Every `itemId` and `optionId` named by a predicate exists in the version, and the `type` of the question
 version pinned by the referenced item is **identical** to the condition's `type`. The discriminant is the
 question type with no mapping table and no exceptions — which is what removing `yes_no` as a type bought
-([[2-design-doc#17. Decisions Log]] #36).
+([[12-decisions-log]] #36).
 
 ### 5.5 One placement per question
 
@@ -292,7 +292,7 @@ It is about aggregation. Two placements produce two `response` rows carrying the
 single respondent, so "how many respondents reported hypertension" counts that person twice, and the
 typed-column design in [[9-database-schema#6.1 `response`]] exists precisely to make that query an index
 scan people will trust. Nothing legitimate is lost: question reuse is reuse *across* questionnaires, which
-is the case [[9-database-schema#3.2 The question bank]] argues for. See [[2-design-doc#17. Decisions Log]] #41.
+is the case [[9-database-schema#3.2 The question bank]] argues for. See [[12-decisions-log]] #41.
 
 ### 5.6 What needs no check
 
@@ -315,7 +315,7 @@ Questions are **append-only**. There is no draft state on the question bank: eve
 - a stable `questionId` — what makes it "the same question" across every revision and every questionnaire that uses it;
 - an ordered series of `questionVersion`s, each an immutable snapshot of prompt, type and constraints.
 
-**The response type is fixed by the first save.** Prompt and constraints may change from version to version; the type may not. A condition is typed to the question it reads (§4.2), so a new type would turn every rule reading that question into a `predicate/type-mismatch` in questionnaires the author cannot see, the next time one re-pins it. Appending a version whose type differs from the latest is `400 request/invalid` with `question/type-changed`, one of the question rules the editor makes unrepresentable ([[2-design-doc#17. Decisions Log]] #61). A different type is a different question.
+**The response type is fixed by the first save.** Prompt and constraints may change from version to version; the type may not. A condition is typed to the question it reads (§4.2), so a new type would turn every rule reading that question into a `predicate/type-mismatch` in questionnaires the author cannot see, the next time one re-pins it. Appending a version whose type differs from the latest is `400 request/invalid` with `question/type-changed`, one of the question rules the editor makes unrepresentable ([[12-decisions-log]] #61). A different type is a different question.
 
 **Saving is explicit.** Append-only means a naive autosave would spray versions, so the editor holds its working state client-side and writes only when the author commits — presented in the UI as closing out the edit dialog. One deliberate save, one version. This is the real cost of having no draft state on the bank, and it is a UI convention rather than a data-model one.
 
@@ -327,7 +327,7 @@ There is no "upgrade this draft to the latest question versions" action yet (§8
 
 **Questions are archived, never deleted** — hidden from the picker, but retained, because published snapshots reference their content forever. This is an instance of a general rule; see [[2-design-doc#3. Constraints]].
 
-**Archiving means "not for new placements", and nothing more** ([[2-design-doc#17. Decisions Log]] #75). A placement is new when its `(questionId, questionVersion)` pair is not already in the stored draft; only a new one draws `draft/question-archived`, at save or at publish. An item already placed keeps its archived question through every save, into the next draft's copy, and through publish. Re-pinning that item to another version of the question is a new pair, so it is refused like any other new placement. The cost falls on remove-and-re-add: an archived question removed from a draft cannot be put back, since the picker does not offer it and there is no unarchive yet ([gh#17](https://github.com/kenziesimpson/questionnaire-platform/issues/17)). Re-creating it makes a new `questionId`, whose answers do not aggregate with the old one's (§6.3).
+**Archiving means "not for new placements", and nothing more** ([[12-decisions-log]] #75). A placement is new when its `(questionId, questionVersion)` pair is not already in the stored draft; only a new one draws `draft/question-archived`, at save or at publish. An item already placed keeps its archived question through every save, into the next draft's copy, and through publish. Re-pinning that item to another version of the question is a new pair, so it is refused like any other new placement. The cost falls on remove-and-re-add: an archived question removed from a draft cannot be put back, since the picker does not offer it and there is no unarchive yet ([gh#17](https://github.com/kenziesimpson/questionnaire-platform/issues/17)). Re-creating it makes a new `questionId`, whose answers do not aggregate with the old one's (§6.3).
 
 ### 6.3 What a response stores
 
@@ -358,7 +358,7 @@ The snapshot is a JSON document with its own schema, and that schema evolves ind
 - The loader holds upgrade functions from one format version to the next, applied **in memory at read time**. Stored bytes are never rewritten.
 - Snapshots are validated with TypeBox on load, so a stale or corrupt document fails loudly instead of degrading into strange branching behaviour.
 
-**Immutability here means the bytes, not the meaning.** Re-serializing a published version into a newer format is not permitted, even as a background migration that provably preserves semantics — hence read-time upgrades. The stored document is the evidentiary record of what a respondent was actually shown, and that argument does not survive rewriting it. How many past formats the loader commits to supporting is [[2-design-doc#18. Open Questions]] §4.
+**Immutability here means the bytes, not the meaning.** Re-serializing a published version into a newer format is not permitted, even as a background migration that provably preserves semantics — hence read-time upgrades. The stored document is the evidentiary record of what a respondent was actually shown, and that argument does not survive rewriting it. How many past formats the loader commits to supporting is [[2-design-doc#17. Open Questions]] §2.
 
 ## 7. Alternatives considered
 
@@ -399,7 +399,7 @@ Deliberate simplifications, recorded so they are recognisable as choices rather 
 | Rules cannot match `otherText` (§2.3) | Text matching is fragile and has no version-stable identity | Promotion of recurring freeform answers into real options, rather than string matching in the engine |
 | Single level of boolean composition (§4.1) | Covers "one or more previous responses"; two conditions needing nesting can be split across two items | Demand for genuinely nested logic, at the cost of the exact satisfiability check |
 | No unit conversion (§2.2) | Answers already carry their unit, so conversion is additive | A questionnaire that needs mixed-unit entry or cross-version analytics |
-| No `text` format subtypes | Length validation covers the prototype's needs | [[2-design-doc#18. Open Questions]] §2 |
+| No `text` format subtypes | Length validation covers the prototype's needs | [[2-design-doc#18. Future Work]] |
 | No draft state on the question bank (§6.2) | Saving is explicit, so one save is one version | Authors needing to park half-finished question edits — that is the independently versioned bank in §7.5 |
 | No "upgrade draft to latest question versions" action (§6.2) | Remove and re-add the item; rare at prototype scale | More than a handful of questions in flight, where re-adding items by hand stops being reasonable |
 | Reachability checked by exhaustive enumeration (§5.3) | Real closures are shallow; validation runs once per publish, off the request path | A questionnaire large enough to make the enumeration slow — then cap it and downgrade unproven items from reject to warn |
