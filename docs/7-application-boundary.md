@@ -1,7 +1,7 @@
 # Application Boundary — Detailed Design
 
 > Detail doc for [[2-design-doc#9. API / Service Boundary]]. The design doc carries the condensed version; this is the full endpoint surface, the conventions, the access model and the reasoning behind them.
-> Related: [[5-questionnaire-format]] (what crosses the boundary), [[2-design-doc#12. Database]] §12.1 (the storage split the boundary mirrors), [[3-scaling]] (load model), [[6-observability]] (the redaction rule that also applies to error bodies).
+> Related: [[5-questionnaire-format]] (what crosses the boundary), [[2-design-doc#Authoring vs published]] (the storage split the boundary mirrors), [[3-scaling]] (load model), [[6-observability]] (the redaction rule that also applies to error bodies).
 
 ## 1. What the boundary is for
 
@@ -25,7 +25,7 @@ The same questionnaire has three shapes over its life. Naming all three, and kee
 
 This is affordable only because of the storage decision already made (Decisions Log #7): the published snapshot is self-contained by construction. The snapshot was chosen for read performance and single-row immutability; that it also makes the definition/execution boundary a clean cut is the property being cashed in here. A normalized published form would have forced execution to read authoring tables to render anything, and the boundary would have been fiction.
 
-The redundancy is the same redundancy §12.1 already defends. A published version cannot be disturbed by a later edit to the question it was built from — and, now, cannot be *reached* by the half of the system that does the editing.
+The redundancy is the same redundancy [[2-design-doc#Authoring vs published]] already defends. A published version cannot be disturbed by a later edit to the question it was built from — and, now, cannot be *reached* by the half of the system that does the editing.
 
 ### 2.1 What execution is structurally denied
 
@@ -198,7 +198,7 @@ A closed questionnaire returns `409 questionnaire/closed` at either step and the
 
 Resume works because the session id is durable and the session pins its version: the browser holds partial answers ([[3-scaling#2. Load model (what actually hits the backend)]]), the server holds the pin. The respondent app persists the session id in local storage and looks for it on landing (§5.2).
 
-**There is no resume-link route.** With the checkpoint endpoint deferred ([[2-design-doc#17. Decisions Log]] #25), answers exist only in the browser that produced them, so a `/s/:sessionId` URL opened elsewhere would present a valid, empty session and invite the respondent to start over without saying so. The capability-URL properties in §7 remain the access model for when identity arrives; no route exercises them today.
+**There is no resume-link route.** With the checkpoint endpoint deferred ([[12-decisions-log]] #25), answers exist only in the browser that produced them, so a `/s/:sessionId` URL opened elsewhere would present a valid, empty session and invite the respondent to start over without saying so. The capability-URL properties in §7 remain the access model for when identity arrives; no route exercises them today.
 
 ### 5.4 Submit: authority, validation, idempotency
 
@@ -342,7 +342,7 @@ Auth is out of scope (design doc §4), but the model is stated now so that addin
 | Enforcement | One `preHandler` hook on the definition plugin — all routes, reads included | None; the session id is the credential |
 | Prototype stub | Hook present, always passes, records the author as the placeholder `prototype-author` (Decisions Log #57) | n/a |
 
-**The placeholder author is permanent in what it touches.** Every authoring write until real authentication exists records `prototype-author` in append-only columns (`created_by` and the audit `actor_id`), and those rows cannot be rewritten later. Read the value as "unknown author". [[2-design-doc#17. Decisions Log]] #57 has the reasoning.
+**The placeholder author is permanent in what it touches.** Every authoring write until real authentication exists records `prototype-author` in append-only columns (`created_by` and the audit `actor_id`), and those rows cannot be rewritten later. Read the value as "unknown author". [[12-decisions-log]] #57 has the reasoning.
 
 Applying the hook to the whole plugin rather than per route is deliberate: a new definition endpoint is protected by default, and forgetting is not one of the available mistakes.
 

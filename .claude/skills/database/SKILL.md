@@ -5,7 +5,7 @@ description: Schema, invariants, roles, migration mechanics and Postgres traps f
 
 # Database — working rules
 
-Full reasoning lives in [[9-database-schema]]; [[2-design-doc#12. Database]] §12.1–12.2 carries the
+Full reasoning lives in [[9-database-schema]]; [[2-design-doc#12. Database]] carries the
 summary. This skill is the operational distillation: what is true, what must not be broken, and what
 has already bitten us.
 
@@ -267,7 +267,7 @@ search path is a privilege-escalation vector; `pg_temp` goes last and the body s
 ## Where to read more
 
 - [[9-database-schema]] — full DDL, triggers, grants, concurrency, indexing, alternatives
-- [[2-design-doc#12. Database]] §12.1–12.2 — the summary and the normalized/snapshot split
+- [[2-design-doc#12. Database]] — the summary and the normalized/snapshot split
 - [[5-questionnaire-format#6. Versioning mechanics]] — what a response pins to and why
 - [[7-application-boundary#3.2 Database grants]] — the role barrier
 - [[6-observability#5. Audit trail]] — why audit is a table and not a log line

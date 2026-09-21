@@ -38,7 +38,7 @@ erDiagram
 - **snake_case columns**, via Drizzle's `casing: 'snake_case'`, so the TypeScript and the SQL can each read naturally.
 - **UUIDv7 surrogate primary keys, generated in the application.** Postgres 16 has no `uuidv7()` and we are not adding an extension for it. Time-ordered ids give index locality on `response`, which is the only table with write volume.
 - **`execution.session.id` is UUIDv4, not v7.** [[7-application-boundary#7. Access model and data barriers]] makes the session id a bearer capability; a capability should carry no ordering signal and no creation timestamp.
-- **`item_id` and `option_id` stay authored `text` keys, not uuids.** They appear inside the evidentiary snapshot and inside stored responses, and both are read by humans when something goes wrong. `question_id` is a uuid because a question is a row in a bank rather than a key inside a document, and `question.key` is **not** carried into the snapshot alongside it ([[2-design-doc#17. Decisions Log]] #35).
+- **`item_id` and `option_id` stay authored `text` keys, not uuids.** They appear inside the evidentiary snapshot and inside stored responses, and both are read by humans when something goes wrong. `question_id` is a uuid because a question is a row in a bank rather than a key inside a document, and `question.key` is **not** carried into the snapshot alongside it ([[12-decisions-log]] #35).
 
 ### 2.1 Where the JSONB line falls
 
@@ -103,7 +103,7 @@ ALTER TABLE definition.questionnaire
 
 `version_state` makes draft and published genuinely different shapes rather than one shape with optional fields — a published row without a snapshot is not a state the table can hold.
 
-`format_version` is lifted out of the JSONB into a column so that "which snapshot formats are still live" — the support window in [[2-design-doc#18. Open Questions]] §4, and the invariant gauge [[6-observability#9. Correctness and invariant monitoring]] wants — is an indexed query rather than a scan that deserializes every snapshot.
+`format_version` is lifted out of the JSONB into a column so that "which snapshot formats are still live" — the support window in [[2-design-doc#17. Open Questions]] §2, and the invariant gauge [[6-observability#9. Correctness and invariant monitoring]] wants — is an indexed query rather than a scan that deserializes every snapshot.
 
 **On the circular foreign key.** `questionnaire` points at `questionnaire_version`, which points back
 at `questionnaire`. A cycle between two tables is worth a second look, so: this is the ordinary
@@ -504,11 +504,11 @@ contain a subquery, and de-duplicating an array needs one (`SELECT count(DISTINC
 Postgres has no core array-distinct operator — so the only inline form is an `IMMUTABLE` helper function
 wrapping that subquery.
 
-**Decided: the application validates this, the database does not** ([[2-design-doc#17. Decisions Log]] #34,
+**Decided: the application validates this, the database does not** ([[12-decisions-log]] #34,
 under the simplicity principle #33). The submit validator already walks `option_ids` to check every id
 against the pinned question version's options, so uniqueness is one line beside a walk that has to happen
 regardless, and it returns a `422` naming the item rather than a constraint violation. The rejected helper
-is written up in §13.8 and carried as [[2-design-doc#19. Future Work]]; adding it later is one custom
+is written up in §13.8 and carried as [[2-design-doc#18. Future Work]]; adding it later is one custom
 migration and no application change.
 
 Two things worth stating rather than leaving implied. The scope is narrower than it looks: `single_choice` is
@@ -522,7 +522,7 @@ twice.
 
 `session_id`, `questionnaire_version_id`, and the pair of them checked against the session's pin — nothing else.
 
-**The pair is checked against the session.** The two single-column keys hold independently, so a response on a session pinned to v1 could carry another questionnaire's version, or a draft's, and insert cleanly — reproduced as `qp_execution`. `response (session_id, questionnaire_version_id)` therefore references `session (id, questionnaire_version_id)`, made referenceable by `session_pinned_version_key`, so a response cannot claim a version its session did not pin ([[2-design-doc#17. Decisions Log]] #49). The key stays inside `execution`, so it reaches into no authoring table. The two single-column keys stay: they are now implied, and keeping them is cheaper than re-arguing this section.
+**The pair is checked against the session.** The two single-column keys hold independently, so a response on a session pinned to v1 could carry another questionnaire's version, or a draft's, and insert cleanly — reproduced as `qp_execution`. `response (session_id, questionnaire_version_id)` therefore references `session (id, questionnaire_version_id)`, made referenceable by `session_pinned_version_key`, so a response cannot claim a version its session did not pin ([[12-decisions-log]] #49). The key stays inside `execution`, so it reaches into no authoring table. The two single-column keys stay: they are now implied, and keeping them is cheaper than re-arguing this section.
 
 An FK on `(questionnaire_version_id, item_id)` into `questionnaire_item` would validate more, and a partitioned table referencing a regular table is allowed (verified). It is omitted on purpose: `questionnaire_item` is an authoring table, and [[7-application-boundary#2.1 What execution is structurally denied]] says execution never reaches into one. `questionnaire_version` is the artifact that *crosses* the boundary, so a foreign key to it is consistent with the model; item and question-version validity are the submit-time rule engine's job against the snapshot, which is already the authority ([[7-application-boundary#5.4 Submit: authority, validation, idempotency]]).
 
@@ -561,7 +561,7 @@ Every index below exists for a named query or a named invariant. Nothing is inde
 | `questionnaire_one_draft` | the one-draft invariant; not an access path |
 | `questionnaire_version_number` | version lookup by number, and uniqueness of it |
 | `qv_addressable` | §3.1's published-only foreign keys |
-| `vqi_reverse` | "which published versions contain question X" ([[2-design-doc#12. Database]] §12.1) |
+| `vqi_reverse` | "which published versions contain question X" ([[2-design-doc#Authoring vs published]]) |
 | `session` PK | resume — `GET /sessions/:sessionId`, a point lookup |
 | `session_by_version` | "sessions started against version N", for the republish story and analytics |
 | `session_by_questionnaire (questionnaire_id, started_at, id)` | the admin responses list sorted by Started (Decisions Log #88, #90): one questionnaire's sessions in either direction, paged by keyset. `started_at` is `NOT NULL`, so this one index is scanned forward for ascending and backward for descending, and its backward scan is the previous page. The predicate is the row comparison `(started_at, id) < ($1, $2)`, which a btree seeks to directly; the equivalent `OR` form is only a filter and re-walks every earlier page |
@@ -574,7 +574,7 @@ Every index below exists for a named query or a named invariant. Nothing is inde
 
 Deliberately **not** indexed:
 
-- **No GIN index on `snapshot`.** Access is whole-document by construction ([[2-design-doc#12. Database]] §12.1), and `version_question_index` exists precisely so the one query that would want a GIN index does not need one.
+- **No GIN index on `snapshot`.** Access is whole-document by construction ([[2-design-doc#Authoring vs published]]), and `version_question_index` exists precisely so the one query that would want a GIN index does not need one.
 - **No index on `closes_at`.** It is compared on a row already fetched by primary key, never used to filter a scan, and the questionnaire count is in the dozens.
 - **No index on `question.archived_at`.** Same reason: the bank is small and the picker reads all of it.
 
@@ -760,7 +760,7 @@ GRANT EXECUTE ON FUNCTION monitor.response_partition_months_ahead(timestamptz) T
 | `qp_monitor` | none — no privilege on any relation, no `USAGE` on the schema | none | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` |
 | `qp_owner` | owns every object | owns every object | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` (§9.1) |
 
-`qp_reporting` backs `/api/reporting`'s admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)), a narrow, later addition (Wave 3a) and not the wider "aggregate admin reporting" surface [[2-design-doc#18. Open Questions]] §8 still leaves open. It is deliberately not `qp_execution` with a different name and not a widened `qp_definition` — see Decisions Log #89 for why a fourth role rather than reusing either. It holds `SELECT` only, on every relation it touches, and `modules/reporting` holds no other pool, so the module cannot write except through `audit.record`, and only for `view_response`, which records that an admin opened a session's answers (`0020`, restricted by `0022`). The reporting repository's only audit function, `recordResponseView` in `db/reporting/audit.ts`, names that one action, so no code path in the module can record another, and the database enforces the same limit independently: `audit.record` refuses any other action from a `qp_reporting` session (§9.1). The published-versions view follows `0010`'s precedent (the one relation that exposes published snapshots without the base table), and `questionnaire` is granted by column — `id` alone — because the existence check reads nothing else. It was first shipped borrowing `qp_execution`'s pool for those two reads; review reversed that, since the borrowed credentials could write to `session` and `response`.
+`qp_reporting` backs `/api/reporting`'s admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)), a narrow, later addition (Wave 3a) and not the wider "aggregate admin reporting" surface [[2-design-doc#17. Open Questions]] §3 still leaves open. It is deliberately not `qp_execution` with a different name and not a widened `qp_definition` — see Decisions Log #89 for why a fourth role rather than reusing either. It holds `SELECT` only, on every relation it touches, and `modules/reporting` holds no other pool, so the module cannot write except through `audit.record`, and only for `view_response`, which records that an admin opened a session's answers (`0020`, restricted by `0022`). The reporting repository's only audit function, `recordResponseView` in `db/reporting/audit.ts`, names that one action, so no code path in the module can record another, and the database enforces the same limit independently: `audit.record` refuses any other action from a `qp_reporting` session (§9.1). The published-versions view follows `0010`'s precedent (the one relation that exposes published snapshots without the base table), and `questionnaire` is granted by column — `id` alone — because the existence check reads nothing else. It was first shipped borrowing `qp_execution`'s pool for those two reads; review reversed that, since the borrowed credentials could write to `session` and `response`.
 
 No function in `definition`, `execution`, `audit` or `monitor` keeps the default `EXECUTE` for `PUBLIC`: `promote_draft` is executable only by `qp_definition`, `audit.record` by `qp_definition` and `qp_reporting`, the `monitor` functions by `qp_monitor`, and the trigger functions by no application role (a
 trigger fires without its caller holding `EXECUTE`). A catalog test asserts it for the first three schemas and another for `monitor`, so a new function that forgets
@@ -901,7 +901,7 @@ credential that can mint new roles — including new superusers — in a contain
 and adds `COPY ... FROM PROGRAM` (command execution on the database host), `pg_authid` password hashes
 and the rest of the cluster to the blast radius of that one service. Separating them is also simply the
 conventional Postgres arrangement rather than extra machinery, which is where
-[[2-design-doc#17. Decisions Log]] #33 points.
+[[12-decisions-log]] #33 points.
 
 **It must be a `.sh`, not a `.sql`.** `psql -f` performs no interpolation, so a `.sql` file cannot read
 `$QP_DEFINITION_PASSWORD` — the passwords would have to be literal, which is the thing this section
@@ -911,7 +911,7 @@ secrets.
 **The `roles` service is the only path that runs it, on every `up`, including against an empty
 volume.** The `db` service does not mount `db/init`, so the postgres entrypoint never runs
 `01-roles.sh` — the one-shot `roles` service runs it against `db` before `migrate` on every
-`docker compose up`, first boot or not ([[2-design-doc#17. Decisions Log]] #60). That is deliberate:
+`docker compose up`, first boot or not ([[12-decisions-log]] #60). That is deliberate:
 two provisioning paths for the same roles is redundant and only one needs to stay correct. The script is
 written to be re-run: each `CREATE ROLE` is guarded by `NOT EXISTS`, and each login role's password is
 set by an unconditional `ALTER ROLE ... PASSWORD`, so the environment is always the source of truth.
@@ -982,8 +982,8 @@ request. A seed that could take the shortcut would be a seed that proves nothing
 
 ## 12. Open questions
 
-1. **`session_progress` — not built** ([[2-design-doc#18. Open Questions]] §6, Decisions Log #25). The checkpoint endpoint is deferred, so this table does not ship. The shape is kept here so that adding it stays additive: `session_progress (session_id PK → session, answers jsonb, revision int, updated_at)`. A separate table rather than a column on `session`, so the narrow hot row is not dragged through TOAST churn on every debounced write and so the grant on it is separable. It would hold raw answers, so `qp_definition` must be denied it for exactly the reason it is denied `response`.
-2. **Discarding never-published drafts** ([[2-design-doc#18. Open Questions]] §13). *Resolved for items:* removing an item from a draft is a `DELETE`, and `qp_definition` holds `DELETE` on `questionnaire_item` only, bounded to drafts by §4.1's guard (Decisions Log #45). Discarding a whole draft version is still open, and would need `DELETE` on `questionnaire_version` rows in `draft` status plus a decision on `ON DELETE CASCADE`.
+1. **`session_progress` — not built** ([[2-design-doc#18. Future Work]], Decisions Log #25). The checkpoint endpoint is deferred, so this table does not ship. The shape is kept here so that adding it stays additive: `session_progress (session_id PK → session, answers jsonb, revision int, updated_at)`. A separate table rather than a column on `session`, so the narrow hot row is not dragged through TOAST churn on every debounced write and so the grant on it is separable. It would hold raw answers, so `qp_definition` must be denied it for exactly the reason it is denied `response`.
+2. **Discarding never-published drafts** ([[2-design-doc#17. Open Questions]] §5). *Resolved for items:* removing an item from a draft is a `DELETE`, and `qp_definition` holds `DELETE` on `questionnaire_item` only, bounded to drafts by §4.1's guard (Decisions Log #45). Discarding a whole draft version is still open, and would need `DELETE` on `questionnaire_version` rows in `draft` status plus a decision on `ON DELETE CASCADE`.
 
 ## 13. Alternatives considered
 
@@ -1039,7 +1039,7 @@ $$ SELECT cardinality(a) = (SELECT count(DISTINCT e) FROM unnest(a) e) $$;
 and it is the *only* inline form available, for the reason in §6.2: a `CHECK` may not contain a subquery,
 and array de-duplication requires one.
 
-Not adopted, under [[2-design-doc#17. Decisions Log]] #33. It is a custom migration plus a permanent schema
+Not adopted, under [[12-decisions-log]] #33. It is a custom migration plus a permanent schema
 object whose entire purpose is to hold one subquery, guarding a shape a checkbox UI structurally cannot
 send, while the application already walks the same array to validate option membership. That is the
 definition of machinery earning less than it costs.
