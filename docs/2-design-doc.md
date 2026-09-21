@@ -168,6 +168,7 @@ See Decisions Log #15, #18, #19, #25, #29, #37.
 - **Database roles.**
   - `qp_execution` reads only published versions, through a view. It has no access to drafts or the question bank.
   - `qp_definition` has no access to `response`, so the authoring API can't be used to reach answers.
+  - A third role, `qp_reporting`, backs an unrelated admin-only surface and doesn't change this boundary ([[7-application-boundary#3.2 Database grants]], Decisions Log #89).
 ### Routes
 - `/api/definition/*` covers the question bank, drafts, publish, retire, version history and snapshot inspection.
 - `/api/run/*` has three routes: start a session, resume it, and submit it. The client evaluates branching itself, so there's no next-question call.
@@ -184,19 +185,10 @@ See Decisions Log #15, #18, #19, #25, #29, #37.
 - Auth is out of scope ([[#4. Out of Scope]]), but the model is defined.
 - **Authors:** one plugin-wide hook covers `/api/definition/*`, so new routes are protected by default.
 - **Respondents:** anonymous. The session id is a random value that acts as the credential, so it's kept out of URLs and `Referer` headers.
-**The boundary is an artifact, not a route prefix.** Exactly one object crosses it, the immutable `PublishedDefinition` snapshot ([[5-questionnaire-format#3. Serialization]]), and the dependency runs one way: the definition side produces snapshots, the execution side consumes them and nothing else. Execution never reads a draft, never resolves a `questionId` against the question bank, never joins to an authoring table. That is affordable only because the snapshot is already self-contained by construction ([[#12. Database]] §12.1) — the storage decision was made for read performance, and a clean cut between the halves is the property being cashed in here.
-
-**Three representations, each on one side of the line.** `QuestionnaireDraft` (definition only — normalized, mutable, may be invalid), **`PublishedDefinition`** (crosses; immutable, self-contained), `Session` + `Response` (execution only, pinned to a version). Execution code accepts only the middle one.
-
-**Enforced in three places, none of which is the URL.** Encapsulated Fastify plugins with no cross-imports, an ESLint zone rule reusing the pattern already chosen for the telemetry boundary; wire types in `@qp/shared` that give execution no way to *name* a draft; and two database roles for these two halves specifically, where `qp_execution` has no grant on any authoring table and `qp_definition` has **no grant on `response`** — the authoring surface is not a back door into answer data. The barrier is therefore something Postgres enforces rather than something the service layer promises, and "are the halves actually separate?" has a mechanical answer instead of an architectural claim. (A third role, `qp_reporting`, exists alongside these two for an unrelated admin-only surface — [[7-application-boundary#3.2 Database grants]], Decisions Log #89 — and does not change this boundary.)
-
-**Two route groups.** `/api/definition/*` owns the question bank, drafts, publish, retire, version history and snapshot inspection. `/api/run/*` owns sessions and submission, and is deliberately three routes — the client holds the whole definition and evaluates branching locally, so there is no next-question round trip to design. **The execution API has no unpinned definition read:** fetching a definition is inseparable from starting a session, which is what makes version drift mid-session unrepresentable rather than handled ([[#8. Sessions & Responses]]). Admin preview and version history live on the definition API instead, where the audience, the addressing and the access model are all different.
-
-**Conventions.** RFC 9457 `application/problem+json` on every non-2xx, with `type` slugs from a closed union in `@qp/shared` so they are exhaustive on the client and cannot be invented at a call site. `400` is schema failure only — so a `400` is always a client bug and never a user mistake, which makes it a usable alerting signal; `409` means the request conflicts with current state; `422` means well-formed but domain-invalid. Validation is one TypeBox schema per route with the TypeScript type inferred from it, so a route's declared contract and its handler cannot disagree, and the frontend imports the same types. **Error bodies never echo a submitted answer** — a `422` names the item and the rule it broke, never the value — extending the telemetry redaction rule ([[#14. Observability]]) to the one other place it is easy to lose.
-
-**Access model** (auth itself is out of scope, [[#4. Out of Scope]]): authors authenticate against `/api/definition/*` through a single plugin-wide hook, so a new definition route is protected by default and forgetting is not one of the available mistakes; respondents are anonymous and the session id is a bearer capability, which makes it a cryptographically random id, kept out of `Referer` headers and query strings and never rendered to anyone else.
-
-**Topology:** two encapsulated plugins in one process now, two services later — chiefly for security, since the authoring API then need not be routable from the public internet at all, and a vulnerability reached through the unauthenticated respondent surface lands in a process that cannot touch authoring tables. Because the boundary is enforced by module graph, types and grants rather than by a network hop, that split is a deployment change rather than a rewrite; [[7-application-boundary#8.3 What we do now to keep the split cheap]] lists what the prototype does to keep it that way.
+### Topology
+- There are two plugins in one process now, and they can become two services later.
+- The main reason to split is security. The authoring API could then be kept off the public internet, and an attack through the respondent API couldn't reach authoring tables.
+- The boundary is enforced by module graph, types and grants rather than a network hop, so splitting is a deployment change ([[7-application-boundary#8.3 What we do now to keep the split cheap]]).
 
 See Decisions Log #17, #18, #19, #20, #21.
 
