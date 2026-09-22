@@ -17,12 +17,12 @@
 - [x] **Observability details** — signal taxonomy (standard span attributes, log fields and levels, metrics), domain events, the answer-redaction enforcement ladder, cardinality rules, and collector setup local vs. hosted ([[2-design-doc#14. Observability]], [[6-observability]]). SLOs, alert thresholds and backup verification are a *recorded deferral* ([[6-observability#8. SLOs and alerting]]), not an omission
 - [x] **Testing approach** — four layers, Fastify `inject()` for backend routes, Testcontainers Postgres with a template database per Vitest worker, Vitest + RTL components, three Playwright specs against the composed stack, one command via Vitest `projects`, parallel CI jobs ([[2-design-doc#15. Testing]], [[8-testing]])
 - [x] *Writing, not deciding:* Overview, goals, constraints sections ([[2-design-doc#1. Overview]] §1–3)
-- [x] *Writing, not deciding:* Kubernetes subsection ([[2-design-doc#Kubernetes]]) and the [[2-design-doc#16. Scale & Growth]] table, condensed from [[3-scaling]] §3–4 and [[9-database-schema#11. Migrations]]
+- [x] *Writing, not deciding:* Kubernetes subsection ([[2-design-doc#Kubernetes]]) and the [[2-design-doc#16. Scale & Growth]] table, condensed from [[3-scaling]] §3–4 and [[9-database-schema#8. Migrations and seed]]
 
 ## Phase 1 — Plan the build
 
 - [x] **Gate A — the eight decisions that blocked the build.** Closed 2026-09-13 as [[12-decisions-log]] #33–#40: the simplicity principle, duplicate `option_ids`, `question.key` in the snapshot, removing the `yes_no` type, the submit digest, relative-date timezones, the database identities and connection strings, and list ordering
-- [x] **Gate B — doc hygiene.** §1–§2 and §13.2/§16 written, the stale cross-reference in [[10-frontend]] removed, §4 and §19 prompts deleted, decisions log reordered, and the three sections an earlier audit never reached re-read. That audit found a real bug in [[9-database-schema#9.1 A dedicated role, inside the publish transaction]]'s DDL, reproduced against live Postgres 16 and fixed
+- [x] **Gate B — doc hygiene.** §1–§2 and §13.2/§16 written, the stale cross-reference in [[10-frontend]] removed, §4 and §19 prompts deleted, decisions log reordered, and the three sections an earlier audit never reached re-read. That audit found a real bug in [[9-database-schema#Writing through `audit.record`]]'s DDL, reproduced against live Postgres 16 and fixed
 - [x] **The build plan itself** — gates, waves, file ownership, milestones and intervention points, all in Phase 2 below
 
 ## Phase 2 — Build
@@ -55,10 +55,10 @@
 - [x] `option_ids` uniqueness — the one `response` invariant not enforced below the application (#34)
 
 **Track 2 — database** (`apps/backend/drizzle/**`, `apps/backend/src/db/**`, `db/init/**`)
-> **One agent, start to finish, do not split.** [[9-database-schema#11. Migrations]] catalogues traps that fail *silently*; a mid-track handoff is how one survives.
+> **One agent, start to finish, do not split.** [[9-database-schema#8. Migrations and seed]] catalogues traps that fail *silently*; a mid-track handoff is how one survives.
 - [x] `schema.ts` for `definition` / `execution` / `audit`; generated migration for tables, indexes and FKs including the post-hoc circular FK
 - [x] `--custom` migrations: immutability triggers on `UPDATE` and `DELETE`, the locking item guard, the audit `SECURITY DEFINER` function in the verified order, `response_shape`, range partitioning with no default partition
-- [x] `db/init/01-roles.sh` — six identities, four connection strings (`qp_reporting` joined in Wave 3a, Decisions Log #89) ([[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]). `qp_owner` must **not** be `POSTGRES_USER`
+- [x] `db/init/01-roles.sh` — six identities, four connection strings (`qp_reporting` joined in Wave 3a, Decisions Log #89) ([[9-database-schema#Identities]]). `qp_owner` must **not** be `POSTGRES_USER`
 - [x] Wire the three URLs into compose and `.env.example`; drop the unsuffixed `DATABASE_URL`; keep the loopback bind
 - [x] Partition management helper; seed with **hardcoded** ids (#35), through the real publish path
 - [x] DB invariant tests → **M2**
@@ -131,7 +131,7 @@ Three groups work in parallel, merging into a **`staging`** branch cut from `mai
 
 - [x] Draft read: `items` in `position` order and `questions` holding each pinned question version once; `ETag` from `formatDraftEtag`; `Cache-Control: no-store`
 - [x] `PUT /draft` maps `replaceDraft`'s outcomes: `stale-or-missing-draft` → `409 questionnaire/draft-stale` when a draft exists, `404` when none does; `archived-question` and `unknown-question-version` → `422 questionnaire/draft-invalid` with the offending items in `items`. Responds with the new `ETag`. *(Narrowed by [[12-decisions-log]] #75: `archived-question` fires for newly placed items only — see [[#How Track 6 runs]].)*
-- [x] `openNextDraft` (new, in `db/definition/questionnaires.ts`): `FOR UPDATE` on the questionnaire as the **first** statement ([[9-database-schema#5. Concurrency control]]), `409 questionnaire/draft-exists` when a draft is open, `404` when nothing has been published, then copy the latest published version's items with their pinned question versions, audited `create_draft`. A copied item whose question has since been archived is kept; ~~publish validation reports it~~ it is an existing placement, so under #75 neither saves nor publish report it
+- [x] `openNextDraft` (new, in `db/definition/questionnaires.ts`): `FOR UPDATE` on the questionnaire as the **first** statement ([[9-database-schema#Row locks]]), `409 questionnaire/draft-exists` when a draft is open, `404` when nothing has been published, then copy the latest published version's items with their pinned question versions, audited `create_draft`. A copied item whose question has since been archived is kept; ~~publish validation reports it~~ it is an existing placement, so under #75 neither saves nor publish report it
 - [x] `validate` runs the same read-and-`validateDraft` path publish uses and never writes. If that needs `publishDraft`'s private helpers exported, G2 does that in `publish.ts` as a **pure extraction, no behaviour change**, and tells G3 before merging
 - [x] Tests → **M4** *stale-ETag `409`*, *archived question rejected at add time*: two tabs, one gets `409`; the missing-`If-Match` `400`; two concurrent next-draft opens, where exactly one gets `201`; the copy pins the same question versions as the source; validate reports what publish would refuse and writes no audit row
 
@@ -334,7 +334,7 @@ A wave is not done until its milestones are green.
 The things a green test cannot tell you.
 
 - [ ] **H1** *(after Track 2)* `docker compose up` from clean; then open `psql` and try to `UPDATE` a published snapshot yourself. Feel the barrier rather than trusting a green test
-- [ ] **H2** *(after Track 2)* Read the generated migration SQL by hand. [[9-database-schema#11. Migrations]]'s traps fail *silently*, and generated SQL is where they survive review
+- [ ] **H2** *(after Track 2)* Read the generated migration SQL by hand. [[9-database-schema#8. Migrations and seed]]'s traps fail *silently*, and generated SQL is where they survive review
 - [ ] **H3** *(after Waves 2)* Drive the API by hand through the demo flow once and read the problem+json bodies. Shape and wording are judgement, not assertion
 - [ ] **H4** *(after Track 7)* Fill the demo questionnaire in a browser: answer yes, watch the branch appear; switch to no, watch it and its answers disappear; reload and resume; submit and confirm the stored answers are gone while the session id remains, then reopen the link and see the receipt
 - [ ] **H5** *(after Tracks 3, 6, 7)* Keyboard-only pass on both apps, then a screen reader on the reveal/remove announcement and on a dnd-kit reorder. No automated check covers this, and it is the accessibility claim the medical domain rests on

@@ -42,7 +42,7 @@ question — see [[12-decisions-log]] #36, superseding #10.
 The reserved ids `yes` and `no` are an **editor convention, not a guarantee**, unlike `other` (§2.3). A template-created question aggregates
 across questionnaires on `yes` / `no`; a two-option question assembled by hand does not. That is the same
 tier as option-id stability below — upheld by the editor and proven by a test, not by a constraint, for the
-reason [[9-database-schema#3.2 The question bank]] gives when it rejects a registry table.
+reason [[9-database-schema#Questions]] gives when it rejects a registry table.
 
 ### 2.1 Option ids are stable across question versions
 
@@ -58,14 +58,14 @@ A stored answer is `{ value, unit }`, not a bare number. A later version that sw
 
 A choice question may mark a trailing option as freeform. The answer then has two parts — the selected option ids (one being `other`) and an `otherText` string — so the stored shape for every choice question carries an optional `otherText`, validated with the same length rules as a `text` question.
 
-**The id `other` is reserved for the freeform option, in both directions.** A freeform option must have the id `other` (`question/freeform-not-other`), and an option with the id `other` must be freeform (`question/other-not-freeform`). Saving a question that breaks either rule is `400 request/invalid`, and the `freeform_exactly_when_other` check holds the same rule in the database ([[9-database-schema#3.2 The question bank]]). The validator, the renderer and the admin editor all find the option through `freeformOptionOf` in `@qp/shared` ([[12-decisions-log]] #82, #83).
+**The id `other` is reserved for the freeform option, in both directions.** A freeform option must have the id `other` (`question/freeform-not-other`), and an option with the id `other` must be freeform (`question/other-not-freeform`). Saving a question that breaks either rule is `400 request/invalid`, and the `freeform_exactly_when_other` check holds the same rule in the database ([[9-database-schema#Questions]]). The validator, the renderer and the admin editor all find the option through `freeformOptionOf` in `@qp/shared` ([[12-decisions-log]] #82, #83).
 
 **Rules may test whether `other` was selected; they may not match against the text.** Kept deliberately simple: text matching in rules is fragile and there is no version-stable identity to match on. If `otherText` ever needs to drive a branch, the likely shape is a promotion workflow — an admin converts a recurring freeform answer into a real option in the next version — rather than string matching in the rule engine. Noted as a possible future change, not a current limitation to design around.
 
 ### 2.4 Relative date constraints resolve against two different clocks
 
 `date_value` is a bare `date` on purpose — a date question collects a calendar date, and attaching a timezone
-would invent precision the respondent never supplied ([[9-database-schema#6.1 `response`]]). But `not_future`
+would invent precision the respondent never supplied ([[9-database-schema#Responses]]). But `not_future`
 means "not after today", and the server and the respondent do not necessarily agree on which day that is.
 
 The failure is not hypothetical and not rare. Containers run UTC. A respondent at UTC+13 on the morning of
@@ -171,7 +171,7 @@ A published version is stored as a single JSONB document ([[2-design-doc#Authori
 
 This is **version 1** of the seeded demo questionnaire. `itm_02` and `itm_03` are skipped entirely when the first question is answered `no`, and both paths converge on `itm_04` with no merge edge anywhere.
 
-`questionId` is a uuid because a question is a row in the bank rather than a key inside the document (§2 of [[9-database-schema#2. Conventions]]); `itemId` and `optionId` stay authored slugs for the opposite reason. The four ids above are the ones the seed inserts — **the seed hardcodes them rather than generating them**, so a uuid copied out of this document queries the running database ([[12-decisions-log]] #35). Their `question.key` slugs, in item order, are `qst_has_condition`, `qst_which_condition`, `qst_diagnosed_on` and `qst_pharmacy`, and the questionnaire's is `qnr_intake`; the prose below refers to them by key.
+`questionId` is a uuid because a question is a row in the bank rather than a key inside the document (§2 of [[9-database-schema#Conventions]]); `itemId` and `optionId` stay authored slugs for the opposite reason. The four ids above are the ones the seed inserts — **the seed hardcodes them rather than generating them**, so a uuid copied out of this document queries the running database ([[12-decisions-log]] #35). Their `question.key` slugs, in item order, are `qst_has_condition`, `qst_which_condition`, `qst_diagnosed_on` and `qst_pharmacy`, and the questionnaire's is `qnr_intake`; the prose below refers to them by key.
 
 Note that `qst_which_condition` sits at `questionVersion` 3 inside questionnaire version 1. Question versions and questionnaire versions are independent series — the question was revised twice in the bank before this questionnaire ever added it, and the item pinned whatever was current at that moment (§6.2).
 
@@ -290,9 +290,9 @@ A question may appear at most once in a questionnaire version; a second placemen
 This is not about ambiguity — conditions name items (§4.1), so two placements would each be addressable.
 It is about aggregation. Two placements produce two `response` rows carrying the same `question_id` for a
 single respondent, so "how many respondents reported hypertension" counts that person twice, and the
-typed-column design in [[9-database-schema#6.1 `response`]] exists precisely to make that query an index
+typed-column design in [[9-database-schema#Responses]] exists precisely to make that query an index
 scan people will trust. Nothing legitimate is lost: question reuse is reuse *across* questionnaires, which
-is the case [[9-database-schema#3.2 The question bank]] argues for. See [[12-decisions-log]] #41.
+is the case [[9-database-schema#Questions]] argues for. See [[12-decisions-log]] #41.
 
 ### 5.6 What needs no check
 

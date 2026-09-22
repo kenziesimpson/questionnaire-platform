@@ -1,73 +1,82 @@
-# Database Schema — Detailed Design
+# Database Schema
 
-> The physical schema behind [[2-design-doc#12. Database]]: tables, constraints, indexes, the triggers and grants that carry the invariants, and the migration mechanics. The decisions this implements are already made — [[5-questionnaire-format#6. Versioning mechanics]] for versioning, [[7-application-boundary#3.2 Database grants]] for the boundary, [[6-observability#5. Audit trail]] for audit, [[3-scaling]] for partitioning. This doc is where they become DDL.
+> The physical schema behind [[2-design-doc#12. Database]]: tables, constraints, triggers, grants and migration mechanics. The decisions are made elsewhere: [[5-questionnaire-format#6. Versioning mechanics]] for versioning, [[7-application-boundary#3.2 Database grants]] for the boundary, [[6-observability#5. Audit trail]] for audit, [[3-scaling]] for partitioning. This doc is where they become DDL.
 >
-> Every statement below was loaded and exercised on PostgreSQL 16.13. Where a claim is a test result rather than an argument, it says so.
+> Core tables are shown inline. Every other table's DDL is in the [[#Appendix|Appendix]]. The source of truth is `apps/backend/src/db/schema.ts` and `apps/backend/drizzle/`; a drift test fails if the two disagree.
 
 ## 1. Shape
 
-Four Postgres schemas, three of them holding data.
+### Schemas
 
 | Schema | Holds | Written by |
 | --- | --- | --- |
-| `definition` | question bank, question versions, questionnaires, versions, draft items, `version_question_index` | `qp_definition` |
-| `execution` | sessions, responses | `qp_execution` |
-| `audit` | the audit log | nobody directly — see §8 |
-| `monitor` | `SECURITY DEFINER` functions that return aggregates for telemetry, and nothing else | `qp_owner`, at migration time; read by `qp_monitor` (§10.1) |
+| `definition` | Question bank, questionnaires and their versions, draft items, `version_question_index` | `qp_definition` |
+| `execution` | `session`, `response` | `qp_execution` |
+| `audit` | One append-only `event` table | `audit.record` only |
+| `monitor` | `SECURITY DEFINER` functions that return aggregates for telemetry, and nothing else | `qp_owner` at migration time; read by `qp_monitor` |
 
-[[7-application-boundary#3.2 Database grants]] already puts the definition/execution barrier in Postgres grants. Schemas are what make that rule structural instead of a list to maintain: `ALTER DEFAULT PRIVILEGES IN SCHEMA definition` means every authoring table added later is denied to `qp_execution` automatically. A per-table grant list has to be remembered, and `GRANT ... ON ALL TABLES IN SCHEMA` covers only the tables that exist when it runs — verified: a table added by a later migration is not covered, and the failure surfaces at runtime as `permission denied` rather than at migration time.
+- Schemas make the definition/execution barrier structural. `ALTER DEFAULT PRIVILEGES IN SCHEMA definition` denies every authoring table added later to `qp_execution` without anyone remembering to.
+- A per-table grant list can't do that. `GRANT ... ON ALL TABLES IN SCHEMA` covers only the tables that exist when it runs, and the miss shows up at runtime as `permission denied`, not at migration time.
+
+### Relationships
 
 ```mermaid
 erDiagram
     questionnaire            ||--o{ questionnaire_version   : "versions"
+    questionnaire            |o--o| questionnaire_version   : "current published version"
     questionnaire_version    ||--o{ questionnaire_item      : "items (draft-authored)"
     questionnaire_version    ||--o{ version_question_index  : "derived reverse index"
     question                 ||--o{ question_version        : "append-only versions"
     question_version         ||--o{ question_version_option : "options"
     question_version         ||--o{ questionnaire_item      : "pinned at add time"
+    question_version         ||--o{ version_question_index  : "indexed"
     questionnaire_version    ||--o{ session                 : "pinned at session start"
     session                  ||--o{ response                : "one submit, N rows"
     questionnaire_version    ||--o{ response                : "collected under"
 ```
 
-`audit.event` is deliberately absent from that diagram: it has no foreign keys (§8).
+- `audit.event` has no foreign keys, so it survives anything it describes.
+- Every foreign key is `ON DELETE NO ACTION`. Nothing cascades; published data is never deleted, and drafts are removed by explicit statements.
+- Several keys are composite on purpose. They are how the database refuses to reference a draft, and they are covered in [[#2. `definition`]] and [[#4. `execution`]].
 
-## 2. Conventions
+### Conventions
 
-- **`timestamptz` everywhere**, never `timestamp`. A naked `timestamp` in a system that records when a medical answer was given is a bug waiting for a deployment in another region.
-- **snake_case columns**, via Drizzle's `casing: 'snake_case'`, so the TypeScript and the SQL can each read naturally.
-- **UUIDv7 surrogate primary keys, generated in the application.** Postgres 16 has no `uuidv7()` and we are not adding an extension for it. Time-ordered ids give index locality on `response`, which is the only table with write volume.
-- **`execution.session.id` is UUIDv4, not v7.** [[7-application-boundary#7. Access model and data barriers]] makes the session id a bearer capability; a capability should carry no ordering signal and no creation timestamp.
-- **`item_id` and `option_id` stay authored `text` keys, not uuids.** They appear inside the evidentiary snapshot and inside stored responses, and both are read by humans when something goes wrong. `question_id` is a uuid because a question is a row in a bank rather than a key inside a document, and `question.key` is **not** carried into the snapshot alongside it ([[12-decisions-log]] #35).
+- **`timestamptz` everywhere**, never `timestamp`.
+- **snake_case columns**, through Drizzle's `casing: 'snake_case'`.
+- **UUIDv7 primary keys, generated in the application.** Postgres 16 has no `uuidv7()`, and an extension isn't worth it. Time-ordered ids give index locality on `response`, the only table with write volume.
+- **Two exceptions to v7.**
+  - `execution.session.id` is UUIDv4. It is a bearer capability ([[7-application-boundary#7. Access model and data barriers]]) and should carry no ordering signal or creation time.
+  - `audit.event.id` is v4, generated by the database (`gen_random_uuid()`), because `audit.record` is the only writer.
+- **`item_id` and `option_id` are authored `text` keys**, not uuids. They appear inside snapshots and stored responses, and people read both when something goes wrong. `question_id` is a uuid because a question is a bank row, not a key inside a document. `question.key` is not carried into the snapshot ([[12-decisions-log]] #35).
 
-### 2.1 Where the JSONB line falls
+### Rows or JSONB
 
-The rule, applied everywhere below: **anything a rule or a stored response can reference by id gets a row; everything else is a validated document.**
+**Anything a rule or a stored response can reference by id gets a row. Everything else is a validated document.**
 
-So `question_id`, `option_id` and `item_id` are columns with keys and foreign keys on them, while `minLength`, `min` / `max`, `numberKind`, `unit`, `multiline` and `relative` live together in one `constraints jsonb` column. Those are a per-type discriminated union with no cross-version identity — nothing points at them — and they are round-tripped whole by the same TypeBox schema `@qp/shared` needs anyway ([[5-questionnaire-format#2. Question types]]).
+- `question_id`, `option_id` and `item_id` are columns with keys and foreign keys.
+- `minLength`, `min`/`max`, `numberKind`, `unit`, `multiline` and `relative` share one `constraints jsonb` column. They are a per-type union with no identity across versions, and nothing points at them.
+- `visible_when` is JSONB for the same reason: a predicate is a value, not an entity. Publish-time validation ([[5-questionnaire-format#5. Publish-time validation]]) is application code either way.
 
-`visible_when` is JSONB for the same reason: a predicate is a value, not an entity. Nothing references a condition by id, and publish-time validation ([[5-questionnaire-format#5. Publish-time validation]]) is application code whichever way it is stored.
+See Decisions Log #35.
 
-## 3. `definition`
+## 2. `definition`
+
+> The core tables are below. `question`, `question_version_option`, `questionnaire_item` and `version_question_index` are in [[#A. `definition`|Appendix A]].
+
+### Questionnaires
 
 ```sql
 CREATE TABLE definition.questionnaire (
   id                 uuid PRIMARY KEY,
   key                text UNIQUE,              -- slug for seeds and admin URLs
   name               text NOT NULL,            -- admin-facing label; mutable, never snapshotted
-  closes_at          timestamptz,              -- §8.1 of the design doc: one nullable field
-  current_version_id uuid,                     -- FK added after questionnaire_version exists
+  closes_at          timestamptz,              -- the one nullable field behind retirement
+  current_version_id uuid,
   current_version    int,
   created_at         timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT current_version_pair CHECK ((current_version_id IS NULL) = (current_version IS NULL))
 );
-```
 
-`name` is deliberately not `title`. The respondent-facing `title` is versioned and lives on the version row because it is inside the snapshot; the admin list needs a label that can be corrected without publishing. Two different things that would otherwise collide on one column.
-
-`current_version_id` is [[3-scaling#4. Problem: hot definition reads]]'s "questionnaire → current published version" pointer — the only mutable value on the definition read path, and the single thing `POST /sessions` has to resolve. Maintained inside the publish transaction.
-
-```sql
 CREATE TABLE definition.questionnaire_version (
   id               uuid PRIMARY KEY,
   questionnaire_id uuid NOT NULL REFERENCES definition.questionnaire(id),
@@ -94,119 +103,77 @@ CREATE UNIQUE INDEX questionnaire_one_draft
 CREATE UNIQUE INDEX questionnaire_version_number
   ON definition.questionnaire_version (questionnaire_id, version);
 
--- circular reference: this cannot be inline on questionnaire, the target does not exist yet
+-- added afterwards: questionnaire_version did not exist when questionnaire was created
 ALTER TABLE definition.questionnaire
   ADD CONSTRAINT questionnaire_current_version_fk
   FOREIGN KEY (id, current_version_id, current_version)
   REFERENCES definition.questionnaire_version (questionnaire_id, id, version);
 ```
 
-`version_state` makes draft and published genuinely different shapes rather than one shape with optional fields — a published row without a snapshot is not a state the table can hold.
+- `name` is the admin's label and can be corrected without publishing. The respondent-facing `title` is versioned, sits on the version row, and is inside the snapshot.
+- `version_state` makes draft and published two different shapes. A published row without a snapshot is not a state the table can hold.
+- `format_version` is a column, not a key inside the snapshot, so "which snapshot formats are still live" is a query over a column and doesn't deserialize every snapshot.
+- `questionnaire_one_draft` is what limits a questionnaire to one open draft.
+- `draft_revision` is what the draft ETag is built from. Every draft mutation increments it in the same transaction, and `PUT /draft` compares `If-Match` against it ([[7-application-boundary#4.1 Endpoints]]). `updated_at` only feeds "edited three minutes ago", because two writes in one millisecond compare equal and a concurrency check can't depend on a clock. Both freeze at publish.
 
-`format_version` is lifted out of the JSONB into a column so that "which snapshot formats are still live" — the support window in [[2-design-doc#17. Open Questions]] §2, and the invariant gauge [[6-observability#9. Correctness and invariant monitoring]] wants — is an indexed query rather than a scan that deserializes every snapshot.
+### The published-only guard
 
-**On the circular foreign key.** `questionnaire` points at `questionnaire_version`, which points back
-at `questionnaire`. A cycle between two tables is worth a second look, so: this is the ordinary
-"parent holds a pointer to one designated child" shape — `company.primary_contact_id` alongside
-`employee.company_id` — and it is benign here for a specific reason. A cycle is a genuine problem when
-both sides are `NOT NULL`, because then neither row can be inserted first and every insert needs
-deferred constraints; when both directions express *ownership*, which usually means the two tables
-want to be one; or when it is long enough that no table is obviously the parent.
+**What we're protecting.** Two places store "the version to use":
 
-None of those hold. `current_version_id` is nullable, and a questionnaire with nothing published yet
-genuinely points at nothing. Ownership runs one way — the back-pointer is a designation, not a claim.
-The practical costs are bounded: the constraint is added by `ALTER TABLE` rather than inline (§11),
-deleting a questionnaire outright would need the pointer cleared first, which the no-deletion rule in
-[[2-design-doc#3. Constraints]] means we never do, and `pg_dump` restores fine because it recreates
-foreign keys after loading data. There is even a small bonus: since §3.1's guard means the pointer can
-never reference a draft, discarding a draft can never trip it.
+- `questionnaire.current_version_id` is the version a new respondent is served.
+- `session`'s pinned version is the version a respondent's answers are collected under.
 
-**The redundancy is the part worth justifying, not the cycle.** "Current version" is derivable — it is
-the highest published version number — so this column caches a computed answer, and the cycle is
-simply what that cache looks like in a diagram. The justification: session start wants a direct
-lookup rather than an aggregate, `(questionnaire_id, version)` is the key
-[[3-scaling#4. Problem: hot definition reads]] caches on, and a stored pointer is what would later
-allow pointing somewhere other than the newest version — a rollback, or a scheduled publish — which a
-computed maximum could never express. Dropping the pointer and computing the maximum removes the
-cycle and those three properties together; see §13.7.
+Both must point at **a published version of the same questionnaire**. Two mistakes would be serious:
 
-**`draft_revision` is what the draft ETag is built from, and `updated_at` is not.** Every draft mutation
-increments the counter in the same transaction as the change it describes; `PUT /draft` compares the
-`If-Match` value against it ([[7-application-boundary#4.1 Endpoints]]). Both columns exist and only one is
-load-bearing: `updated_at` answers "last edited three minutes ago" in the admin list, while the counter
-answers "is the draft you are holding still current". A timestamp cannot do the second job — two writes
-inside one millisecond compare equal, and a concurrency check must not depend on a clock, for the same
-reason list ordering does not (Decisions Log #40) and the submit digest does not (#37). Both freeze at
-publish, since a published row is immutable.
+- **Pointing at a draft.** A respondent would answer questions that are still being edited.
+- **Pointing at another questionnaire's version.** A respondent would be served the wrong questionnaire.
 
-### 3.1 The published-only guard
+**Why an ordinary foreign key isn't enough.** A foreign key to `questionnaire_version(id)` only proves the row exists. A draft exists, and so does another questionnaire's version, so both would pass.
 
-`qv_addressable` looks redundant next to the primary key. It is the mechanism that turns two
-would-be application checks into foreign keys. It is worth spelling out plainly, because the trick is
-not obvious and it is the single cheapest correctness win in this schema.
+**The idea.** Have the database check three things together instead of one: the questionnaire, the version row and the version number. This works because a draft has no version number until it is published, so "has a number" and "is published" are the same fact. Checking the number checks the status without ever reading `status`.
 
-**The problem.** The `questionnaire` row records which version a new respondent should be served —
-that is what `current_version_id` is for, so session start is one direct lookup rather than a search.
-The obvious rule to put on it is "this must be some row in `questionnaire_version`". That rule is too
-weak. Consider:
+**How.** `qv_addressable` makes the triple `(questionnaire_id, id, version)` unique, and the foreign key must match an existing triple. A pointer therefore has to supply all three values.
 
-| id | questionnaire_id | version | status |
+Take these rows:
+
+| id | questionnaire | version | status |
 | --- | --- | --- | --- |
 | `aaa` | intake | 1 | published |
 | `bbb` | intake | 2 | published |
-| `ccc` | intake | *(none)* | draft |
+| `ccc` | intake | none | draft |
 | `ddd` | onboarding | 1 | published |
 
-Under the weak rule, intake may point at `ccc` — its own unfinished draft — or at `ddd`, which belongs
-to a different questionnaire entirely. Both are real rows, so the rule is satisfied, and both are
-badly wrong: a respondent served an unpublished draft, or served the wrong questionnaire. What we
-actually want guaranteed is *a published version, of this questionnaire*.
+Here is what intake can point at:
 
-**The trick.** Look at `ccc`: a draft has no version number. `version` is assigned at publish, so
-**"has a version number" and "is published" are the same fact**. There is no need to check `status` at
-all — the presence of a number already says it.
+| Intake points at | Triple it forms | Result |
+| --- | --- | --- |
+| `bbb`, its own v2 | `(intake, bbb, 2)`, which exists | Accepted |
+| `ccc`, its own draft | `ccc` has no number, so any number written forms a triple that exists nowhere | Rejected |
+| `ddd`, onboarding's v1 | `(intake, ddd, 1)`, but `ddd` belongs to onboarding | Rejected |
 
-So rather than checking one value, check the combination of three: the questionnaire, the version row,
-and the version number. `qv_addressable` makes that triple unique, and the foreign key requires it to
-exist. Intake's row holds `(intake, bbb, 2)`, which is row `bbb`. Allowed. The two bad cases both
-fail, and it is worth seeing why:
+**What follows from it.**
 
-- **Pointing at the draft `ccc`** — there is no number to write. `ccc` has none, so any number invented
-  for it, say 3, forms the triple `(intake, ccc, 3)`, which exists nowhere. Rejected.
-- **Pointing at `ddd`** — that is `(intake, ddd, 1)`, but `ddd` belongs to onboarding. That triple does
-  not exist either. Rejected.
+- `current_version_id` is paired with `current_version` because the foreign key needs a value for every column it matches. `id` supplies the questionnaire, and these two supply the rest.
+- `current_version_pair` requires both to be set or both null. With `MATCH SIMPLE`, Postgres skips the check while they are null, which is right for a questionnaire with nothing published yet.
+- `execution.session` has the same foreign key ([[#4. `execution`]]), so a session can't pin a draft either.
+- Serving a draft or the wrong questionnaire is now a write the database refuses, not a bug a reviewer has to catch.
 
-Both verified against a live database. The same foreign key on `execution.session` means a session
-cannot pin a draft, by the same argument.
+### The circular foreign key
 
-**This is why `current_version_id` is paired with `current_version`.** The rule is about the triple,
-and a foreign key must supply a value for every column it matches against. The questionnaire already
-has its own `id` — that is one part — so it stores the other two. `current_version` is not duplicated
-information; it is the third piece of the key. `current_version_pair` then says both are filled or
-both are empty, and Postgres's `MATCH SIMPLE` semantics skip the check entirely while they are NULL,
-which is correct for a questionnaire with nothing published yet.
+`questionnaire` points at `questionnaire_version` through `current_version_id`, and `questionnaire_version` points back at `questionnaire`. Two tables that reference each other look wrong at first, but it works here.
 
-The cost is one redundant-looking column and a reviewer's raised eyebrow. What it buys is that
-"serve a draft to a respondent" and "serve another questionnaire's version" stop being bugs that code
-review has to catch, and become writes the database refuses. Neither can be refactored away by
-accident, because neither lives in code at all.
+The usual problem with a cycle is that neither row can be inserted first. That doesn't happen because `current_version_id` is nullable. A questionnaire starts with no current version, and the pointer is filled in when its first version is published. Ownership also runs one way: a version belongs to its questionnaire, and the pointer only says which one is current. The one real cost is that the constraint has to be added with `ALTER TABLE` once both tables exist.
 
-**A smaller variant exists.** Checking `(questionnaire_id, version)` instead of the full triple gives
-the same two guarantees using `questionnaire_version_number`, which already exists — dropping
-`current_version_id` and the paired CHECK, at the cost of naming the current version by a different
-key than every other version reference in the schema. Tested and viable; see §13.7.
+We could drop the pointer and work out the current version as the highest published number. We keep it for three reasons:
 
-### 3.2 The question bank
+- Starting a session becomes a single lookup, not an aggregate.
+- `(questionnaire_id, version)` is the key [[3-scaling#4. Problem: hot definition reads]] caches on.
+- A stored pointer can name a version other than the newest, for a rollback or a scheduled publish. A computed maximum can't.
+
+### Questions
 
 ```sql
-CREATE TABLE definition.question (
-  id          uuid PRIMARY KEY,
-  key         text UNIQUE,
-  archived_at timestamptz,                   -- archived, never deleted (Decisions Log #15)
-  created_at  timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE definition.question_version (   -- append-only (Decisions Log #13)
+CREATE TABLE definition.question_version (   -- append-only
   question_id uuid NOT NULL REFERENCES definition.question(id),
   version     int  NOT NULL CHECK (version >= 1),
   type        text NOT NULL CHECK (type IN
@@ -216,6 +183,617 @@ CREATE TABLE definition.question_version (   -- append-only (Decisions Log #13)
   created_by  text,
   created_at  timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (question_id, version)
+);
+```
+
+- The bank is `question` (identity and archive flag), `question_version` (content) and `question_version_option` (the options of one version). Versions are append-only ([[#3. Immutability and publish]]), and questions are archived, never deleted (Decisions Log #13, #15).
+- There is no `yes_no` type. A yes/no question is a `single_choice` with two options, seeded by an editor template with the ids `yes` and `no`. The schema doesn't enforce those ids (Decisions Log #36).
+
+Options carry their own ids, and two rules about those ids are worth knowing.
+
+- **Option ids stay the same across versions.** If an author edits a question and changes an option's label, the option keeps its id, so answers collected under version 1 and version 2 can still be counted together ([[5-questionnaire-format#2.1 Option ids are stable across question versions]]). The database doesn't enforce this; the editor copies ids forward into the next version.
+- **The id `other` is reserved for the freeform option.**
+  - A question can offer an "Other" choice where the respondent types their own text ([[5-questionnaire-format#2.3 The `other` option]]).
+  - That option always has the id `other`, and rules and stored responses refer to it by that name.
+  - `freeform_exactly_when_other` keeps the `freeform` flag and the id in step: an option is freeform exactly when its id is `other`.
+  - Without it, a freeform option with some other id could never carry text, and a plain option named `other` would wrongly accept it (Decisions Log #83).
+  - Every freeform row then has the id `other`, so the primary key already allows at most one per version.
+
+### Items and the reverse index
+
+- `questionnaire_item` places a question in a version. It pins `(question_id, question_version)` with a composite foreign key, so an item can't reference a version that doesn't exist, and because question versions are never deleted it can't dangle ([[5-questionnaire-format#6.2 Question identity and versioning]]).
+- **Item rows stay after publish.** The next draft is an explicit copy of the latest published version ([[5-questionnaire-format#6.1 Questionnaire versions]]), and copying rows avoids a snapshot-deserialize path to get wrong. The snapshot stays authoritative. `promote_draft` checks it against the item rows at publish ([[#3. Immutability and publish]]).
+- **`item_position_unique` is `DEFERRABLE INITIALLY IMMEDIATE`.** A reorder is a set of position updates that is unique only once the statement finishes. Ordinary writes check immediately, and a reorder can `SET CONSTRAINTS ... DEFERRED`. `replaceDraft` currently deletes and reinserts a draft's items instead, so the app doesn't use the deferral.
+- `version_question_index` answers "which published versions contain question X?" It is derived from the snapshot at publish and rebuildable from the snapshots. `vqi_reverse` serves the lookup.
+
+See Decisions Log #13, #15, #36, #83.
+
+## 3. Immutability and publish
+
+> The database is layer one of the three-layer enforcement in [[5-questionnaire-format#6.4 Three layers of immutability enforcement]].
+
+### Published rows can't change
+
+```sql
+CREATE FUNCTION definition.reject_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'row is published and immutable' USING ERRCODE = 'QP001';
+END $$;
+
+CREATE TRIGGER qv_immutable_update BEFORE UPDATE ON definition.questionnaire_version
+  FOR EACH ROW WHEN (OLD.status = 'published') EXECUTE FUNCTION definition.reject_mutation();
+CREATE TRIGGER qv_immutable_delete BEFORE DELETE ON definition.questionnaire_version
+  FOR EACH ROW WHEN (OLD.status = 'published') EXECUTE FUNCTION definition.reject_mutation();
+CREATE TRIGGER qv_immutable_insert BEFORE INSERT ON definition.questionnaire_version
+  FOR EACH ROW WHEN (NEW.status = 'published') EXECUTE FUNCTION definition.reject_mutation();
+```
+
+- **`UPDATE`.** The `UPDATE` that promotes a draft is allowed, because the trigger checks `OLD.status`, which is still `draft`.
+- **`DELETE`.** Deleting a published version would destroy the definition its responses are rendered against, which is the same failure as editing it. It also breaks the no-deletion rule in [[2-design-doc#3. Constraints]].
+- **`INSERT`.** Without it, a row inserted already `published` with a complete snapshot would satisfy `version_state`, and only its items would be refused. With it, a published row can only come from promoting a draft in place (Decisions Log #8, #46).
+- **Question versions** get the blunt form: `question_version` and `question_version_option` reject every `UPDATE` and `DELETE`, with no condition. That is what append-only means as a database guarantee.
+
+### Items cannot be reparented
+
+Item rows need their own guard, or a published version's items stay editable behind the version row's back.
+
+```sql
+CREATE FUNCTION definition.reject_item_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE parent_status text;
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.questionnaire_version_id <> OLD.questionnaire_version_id THEN
+    RAISE EXCEPTION 'items cannot be reparented' USING ERRCODE = 'QP001';
+  END IF;
+  SELECT status INTO parent_status FROM definition.questionnaire_version
+   WHERE id = COALESCE(NEW.questionnaire_version_id, OLD.questionnaire_version_id)
+   FOR SHARE;
+  IF parent_status = 'published' THEN
+    RAISE EXCEPTION 'questionnaire version is published and immutable' USING ERRCODE = 'QP001';
+  END IF;
+  RETURN COALESCE(NEW, OLD);
+END $$;
+
+CREATE TRIGGER item_immutable BEFORE INSERT OR UPDATE OR DELETE ON definition.questionnaire_item
+  FOR EACH ROW EXECUTE FUNCTION definition.reject_item_mutation();
+```
+
+Two details keep the obvious version of this trigger from failing:
+
+- **`FOR SHARE`, not a bare `SELECT`.** Without the lock, the check races with a publish:
+  1. A publish transaction reads the items, writes the snapshot and flips the status, but hasn't committed.
+  2. Another connection inserts an item. It sees `draft` and commits.
+  3. The published snapshot lists one item, the item rows number two, and no error was raised.
+
+  With `FOR SHARE`, the insert waits for the publish to commit, re-reads the status and is rejected.
+- **The reparent check.** The trigger only looks at one parent. Without the check, `UPDATE questionnaire_item SET questionnaire_version_id = <draft>` would move an item out of a published version.
+
+Deleting an item is part of editing a draft, so `qp_definition` holds `DELETE` on `questionnaire_item` and no other table (Decisions Log #45). This guard bounds it: deleting an item whose parent is published is `QP001`.
+
+### `QP001`
+
+`QP001` is a custom SQLSTATE that reaches the client intact through `pg`. It is mapped to `409` in one place, `modules/definition/errors.ts`. The API returns `409` because the database said `QP001`, not because a service check happened to run first ([[7-application-boundary#6.2 Status codes]]).
+
+### Publishing goes through `promote_draft`
+
+**The problem.** The triggers stop a published row from changing. They don't stop a draft from being published the wrong way. If `qp_definition` could set `status = 'published'` itself, it could attach any snapshot, skip validation and leave the reverse index empty.
+
+**The fix.** Publishing is one database function, `definition.promote_draft`.
+
+- `qp_definition` can't publish by hand. It may only update the columns an editor needs: `title`, `draft_revision` and `updated_at` on `questionnaire_version`, and `key`, `name` and `closes_at` on `questionnaire`. Status, version number, snapshot and the current-version pointer are off limits ([[#7. Roles and grants]]).
+- The function runs with its owner's privileges (`SECURITY DEFINER`, owned by `qp_owner`), and only `qp_definition` can call it.
+
+**What the function does.** The application passes it the draft's id and the snapshot it built. The function then:
+
+1. Locks the draft and checks it is still a draft.
+2. Checks the snapshot matches the draft: it names this questionnaire and its next version number, and lists exactly the draft's items, in order, with the same pinned question versions.
+3. Records which question versions this version uses, in `version_question_index`.
+4. Marks the row published and stores the snapshot.
+5. Points the questionnaire's current version at it.
+
+If a check fails, nothing is written. A published version raises `QP001`, a snapshot that doesn't match the draft raises `22023`, and an unknown version raises `P0002`.
+
+**Who does what.**
+
+- **The application** validates the draft, builds the snapshot and writes the audit row. Validation is `validateDraft` in `@qp/shared`, the same function `POST /draft/validate` calls ([[5-questionnaire-format#5. Publish-time validation]]). It stays there because putting it in SQL would create a second implementation.
+- **The database** makes sure that what gets published is consistent. It can't judge branching rules, but it refuses a snapshot that isn't structurally the draft it is promoting.
+- **The audit row** is written right after the function returns, in the same transaction. If the audit write fails, the publish rolls back ([[6-observability#5.1 Isolation — separate schema with a restricted role]]).
+
+**The known gap.** Code that holds `qp_definition` can still publish a draft that skipped validation, or call `promote_draft` directly and publish with no audit row. This was accepted on purpose (Decisions Log #51). Closing it would mean giving `qp_owner` a path into `audit`, or making the audit role own a function that writes definitions. So audit completeness for publish rests on `publishDraft` being the only caller, as it does for every other authoring action.
+
+### Row locks
+
+Some operations must not run at the same time on the same row. Each one below is prevented by locking the row first, so the second caller waits, rather than by retrying.
+
+| Race | What goes wrong | Lock |
+| --- | --- | --- |
+| Publish and create-next-draft | A publish to v2 hasn't committed, so the new draft is copied from v1. Publishing it as v3 silently drops v2, and nothing raises an error. | The `questionnaire` row, first thing in publish, create-draft and retire |
+| Two saves of one question | Both work out the same next version number, and one fails with a raw duplicate-key error. | The `question` row, before the next version number is computed. A duplicate key on that path also returns `409`. |
+| Two publishes of one draft | Nothing. `promote_draft` re-checks under its own lock, so only one succeeds. | None needed |
+
+The first race is the one that matters. It is the only one that corrupts data instead of raising an error.
+
+Publish takes its locks in this order:
+
+1. The questionnaire row, which blocks create-draft and retire.
+2. The draft version row, which makes the item trigger wait instead of reading a stale status.
+3. In the application: read the items, build the snapshot and validate.
+4. `promote_draft`, whose own lock on the version row is already held.
+5. The audit row.
+
+See Decisions Log #8, #45, #46, #51.
+
+---
+
+## 4. `execution`
+
+> Two tables. A `session` is one respondent's attempt, pinned to a published version. A `response` is one answered item, written when the session is submitted. Indexes are in [[#5. Indexes]].
+
+### Sessions
+
+```sql
+CREATE TABLE execution.session (
+  id                       uuid PRIMARY KEY,          -- v4: bearer capability
+  questionnaire_id         uuid NOT NULL,
+  questionnaire_version_id uuid NOT NULL,
+  version                  int  NOT NULL,
+  status                   text NOT NULL CHECK (status IN ('in_progress','submitted')),
+  started_at               timestamptz NOT NULL DEFAULT now(),
+  last_activity_at         timestamptz NOT NULL DEFAULT now(),
+  submitted_at             timestamptz,
+  response_digest          bytea,
+  FOREIGN KEY (questionnaire_id, questionnaire_version_id, version)
+    REFERENCES definition.questionnaire_version (questionnaire_id, id, version),
+  CONSTRAINT session_pinned_version_key UNIQUE (id, questionnaire_version_id),
+  CONSTRAINT session_state CHECK (
+    (status='in_progress' AND submitted_at IS NULL     AND response_digest IS NULL)
+ OR (status='submitted'   AND submitted_at IS NOT NULL AND response_digest IS NOT NULL))
+);
+```
+
+- **Lifecycle.** `status` and `session_state` together allow only `in_progress → submitted` ([[7-application-boundary#5.3 Session lifecycle]]). Abandonment is just the absence of a submit, so it has no column.
+- **The pinned version.** The composite foreign key is the published-only guard from [[#2. `definition`]], so a session can't pin a draft. `session_pinned_version_key` exists so `response` can reference the pin (see [[#Foreign keys|Foreign keys]], below).
+- **`response_digest`** is what makes submit idempotent. It is a SHA-256 over the canonicalized answers, written at first submit ([[7-application-boundary#5.4 Submit: authority, validation, idempotency]], Decisions Log #19).
+  - A retried submit recomputes the digest from its answers. A match returns the original receipt, and a mismatch is a conflict.
+  - There is no idempotency-key table, because the session is the key.
+  - The digest is a pure function of the stored `response` rows, so changing the canonical form later is a backfill. Don't fold anything that isn't persisted into it.
+- **Timestamps come from the application.** `startSession` and `markSubmitted` write `started_at`, `last_activity_at` and `submitted_at` themselves, as millisecond values. The `DEFAULT now()` writes microseconds, which don't match the millisecond cursor of the admin responses list (Decisions Log #88, #90). The schema doesn't enforce this, so a row that took the default could be skipped or repeated across a page boundary. This is a known gap ([gh#120](https://github.com/kenziesimpson/questionnaire-platform/issues/120)).
+- **Not partitioned.** Partitioning `session` would cost more than it gives.
+  - **Resume would be slower.** A respondent resuming has only a session id, with no date in it. A primary key on a partitioned table must include the partition key, so a lookup by `id` alone would check every partition instead of one.
+  - **`response` couldn't reference it.** A foreign key needs a unique constraint on its target, and that constraint would have to include the partition key. The pinned-version key from above could not exist.
+  - **The gain is small.** A session is one row per respondent, not one per answer, so the table grows slowly. Archiving old sessions is a move job, not a `DETACH`.
+
+### Responses
+
+```sql
+CREATE TABLE execution.response (
+  id                       uuid NOT NULL,
+  created_at               timestamptz NOT NULL,      -- no default; see Partitioning
+  session_id               uuid NOT NULL REFERENCES execution.session(id),
+  questionnaire_version_id uuid NOT NULL REFERENCES definition.questionnaire_version(id),
+  item_id                  text NOT NULL,
+  question_id              uuid NOT NULL,             -- what you aggregate on
+  question_version         int  NOT NULL,             -- what you render with
+  question_type            text NOT NULL,
+  text_value   text,
+  number_value numeric,
+  number_unit  text,
+  date_value   date,
+  option_ids   text[],
+  other_text   text,
+  PRIMARY KEY (id, created_at),
+  FOREIGN KEY (session_id, questionnaire_version_id)
+    REFERENCES execution.session (id, questionnaire_version_id),
+  CONSTRAINT response_shape CHECK (COALESCE(
+    CASE question_type
+      WHEN 'text' THEN text_value IS NOT NULL AND text_value <> ''
+        AND option_ids IS NULL AND number_value IS NULL AND date_value IS NULL AND other_text IS NULL
+      WHEN 'number' THEN number_value IS NOT NULL
+        AND text_value IS NULL AND option_ids IS NULL AND date_value IS NULL AND other_text IS NULL
+      WHEN 'date' THEN date_value IS NOT NULL
+        AND text_value IS NULL AND option_ids IS NULL AND number_value IS NULL AND other_text IS NULL
+      WHEN 'single_choice' THEN option_ids IS NOT NULL AND cardinality(option_ids) = 1
+        AND array_position(option_ids, NULL) IS NULL
+        AND text_value IS NULL AND number_value IS NULL AND date_value IS NULL
+      WHEN 'multiple_choice' THEN option_ids IS NOT NULL AND cardinality(option_ids) >= 1
+        AND array_position(option_ids, NULL) IS NULL
+        AND text_value IS NULL AND number_value IS NULL AND date_value IS NULL
+      ELSE false END, false)),
+  CONSTRAINT other_text_needs_other CHECK (
+    other_text IS NULL OR (option_ids IS NOT NULL AND 'other' = ANY(option_ids))),
+  CONSTRAINT number_unit_needs_value CHECK (number_unit IS NULL OR number_value IS NOT NULL)
+) PARTITION BY RANGE (created_at);
+```
+
+- **What a row holds.** The columns are what [[5-questionnaire-format#6.3 What a response stores]] specifies. `question_id` is what you aggregate on, `question_version` is what you render with, and `questionnaire_version_id` is the route to the snapshot. The value is stored in a form that doesn't depend on labels.
+- **Responses are write-once.** Rows are inserted at submit and never changed ([[#7. Roles and grants]]).
+
+**Why typed columns, not one `value jsonb`:**
+
+- **Counting choices is an index lookup.** "How many respondents chose `opt_diabetes`" can use a GIN index on `option_ids`, where a JSONB blob would need a sequential scan and a cast. This is future-proofing for response aggregation.
+- **Numbers keep their exact value and unit.** `numeric` doesn't round, unlike `double precision`, and it preserves scale, so the submit validator writes the canonical decimal (`72.5`, and `0` for `-0`). That keeps the stored value in agreement with the digest. `number_unit` sits beside it as its own column ([[12-decisions-log]] #12).
+- **An invalid shape can't be stored.** The `CASE` in `response_shape` does at the database layer what the branching types do in code ([[5-questionnaire-format#4.2 Conditions are typed per response type]]).
+- **`date_value` is a `date`, not a `timestamptz`.** A date question collects a calendar date, and a timezone would invent precision the respondent never gave.
+
+The cost is that a sixth response type is a migration, not a code change. At five types fixed by the brief, that is the right trade.
+
+### The `response_shape` check
+
+A `CHECK` passes when its expression is NULL, and NULL spreads through comparisons: `cardinality(NULL) = 1` is NULL, not false. So the obvious version of this check lets four bad rows through:
+
+| Attempted row | Why it slipped through |
+| --- | --- |
+| `single_choice` with `option_ids = NULL` | `cardinality(NULL) = 1` is NULL, so the check passes |
+| `multiple_choice` with `option_ids = NULL` | Same |
+| `single_choice` with `ARRAY[NULL]` | The cardinality is 1, and the element is never inspected |
+| `text` with `''` | `'' IS NOT NULL` is true |
+
+The fix is the outer `COALESCE(..., false)`, plus the explicit `IS NOT NULL`, `array_position(option_ids, NULL) IS NULL` and `text_value <> ''` guards. With them, all four are rejected and valid rows still insert.
+
+**One shape is left open: duplicate ids inside `option_ids`.** A `CHECK` can't contain a subquery, and de-duplicating an array needs one, so closing it in the database would take an `IMMUTABLE` helper function.
+
+- The application validates it instead. The submit validator already walks `option_ids` to check each id against the pinned question, so uniqueness is one more line there, and it returns a `422` naming the item (Decisions Log #34).
+- It only affects `multiple_choice`, because `single_choice` is capped at one element.
+- The harm is specific. `'opt_x' = ANY(option_ids)` still counts a row once, but `GROUP BY unnest(option_ids)`, the "how many chose each option" query, counts the duplicate twice.
+- Adding the helper later is one custom migration and no application change ([[2-design-doc#18. Future Work]]).
+
+### Foreign keys
+
+`response` has three: `session_id` to `session`, `questionnaire_version_id` to `questionnaire_version`, and the pair of them to the session's pin. Nothing else.
+
+- **The pair.** The two single-column keys hold independently, so a response on a session pinned to v1 could carry another questionnaire's version, or a draft's, and insert cleanly. `(session_id, questionnaire_version_id)` referencing `session (id, questionnaire_version_id)` means a response can't claim a version its session didn't pin (Decisions Log #49). The key stays inside `execution`.
+- **No key into authoring tables.** A foreign key on `(questionnaire_version_id, item_id)` into `questionnaire_item` would validate more, and Postgres allows it. It is left out because execution never reaches into an authoring table ([[7-application-boundary#2.1 What execution is structurally denied]]). `questionnaire_version` is what crosses the boundary, so a key to it fits. Whether an item or question version is valid is the submit-time rule engine's job, checked against the snapshot.
+
+### Partitioning
+
+`response` is range-partitioned monthly on `created_at`, with no `DEFAULT` partition.
+
+```sql
+CREATE TABLE execution.response_2026_09 PARTITION OF execution.response
+  FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
+-- ... one per month
+```
+
+- **Who creates partitions.** Migration `0004` creates 36 months from 2026-09. `ensureResponsePartitions` (`db/partitions.ts`) runs on every migrate and tops up 24 months ahead. An alert fires when fewer than one month remains ([[6-observability]]).
+- **A missed month fails loudly.** An insert with no partition is an error, which is recoverable. That is the point of having no default partition.
+
+**Why no default partition.** A default looks like cheap insurance against a missed month, but it breaks the two operations partitioning is for:
+
+- `DETACH PARTITION ... CONCURRENTLY` is refused while a default partition exists. Archiving ([[3-scaling#3. Problem: response ingest vs. reads]]) would then lock the hot table.
+- Attaching a new partition while the default holds rows in its range is a hard error. The rows have to be moved out first, under load.
+
+**`created_at` is set explicitly, never defaulted.** Submit uses one timestamp for `session.submitted_at` and for every response row's `created_at`.
+
+- All of a session's rows are therefore in one partition, because they share one literal value, not because `now()` happens to be transaction-scoped.
+- A read that knows the session's `submitted_at` can filter on it and touch a single partition.
+
+**There is no unique index on `(session_id, item_id)`.** A unique index on a partitioned table must contain the partition key, so it couldn't be global. One that only held within a partition would look like a guarantee without being one. The real guarantee is `FOR UPDATE` on the session row plus the `in_progress → submitted` transition, which makes a second write impossible.
+
+See Decisions Log #19, #34, #49, #88, #90.
+
+---
+
+## 5. Indexes
+
+Every index below exists for a named query or a named invariant.
+
+| Index | Serves |
+| --- | --- |
+| `questionnaire_one_draft` | The one-draft-per-questionnaire invariant. Not an access path. |
+| `questionnaire_version_number` | Looking up a version by number, and its uniqueness. |
+| `qv_addressable` | The published-only foreign keys ([[#2. `definition`]]). |
+| `vqi_reverse` | "Which published versions contain question X." |
+| `session` primary key | Resume, `GET /sessions/:sessionId`, a point lookup. |
+| `session_by_version` | "Sessions started against version N," for republishing and analytics. |
+| `session_by_questionnaire` and the two `submitted_asc`/`_desc` indexes | The admin responses list, keyset-paged by Started or by Submitted, in either direction. Two indexes are needed for Submitted because in-progress sessions have a `NULL` there, and a btree scanned backward reverses where `NULL`s sort — one index can't serve both directions. The full reasoning is in Decisions Log #90. |
+| `session_in_progress` (partial) | Abandonment analytics. Reserved; not yet read by application code. |
+| `session_pinned_version_key` | What `response`'s composite foreign key targets ([[#4. `execution`]]). An invariant, not an access path. |
+| `response_by_session` | Reporting reads over one session's answers, with partition pruning. |
+| `response_by_question` and `response_by_option` (GIN) | Per-question and per-option analytics. Reserved; not yet read by application code. |
+
+Deliberately **not** indexed:
+
+- **No GIN index on `snapshot`.** It's read whole, by design, and `version_question_index` already answers the one query that would otherwise want one.
+- **No index on `closes_at`.** It's checked on a row already fetched by primary key, and the questionnaire count is in the dozens.
+- **No index on `question.archived_at`.** Same reason: the bank is small, and the picker reads all of it.
+
+### Read and write patterns
+
+The two schemas have close to opposite profiles.
+
+- **`definition` — small, hot reads, rare careful writes.** Row counts are in the dozens to hundreds. Writes are multi-statement transactions with row locks ([[#3. Immutability and publish]]) and are optimized for correctness, not speed. Reads look hot but mostly aren't: starting a session reads `questionnaire` once and the published snapshot once, and after that the definition is held in an in-process cache that never needs invalidating ([[3-scaling#4. Problem: hot definition reads]]).
+- **`execution.response` — large, append-only, bulk writes, lagging reads.** One burst of rows per completed session, never updated or deleted. Reads are analytics: cross-session, tolerant of lag, and the first candidate for a read replica.
+- **`execution.session` — the only contended row, and only with itself.** A read-modify-write per session, point lookups by primary key, and a `FOR UPDATE` at submit. Two respondents never touch the same row.
+
+That split is why exactly one table is partitioned, exactly one column has a GIN index, and the concurrency budget is spent on the definition side.
+
+---
+
+## 6. `audit`
+
+> One append-only table, written through one function, by two roles.
+
+### The event table
+
+```sql
+CREATE TABLE audit.event (
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),  -- its own id
+  occurred_at              timestamptz NOT NULL DEFAULT now(),          -- its own timestamp
+  actor_type               text NOT NULL DEFAULT 'system',
+  actor_id                 text,
+  action                   text NOT NULL CHECK (action IN
+                             ('create_draft','edit_draft','publish','retire','reopen','archive_question','create_question_version','view_response')),
+  questionnaire_id         uuid,
+  questionnaire_version_id uuid,
+  version                  int,
+  summary                  jsonb,
+  trace_id                 text
+);
+CREATE INDEX audit_by_questionnaire ON audit.event (questionnaire_id, occurred_at DESC);
+```
+
+- **No foreign keys, and its own id and timestamp**, rather than reusing the domain row's. The plan is to eventually move this table to its own database behind a transactional outbox ([[6-observability#5.1 Isolation — separate schema with a restricted role]]), and a foreign key into `definition` would have to be dropped to do that.
+- **`trace_id`** links a row to the OpenTelemetry trace that produced it, without putting anything about a respondent's answers into either.
+
+### The actions
+
+| Action | Written when | Row also carries |
+| --- | --- | --- |
+| `create_draft` | A questionnaire's first draft is opened, or the next draft is copied from a published version | Questionnaire, new draft version |
+| `edit_draft` | `PUT /draft` replaces a draft's items | Questionnaire, draft version |
+| `publish` | A draft is promoted | Questionnaire, new published version |
+| `retire` | `closes_at` is set | Questionnaire |
+| `reopen` | `closes_at` is cleared | Questionnaire |
+| `archive_question` | A question is archived | Nothing in the questionnaire columns — a question isn't tied to one. In `summary`, the question id |
+| `create_question_version` | A question gets a new version | Same: `summary` holds the question id and its new version number |
+| `view_response` | An admin opens a session's raw answers | Questionnaire, the session's pinned version, and in `summary` the session id only — never an answer |
+
+Every row but the last is an authoring action, the kind an auditor would ask about. `view_response` is the one read that gets logged, because it's the one place a person, not a respondent, sees an answer.
+
+### Writing through `audit.record`
+
+An audit write has to satisfy two things that look like they conflict: it must go through a role dedicated to auditing, and it must be part of the same transaction as the change it records. A second connection could give the first and not the second.
+
+A `SECURITY DEFINER` function owned by that dedicated role, `audit_owner`, gives both. `qp_definition` calls `audit.record(...)`; the function runs with `audit_owner`'s privileges, in the caller's own transaction. This makes the table append-only, structurally: `qp_definition` holds no privilege on `audit.event` directly, only `EXECUTE` on a function that only ever inserts, so a rollback that undoes the domain change undoes the audit row with it.
+
+```sql
+CREATE FUNCTION audit.record(p_action text, p_qid uuid, p_qvid uuid, p_version int,
+                             p_actor_id text, p_summary jsonb, p_trace_id text)
+RETURNS uuid LANGUAGE sql SECURITY DEFINER SET search_path = audit, pg_temp AS $$
+  INSERT INTO audit.event (action, questionnaire_id, questionnaire_version_id,
+                           version, actor_id, summary, trace_id)
+  VALUES (p_action, p_qid, p_qvid, p_version, p_actor_id, p_summary, p_trace_id)
+  RETURNING id;
+$$;
+```
+
+- **`SET search_path = audit, pg_temp` is load-bearing.** A `SECURITY DEFINER` function without a pinned search path is a known Postgres privilege-escalation route: a caller could create a same-named object earlier on the path, and the function would run it with the owner's rights.
+- **`EXECUTE` on a new function is granted to `PUBLIC` by default.** Migration `0014` revokes it here, in the same sweep it applies to every function in `definition`, `execution` and `audit`, so `qp_definition`'s own grant is the only one left. `0020` later grants `qp_reporting` `EXECUTE` too, for `view_response` (Decisions Log #89).
+
+### One shape, for `qp_reporting`
+
+`qp_definition` can call `audit.record` with any of the eight actions, because it's the role that performs every authoring change. `qp_reporting` only ever needs to write one of them, `view_response`, but its `EXECUTE` grant on the same function would otherwise let it record any action with any payload too — there's no separate, narrower function for it to call instead.
+
+So migration `0022` adds a guard at the top of the function that applies only when `session_user = 'qp_reporting'`, and locks that role to exactly the one row shape it needs:
+
+| The row must have | Because |
+| --- | --- |
+| `action = 'view_response'` | It's the only action this role is allowed to record |
+| `summary` exactly `{"sessionId": "<uuid>"}` | No other field, and no other value, can go in it |
+| Questionnaire id, version id and version all set | A `view_response` row must name what was viewed |
+| `trace_id` null or 32 lowercase hex digits | The one valid form of an OpenTelemetry trace id |
+
+A row failing any of these raises `42501` before anything is written. `qp_definition` and any other caller are unaffected — the guard only ever runs for `qp_reporting`.
+
+- **`session_user`, not `current_user`.** Inside the function, `current_user` is always `audit_owner`, the owner, so it can't tell callers apart. `session_user` is the role the connection logged in as, and it doesn't change with `SET ROLE` or inside the function. This only holds because each role connects with its own credentials — a pooler that logged every caller in as one shared user would defeat the check.
+- **This is an allow-list for one role, not a deny-list for the rest.** Any other role granted `EXECUTE` later can record anything. A catalog test fails if a role other than `qp_definition`, `qp_reporting`, `audit_owner` or a superuser holds `EXECUTE`, so a new grantee has to be a deliberate decision.
+- **What it doesn't catch.** `actor_id` is free text the caller supplies, and the row's ids aren't checked to exist or belong together — `audit` has no foreign keys, by design. A compromised `qp_reporting` credential could still write a misleading row, though it could already read the answers it would be describing.
+
+See Decisions Log #89.
+
+---
+
+## 7. Roles and grants
+
+> Every table belongs to `qp_owner`. Four other roles connect from the application, each with only the privileges its job needs, and each enforced by a catalog test that fails if a grant drifts.
+
+### Identities
+
+```sql
+ALTER DATABASE questionnaire_platform OWNER TO qp_owner;
+GRANT audit_owner TO qp_owner WITH INHERIT FALSE;
+```
+
+| Role | Created by | Connects as |
+| --- | --- | --- |
+| Bootstrap superuser | `initdb`, at cluster creation | Only to run the roles script |
+| `qp_owner` | The roles script | The `migrate` service |
+| `qp_definition` | The roles script | The backend's authoring pool |
+| `qp_execution` | The roles script | The backend's execution pool |
+| `qp_reporting` | The roles script | The backend's reporting pool |
+| `qp_monitor` | The roles script, a member of `pg_monitor` | The observability collector, not the backend |
+| `audit_owner` | The roles script, `NOLOGIN` | Never — no password |
+
+- **Roles aren't created by a migration.** A migration is committed to git, so it can't hold a password, and roles belong to the Postgres server, not to one database, so a per-database migration is the wrong place for them regardless. They're created by a shell script, `db/init/01-roles.sh`, which reads each password from the environment and is safe to run again: every `CREATE ROLE` is guarded, so an existing cluster is left alone and its passwords are simply reset.
+- **The bootstrap superuser and `qp_owner` are different roles.** `initdb` makes the bootstrap user a superuser, and that isn't configurable. Making it `qp_owner` too would mean the identity that runs on every `docker compose up` also has cluster-wide power. `qp_owner` owns every object instead — enough to create and manage them — and never logs in as anything more.
+- **`qp_owner` needs `audit_owner`'s membership** because `ALTER ... OWNER TO` requires it, and `audit.event` and `audit.record` are owned by `audit_owner` ([[#6. `audit`]]). `WITH INHERIT FALSE` means `qp_owner` must `SET ROLE` to use it, rather than holding `audit_owner`'s privileges by default.
+
+### What each role can do
+
+```sql
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA definition TO qp_definition;
+REVOKE UPDATE ON definition.questionnaire_version, definition.questionnaire FROM qp_definition;
+GRANT  UPDATE (title, draft_revision, updated_at) ON definition.questionnaire_version TO qp_definition;
+GRANT  UPDATE (key, name, closes_at)              ON definition.questionnaire         TO qp_definition;
+GRANT  DELETE  ON definition.questionnaire_item TO qp_definition;
+GRANT  EXECUTE ON FUNCTION definition.promote_draft(uuid, jsonb) TO qp_definition;
+GRANT  EXECUTE ON FUNCTION audit.record(...)    TO qp_definition;
+
+CREATE VIEW definition.published_questionnaire_version WITH (security_barrier = true) AS
+  SELECT id, questionnaire_id, version, title, snapshot, format_version, published_at
+    FROM definition.questionnaire_version WHERE status = 'published';
+
+GRANT SELECT ON definition.questionnaire, definition.published_questionnaire_version,
+                definition.version_question_index TO qp_execution;
+GRANT SELECT, INSERT, UPDATE ON execution.session  TO qp_execution;
+GRANT SELECT, INSERT         ON execution.response TO qp_execution;
+
+GRANT SELECT ON execution.session, execution.response TO qp_reporting;
+GRANT SELECT ON definition.published_questionnaire_version TO qp_reporting;
+GRANT SELECT (id) ON definition.questionnaire TO qp_reporting;
+GRANT EXECUTE ON FUNCTION audit.record(...) TO qp_reporting;  -- restricted to view_response, §6
+```
+
+| Role | `definition` | `execution` | `audit` |
+| --- | --- | --- | --- |
+| `qp_definition` | Read and write every table. `UPDATE` on `questionnaire` and `questionnaire_version` is limited to the columns above — publishing happens only through `promote_draft`. `DELETE` on `questionnaire_item` only. | None. | `EXECUTE` on `audit.record`, unrestricted. |
+| `qp_execution` | Read `questionnaire`, `version_question_index`, and published versions through the view — never the base `questionnaire_version` table, which would expose drafts. | Read and write `session`. Read and insert `response`, never update or delete it. | None. |
+| `qp_reporting` | Read published versions through the same view, and only the `id` column of `questionnaire`. | Read `session` and `response`, nothing else. | `EXECUTE` on `audit.record`, restricted to `view_response` ([[#6. `audit`]]). |
+| `qp_monitor` | None. | None. | None. |
+| `qp_owner` | Owns everything. | Owns everything. | None — ownership of `audit` sits with `audit_owner`. |
+
+Three things worth calling out:
+
+- **`qp_definition` has no access at all to `execution.response`.** The authoring surface is not a way to read answer data. Likewise `qp_execution` and `qp_reporting` have no way to update or delete a response once it's written — collected answers are as immutable as published definitions, just enforced by a grant instead of a trigger.
+- **`qp_execution` reads through `published_questionnaire_version`, not the base table.** `SELECT` on `questionnaire_version` directly would also expose draft rows — their title, who created them, their revision counter — which execution should never see. The view is `security_barrier`, so a query can't smuggle a predicate past it to peek at a draft anyway.
+- **The only `DELETE` any application role holds is `qp_definition` on `questionnaire_item`**, needed to remove an item from a draft, and confined to drafts by the item trigger ([[#3. Immutability and publish]]). Nothing published, collected, or audited can be deleted through the application.
+
+`qp_reporting` exists because the admin responses browser needs to read across `definition` and `execution` without holding either role's write privileges. It is not `qp_execution` under another name, and not a wider `qp_definition` grant — it is `SELECT` only, on exactly the tables above, plus the one narrow write through `audit.record`.
+
+See Decisions Log #45, #48, #89.
+
+### `qp_monitor` and the `monitor` schema
+
+Telemetry needs to read the database's health without reading a respondent's answer. `qp_monitor` is a login role and a member of Postgres's built-in `pg_monitor` role, which gives it the statistics views — `pg_stat_statements`, `pg_stat_activity` and the rest — but not `pg_read_all_data`, so it can't read any application table.
+
+Where the statistics views aren't enough, `monitor` holds purpose-built functions instead of a wider grant:
+
+| Function | Returns | Reads |
+| --- | --- | --- |
+| `monitor.response_partition_months_ahead(as_of)` | How many months of `response` partitions exist ahead of `as_of`, with no gap | Only the partition boundaries in the catalog — no row of any table |
+
+- Each function is `SECURITY DEFINER`, owned by `qp_owner`, so it can see the catalog `qp_monitor` cannot, and its own `search_path` is pinned the same way `audit.record`'s is.
+- `qp_monitor` has `USAGE` on the schema and `EXECUTE` on its functions, and nothing else: no privilege on any table in `definition`, `execution` or `audit`.
+- `monitor.response_partition_months_ahead` backs the "partitions running low" alert ([[6-observability#8.1 The six alerts]]): a missing partition fails every submit, so it has to be caught before the current month runs out.
+
+See Decisions Log #78.
+
+---
+
+## 8. Migrations and seed
+
+> The schema is described in TypeScript, in `schema.ts`. `drizzle-kit generate` compares it against its own record of the database and writes a migration with just the difference: edit the TypeScript, get reviewable SQL, commit both. What follows is what doesn't fit that flow.
+
+### Migrations with no TypeScript to generate from
+
+- Drizzle's vocabulary is tables, columns, indexes and constraints. There's nothing to write in `schema.ts` that produces a trigger, a `SECURITY DEFINER` function, or a `GRANT`.
+- `drizzle-kit generate --custom` makes an empty, correctly numbered migration file to write that SQL into by hand.
+- It's a first-class migration, recorded as applied like any other — it just isn't derived from anything.
+- Most of this schema's guarantees arrived this way: the immutability triggers, `promote_draft`, the grants, `audit.record`.
+
+### Hand edits to a generated file
+
+Three lines, in two migrations, were written by hand into a file `drizzle-kit` generated, rather than as custom migrations, because neither can be asked for directly in Drizzle:
+
+| File | Hand-written line | What it does |
+| --- | --- | --- |
+| `drizzle/0000_schema.sql` | `PARTITION BY RANGE ("created_at")` | Makes `response` a partitioned table |
+| `drizzle/0000_schema.sql` | `DEFERRABLE INITIALLY IMMEDIATE` on `item_position_unique` | Lets a reorder defer the position-uniqueness check to end of transaction ([[#2. `definition`]]) |
+| `drizzle/0015_other_option_id_reserved.sql` | The `DO $$ ... RAISE EXCEPTION` block at the top | Stops the migration if an existing row would break the new rule (see [[#A migration that refuses existing data|below]]) |
+
+- `drizzle-kit`'s only memory of the database is a JSON snapshot it keeps for itself. It never inspects the real database, so a hand edit is invisible to it.
+- **This is why order mattered when they were written**, not an ongoing risk: generate the table first, so the snapshot is accurate, then add the hand-written line. Doing it the other way round would have made `drizzle-kit` try to create the table again from scratch.
+- Once committed, a migration is never edited or regenerated, so these lines don't move again. `apps/backend/README.md` has the safeguard anyway: a sha256 lock on every committed migration, and a test that fails if any of the three stop taking effect.
+
+### The circular foreign key, in migrations
+
+- `questionnaire` and `questionnaire_version` reference each other ([[#2. `definition`]]), so whichever table is created first, its target doesn't exist yet.
+- The constraint is added afterward, by `ALTER TABLE`.
+- In the Drizzle schema, the forward reference works because the foreign key is declared inside a callback passed as the table's third argument. Drizzle doesn't run that callback until every table in the module is defined, so by the time it runs, the reference resolves fine.
+
+### Partitions exist before a row needs one
+
+- An insert whose `created_at` falls in a month with no partition doesn't go anywhere sensible — it fails outright ([[#4. `execution`]]).
+- So partitions are created ahead of time rather than on demand.
+- A missing one is caught by `monitor.response_partition_months_ahead()` before it happens ([[#7. Roles and grants]]).
+
+### A migration that refuses existing data
+
+- `0015` narrows an option to be freeform only when its id is `other` ([[#2. `definition`]]).
+- A database written to before that rule existed might hold a row that breaks it.
+- Rather than silently changing what a published question version asked, the migration checks for such a row first and stops, naming it, before altering anything.
+- Every migration runs in one transaction, so a database that fails this check simply stays on `0014` and the backend doesn't start.
+- Nothing can repair the row in place — question versions are append-only and published ones are immutable. The fix for a development database is to reset it.
+
+### The seed publishes for real
+
+- The demo questionnaire can't be inserted already `published` — the immutability trigger refuses that outright, by design.
+- So the seed goes through the same path a real author would: create a draft, add items, publish.
+- That means every `docker compose up` exercises publish-time validation, the snapshot, `version_question_index`, and the audit record, and fails loudly if any of them are broken, before the API ever serves a request.
+- The seed's question and questionnaire ids are hardcoded, not generated, so the uuids printed in [[5-questionnaire-format#3. Serialization]] match a running database and can be queried directly. Everything downstream of the seed — sessions, responses — still gets generated ids normally.
+
+---
+
+## 9. Not built
+
+- **A `session_progress` table**, for the checkpoint endpoint that would let a respondent resume across devices ([[2-design-doc#18. Future Work]], Decisions Log #25). It's deferred, but shaped in advance so adding it stays additive: `session_progress (session_id PK → session, answers jsonb, revision int, updated_at)`.
+  - It's a separate table rather than a column on `session`, so a debounced write doesn't churn the row every other query reads.
+  - It would hold raw answers before submit, so `qp_definition` must be denied it, for the same reason it's denied `response`.
+- **Discarding a whole draft.** Removing one item from a draft already works — `qp_definition` holds `DELETE` on `questionnaire_item`, and the item trigger confines that to drafts ([[#3. Immutability and publish]], Decisions Log #45). Discarding the entire draft version doesn't exist yet. It would need `DELETE` on a `questionnaire_version` row in `draft` status, and a decision on whether that cascades to its items.
+
+---
+
+## 10. Alternatives considered
+
+| Considered | Instead | Why not |
+| --- | --- | --- |
+| One `value jsonb` column on `response` | A typed column per response type | See [[#4. `execution`]], "Why typed columns, not one `value jsonb`" |
+| Partitioning `session` the way `response` is partitioned | Point lookups by primary key | See [[#4. `execution`]], "Sessions" |
+| A `DEFAULT` partition on `response` | Pre-created monthly partitions | See [[#4. `execution`]], "Partitioning" |
+| A `question_option` registry table, to make option-id stability a foreign key | The editor copies ids forward, unenforced | It reads as enforcement without being it: the application would insert rows on demand, so nothing distinguishes a relabelled option from a newly minted id |
+| Deleting a version's item rows once it's published | Keeping them | See [[#2. `definition`]] — the next draft is copied from item rows, not the snapshot. Reconstructing rows from the snapshot instead would mean a bug there produces a wrong *next version*, not just stale admin data |
+| Narrower grants on `qp_definition` instead of a `SECURITY DEFINER` function, for audit | `audit.record` | [[#Narrower grants instead of a `SECURITY DEFINER` function|Below]] |
+| Naming the current version by number instead of by id | `current_version_id` paired with `current_version` | [[#Naming the current version by number instead of by id|Below]] |
+| An `IMMUTABLE` helper to close duplicate `option_ids` | The application validator | [[#An `IMMUTABLE` helper to close duplicate `option_ids`|Below]] |
+
+### Narrower grants instead of a `SECURITY DEFINER` function
+
+- The simpler option: grant `qp_definition` `INSERT` and `SELECT` on `audit.event` directly, and never grant `UPDATE` or `DELETE`. That alone satisfies "append-only" and "same transaction."
+- Not adopted, because `audit.record` ([[#6. `audit`]]) does strictly better for the same effort: `qp_definition` ends up with **no** privilege on the table at all, not just a narrowed one.
+- The function is also the seam a future outbox would sit behind. Narrowed grants would have to be replaced later; the function wouldn't.
+
+### Naming the current version by number instead of by id
+
+- `questionnaire.current_version_id` and `current_version` together point at a row. An alternative: drop `current_version_id`, and match `(questionnaire_id, current_version)` against `questionnaire_version_number` instead — the unique index that already exists on `(questionnaire_id, version)`.
+- This gives the same published-only guarantee from one column instead of two, and removes the `current_version_pair` check.
+- Not adopted: every other reference to a version in this schema — `session`, `response`, `questionnaire_item`, `version_question_index` — names it by uuid. This would be the one pointer that names it by number instead, which is an inconsistency a reader has to carry. Worth revisiting only if the schema grows a second number-keyed reference.
+
+### An `IMMUTABLE` helper to close duplicate `option_ids`
+
+- [[#4. `execution`]] leaves one shape open: nothing in the database stops `option_ids` from holding the same id twice. The application validator checks it instead.
+- A database-level close is possible:
+
+  ```sql
+  CREATE FUNCTION execution.no_dupes(a text[]) RETURNS boolean
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE AS
+  $$ SELECT cardinality(a) = (SELECT count(DISTINCT e) FROM unnest(a) e) $$;
+  ```
+
+  used as `AND execution.no_dupes(option_ids)` on the `multiple_choice` branch of `response_shape`.
+- Not adopted (Decisions Log #33): it's a permanent schema object whose only job is one subquery, guarding a shape the respondent-facing UI can't produce anyway, while the application already walks the same array to check option membership.
+- If this is picked up later: the function has to be created before the constraint that calls it — in `drizzle-kit` terms, both in the same `--custom` migration, function first. And it needs an explicit `GRANT EXECUTE ... TO qp_execution`: `PUBLIC`'s default `EXECUTE` on new functions is already revoked schema-wide ([[#7. Roles and grants]]), so the grant isn't optional the way it once would have been.
+
+---
+
+## Appendix
+
+### A. `definition`
+
+```sql
+CREATE TABLE definition.question (
+  id          uuid PRIMARY KEY,
+  key         text UNIQUE,
+  archived_at timestamptz,                   -- archived, never deleted
+  created_at  timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE definition.question_version_option (
@@ -230,20 +808,7 @@ CREATE TABLE definition.question_version_option (
   UNIQUE (question_id, version, position),
   CONSTRAINT freeform_exactly_when_other CHECK (freeform = (option_id = 'other'))
 );
-```
 
-There is no `yes_no` type. A yes/no question is a `single_choice` with two options, created by an editor
-template that seeds the reserved ids `yes` / `no` with editable labels — one storage shape and one operator
-set, per Decisions Log #36 (superseding #10). Nothing in the schema enforces `yes` / `no`; see the note
-on option-id stability below, which is the same tier of guarantee. The id `other` is enforced, by the check below.
-
-`freeform_exactly_when_other` closes a gap between the boolean and the format doc. [[5-questionnaire-format#2.3 The `other` option]] reserves the id `other` for the freeform option, and rules test it by name. A bare `freeform boolean` would allow `opt_misc` to be marked freeform, an option that can never carry `otherText` because the response-side constraint keys on the literal `other`. It would also allow a plain option under `other`, which the response-side constraint would let carry `otherText`. The check makes an option freeform exactly when its id is `other`, both ways (Decisions Log #83). Because every freeform row then has the id `other`, the primary key allows at most one per version. That is now the only thing holding that invariant: if `freeform_exactly_when_other` is ever relaxed, for example to allow a second freeform id, restore `qvo_one_freeform`, because the primary key alone does not limit freeform options. Migration `0015` dropped the partial unique index `qvo_one_freeform` that enforced this before. On a database that already holds a row breaking the check, `0015` stops before changing anything and names the row, because no migration may rewrite a question version; the backend README's "Migrations that refuse existing data" gives the recovery.
-
-**On option-id stability.** [[5-questionnaire-format#2.1 Option ids are stable across question versions]] guarantees option ids survive a version bump. An earlier draft of this schema added a `question_option (question_id, option_id)` registry so that guarantee would be a foreign key. It was dropped, because it does not deliver it: the application inserts into the registry on demand, so nothing distinguishes "renamed an option's label" from "minted a new id". A table that looks like an enforcement mechanism without being one is worse than no table. Stability is preserved by the editor copying ids forward into version N+1, and proven by the v2 demo test — which is exactly the role [[8-testing#3. Required coverage — the graded list]] already assigns it.
-
-### 3.3 Items and the reverse index
-
-```sql
 CREATE TABLE definition.questionnaire_item (
   questionnaire_version_id uuid NOT NULL REFERENCES definition.questionnaire_version(id),
   item_id                  text NOT NULL,
@@ -269,785 +834,3 @@ CREATE TABLE definition.version_question_index (   -- derived; rebuildable from 
 );
 CREATE INDEX vqi_reverse ON definition.version_question_index (question_id, question_version);
 ```
-
-The foreign key on `(question_id, question_version)` is the pin from [[5-questionnaire-format#6.2 Question identity and versioning]] made physical: an item cannot reference a question version that does not exist, and because question versions are never deleted it can never dangle.
-
-**`item_position_unique` has to be `DEFERRABLE`.** Dragging item 3 above item 1 is a set of position updates that is unique only once the statement finishes. A non-deferrable constraint forces either a negative-position shuffle or a carefully ordered sequence of updates in the repository — both of which are workarounds for a constraint that is simply being checked too early. Declared `INITIALLY IMMEDIATE` so ordinary writes behave normally, with `SET CONSTRAINTS ... DEFERRED` inside the reorder transaction only.
-
-**Item rows are kept after publish**, not deleted. That keeps "the next draft is an explicit copy of the latest published version" ([[5-questionnaire-format#6.1 Questionnaire versions]]) an `INSERT ... SELECT` with no snapshot-deserialize path to get wrong, and it stays inside [[2-design-doc#3. Constraints]]. The snapshot stays authoritative; the item rows are a normalized mirror, useful for admin diffing and for the invariant check that re-serializes them and compares.
-
-## 4. Immutability in the data layer
-
-[[5-questionnaire-format#6.4 Three layers of immutability enforcement]] names the database as layer one. This is that layer.
-
-```sql
-CREATE FUNCTION definition.reject_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  RAISE EXCEPTION 'row is published and immutable' USING ERRCODE = 'QP001';
-END $$;
-
-CREATE TRIGGER qv_immutable_update BEFORE UPDATE ON definition.questionnaire_version
-  FOR EACH ROW WHEN (OLD.status = 'published') EXECUTE FUNCTION definition.reject_mutation();
-CREATE TRIGGER qv_immutable_delete BEFORE DELETE ON definition.questionnaire_version
-  FOR EACH ROW WHEN (OLD.status = 'published') EXECUTE FUNCTION definition.reject_mutation();
-CREATE TRIGGER qv_immutable_insert BEFORE INSERT ON definition.questionnaire_version
-  FOR EACH ROW WHEN (NEW.status = 'published') EXECUTE FUNCTION definition.reject_mutation();
-```
-
-The promoting `UPDATE` at publish is allowed, because the trigger is evaluated against `OLD.status = 'draft'`. That is also why the triggers alone do not make publish the only way to a published row — §4.3 is the part that does.
-
-**The `INSERT` trigger closes the shortcut §11.6 rules out.** Without it, a row inserted already `published` with a complete snapshot satisfies `version_state`; only its items are refused, by §4.1's guard. Reproduced against a live database as `qp_definition`. With it, a published row exists only by promoting a draft in place (Decisions Log #8, #46).
-
-**The `DELETE` trigger is an addition to what §6.4 specifies.** That section describes a trigger on `UPDATE` only. Deleting a published version destroys the definition that historical responses are rendered against — the same failure the `UPDATE` trigger exists to prevent, reached by a different verb, and now also a violation of the general rule in [[2-design-doc#3. Constraints]].
-
-Question versions take the blunt form: a trigger rejecting every `UPDATE` and `DELETE` on `question_version` and `question_version_option`, unconditionally. That is what append-only means when it is a database guarantee rather than a repository convention.
-
-### 4.1 The item guard, and the two ways it fails naively
-
-Item rows need their own guard keyed on the parent's status, or a published version's items remain editable behind the version row's back.
-
-```sql
-CREATE FUNCTION definition.reject_item_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE parent_status text;
-BEGIN
-  IF TG_OP = 'UPDATE' AND NEW.questionnaire_version_id <> OLD.questionnaire_version_id THEN
-    RAISE EXCEPTION 'items cannot be reparented' USING ERRCODE = 'QP001';
-  END IF;
-  SELECT status INTO parent_status FROM definition.questionnaire_version
-   WHERE id = COALESCE(NEW.questionnaire_version_id, OLD.questionnaire_version_id)
-   FOR SHARE;
-  IF parent_status = 'published' THEN
-    RAISE EXCEPTION 'questionnaire version is published and immutable' USING ERRCODE = 'QP001';
-  END IF;
-  RETURN COALESCE(NEW, OLD);
-END $$;
-
-CREATE TRIGGER item_immutable BEFORE INSERT OR UPDATE OR DELETE ON definition.questionnaire_item
-  FOR EACH ROW EXECUTE FUNCTION definition.reject_item_mutation();
-```
-
-Both defensive lines exist because the obvious version of this trigger fails, and both failures were reproduced against a live database before the fix:
-
-- **`FOR SHARE`, not a bare `SELECT`.** Without the lock the trigger is a time-of-check/time-of-use race. A publish transaction reads the items, writes the snapshot and flips status; a second connection inserts another item half a second later, sees `draft` because the publish is still uncommitted, and commits. Result: a published version whose snapshot lists one item and whose item rows number two, with no error raised anywhere. That is precisely the drift keeping item rows is supposed not to cause. `FOR SHARE` makes the trigger block behind the in-flight publish and re-read after it commits, at which point the insert is correctly rejected.
-- **The reparent check.** Without it, `UPDATE questionnaire_item SET questionnaire_version_id = <draft> WHERE questionnaire_version_id = <published>` succeeds: the trigger only ever inspects one of the two parents, so an item walks out of a published version.
-
-**Ordering requirement on publish.** `version_question_index` must be written and any item work finished *before* status flips, or the publishing transaction trips this guard. `definition.promote_draft` (§4.3) does both in that order, so no repository code has to remember it.
-
-Deleting an item is part of editing a draft, so `qp_definition` holds `DELETE` on `questionnaire_item` and on no other table (§10, Decisions Log #45). This guard is what bounds it: a `DELETE` whose parent is published is `QP001`.
-
-### 4.2 `QP001`
-
-A custom SQLSTATE, verified to reach the client intact through `pg`. It is mapped to `409` in one place in the Fastify error handler, so layer one and layer two of the immutability story ([[7-application-boundary#6.2 Status codes]]) cannot disagree about what happened — the API returns a `409` because the database said `QP001`, not because a service-layer check happened to run first.
-
-### 4.3 Publishing goes through `definition.promote_draft`
-
-The triggers stop a published row from changing. They did not stop a draft from being promoted by something
-other than publish: `qp_definition` could flip a draft to `published` with one `UPDATE` carrying any
-snapshot, and move the current-version pointer to it with a second, leaving no validation and no
-`version_question_index` rows. Reproduced against a live database.
-
-So promotion is a `SECURITY DEFINER` function, the same shape §9.1 uses for audit:
-
-- `qp_definition` holds column-level `UPDATE` only on the columns editing a draft needs (§10). Status,
-  version, snapshot, `format_version`, `published_at` and the pointer pair are not writable by it.
-- `definition.promote_draft(version_id, snapshot)` is owned by `qp_owner`, runs with
-  `SET search_path = definition, pg_temp`, and is executable by `qp_definition` alone. It locks the
-  version row and requires a draft (`QP001` otherwise); requires the snapshot to name this questionnaire,
-  its next version number and exactly the draft's item rows — item ids, pinned question versions, in
-  position order (`22023` otherwise); writes `version_question_index` from the item rows; promotes with
-  `WHERE status = 'draft'`; and moves the pointer.
-- **The audit row is not the function's.** `publishDraft` writes it straight after, through the one
-  repository function that calls `audit.record` (§9.1), as `qp_definition` and in the same transaction, so
-  a failed audit write rolls the promotion back and a publish cannot commit without its record
-  ([[6-observability#5.1 Isolation — separate schema with a restricted role]]).
-
-**Validation stays in the application.** Publish-time validation ([[5-questionnaire-format#5. Publish-time validation]])
-is `validateDraft` in `@qp/shared` — the same function `POST /draft/validate` calls — and cannot move into
-SQL without becoming a second implementation. `publishDraft` takes the §5 locks, serializes the draft, runs
-it, and only then calls the function. The snapshot check is what makes that split safe: the function cannot
-judge a predicate, but it refuses a snapshot whose structure is not the draft it is promoting, so skipping
-validation cannot publish an item list the item rows do not already hold.
-
-The residual, stated: code holding `qp_definition` can still publish a draft that skipped validation, or
-whose prompts and predicates were serialized wrongly — and, because the function does not audit, it can call
-`promote_draft` directly and publish **without an audit row**. That last one was accepted deliberately
-(Decisions Log #51). Auditing from inside the function would have meant granting its owner, `qp_owner`, a path
-into `audit`, reversing §9.1's arrangement that the migration identity has none; making `audit_owner` own the
-function instead would turn the audit role into a definition-writing role, and the `audit` schema is kept
-audit-only so it stays extractable behind the outbox. What the function guarantees is narrower and structural
-— no published row without its index rows and pointer, and no snapshot that disagrees with the item rows it
-was built from. Audit completeness for publish rests on `publishDraft` being the only caller, as it does for
-every other authoring action.
-
-## 5. Concurrency control
-
-[[2-design-doc#11. Backend]] owes an answer here and the brief lists it as a design-defense topic. Three races exist; all three were reproduced with two concurrent connections before being fixed, and all three are fixed by taking the right row lock first rather than by retry logic.
-
-| Race | What happens without the lock | Fix |
-| --- | --- | --- |
-| Two publishes of the same draft | Safe already. `promote_draft` re-reads the version row under its own lock and refuses anything but a draft, and its promoting `UPDATE ... WHERE status = 'draft'` is a compare-and-swap behind the partial unique index | — |
-| Publish vs. create-next-draft | B reads "latest published = v1" while A's publish to v2 is uncommitted, then creates a draft copied from v1. Both commit. Publishing that draft as v3 silently reverts v2, and neither transaction errors | `SELECT ... FROM definition.questionnaire WHERE id = $1 FOR UPDATE` as the **first** statement of publish, create-draft and retire |
-| Two edits to the same question | Both compute `version = max + 1 = 3`; the loser gets a raw `23505` from the primary key | `SELECT ... FROM definition.question WHERE id = $1 FOR UPDATE` before computing the next version. Map `23505` on that path to `409` regardless |
-
-The middle row is the dangerous one: it is the only failure here that corrupts state rather than raising an error, and it produces a questionnaire whose published history silently loses a version.
-
-Publish also takes `FOR UPDATE` on the version row before reading items, which is what makes §4.1's `FOR SHARE` in the item trigger block rather than read stale status. The full publish order is: the questionnaire row, then the draft version row, then read, serialize and validate in the application, then `promote_draft` (§4.3), whose own `FOR UPDATE` on the version row is already held and so adds no wait, then the audit row.
-
-## 6. `execution`
-
-```sql
-CREATE TABLE execution.session (
-  id                       uuid PRIMARY KEY,          -- v4: bearer capability
-  questionnaire_id         uuid NOT NULL,
-  questionnaire_version_id uuid NOT NULL,
-  version                  int  NOT NULL,
-  status                   text NOT NULL CHECK (status IN ('in_progress','submitted')),
-  started_at               timestamptz NOT NULL DEFAULT now(),
-  last_activity_at         timestamptz NOT NULL DEFAULT now(),
-  submitted_at             timestamptz,
-  response_digest          bytea,
-  FOREIGN KEY (questionnaire_id, questionnaire_version_id, version)
-    REFERENCES definition.questionnaire_version (questionnaire_id, id, version),
-  CONSTRAINT session_state CHECK (
-    (status='in_progress' AND submitted_at IS NULL     AND response_digest IS NULL)
- OR (status='submitted'   AND submitted_at IS NOT NULL AND response_digest IS NOT NULL))
-);
-CREATE INDEX session_by_version  ON execution.session (questionnaire_version_id, started_at);
-CREATE INDEX session_by_questionnaire ON execution.session (questionnaire_id, started_at, id);
-CREATE INDEX session_by_questionnaire_submitted_asc  ON execution.session (questionnaire_id, submitted_at, id);
-CREATE INDEX session_by_questionnaire_submitted_desc ON execution.session (questionnaire_id, submitted_at DESC NULLS LAST, id DESC NULLS FIRST);
-CREATE INDEX session_in_progress ON execution.session (questionnaire_id, last_activity_at)
-  WHERE status = 'in_progress';
-```
-
-`status` and `session_state` together make `in_progress → submitted` the only lifecycle the table can express, matching [[7-application-boundary#5.3 Session lifecycle]]. Abandonment is the absence of a submit, so it has no column.
-
-`started_at` and `last_activity_at` carry `DEFAULT now()`, which writes microseconds, while the admin responses list's cursor carries a millisecond `Date` (Decisions Log #88, #90). The two agree only because the application writes both timestamps itself, as millisecond `Date`s, in `db/execution/sessions.ts` (`startSession`) and `db/execution/submit.ts` (`markSubmitted`); the schema does not enforce it, and a row that took the default can be skipped or repeated across a page boundary. This is a known bug, tracked in [issue #120](https://github.com/kenziesimpson/questionnaire-platform/issues/120) and deliberately not fixed with the sorting change.
-
-`response_digest` is the idempotency mechanism from Decisions Log #19 — SHA-256 over the canonicalized answers, written at first submit. There is no separate idempotency-key table because the session *is* the key.
-
-The canonical form is specified in [[7-application-boundary#5.4 Submit: authority, validation, idempotency]] and is a **pure function of the `response` rows for that session** — every field it reads (`item_id`, `question_type`, the value columns, `option_ids`, `other_text`) is stored. That is deliberate and is the property to preserve: it makes a later change to the canonicalization a backfill (`UPDATE session SET response_digest` recomputed from the rows) rather than an irreversible choice. Do not fold anything unpersisted into the digest.
-
-The composite foreign key is §3.1's published-only guard.
-
-**Sessions are not partitioned.** They are point-looked-up by primary key on the resume path, and a partitioned table queried without its partition key scans every partition. Archiving old sessions is a move job, not a `DETACH`.
-
-### 6.1 `response`
-
-```sql
-CREATE TABLE execution.response (
-  id                       uuid NOT NULL,
-  created_at               timestamptz NOT NULL,      -- no default; see §6.3
-  session_id               uuid NOT NULL REFERENCES execution.session(id),
-  questionnaire_version_id uuid NOT NULL REFERENCES definition.questionnaire_version(id),
-  item_id                  text NOT NULL,
-  question_id              uuid NOT NULL,             -- what you aggregate on
-  question_version         int  NOT NULL,             -- what you render with
-  question_type            text NOT NULL,
-  text_value   text,
-  number_value numeric,
-  number_unit  text,
-  date_value   date,
-  option_ids   text[],
-  other_text   text,
-  PRIMARY KEY (id, created_at),
-  CONSTRAINT response_shape CHECK (COALESCE(
-    CASE question_type
-      WHEN 'text' THEN text_value IS NOT NULL AND text_value <> ''
-        AND option_ids IS NULL AND number_value IS NULL AND date_value IS NULL AND other_text IS NULL
-      WHEN 'number' THEN number_value IS NOT NULL
-        AND text_value IS NULL AND option_ids IS NULL AND date_value IS NULL AND other_text IS NULL
-      WHEN 'date' THEN date_value IS NOT NULL
-        AND text_value IS NULL AND option_ids IS NULL AND number_value IS NULL AND other_text IS NULL
-      WHEN 'single_choice' THEN option_ids IS NOT NULL AND cardinality(option_ids) = 1
-        AND array_position(option_ids, NULL) IS NULL
-        AND text_value IS NULL AND number_value IS NULL AND date_value IS NULL
-      WHEN 'multiple_choice' THEN option_ids IS NOT NULL AND cardinality(option_ids) >= 1
-        AND array_position(option_ids, NULL) IS NULL
-        AND text_value IS NULL AND number_value IS NULL AND date_value IS NULL
-      ELSE false END, false)),
-  CONSTRAINT other_text_needs_other CHECK (
-    other_text IS NULL OR (option_ids IS NOT NULL AND 'other' = ANY(option_ids))),
-  CONSTRAINT number_unit_needs_value CHECK (number_unit IS NULL OR number_value IS NOT NULL)
-) PARTITION BY RANGE (created_at);
-```
-
-The columns are [[5-questionnaire-format#6.3 What a response stores]] directly: `question_id` to aggregate on, `question_version` to render with, `questionnaire_version_id` as the route to the snapshot, and the value in a form that does not depend on labels.
-
-**Typed columns rather than one `value jsonb`.** Three reasons, in order of weight:
-
-1. `option_ids` with a GIN index makes "how many respondents chose `opt_diabetes`" an index scan. That is the commonest analytics query this domain has, and a JSONB blob answers it with a sequential scan and a cast.
-2. `numeric` plus `number_unit` expresses Decisions Log #12 as two columns rather than as a convention about the shape of a document. `numeric` and not `double precision`: an evidentiary record should not round. `numeric` also preserves the scale of its input (`'72.50'` reads back as `72.50`), so the submit validator writes the canonical decimal (`72.5`; `-0` as `0`) and the stored value agrees with the answer digest ([[7-application-boundary#5.4 Submit: authority, validation, idempotency]]).
-3. The `CASE` makes an invalid answer shape unrepresentable — the same move the branching design makes in the type system ([[5-questionnaire-format#4.2 Conditions are typed per response type]]), applied one layer down.
-
-`date_value` is `date` rather than `timestamptz` because a date question collects a calendar date; giving it a timezone would invent precision the respondent never supplied.
-
-The cost of typed columns, stated: a seventh response type is a migration rather than a code change. That is the right trade at five types that are enumerated in the brief and unlikely to grow during the prototype.
-
-### 6.2 `COALESCE(..., false)` is load-bearing
-
-A `CHECK` constraint passes when its expression evaluates to NULL, and NULL propagates through comparisons. `cardinality(NULL) = 1` is NULL, not false.
-
-Without the `COALESCE` wrapper and the explicit `IS NOT NULL` guards, every one of these inserts cleanly — verified:
-
-| Attempted row | Why it slipped through |
-| --- | --- |
-| `single_choice` with `option_ids = NULL` | `cardinality(NULL) = 1` → NULL → check passes |
-| `multiple_choice` with `option_ids = NULL` | same |
-| `single_choice` with `ARRAY[NULL]` | cardinality is 1; the element is never inspected |
-| `text` with `''` | `'' IS NOT NULL` is true |
-
-A choice answer with no choice in it is the exact shape the constraint exists to forbid. With the wrapper, `array_position(option_ids, NULL) IS NULL` and `text_value <> ''`, all four are rejected and valid rows still insert — both directions tested.
-
-Duplicate ids *within* `option_ids` are the one shape this constraint does not close. A `CHECK` may not
-contain a subquery, and de-duplicating an array needs one (`SELECT count(DISTINCT e) FROM unnest(a) e`) —
-Postgres has no core array-distinct operator — so the only inline form is an `IMMUTABLE` helper function
-wrapping that subquery.
-
-**Decided: the application validates this, the database does not** ([[12-decisions-log]] #34,
-under the simplicity principle #33). The submit validator already walks `option_ids` to check every id
-against the pinned question version's options, so uniqueness is one line beside a walk that has to happen
-regardless, and it returns a `422` naming the item rather than a constraint violation. The rejected helper
-is written up in §13.8 and carried as [[2-design-doc#18. Future Work]]; adding it later is one custom
-migration and no application change.
-
-Two things worth stating rather than leaving implied. The scope is narrower than it looks: `single_choice` is
-`cardinality(...) = 1`, so a duplicate is unrepresentable there and only the `multiple_choice` branch is
-affected. And the harm is specific rather than general — a containment query
-(`'opt_x' = ANY(option_ids)`) still counts the row once, but `GROUP BY unnest(option_ids)`, which is the
-shape of the "how many chose each option" query §6.1 justifies this column with, counts the duplicate
-twice.
-
-### 6.3 Which foreign keys, and why not more
-
-`session_id`, `questionnaire_version_id`, and the pair of them checked against the session's pin — nothing else.
-
-**The pair is checked against the session.** The two single-column keys hold independently, so a response on a session pinned to v1 could carry another questionnaire's version, or a draft's, and insert cleanly — reproduced as `qp_execution`. `response (session_id, questionnaire_version_id)` therefore references `session (id, questionnaire_version_id)`, made referenceable by `session_pinned_version_key`, so a response cannot claim a version its session did not pin ([[12-decisions-log]] #49). The key stays inside `execution`, so it reaches into no authoring table. The two single-column keys stay: they are now implied, and keeping them is cheaper than re-arguing this section.
-
-An FK on `(questionnaire_version_id, item_id)` into `questionnaire_item` would validate more, and a partitioned table referencing a regular table is allowed (verified). It is omitted on purpose: `questionnaire_item` is an authoring table, and [[7-application-boundary#2.1 What execution is structurally denied]] says execution never reaches into one. `questionnaire_version` is the artifact that *crosses* the boundary, so a foreign key to it is consistent with the model; item and question-version validity are the submit-time rule engine's job against the snapshot, which is already the authority ([[7-application-boundary#5.4 Submit: authority, validation, idempotency]]).
-
-This is a case where the stricter database and the stated architecture disagree, and the architecture wins — otherwise the first thing a service split would have to do is drop a constraint we had just finished defending.
-
-### 6.4 Partitioning
-
-Monthly `RANGE (created_at)`, **no `DEFAULT` partition**, with 24–36 partitions pre-created by the migration.
-
-```sql
-CREATE TABLE execution.response_2026_09 PARTITION OF execution.response
-  FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
--- ... one per month
-```
-
-**The absence of a default partition is deliberate, not an oversight.** A default partition looks like cheap insurance against a missed rollover. It costs both of the operations partitioning exists for, and both were verified:
-
-- `ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY` is refused outright while a default partition exists (`55000 cannot detach partitions concurrently when a default partition exists`). That turns [[3-scaling#3. Problem: response ingest vs. reads]]'s archival lever into an operation that takes `ACCESS EXCLUSIVE` on the hot table.
-- Attaching a new partition while the default holds rows matching its range is not a slow scan, it is a hard error (`23514 updated partition constraint for default partition ... would be violated by some row`). The rows have to be moved out first, under load, which is the worst possible time.
-
-Pre-created partitions plus a documented rollover task is the honest prototype answer; `pg_partman` or a scheduled job is the production one. A missed rollover then fails the insert loudly, which is recoverable, rather than quietly filling a default partition that later blocks the fix.
-
-**`created_at` is set explicitly, never defaulted.** Submit computes `session.submitted_at = now()` and inserts every response row with `created_at` set to that same value. Two things follow:
-
-- Every response for a session is provably in one partition, because they share one literal value rather than relying on `now()` happening to be transaction-scoped.
-- The idempotent replay path reads `WHERE session_id = $1 AND created_at = $submitted_at`, which prunes to a single partition — verified: `Index Scan using response_2026_09_session_id_created_at_idx`, one partition touched.
-
-There is deliberately **no unique index on `(session_id, item_id)`**. It could not be global on a partitioned table anyway — a unique index must contain the partition key — and a `(session_id, item_id, created_at)` index that only holds within a partition would look like a guarantee while being one. The actual guarantee is the `FOR UPDATE` on the session row plus the `in_progress → submitted` transition, which makes a second write impossible. One guarantee that holds beats two where one is decorative.
-
-## 7. Indexing strategy
-
-Every index below exists for a named query or a named invariant. Nothing is indexed speculatively.
-
-| Index | Serves |
-| --- | --- |
-| `questionnaire_one_draft` | the one-draft invariant; not an access path |
-| `questionnaire_version_number` | version lookup by number, and uniqueness of it |
-| `qv_addressable` | §3.1's published-only foreign keys |
-| `vqi_reverse` | "which published versions contain question X" ([[2-design-doc#Authoring vs published]]) |
-| `session` PK | resume — `GET /sessions/:sessionId`, a point lookup |
-| `session_by_version` | "sessions started against version N", for the republish story and analytics |
-| `session_by_questionnaire (questionnaire_id, started_at, id)` | the admin responses list sorted by Started (Decisions Log #88, #90): one questionnaire's sessions in either direction, paged by keyset. `started_at` is `NOT NULL`, so this one index is scanned forward for ascending and backward for descending, and its backward scan is the previous page. The predicate is the row comparison `(started_at, id) < ($1, $2)`, which a btree seeks to directly; the equivalent `OR` form is only a filter and re-walks every earlier page |
-| `session_by_questionnaire_submitted_asc (questionnaire_id, submitted_at, id)` and `session_by_questionnaire_submitted_desc (questionnaire_id, submitted_at DESC NULLS LAST, id DESC NULLS FIRST)` | the same list sorted by Submitted (Decisions Log #90, migration `0019`). The `NULLS FIRST` on `id` in the descending index is what the migration and `schema.ts` emit, and it is immaterial: `id` is `NOT NULL`. In-progress sessions have a `NULL` `submitted_at` and sort last in both directions, so the order is `(submitted_at NULLS LAST, id)` ascending or descending. **Two indexes, not one, because a btree scanned backward reverses its `NULL` placement:** the default index serves ascending-`NULLS LAST` forward and descending-`NULLS FIRST` backward, and descending-`NULLS LAST`, with its own reverse for the previous page, needs the second definition. One index would serve both only under `NULLS FIRST` for descending, which puts every unfinished session above the newest submission. The cost is two more entries per session insert and per submit, on a submit `UPDATE` that was already not heap-only. Row comparison does not work over a `NULL`, so the keyset is explicit: `(submitted_at, id) > ($1, $2)` for the non-null run, then `submitted_at IS NULL`, and inside the tail `submitted_at IS NULL AND id > $2`, each an `Index Cond` on these indexes; backward paging from the tail adds `submitted_at IS NOT NULL`. A page that needs both segments reads them in one `REPEATABLE READ` read-only transaction, and a `status` filter removes the segment it makes impossible (`submitted` sessions are the non-null run, `in_progress` ones the `NULL` tail), so a filtered page is one statement and no transaction; the cursor-less first page under `status=in_progress` is the `submitted_at IS NULL` statement too, which is what keeps it a seek to the tail instead of a walk of the submitted run. **None of the three indexes carries `status` or `version`, so both are post-filters on the scan;** what that costs, measured, is in Decisions Log #90 |
-| `session_in_progress` (partial) | abandonment analytics; partial because submitted sessions are the majority and are never the subject of this query |
-| `session_pinned_version_key (id, questionnaire_version_id)` | the target of `response`'s composite foreign key (§6.3); an invariant, not an access path |
-| `response_by_session (session_id, created_at)` | idempotent replay, with partition pruning (§6.4) |
-| `response_by_question` | per-version analytics over one question |
-| `response_by_option` (GIN) | "how many respondents chose option X" |
-
-Deliberately **not** indexed:
-
-- **No GIN index on `snapshot`.** Access is whole-document by construction ([[2-design-doc#Authoring vs published]]), and `version_question_index` exists precisely so the one query that would want a GIN index does not need one.
-- **No index on `closes_at`.** It is compared on a row already fetched by primary key, never used to filter a scan, and the questionnaire count is in the dozens.
-- **No index on `question.archived_at`.** Same reason: the bank is small and the picker reads all of it.
-
-## 8. Read/write characteristics
-
-The two halves of this schema have almost opposite profiles, which is why they get different treatment throughout.
-
-**Definition tables — small, hot reads, rare careful writes.** Row counts are in the dozens to hundreds. Writes happen at human speed and are almost all multi-statement transactions with row locks (§5); a lost or partial publish is a correctness failure, not a throughput problem, so these paths are optimised for reliability and are allowed to be slow. Reads look hot but mostly are not: `POST /sessions` does one indexed read of `questionnaire` for `closes_at` and `current_version_id`, then one primary-key read of `questionnaire_version` for the snapshot, after which the compiled definition is held in an in-process cache that never needs invalidating ([[3-scaling#4. Problem: hot definition reads]]). Steady-state definition reads approach zero database work per session.
-
-**`execution.response` — large, append-only, bulk writes, lagging reads.** One burst of N rows per completed session, never updated, never deleted. Throughput matters and per-row latency does not, because the write is already inside a transaction the respondent is waiting on once. Reads are analytics: cross-session, tolerant of replication lag, and the first candidate for a read replica ([[3-scaling#3. Problem: response ingest vs. reads]]).
-
-**`execution.session` — the only contended row, and contended only with itself.** Read-modify-write per session, point lookups by primary key, plus a `FOR UPDATE` at submit. Two respondents never touch the same row, so lock contention is structurally bounded at one.
-
-That split is what justifies partitioning exactly one table, putting the GIN index on exactly one column, and spending the concurrency budget entirely on the definition side.
-
-## 9. `audit`
-
-```sql
-CREATE TABLE audit.event (
-  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),  -- its own id
-  occurred_at              timestamptz NOT NULL DEFAULT now(),          -- its own timestamp
-  actor_type               text NOT NULL DEFAULT 'system',
-  actor_id                 text,
-  action                   text NOT NULL CHECK (action IN
-                             ('create_draft','edit_draft','publish','retire','reopen',
-                              'archive_question','create_question_version','view_response')),
-  questionnaire_id         uuid,
-  questionnaire_version_id uuid,
-  version                  int,
-  summary                  jsonb,
-  trace_id                 text
-);
-CREATE INDEX audit_by_questionnaire ON audit.event (questionnaire_id, occurred_at DESC);
-```
-
-**No foreign keys, deliberately.** The deferred move in [[6-observability#5.1 Isolation — separate schema with a restricted role]] is to lift this table into its own database behind a transactional outbox, and foreign keys into `definition` would have to be dropped to do it. The same section's requirement that audit rows carry their own id and timestamp rather than borrowing the domain row's is the other half of the same argument.
-
-`trace_id` correlates an audit row to the OpenTelemetry trace that produced it without putting anything about a respondent's answers into either. Audit covers authoring actions and, since `0020`, one read: `view_response`, written when an admin opens a session's raw answers. Its row names the questionnaire, the session's pinned version and, in `summary`, the session id (`{ "sessionId": … }`). It never holds an answer. Two things keep it so: `recordResponseView` casts the id to `uuid` before building the object, and, since `0022`, `audit.record` itself refuses a `qp_reporting` call whose `summary` is anything else (§9.1). The database does not constrain `actor_id`, which the caller supplies (the placeholder author until authentication lands), and it does not check that the ids on the row exist or belong together. No column was added for the session id: `summary` already exists for this, and a column would widen the table for one action.
-
-The action list is wider than [[6-observability#5. Audit trail]] enumerates. `create_draft` and `reopen` (clearing `closes_at`) are real state changes an auditor would ask about, and `create_question_version` covers the fact that a new question version changes what patients are asked — `question_version.created_by` records who, and the audit row records when and in what context.
-
-### 9.1 A dedicated role, inside the publish transaction
-
-[[6-observability#5.1 Isolation — separate schema with a restricted role]] asks for two things that look incompatible: the audit write goes through a dedicated role, *and* it joins the transaction performing the domain change. A second connection would satisfy the first and break the second.
-
-They are compatible. A `SECURITY DEFINER` function owned by the audit role gives both, and gives a stronger guarantee than narrowing grants on the application role would:
-
-```sql
-GRANT CREATE ON SCHEMA audit TO audit_owner;   -- while qp_owner still owns the schema
-ALTER TABLE  audit.event   OWNER TO audit_owner;
-ALTER SCHEMA audit         OWNER TO audit_owner;
-
-SET LOCAL ROLE audit_owner;  -- qp_owner loses USAGE on `audit` the instant the line above commits
-
-CREATE FUNCTION audit.record(p_action text, p_qid uuid, p_qvid uuid, p_version int,
-                             p_actor_id text, p_summary jsonb, p_trace_id text)
-RETURNS uuid LANGUAGE sql SECURITY DEFINER SET search_path = audit, pg_temp AS $$
-  INSERT INTO audit.event (action, questionnaire_id, questionnaire_version_id,
-                           version, actor_id, summary, trace_id)
-  VALUES (p_action, p_qid, p_qvid, p_version, p_actor_id, p_summary, p_trace_id)
-  RETURNING id;
-$$;
-
-REVOKE ALL ON audit.event  FROM PUBLIC;
-REVOKE ALL ON SCHEMA audit FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.record(text,uuid,uuid,int,text,jsonb,text) FROM PUBLIC;
-GRANT  USAGE   ON SCHEMA audit TO qp_definition;
-GRANT  EXECUTE ON FUNCTION audit.record(text,uuid,uuid,int,text,jsonb,text) TO qp_definition;
-```
-
-That is the `0006` definition. `0022` replaced the function body (see "One action, one shape, for `qp_reporting`" below); the signature, owner, `search_path` and grants are as shown.
-
-**`EXECUTE` on a new function is granted to `PUBLIC` by default**, so without the third `REVOKE` every role
-could call `audit.record` — held back only by lacking `USAGE` on the schema, and a privilege check would
-report that it can. The revoke landed in a later migration (`0014`) with the same sweep for every function in
-the three schemas, so `qp_definition`'s explicit grant was the only one. `0020` adds a second, for `qp_reporting`, whose responses browser records a `view_response` row in the transaction that reads the answers (Decisions Log #89, [[6-observability#13. Decisions and open questions]] O14, O18); it also gains `USAGE` on the schema and nothing on the table. `0022` then limits that role to one action and one payload shape, in the function ("One action, one shape, for `qp_reporting`" at the end of this section).
-
-Verified end to end:
-
-- `qp_definition` calls `audit.record(...)` in the same transaction as a `definition` write, and both commit together.
-- `qp_definition` holds **zero** direct privileges on `audit.event` — direct `INSERT`, `UPDATE` and even `SELECT` all fail with `permission denied for table event`.
-- `ROLLBACK` discards the audit row along with the domain change, so a publish that fails leaves no record claiming it happened.
-
-Append-only stops being "a role that was only granted `INSERT`" and becomes "a table no application role can reach at all, behind one function that only appends". The single repository function §5.1 already requires is the same object that enforces it, which is why this costs nothing extra.
-
-`SET LOCAL ROLE` with `GRANT ... WITH INHERIT FALSE` also works and was tested; it is the alternative in §13.3.
-
-**`SET search_path = audit, pg_temp` is load-bearing, not decoration.** A `SECURITY DEFINER` function
-without a pinned search path is the classic Postgres privilege-escalation vector: a caller creates a
-same-named object in a schema that sorts earlier on the path and the definer executes it with the
-owner's rights. Pinned path, `pg_temp` last, schema-qualified body — all three matter, and none of them
-should be "simplified" later.
-
-**One trap, hit while building this.** The function owner needs `USAGE` on the schema. If `audit_owner` owns the function but the schema is still owned by the migration role and `PUBLIC` has been revoked, every call fails at runtime with `permission denied for schema audit` — after the migration has apparently succeeded. `ALTER SCHEMA audit OWNER TO audit_owner` is the line that prevents it.
-
-**A second trap, in the migration itself, reproduced against a live database.** The two `OWNER TO` statements fail in either order, and — confusingly — with the identical error. Table before schema: `audit_owner` does not yet have `CREATE` on `audit`, which is still `qp_owner`'s, so the table's `OWNER TO` is rejected. Schema before table: that succeeds, but it strips `qp_owner`, the migration connection, of `USAGE` on `audit`, so the table's `OWNER TO` — now next — fails instead, and so does anything after it that still runs as `qp_owner` and still names `audit.*`. Both failures print `permission denied for schema audit`, which is exactly why this is worth spelling out rather than leaving to be rediscovered: the message does not distinguish the missing-`CREATE` case from the lost-`USAGE` case, and neither points at the fix. The fix is the explicit `GRANT CREATE` before either transfer, table before schema once it is in place, and running everything from `CREATE FUNCTION` on as `audit_owner` via `SET LOCAL ROLE` rather than `qp_owner` — which is also why the separate `ALTER FUNCTION ... OWNER TO audit_owner` is gone: creating the function while `audit_owner` is the active role already makes it the owner.
-
-#### One action, one shape, for `qp_reporting` (`0022`)
-
-`0020` gave `qp_reporting` `EXECUTE` on `audit.record` so the responses browser could record `view_response`. `EXECUTE` alone would let a caller with that credential record any action and any payload, so `0022` (`CREATE OR REPLACE` as `audit_owner`; the language becomes `plpgsql` to hold the checks) adds a guard ahead of the unchanged `INSERT`. It applies only when `session_user = 'qp_reporting'`, and raises `42501` with a fixed message that names no caller-supplied text, before anything is written:
-
-```sql
-IF session_user = 'qp_reporting' THEN
-  IF p_action IS DISTINCT FROM 'view_response' THEN
-    RAISE EXCEPTION 'qp_reporting may record view_response only' USING ERRCODE = '42501';
-  END IF;
-  IF NOT coalesce(<qid, qvid and version are not NULL
-                   AND trace id is NULL or 32 lower-case hex digits
-                   AND summary is exactly {"sessionId": "<canonical lower-case uuid>"}>, false) THEN
-    RAISE EXCEPTION 'qp_reporting may record only the view_response row that names a session' USING ERRCODE = '42501';
-  END IF;
-END IF;
-```
-
-What that fixes on the reporting caller, each read off `recordResponseView` (`db/reporting/audit.ts`) and its one call site, `getSessionDetail`:
-
-| Argument | Enforced for `qp_reporting` | Why that is what the caller passes |
-| --- | --- | --- |
-| action | `view_response` | The function names it as a literal |
-| `p_summary` | a JSON object whose only key is `sessionId`, whose value is a JSON string in canonical lower-case hyphenated uuid form; `NULL`, other keys, non-strings, nested values and non-objects are refused | `jsonb_build_object('sessionId', <uuid>)`: Postgres renders a `uuid` in that form |
-| questionnaire id, version id, version | not `NULL` | Read from the session row, so always present |
-| `p_trace_id` | `NULL` or exactly 32 lower-case hex digits | `activeTraceId()` is an OpenTelemetry trace id or `undefined` (stored as `NULL`) |
-
-What it does not, and cannot, enforce: `actor_id` is free text from the caller (the placeholder author until authentication lands, O14), so a compromised `qp_reporting` credential could put text there; and the ids are not checked to exist or to belong together (the audit table has no foreign keys by design, and `audit_owner` reads nothing in `execution`), so such a credential could record a false `view_response` naming any session id. The credential can already read answers through its `SELECT` grants, so neither adds a read, but `actor_id` is not guaranteed free of text a hostile credential chose to put there; closing that needs authentication, not a database check. `qp_definition` and every other caller keep the unrestricted function.
-
-**Why `session_user`.** Inside a `SECURITY DEFINER` function `current_user` is the owner (`audit_owner`), so it cannot tell callers apart. `session_user` is the role the connection logged in as: `SET ROLE` does not change it, entering a `SECURITY DEFINER` function does not change it, and only a session that started as a superuser can change it (`SET SESSION AUTHORIZATION`). Role memberships therefore do not matter: even a `qp_reporting` session that `SET ROLE`s to `qp_definition` (which holds `EXECUTE`) is still refused, and the test suite shows exactly that by granting the membership, switching role and calling the function. The harness's own `SET ROLE audit_owner` runs in a `qp_owner` session, where `session_user` is `qp_owner`, so it is not affected. The guard compares with `=` and not `pg_has_role(session_user, 'qp_reporting', 'MEMBER')`, because `pg_has_role` is true for a superuser for every role and would refuse the bootstrap superuser.
-
-**Limits of a name match.**
-
-- The guard fails open by name. It matches the string `'qp_reporting'`, so a deployment that renames the role or prefixes role names, and so logs the reporting pool in as something else, gets an unguarded function until a migration is written for that name.
-- Every other caller is unrestricted by default. The guard is an allow-list for one role, not a deny-list for the rest: a role granted `EXECUTE` later can record any action. A catalog test (`_tests/db/grants.test.ts`) fails if a role other than `qp_definition`, `qp_reporting`, `audit_owner` and superusers holds `EXECUTE` on the function, so a future grantee is noticed and has to be decided on.
-- It is correct only while `session_user` on the server connection is the role that logged in: one pool per role, each with its own credentials, and no pooler configured to connect to Postgres as a fixed server user or to `SET ROLE` on a shared connection. A pooler that did would make every caller look like the same `session_user`. The transaction-mode pooler of Decisions Log #78 is compatible for the same reason it already needs distinct users ([[3-scaling]]).
-
-## 10. Grants
-
-The migrations build this up across several files (`0005`, `0007`, `0009`, `0010`, `0013`, `0017`, `0018`, `0020`, `0021`, `0022`); the net result is:
-
-```sql
-GRANT USAGE ON SCHEMA definition TO qp_definition;
-GRANT USAGE ON SCHEMA definition, execution TO qp_execution;
-
-GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA definition TO qp_definition;
-REVOKE UPDATE ON definition.questionnaire_version, definition.questionnaire FROM qp_definition;
-GRANT  UPDATE (title, draft_revision, updated_at) ON definition.questionnaire_version TO qp_definition;
-GRANT  UPDATE (key, name, closes_at)              ON definition.questionnaire         TO qp_definition;
-GRANT  DELETE ON definition.questionnaire_item TO qp_definition;
-GRANT  EXECUTE ON FUNCTION definition.promote_draft(uuid, jsonb) TO qp_definition;
-
-CREATE VIEW definition.published_questionnaire_version WITH (security_barrier = true) AS
-  SELECT id, questionnaire_id, version, title, snapshot, format_version, published_at
-    FROM definition.questionnaire_version WHERE status = 'published';
-
-GRANT SELECT ON definition.questionnaire, definition.published_questionnaire_version,
-                definition.version_question_index TO qp_execution;
-GRANT SELECT, INSERT, UPDATE ON execution.session  TO qp_execution;
-GRANT SELECT, INSERT         ON execution.response TO qp_execution;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner IN SCHEMA definition
-  GRANT SELECT, INSERT, UPDATE ON TABLES TO qp_definition;
-
--- qp_reporting: the admin responses browser (gh#18, Decisions Log #89) — SELECT only, and one write
--- path, audit.record. 0017 grants the two execution tables; 0018 the published-versions view and one
--- column; 0020 the audit function, which 0022 restricts to view_response for this role.
-GRANT USAGE ON SCHEMA execution TO qp_reporting;
-GRANT SELECT ON execution.session, execution.response TO qp_reporting;
-GRANT USAGE ON SCHEMA definition TO qp_reporting;
-GRANT SELECT ON definition.published_questionnaire_version TO qp_reporting;
-GRANT SELECT (id) ON definition.questionnaire TO qp_reporting;
-GRANT USAGE ON SCHEMA audit TO qp_reporting;
-GRANT EXECUTE ON FUNCTION audit.record(text, uuid, uuid, int, text, jsonb, text) TO qp_reporting;
-
--- qp_monitor (§10.1): no table, and one schema of aggregate functions. 0021.
-GRANT USAGE ON SCHEMA monitor TO qp_monitor;
-REVOKE EXECUTE ON FUNCTION monitor.response_partition_months_ahead(timestamptz) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION monitor.response_partition_months_ahead(timestamptz) TO qp_monitor;
-```
-
-| Role | `definition` | `execution` | `audit` |
-| --- | --- | --- | --- |
-| `qp_definition` | `SELECT, INSERT` on every table; `UPDATE` on every table except `questionnaire_version` and `questionnaire`, which get only the columns above; `DELETE` on `questionnaire_item` only; `EXECUTE` on `promote_draft` | none | `EXECUTE` on `audit.record` only (§9.1) |
-| `qp_execution` | `SELECT` on `questionnaire`, `version_question_index` and the `published_questionnaire_version` view — not the base `questionnaire_version` table | `SELECT, INSERT, UPDATE` on `session`; `SELECT, INSERT` on `response` | none |
-| `qp_reporting` | `SELECT` on the `published_questionnaire_version` view and on `questionnaire (id)` only — not the base `questionnaire_version` table | `SELECT` on `session` and `response` only | `EXECUTE` on `audit.record`, which refuses it every action but `view_response`, and any payload but the one `recordResponseView` writes (`0022`), and `USAGE` on the schema, nothing on `audit.event` (§9.1) |
-| `qp_monitor` | none — no privilege on any relation, no `USAGE` on the schema | none | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` |
-| `qp_owner` | owns every object | owns every object | none — no `USAGE` on the schema and no `EXECUTE` on `audit.record` (§9.1) |
-
-`qp_reporting` backs `/api/reporting`'s admin responses browser ([gh#18](https://github.com/kenziesimpson/questionnaire-platform/issues/18)), a narrow, later addition (Wave 3a) and not the wider "aggregate admin reporting" surface [[2-design-doc#17. Open Questions]] §3 still leaves open. It is deliberately not `qp_execution` with a different name and not a widened `qp_definition` — see Decisions Log #89 for why a fourth role rather than reusing either. It holds `SELECT` only, on every relation it touches, and `modules/reporting` holds no other pool, so the module cannot write except through `audit.record`, and only for `view_response`, which records that an admin opened a session's answers (`0020`, restricted by `0022`). The reporting repository's only audit function, `recordResponseView` in `db/reporting/audit.ts`, names that one action, so no code path in the module can record another, and the database enforces the same limit independently: `audit.record` refuses any other action from a `qp_reporting` session (§9.1). The published-versions view follows `0010`'s precedent (the one relation that exposes published snapshots without the base table), and `questionnaire` is granted by column — `id` alone — because the existence check reads nothing else. It was first shipped borrowing `qp_execution`'s pool for those two reads; review reversed that, since the borrowed credentials could write to `session` and `response`.
-
-No function in `definition`, `execution`, `audit` or `monitor` keeps the default `EXECUTE` for `PUBLIC`: `promote_draft` is executable only by `qp_definition`, `audit.record` by `qp_definition` and `qp_reporting`, the `monitor` functions by `qp_monitor`, and the trigger functions by no application role (a
-trigger fires without its caller holding `EXECUTE`). A catalog test asserts it for the first three schemas and another for `monitor`, so a new function that forgets
-the revoke fails the suite.
-
-**Publishing columns are not `qp_definition`'s to write.** Status, version, snapshot, `format_version`, `published_at` and the current-version pointer change only inside `promote_draft` (§4.3). A `FOR UPDATE` row lock needs `UPDATE` on just one column, so the §5 locks still work.
-
-**`qp_execution` reads versions through a view.** `SELECT` on the base table let it read draft rows — title, `created_by`, `draft_revision` — which [[7-application-boundary#2.1 What execution is structurally denied]] rules out (Decisions Log #48). The view is `security_barrier` so no planner-pushed predicate sees a draft row, and it is revoked from `qp_definition` explicitly: default privileges would otherwise grant it writes on an auto-updatable view that runs with the owner's rights. The session's composite foreign key still validates for `qp_execution`, because referential checks run as the referenced table's owner.
-
-Two lines that belong to the init script rather than to a migration, but are listed here because the
-grants above depend on them (§11.3):
-
-```sql
-ALTER DATABASE questionnaire_platform OWNER TO qp_owner;   -- CREATE, and makes the migration
-                                                           -- connection the same principal as
-                                                           -- ALTER DEFAULT PRIVILEGES FOR ROLE
-GRANT audit_owner TO qp_owner WITH INHERIT FALSE;          -- so migrations can hand §9.1's objects
-                                                           -- to audit_owner, by explicit SET ROLE
-```
-
-`qp_definition` receives no grant of any kind on `execution.response`. That is [[7-application-boundary#3.2 Database grants]]'s barrier, and the one a reviewer is least likely to expect: the authoring surface is not a back door into answer data.
-
-**`qp_execution` gets `SELECT, INSERT` on `response` and nothing else.** [[2-design-doc#3. Constraints]] says collected responses are immutable, and the assignment asks for invariants enforced in the data layer rather than the UI, but the enforcement mechanism was only ever described for published *definitions*. A grant is the whole fix, and it makes response immutability the same kind of guarantee as the audit trail's rather than a weaker cousin of it. The erasure exception in §3 is unaffected: a different role, explicitly invoked, audited.
-
-**The only `DELETE` granted is `qp_definition` on `questionnaire_item`**, which removing an item from a draft needs and §4.1's guard confines to drafts (Decisions Log #45). Nothing that has been published, collected or audited can be deleted by an application role.
-
-Stated precisely, because a reviewer will ask: that is a claim about the *application* roles. `qp_owner`
-owns every object and an owner always retains full rights on what it owns, so the barrier is between
-`qp_definition` and `qp_execution` and the data — not between the migration identity and anything.
-Keeping `qp_owner` a plain role rather than the cluster superuser (§11.3) is what stops that caveat
-growing to cover the whole cluster.
-
-Roles are created outside migrations — see §11.
-
-### 10.1 `qp_monitor` and the `monitor` schema
-
-Telemetry needs to read the database's own health without being able to read a respondent's answer ([[6-observability#14. Database telemetry]], layer 4). `qp_monitor` is the one identity it uses. It is a login role, created by `db/init/01-roles.sh` with the password in `QP_MONITOR_PASSWORD`, and a member of `pg_monitor`, which is `pg_read_all_settings`, `pg_read_all_stats` and `pg_stat_scan_tables`. It is not a member of `pg_read_all_data`, which would read every table.
-
-What `pg_monitor` gives it is the statistics views, read directly and not through a function. `pg_read_all_stats` lets `qp_monitor` read every role's statement text and counters instead of `<insufficient privilege>`: `pg_stat_statements` (loaded by the `db` service) stores each statement with its constants replaced by placeholders, and `pg_stat_activity.query` holds every session's running and last statement exactly as sent. Both are safe only because the backend always binds values through Parse and Bind, so the text carries `$n` and never a value. The residual exposure is any future statement built with inline literals instead of bound parameters: its values would show in `pg_stat_activity.query` while it runs and after, in the `STATEMENT:` line of the Postgres log when it errors, and, for a utility statement, in `pg_stat_statements`. The extension and its grants live in `db/init/pg-stat-statements.sql`, which `01-roles.sh` runs with `\i` and the test harness runs against the template database when it is given `TEST_DATABASE_URL`, so there is one copy: it creates the extension, revokes the two views and the two functions behind them (`pg_stat_statements(boolean)`, `pg_stat_statements_info()`) from `PUBLIC`, and grants `SELECT` on the views and `EXECUTE` on the two functions to `qp_monitor`, so no application role reads or calls them. Both grants are needed: Postgres checks the privileges on a view's underlying relations as the view's owner, but checks `EXECUTE` on a function the view calls as the calling user. The `monitor` functions below are the only thing `qp_monitor` reads that is computed rather than observed.
-
-Migration `0021` creates the `monitor` schema, owned by `qp_owner` like every other schema but `audit`, and grants `USAGE` on it to `qp_monitor`. Each object in it is a `SECURITY DEFINER` function owned by `qp_owner`, so it can read what `qp_monitor` cannot, with `search_path` pinned to `pg_catalog, pg_temp`, `EXECUTE` revoked from `PUBLIC` and granted to `qp_monitor`, and a return type that is an aggregate: a count or a number, never a row of an answer table. The schema holds no table or view, so there is no relation for a `SELECT` grant to widen onto.
-
-| Function | Returns | Reads |
-| --- | --- | --- |
-| `monitor.response_partition_months_ahead(as_of timestamptz DEFAULT now())` | `integer`: the months after the one containing `as_of` that a `response` partition covers, counted without a gap. `0` when only that month is covered and also `0` when that month has no partition, so the alert fires on `< 1` and does not tell the two apart | the catalog's partition bounds of `execution.response` (§6.4); no row of any table |
-
-That is the signal behind the sixth alert of [[6-observability#8.1 The six alerts]]: a missing partition fails every submit while every process is up, so it must read below one before the current month runs out (§11.4). A count of in-progress sessions was left out: it scans `execution.session` on every scrape, no alert reads it, and it would need an index first.
-
-A database test asserts the absence, as it does for `qp_definition` and `qp_reporting`: `qp_monitor` holds none of `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES` or `TRIGGER` on any relation in `definition`, `execution` or `audit`, at table or column level, has no `USAGE` on those schemas and no `EXECUTE` on their functions, is a member of no role but `pg_monitor`, and cannot create anything in `monitor`. Another checks that `monitor` holds only the functions above, each `SECURITY DEFINER`, owned by `qp_owner`, with a pinned search path and no `PUBLIC` `EXECUTE`. A later function is a new migration that adds the function, revokes `PUBLIC` and grants `qp_monitor`; the role never gains a grant on a table.
-
-## 11. Migrations
-
-**What a migration is, and why they come in a numbered list.** The database has a shape — tables,
-columns, constraints — and that shape has to exist before the application can use it. You cannot
-simply keep one "here is the final shape" script and re-run it, because a real database has data in
-it: it has to be *changed* from whatever shape it currently has into the next one, without destroying
-what is already there.
-
-So the schema lives as an ordered list of small SQL files, each describing one change, and the
-database keeps a table recording which files it has already applied. Running the list again is a no-op
-for the ones it has seen. That is what makes a laptop, CI and production converge on the same schema
-from the same commit, and it is why "repeatable migrations or initialization" is a named deliverable
-in the brief rather than a nicety.
-
-**What drizzle-kit contributes.** The tables are described in TypeScript in
-`apps/backend/src/db/schema.ts`. `drizzle-kit generate` compares that description against a snapshot
-of what it believes the database looks like, computes the difference, and writes a new SQL file
-containing only that difference. Edit TypeScript, get reviewable SQL, commit both.
-
-Four things about this schema do not fit that flow, and each one fails in a way that is confusing the
-first time.
-
-### 11.1 The snapshot is drizzle-kit's memory, and a hand-written migration lies to it
-
-The snapshot is a JSON file kept alongside the migrations. It is drizzle-kit's own record, not an
-inspection of the real database — nothing ever reads the live schema.
-
-So a hand-written migration that creates `execution.response` is invisible to it. The snapshot still
-says the table does not exist, and the next `generate` obligingly writes a second
-`CREATE TABLE execution.response`. The migration run then fails on "already exists", and the failure is
-disorienting because the SQL it emitted is perfectly correct — it is the memory that is wrong.
-
-**The fix is ordering.** Let drizzle-kit generate the table, so its snapshot records it, *then* edit
-the file it produced to append `PARTITION BY RANGE (created_at)` and the partition `CREATE`s. Same end
-state, and drizzle-kit's memory stays truthful.
-
-### 11.2 Triggers, functions and grants have no TypeScript to generate from
-
-There is nothing to write in `schema.ts` that produces a trigger, a `SECURITY DEFINER` function or a
-`GRANT`. Drizzle's vocabulary is tables, columns, indexes and constraints.
-
-`drizzle-kit generate --custom` creates an empty, correctly numbered migration file to write SQL into
-by hand. It is a first-class migration — it slots into the ordered list and is recorded as applied
-like any other; it simply was not derived from anything. Most of this schema's migrations are of that
-kind, each named for the guarantee it carries: the immutability triggers, the item guard,
-`response_shape`, the partitions, the grants, the audit function, draft-item removal, the
-published-only `INSERT` trigger, `promote_draft`, the execution view, and moving the publish audit write
-back to the application.
-
-Two things are hand edits to a *generated* file rather than custom migrations — `PARTITION BY` on
-`response` and `DEFERRABLE` on `item_position_unique` — and drizzle-kit's snapshot knows about neither.
-The ways they get lost silently, and the tests that catch it (a catalog check after the full chain, a
-sha256 lock on every committed migration, and a `generate` drift check), are in
-[`apps/backend/README.md`](../apps/backend/README.md#hand-edited-migrations).
-
-### 11.3 Roles are not schema, and must not be in a committed migration
-
-Two independent reasons. A migration file is committed to git, and
-`CREATE ROLE qp_definition LOGIN PASSWORD '...'` would put a password in git. And roles are
-cluster-wide — they belong to the Postgres server rather than to one database — so creating them from
-inside a per-database migration is the wrong layer even without the secret.
-
-They go in a shell script instead, `db/init/01-roles.sh`, run by the one-shot `roles` compose
-service — not by the postgres entrypoint's `docker-entrypoint-initdb.d`, which the `db` service does not
-mount. Seven identities, four connection strings (`qp_reporting` and `DATABASE_URL_REPORTING` joined in Wave 3a, gh#18, Decisions Log #89; `qp_monitor` joined with the telemetry work and has no connection string of the backend's, §10.1):
-
-| Identity | Created by | Connects? |
-| --- | --- | --- |
-| bootstrap superuser (`POSTGRES_USER`) | `initdb`, at cluster creation | Only to run `01-roles.sh`, via the `roles` service |
-| `qp_owner` | the `roles` service | Yes — the `migrate` service, `DATABASE_URL_OWNER` |
-| `qp_definition` | the `roles` service | Yes — backend authoring pool, `DATABASE_URL_DEFINITION` |
-| `qp_execution` | the `roles` service | Yes — backend execution pool, `DATABASE_URL_EXECUTION` |
-| `qp_reporting` | the `roles` service | Yes — backend reporting pool, `DATABASE_URL_REPORTING` |
-| `qp_monitor` | the `roles` service, a member of `pg_monitor` | Yes — the observability Collector, with `QP_MONITOR_PASSWORD`; not the backend |
-| `audit_owner` | the `roles` service, **`NOLOGIN`** | **No.** No password, no connection string |
-
-**The bootstrap superuser and `qp_owner` are different roles, deliberately.** `initdb` creates
-`POSTGRES_USER` as a cluster superuser — that is not configurable — so letting `qp_owner` *be*
-`POSTGRES_USER` would make the migration identity a superuser. `qp_owner` does not create the
-*database*; `initdb` does. It creates and owns the *objects*, and for that it needs `CREATE` on the
-database, which `ALTER DATABASE ... OWNER TO qp_owner` supplies with no superuser anywhere.
-
-The objection is not that superuser is alarming in itself — an object owner already has full rights on
-its own objects, so `qp_owner` can read `execution.response` and drop things either way. It is that the
-two identities have different lifetimes. The bootstrap credential creates roles and is needed exactly
-once, at cluster init; the schema owner runs on every `docker compose up`. Merging them puts the
-credential that can mint new roles — including new superusers — in a container that executes routinely,
-and adds `COPY ... FROM PROGRAM` (command execution on the database host), `pg_authid` password hashes
-and the rest of the cluster to the blast radius of that one service. Separating them is also simply the
-conventional Postgres arrangement rather than extra machinery, which is where
-[[12-decisions-log]] #33 points.
-
-**It must be a `.sh`, not a `.sql`.** `psql -f` performs no interpolation, so a `.sql` file cannot read
-`$QP_DEFINITION_PASSWORD` — the passwords would have to be literal, which is the thing this section
-exists to prevent. The committed artifact holds role names, grants and ownership statements, and no
-secrets.
-
-**The `roles` service is the only path that runs it, on every `up`, including against an empty
-volume.** The `db` service does not mount `db/init`, so the postgres entrypoint never runs
-`01-roles.sh` — the one-shot `roles` service runs it against `db` before `migrate` on every
-`docker compose up`, first boot or not ([[12-decisions-log]] #60). That is deliberate:
-two provisioning paths for the same roles is redundant and only one needs to stay correct. The script is
-written to be re-run: each `CREATE ROLE` is guarded by `NOT EXISTS`, and each login role's password is
-set by an unconditional `ALTER ROLE ... PASSWORD`, so the environment is always the source of truth.
-Adding a role means adding it to the script (plus its password variable in compose and `.env.example`)
-and granting it privileges in a normal migration; the `roles` service guarantees it exists before that
-migration runs. The script also runs `db/init/pg-stat-statements.sql` (`CREATE EXTENSION IF NOT EXISTS pg_stat_statements` and its grants) in the application database, as the
-bootstrap superuser: extensions are per database and need a superuser, the `roles` service is the one path that runs as one
-on every `up` (so an existing volume gets the extension too), and `CREATE EXTENSION` succeeds whether or not the server has
-preloaded the library, which the `db` service does through its `command` (§10.1). The SQL is a plain file with no password in it and no `psql` command, so the test harness can run it over an ordinary connection as well; the `db` service does not mount `db/init`, so nothing runs it at `initdb`.
-
-**`ALTER DEFAULT PRIVILEGES FOR ROLE qp_owner` has a hidden dependency.** It applies only to objects
-created *by* `qp_owner`. If migrations ever run as some other identity — easy to do by pointing the
-owner URL at the bootstrap credentials — every future table silently receives no grant, and the failure
-appears much later as `permission denied` on a table that ought to work. Making `qp_owner` own the
-database is what keeps the migration connection and the default-privileges role the same principal.
-
-**`qp_owner` needs membership in `audit_owner`.** §9.1 hands `audit.event` and `audit.record` to
-`audit_owner`, and `ALTER ... OWNER TO` requires the executing role to be a member of the target.
-`GRANT audit_owner TO qp_owner WITH INHERIT FALSE` gives that as an explicit `SET ROLE` rather than
-ambient privilege. It weakens nothing: the append-only guarantee is about `qp_definition`, which holds
-no privilege on the table at all.
-
-**One script, two callers.** The Testcontainers Postgres (§ [[8-testing#4. Postgres for integration tests — Testcontainers]])
-needs the same roles and will never run the `roles` service. If the test harness reimplements the
-setup, the two drift and the grant tests pass against roles that do not match what ships. The same file
-is executed on both paths — by the `roles` service under compose, and by `execInContainer` in
-`globalSetup`.
-
-### 11.4 Partitions must exist before a row needs one
-
-A partitioned table is a parent plus a set of child tables, each owning a slice of time (§6.4). An
-insert whose `created_at` falls in a month no child covers is not filed somewhere sensible — it fails
-outright.
-
-So the migration pre-creates 24–36 monthly partitions and rollover becomes a scheduled job rather than
-something someone has to remember. The tempting insurance is a `DEFAULT` partition to catch strays,
-and §6.4 is the argument against it: it disables `DETACH ... CONCURRENTLY`, which is the archival
-operation the partitioning exists for. A missed rollover should fail loudly and be fixable, not
-silently accumulate rows that later block the fix. It is also watched:
-`monitor.response_partition_months_ahead()` (§10.1) reads `0`, so below one, when the next month has no partition (or the current one has none either), which is the
-sixth alert of [[6-observability#8.1 The six alerts]].
-
-### 11.5 The circular foreign key needs an `ALTER TABLE`
-
-`questionnaire.current_version_id` references `questionnaire_version`, which references
-`questionnaire`. Whichever table is created first, its reference target does not exist yet and the
-`CREATE TABLE` fails. Both tables are therefore created without the loop-closing constraint, which is
-then added by `ALTER TABLE` (§3, and why it is deliberate is in the note above §3.1).
-
-In practice drizzle-kit emits foreign keys as separate statements anyway, so this costs nothing — it
-only bites someone pasting the DDL out of this document by hand. In the Drizzle schema the
-self-referencing direction needs the `references((): AnyPgColumn => ...)` form to satisfy TypeScript.
-
-### 11.6 The seed is an integration test wearing a disguise
-
-After migrations apply, the seed inserts the medical-condition demo questionnaire. It cannot take the
-shortcut of inserting a row that is already `published` — the immutability trigger refuses it, by
-design and without exception.
-
-The seed's question and questionnaire ids are **hardcoded constants, not generated**, so that the uuids printed in
-[[5-questionnaire-format#3. Serialization]] are the uuids in a running database and a reviewer can copy one out of the
-document and query it. Everything downstream — sessions, responses — generates ids normally.
-
-So the seed goes through the real publishing path: create a draft, add items, publish. Which means
-every `docker compose up` exercises publish-time validation, snapshot serialization, the
-`version_question_index` write and the audit record, and fails loudly before the API ever serves a
-request. A seed that could take the shortcut would be a seed that proves nothing.
-
-## 12. Open questions
-
-1. **`session_progress` — not built** ([[2-design-doc#18. Future Work]], Decisions Log #25). The checkpoint endpoint is deferred, so this table does not ship. The shape is kept here so that adding it stays additive: `session_progress (session_id PK → session, answers jsonb, revision int, updated_at)`. A separate table rather than a column on `session`, so the narrow hot row is not dragged through TOAST churn on every debounced write and so the grant on it is separable. It would hold raw answers, so `qp_definition` must be denied it for exactly the reason it is denied `response`.
-2. **Discarding never-published drafts** ([[2-design-doc#17. Open Questions]] §5). *Resolved for items:* removing an item from a draft is a `DELETE`, and `qp_definition` holds `DELETE` on `questionnaire_item` only, bounded to drafts by §4.1's guard (Decisions Log #45). Discarding a whole draft version is still open, and would need `DELETE` on `questionnaire_version` rows in `draft` status plus a decision on `ON DELETE CASCADE`.
-
-## 13. Alternatives considered
-
-### 13.1 One `value jsonb` column on `response` instead of typed columns
-
-The obvious shape, and it mirrors the snapshot's own storage decision. Rejected: it turns the commonest analytics query in the domain ("how many chose option X") into a sequential scan with a cast, it expresses `{ value, unit }` as a convention about document shape rather than as two columns, and it gives up the shape constraint in §6.1 entirely — a document column can hold any of the five shapes at any time. The cost of the chosen form is one migration per new response type, at five types that cover what the brief enumerates.
-
-### 13.2 A `question_option` registry table
-
-`(question_id, option_id)` as a registry, with `question_version_option` holding a foreign key into it, so that option-id stability across versions becomes a database guarantee. Built, then removed: the application inserts registry rows on demand, so it cannot distinguish a relabelled option from a newly minted id, and it does not prevent reusing a retired id for a different meaning later. It reads as an enforcement mechanism without being one, which is a worse failure than the convention it replaced. Option-id stability stays an editor behaviour proven by the v2 demo test.
-
-### 13.3 Narrowed grants on the application role instead of `SECURITY DEFINER`
-
-Give `qp_definition` `INSERT` and `SELECT` on `audit.event` directly, and never grant `UPDATE` or `DELETE`. Simpler, and it satisfies append-only and the shared transaction. Rejected because `SECURITY DEFINER` is strictly stronger for the same effort — the application role ends up with no privilege on the audit table at all — and because the wrapper function is already required by [[6-observability#5.1 Isolation — separate schema with a restricted role]] as the seam the outbox would later swap in behind. `SET LOCAL ROLE audit_writer` with `GRANT ... WITH INHERIT FALSE` is a third working option, tested; it keeps a separate role name visible in the session but requires remembering to `RESET ROLE`, and puts the enforcement in a call sequence rather than in an object.
-
-### 13.4 Deleting item rows at publish
-
-Since the snapshot is authoritative, item rows for a published version are redundant and could be deleted at publish, removing the drift risk in §4.1 outright. Rejected: "the next draft is a copy of the latest published version" would then require deserializing the snapshot back into rows, and a bug in that path produces a subtly wrong *next version* rather than merely stale admin data. It also cuts against [[2-design-doc#3. Constraints]]. Keeping the rows and locking the trigger properly puts the risk where a failure is visible and recoverable.
-
-### 13.5 Partitioning `session` as well as `response`
-
-Sessions grow faster than responses in row count, since abandoned sessions never produce response rows. Rejected: the hot path is a primary-key lookup on resume, and a partitioned table queried without its partition key scans every partition — the query that matters most would get slower as the archive grew, which is the opposite of the intent.
-
-### 13.6 A `DEFAULT` partition on `response`
-
-Rejected on two verified behaviours rather than on taste; see §6.4.
-
-### 13.7 Dropping `current_version_id` and keying the pointer on the version number
-
-`FOREIGN KEY (id, current_version) REFERENCES questionnaire_version (questionnaire_id, version)`
-gives both guarantees in §3.1 from one stored column instead of two, targeting the
-`questionnaire_version_number` index that already exists, and removes the `current_version_pair`
-check. It also makes the pointer literally the cache key [[3-scaling#4. Problem: hot definition reads]]
-already uses. Tested: pointing at another questionnaire's version and at a version number that exists
-only as a draft both raise foreign key violations, and a foreign key can target a plain
-`CREATE UNIQUE INDEX` with a nullable column.
-
-Not adopted, on the narrow ground that every other reference to a version in the schema — `session`,
-`response`, `questionnaire_item`, `version_question_index` — names it by uuid, and one pointer naming
-it by number instead is an inconsistency a reader has to absorb. Session start costs two reads either
-way. Worth revisiting if the schema ever grows a second number-keyed reference, at which point the
-consistency argument reverses.
-
-### 13.8 An `IMMUTABLE` helper closing duplicate `option_ids`
-
-```sql
-CREATE FUNCTION execution.no_dupes(a text[]) RETURNS boolean
-  LANGUAGE sql IMMUTABLE PARALLEL SAFE AS
-$$ SELECT cardinality(a) = (SELECT count(DISTINCT e) FROM unnest(a) e) $$;
-```
-
-...then `AND execution.no_dupes(option_ids)` on the `multiple_choice` branch of `response_shape`. It works,
-and it is the *only* inline form available, for the reason in §6.2: a `CHECK` may not contain a subquery,
-and array de-duplication requires one.
-
-Not adopted, under [[12-decisions-log]] #33. It is a custom migration plus a permanent schema
-object whose entire purpose is to hold one subquery, guarding a shape a checkbox UI structurally cannot
-send, while the application already walks the same array to validate option membership. That is the
-definition of machinery earning less than it costs.
-
-Two notes for whoever picks it up later, since the point of recording it is that it stays cheap to add: the
-function must be created before the constraint that calls it, which in drizzle-kit terms means it lands in
-the same `--custom` migration ahead of the `ALTER TABLE`; and `EXECUTE` on functions is granted to `PUBLIC`
-by default, so it works as written but needs an explicit grant to `qp_execution` if `PUBLIC` is ever
-revoked as part of hardening. Adding the helper changes no application code, which is what makes deferring
-it a real deferral rather than a decision in disguise.
-
