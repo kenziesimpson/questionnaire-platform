@@ -229,7 +229,7 @@ The reason this is safe to accept is the blast radius rather than the frequency.
 
 **A archives a question while B's picker is stale.** Rejected at add time. Harmless to the data — snapshots hold question content forever — but adding a question that was just retired from the bank contradicts what archiving means. Only the add is rejected: an item that already placed the question is untouched, and later saves and publish go through (Decisions Log #75).
 
-A fourth case is already covered elsewhere: re-pinning an item while that draft is being published is caught by the item guard's locking read ([[9-database-schema#4.1 The item guard, and the two ways it fails naively]]).
+A fourth case is already covered elsewhere: re-pinning an item while that draft is being published is caught by the item guard's locking read ([[9-database-schema#Items cannot be reparented]]).
 
 ## 7. Accessibility
 

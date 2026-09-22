@@ -493,7 +493,7 @@ The suite exists to make the design's claims falsifiable, not to reach a coverag
 **Built now**
 - `response` is append-only and range-partitioned monthly on `created_at`, set to the session's `submitted_at` so a session's rows sit together ([[#Partitioning and indexes]]).
 - There is no `DEFAULT` partition, so a missed rollover fails loudly.
-- Every index ties to a named query or invariant ([[9-database-schema#7. Indexing strategy]]). There is no GIN index over the snapshot, since access is whole-document.
+- Every index ties to a named query or invariant ([[9-database-schema#5. Indexes]]). There is no GIN index over the snapshot, since access is whole-document.
 
 **Next lever**
 - Archival: detach older partitions to cold storage on a per-questionnaire retention policy.
@@ -516,7 +516,7 @@ The suite exists to make the design's claims falsifiable, not to reach a coverag
 ### Change control
 **Built now**
 - Published versions and question versions are immutable and append-only ([[#6. Versioning & Immutability]]), so a migration only adds and never reconciles a changed definition.
-- `drizzle-kit` generates committed, reviewable SQL migrations. Roles come from `db/init/01-roles.sh`, never a migration, so a schema change and an access change are separate reviews ([[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]).
+- `drizzle-kit` generates committed, reviewable SQL migrations. Roles come from `db/init/01-roles.sh`, never a migration, so a schema change and an access change are separate reviews ([[9-database-schema#Identities]]).
 - A one-shot `migrate` service gates the backend in Compose, and a migrate Job does the same in Kubernetes ([[#Kubernetes]]). A release never serves traffic against a schema, or a `formatVersion`, it predates.
 
 **Next lever**
@@ -567,7 +567,7 @@ Ordered roughly by what blocks what. Deferred work with a stated direction is un
 - Redis as cache and (separately) durable ingest queue, triggered by measured load. See [[3-scaling#3. Problem: response ingest vs. reads]] §3–5.
 
 ### Data integrity, security and compliance
-- **Close the duplicate `option_ids` shape in the database.** An `IMMUTABLE` helper wrapping `SELECT count(DISTINCT e) FROM unnest(a) e`, called from the `multiple_choice` branch of `response_shape`, is the one remaining thing needed to make every invalid answer shape unrepresentable rather than merely rejected. Deferred under Decisions Log #33 and #34 because a correct client cannot produce the shape and the validator already covers it; it returns as one custom migration with no application change — [[9-database-schema#13.8 An `IMMUTABLE` helper closing duplicate `option_ids`]].
+- **Close the duplicate `option_ids` shape in the database.** An `IMMUTABLE` helper wrapping `SELECT count(DISTINCT e) FROM unnest(a) e`, called from the `multiple_choice` branch of `response_shape`, is the one remaining thing needed to make every invalid answer shape unrepresentable rather than merely rejected. Deferred under Decisions Log #33 and #34 because a correct client cannot produce the shape and the validator already covers it; it returns as one custom migration with no application change — [[9-database-schema#An `IMMUTABLE` helper to close duplicate `option_ids`]].
 - **Erasure on request (GDPR / HIPAA).** The stated exception to [[#3. Constraints]]: removing one respondent's data as an explicitly invoked, audited operation, including from snapshots' derived indexes and cold-storage partitions. Deliberately not a cascade delete.
 - **Withholding unreachable questions from the definition payload** in sensitive deployments. Tracked in [[3-scaling#8. Open questions]]; ties to HIPAA work.
 - **Standalone audit logging service.** Extract the audit trail behind a transactional outbox so it can be operated, backed up and access-controlled independently of the application database. The schema-and-role design shipping now (Decisions Log #16) is deliberately outbox-ready: audit writes go through a single repository function, and audit rows carry their own id and timestamp rather than borrowing the domain row's. See [[6-observability#5.1 Isolation — separate schema with a restricted role]].
@@ -576,7 +576,7 @@ Ordered roughly by what blocks what. Deferred work with a stated direction is un
 - **Pages and sections.** Deferred, not rejected; [[5-questionnaire-format#1. The model]] states the constraint any future design must respect.
 - **Format subtypes for `text`** — email, phone and regex-pattern validation. Pinned deliberately rather than rejected.
 - **Unit conversion for `number`.** Answers already carry the unit they were collected under ([[#5. Questionnaire Format]]), so converting between compatible units (cm/in, kg/lb) for display and analytics is additive rather than a migration.
-- **Question translation and locale-specific published snapshots.** Translate question text, option labels and help text, then serve the respondent a `snapshot` JSONB for their locale instead of the one canonical blob assumed today ([[#12. Database]] §2.1, [[9-database-schema#3. `definition`]]). Keys, ids, `constraints` and `visible_when` predicates stay locale-independent — only the human-readable strings vary — so this is additive: one publish producing N locale snapshots (or a base snapshot plus per-locale string overlays) rather than a schema change to the definition model.
+- **Question translation and locale-specific published snapshots.** Translate question text, option labels and help text, then serve the respondent a `snapshot` JSONB for their locale instead of the one canonical blob assumed today ([[#12. Database]] §2.1, [[9-database-schema#2. `definition`]]). Keys, ids, `constraints` and `visible_when` predicates stay locale-independent — only the human-readable strings vary — so this is additive: one publish producing N locale snapshots (or a base snapshot plus per-locale string overlays) rather than a schema change to the definition model.
 - **A/B testing whole questionnaires.** Noted during ideation; deferred as orthogonal to the versioning model — a published version is already the unit an experiment would assign against.
 - An AI-assist system for initializing a questionnaire
 
@@ -589,7 +589,7 @@ Ordered roughly by what blocks what. Deferred work with a stated direction is un
 - **Who published a version.** `VersionSummary.publishedBy` is `null` until authentication gives real identities; then `published_by` needs a migration and a change to `promote_draft` ([[12-decisions-log]] #64).
 
 ### Respondent app and frontend
-- **Checkpoint endpoint and true cross-device resume.** `PUT /sessions/:id/progress`, upserting partial answers on a debounce. It becomes worth its cost once respondents have an identity to look a session up by, rather than only a bearer session id sitting in the same browser storage as the answers it would recover (Decisions Log #25). Additive: one table, one grant and one route, with the shape already recorded in [[9-database-schema#12. Open questions]] and nothing existing to migrate.
+- **Checkpoint endpoint and true cross-device resume.** `PUT /sessions/:id/progress`, upserting partial answers on a debounce. It becomes worth its cost once respondents have an identity to look a session up by, rather than only a bearer session id sitting in the same browser storage as the answers it would recover (Decisions Log #25). Additive: one table, one grant and one route, with the shape already recorded in [[9-database-schema#9. Not built]] and nothing existing to migrate.
 - **"Start over" on a resumed respondent session** ([[12-decisions-log]] #74, [gh#35](https://github.com/kenziesimpson/questionnaire-platform/issues/35)). Clears the answers and keeps the same session, since a new session would leave two in progress for one respondent.
 - **A dropdown presentation for `single_choice`.** Today it renders as a radio group. The control already keeps the answer mapping apart from the view that draws the options, so a select is a second view behind the same props rather than a new control ([[10-frontend#3. `packages/ui` — primitives and the renderer]]).
 - **A view listing every current error per question.** The renderer shows only the first `SubmissionItemCode` for an item; a question failing two rules reveals the second only once the first is fixed. Listing all of them is a change inside the renderer's error catalogue and field components, since the `errors` prop already carries the full list ([[10-frontend#3. `packages/ui` — primitives and the renderer]]). Tracked alongside the draft editor's inline error rendering as [gh#22](https://github.com/kenziesimpson/questionnaire-platform/issues/22), Decisions Log #54.

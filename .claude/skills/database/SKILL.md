@@ -238,7 +238,7 @@ long-lived client to the harness, and do not cache one across tests in a test fi
 ## Roles and connection strings
 
 Seven identities, four connection strings (Decisions Log #39 and #89,
-[[9-database-schema#11.3 Roles are not schema, and must not be in a committed migration]]), wired in
+[[9-database-schema#Identities]]), wired in
 `docker-compose.yml` and `.env.example`: the bootstrap superuser (`POSTGRES_USER`) runs `db/init/01-roles.sh`
 (at init, and from the `roles` service on every `up`); `qp_owner` runs migrations (`DATABASE_URL_OWNER`); the backend's three pools use
 `DATABASE_URL_DEFINITION`, `DATABASE_URL_EXECUTION` and `DATABASE_URL_REPORTING`, and the seed the first of them; `audit_owner` has no
